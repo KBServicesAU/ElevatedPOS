@@ -1,0 +1,120 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexus_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: nexus_dev
+      POSTGRES_DB: nexus_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./volumes/postgres:/var/lib/postgresql/data
+      - ./init/postgres:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexus_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass nexus_redis_dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./volumes/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "nexus_redis_dev", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: nexus_zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: nexus_kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  typesense:
+    image: typesense/typesense:26.0
+    container_name: nexus_typesense
+    restart: unless-stopped
+    environment:
+      TYPESENSE_DATA_DIR: /data
+      TYPESENSE_API_KEY: nexus-typesense-dev-key
+    ports:
+      - "8108:8108"
+    volumes:
+      - ./volumes/typesense:/data
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: nexus_mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  temporal:
+    image: temporalio/auto-setup:1.24.0
+    container_name: nexus_temporal
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=nexus
+      - POSTGRES_PWD=nexus_dev
+      - POSTGRES_SEEDS=postgres
+    ports:
+      - "7233:7233"
+
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    container_name: nexus_temporal_ui
+    restart: unless-stopped
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8080:8080"
+
+networks:
+  default:
+    name: nexus_dev_network

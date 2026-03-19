@@ -1,0 +1,109 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "All Services (Turbo)",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "Docker Dev Stack",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "-f", "infrastructure/docker/docker-compose.dev.yml", "up"],
+      "port": 5432
+    },
+    {
+      "name": "web-backoffice",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["./node_modules/next/dist/bin/next", "dev"],
+      "cwd": "apps/web-backoffice",
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "auth-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/auth", "dev"],
+      "port": 4001
+    },
+    {
+      "name": "catalog-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/catalog", "dev"],
+      "port": 4002
+    },
+    {
+      "name": "inventory-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/inventory", "dev"],
+      "port": 4003
+    },
+    {
+      "name": "orders-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/orders", "dev"],
+      "port": 4004
+    },
+    {
+      "name": "payments-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/payments", "dev"],
+      "port": 4005
+    },
+    {
+      "name": "customers-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/customers", "dev"],
+      "port": 4006
+    },
+    {
+      "name": "loyalty-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/loyalty", "dev"],
+      "port": 4007
+    },
+    {
+      "name": "campaigns-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/campaigns", "dev"],
+      "port": 4008
+    },
+    {
+      "name": "notifications-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/notifications", "dev"],
+      "port": 4009
+    },
+    {
+      "name": "integrations-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/integrations", "dev"],
+      "port": 4010
+    },
+    {
+      "name": "automations-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/automations", "dev"],
+      "port": 4011
+    },
+    {
+      "name": "ai-service",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/ai", "dev"],
+      "port": 4012
+    },
+    {
+      "name": "kds-display",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/kds-display", "dev"],
+      "port": 3001
+    },
+    {
+      "name": "pos-client (Expo)",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@nexus/pos-client", "dev"],
+      "port": 8081
+    }
+  ]
+}

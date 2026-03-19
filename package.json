@@ -1,0 +1,31 @@
+{
+  "name": "nexus",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NEXUS — Unified Commerce & Operations Platform",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "test:integration": "turbo test:integration",
+    "typecheck": "turbo typecheck",
+    "clean": "turbo clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\" --ignore-path .gitignore",
+    "db:migrate": "turbo db:migrate",
+    "db:seed": "turbo db:seed",
+    "docker:dev": "docker compose -f infrastructure/docker/docker-compose.dev.yml up -d",
+    "docker:down": "docker compose -f infrastructure/docker/docker-compose.dev.yml down"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "prettier": "^3.3.2",
+    "turbo": "^2.0.6",
+    "typescript": "^5.5.2"
+  },
+  "packageManager": "pnpm@9.4.0"
+}

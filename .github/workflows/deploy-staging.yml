@@ -1,0 +1,61 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [develop]
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "9.4.0"
+  AWS_REGION: ap-southeast-2
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Build and push Docker images
+        run: |
+          for service in auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations; do
+            docker build -t $ECR_REGISTRY/nexus-$service:${{ github.sha }} -f services/$service/Dockerfile services/$service
+            docker push $ECR_REGISTRY/nexus-$service:${{ github.sha }}
+          done
+
+      - name: Deploy to EKS
+        run: |
+          aws eks update-kubeconfig --name nexus-staging --region ${{ env.AWS_REGION }}
+          helm upgrade --install nexus ./infrastructure/k8s/helm/nexus \
+            --namespace nexus-staging \
+            --set global.image.tag=${{ github.sha }} \
+            --set global.environment=staging \
+            --wait --timeout 10m

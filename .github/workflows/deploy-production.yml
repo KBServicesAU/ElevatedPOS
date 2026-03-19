@@ -1,0 +1,50 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "9.4.0"
+  AWS_REGION: ap-southeast-2
+
+jobs:
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Deploy to Production EKS
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          aws eks update-kubeconfig --name nexus-production --region ${{ env.AWS_REGION }}
+          helm upgrade --install nexus ./infrastructure/k8s/helm/nexus \
+            --namespace nexus-production \
+            --set global.image.tag=$TAG \
+            --set global.environment=production \
+            --wait --timeout 15m
+
+      - name: Notify deployment
+        if: always()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "NEXUS Production Deployment ${{ job.status }}: ${{ github.ref_name }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1,0 +1,18 @@
+-- Enable extensions needed by NEXUS
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+CREATE EXTENSION IF NOT EXISTS "vector";
+
+-- Create schemas per service
+CREATE SCHEMA IF NOT EXISTS nexus_auth;
+CREATE SCHEMA IF NOT EXISTS nexus_catalog;
+CREATE SCHEMA IF NOT EXISTS nexus_inventory;
+CREATE SCHEMA IF NOT EXISTS nexus_orders;
+CREATE SCHEMA IF NOT EXISTS nexus_payments;
+CREATE SCHEMA IF NOT EXISTS nexus_customers;
+CREATE SCHEMA IF NOT EXISTS nexus_loyalty;
+CREATE SCHEMA IF NOT EXISTS nexus_campaigns;
+CREATE SCHEMA IF NOT EXISTS nexus_integrations;
+CREATE SCHEMA IF NOT EXISTS nexus_automations;
+CREATE SCHEMA IF NOT EXISTS nexus_audit;
