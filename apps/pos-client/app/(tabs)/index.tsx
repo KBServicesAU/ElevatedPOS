@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, TextInput,
-  SafeAreaView, Alert,
+  SafeAreaView,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 interface Product {
@@ -31,6 +32,7 @@ const PRODUCTS: Product[] = [
 const CATEGORIES = ['All', 'Coffee', 'Pastries', 'Food'];
 
 export default function SellScreen() {
+  const router = useRouter();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [category, setCategory] = useState('All');
   const [search, setSearch] = useState('');
@@ -64,11 +66,7 @@ export default function SellScreen() {
 
   const handleCharge = () => {
     if (cart.length === 0) return;
-    Alert.alert('Charge', `Process $${total.toFixed(2)} payment?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Card', onPress: () => { Alert.alert('Payment', 'Tap card to reader'); setCart([]); } },
-      { text: 'Cash', onPress: () => { Alert.alert('Payment', 'Cash received'); setCart([]); } },
-    ]);
+    router.push({ pathname: '/payment', params: { total: total.toFixed(2) } });
   };
 
   return (
