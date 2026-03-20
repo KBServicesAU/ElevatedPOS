@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
+import rateLimit from '@fastify/rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 
@@ -27,6 +28,7 @@ async function start() {
   await app.register(helmet);
   await app.register(cors, { origin: true, credentials: true });
   await app.register(sensible);
+  await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   await app.register(jwt, {
     secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production',
     verify: { issuer: 'nexus-auth' },

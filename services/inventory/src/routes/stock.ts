@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../db';
+import { publishEvent } from '../lib/kafka';
 
 const adjustSchema = z.object({
   locationId: z.string().uuid(),
@@ -68,6 +69,34 @@ export async function stockRoutes(app: FastifyInstance) {
       reason,
       employeeId,
     }).returning();
+
+    // Publish stock adjusted event
+    await publishEvent('inventory.stock_adjusted', {
+      id: adj.id,
+      orgId,
+      locationId,
+      productId,
+      variantId,
+      beforeQty,
+      afterQty: newQty,
+      adjustment,
+      reason,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Publish low-stock alert if quantity is at or below the threshold
+    const LOW_STOCK_THRESHOLD = Number(process.env['LOW_STOCK_THRESHOLD'] ?? 5);
+    if (newQty <= LOW_STOCK_THRESHOLD && newQty > 0) {
+      await publishEvent('inventory.low_stock', {
+        orgId,
+        locationId,
+        productId,
+        variantId,
+        onHand: newQty,
+        threshold: LOW_STOCK_THRESHOLD,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     return reply.status(200).send({ data: adj });
   });
