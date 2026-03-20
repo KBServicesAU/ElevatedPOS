@@ -9,7 +9,9 @@ import {
   Alert,
   Switch,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuthStore } from '../../store/auth';
 
 interface MenuRow {
   id: string;
@@ -120,9 +122,24 @@ const SECTIONS: Section[] = [
 ];
 
 export default function MoreScreen() {
+  const router = useRouter();
+  const employee = useAuthStore((s) => s.employee);
+  const logout = useAuthStore((s) => s.logout);
+
   const [sound, setSound] = useState(true);
   const [autoReceipt, setAutoReceipt] = useState(false);
   const [clockedIn, setClockedIn] = useState(true);
+
+  const displayName = employee?.name ?? 'Staff';
+  const displayRole =
+    employee?.role
+      ? employee.role.charAt(0).toUpperCase() + employee.role.slice(1)
+      : 'Employee';
+  const avatarLetters = displayName
+    .split(' ')
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
 
   const handlePress = (id: string) => {
     switch (id) {
@@ -159,9 +176,16 @@ export default function MoreScreen() {
         Alert.alert('Discounts', 'Discount management coming soon.');
         break;
       case 'signout':
-        Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+        Alert.alert('Sign Out', `Sign out as ${displayName}?`, [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Sign Out', style: 'destructive', onPress: () => Alert.alert('Signed out') },
+          {
+            text: 'Sign Out',
+            style: 'destructive',
+            onPress: () => {
+              logout();
+              router.replace('/login');
+            },
+          },
         ]);
         break;
     }
@@ -183,11 +207,11 @@ export default function MoreScreen() {
       {/* Staff info card */}
       <View style={styles.staffCard}>
         <View style={styles.staffAvatar}>
-          <Text style={styles.staffAvatarText}>AW</Text>
+          <Text style={styles.staffAvatarText}>{avatarLetters}</Text>
         </View>
         <View style={styles.staffInfo}>
-          <Text style={styles.staffName}>Alex Williams</Text>
-          <Text style={styles.staffRole}>Barista · Terminal 1</Text>
+          <Text style={styles.staffName}>{displayName}</Text>
+          <Text style={styles.staffRole}>{displayRole} · Terminal 1</Text>
         </View>
         <View style={[styles.clockBadge, clockedIn ? styles.clockBadgeIn : styles.clockBadgeOut]}>
           <View style={[styles.clockDot, { backgroundColor: clockedIn ? '#4ade80' : '#f87171' }]} />
