@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kds-display
+  namespace: nexus
+  labels:
+    app: kds-display
+    app.kubernetes.io/part-of: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kds-display
+  template:
+    metadata:
+      labels:
+        app: kds-display
+    spec:
+      serviceAccountName: nexus-service
+      containers:
+        - name: kds-display
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/kds-display:latest
+          ports:
+            - containerPort: 3001
+          envFrom:
+            - configMapRef:
+                name: nexus-config
+            - secretRef:
+                name: nexus-secrets
+          env:
+            - name: PORT
+              value: "3001"
+            - name: NEXT_TELEMETRY_DISABLED
+              value: "1"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3001
+            initialDelaySeconds: 20
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kds-display
+  namespace: nexus
+spec:
+  selector:
+    app: kds-display
+  ports:
+    - port: 3001
+      targetPort: 3001
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kds-display
+  namespace: nexus
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: kds-display
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
