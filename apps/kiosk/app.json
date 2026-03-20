@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "NEXUS Kiosk",
+    "slug": "nexus-kiosk",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0a0a"
+    },
+    "scheme": "nexus-kiosk",
+    "platforms": ["ios", "android", "web"],
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@nexus/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for integrating with the NEXUS POS platform",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ky": "^1.5.0"
+  },
+  "devDependencies": {
+    "@nexus/config": "workspace:*",
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.0"
+  },
+  "keywords": ["nexus", "pos", "sdk", "payments", "retail"],
+  "license": "MIT"
+}
