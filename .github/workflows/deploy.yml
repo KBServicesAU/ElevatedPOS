@@ -1,0 +1,174 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: staging
+        type: choice
+        options: [staging, prod]
+
+env:
+  AWS_REGION: ap-southeast-2
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com
+
+jobs:
+  # ── Run tests before deploying ────────────────────────────────────────────
+  test:
+    name: Test
+    uses: ./.github/workflows/ci.yml
+
+  # ── Build & push Docker images ────────────────────────────────────────────
+  build-images:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        target:
+          - { name: auth,            context: services/auth }
+          - { name: catalog,         context: services/catalog }
+          - { name: inventory,       context: services/inventory }
+          - { name: orders,          context: services/orders }
+          - { name: payments,        context: services/payments }
+          - { name: customers,       context: services/customers }
+          - { name: loyalty,         context: services/loyalty }
+          - { name: campaigns,       context: services/campaigns }
+          - { name: notifications,   context: services/notifications }
+          - { name: integrations,    context: services/integrations }
+          - { name: automations,     context: services/automations }
+          - { name: ai,              context: services/ai }
+          - { name: hardware-bridge, context: services/hardware-bridge }
+          - { name: web-backoffice,  context: apps/web-backoffice }
+          - { name: kds-display,     context: apps/kds-display }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.target.name }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.target.context }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/nexus/${{ matrix.target.name }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/nexus/${{ matrix.target.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.target.name }}
+          cache-to:   type=gha,mode=max,scope=${{ matrix.target.name }}
+
+  # ── Deploy to Staging ─────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy → Staging
+    runs-on: ubuntu-latest
+    needs: build-images
+    environment: staging
+    if: github.ref == 'refs/heads/main' || inputs.environment == 'staging'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name nexus-staging --region ${{ env.AWS_REGION }}
+
+      - name: Replace ACCOUNT_ID in manifests
+        run: |
+          find infrastructure/k8s -name "*.yaml" -exec \
+            sed -i "s/ACCOUNT_ID/${{ secrets.AWS_ACCOUNT_ID }}/g" {} +
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f infrastructure/k8s/namespace.yaml
+          kubectl apply -f infrastructure/k8s/serviceaccount.yaml
+          kubectl apply -f infrastructure/k8s/configmap.yaml
+          kubectl apply -f infrastructure/k8s/services/
+          kubectl apply -f infrastructure/k8s/apps/
+          kubectl apply -f infrastructure/k8s/ingress.yaml
+
+      - name: Update image tags
+        run: |
+          SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge"
+          for SVC in $SERVICES; do
+            kubectl set image deployment/$SVC $SVC=${{ env.ECR_REGISTRY }}/nexus/$SVC:${{ github.sha }} -n nexus
+          done
+          kubectl set image deployment/web-backoffice web-backoffice=${{ env.ECR_REGISTRY }}/nexus/web-backoffice:${{ github.sha }} -n nexus
+          kubectl set image deployment/kds-display kds-display=${{ env.ECR_REGISTRY }}/nexus/kds-display:${{ github.sha }} -n nexus
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/orders -n nexus --timeout=5m
+          kubectl rollout status deployment/payments -n nexus --timeout=5m
+          kubectl rollout status deployment/web-backoffice -n nexus --timeout=5m
+
+  # ── Deploy to Production ──────────────────────────────────────────────────
+  deploy-prod:
+    name: Deploy → Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: prod
+    if: inputs.environment == 'prod'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name nexus-prod --region ${{ env.AWS_REGION }}
+
+      - name: Replace ACCOUNT_ID in manifests
+        run: |
+          find infrastructure/k8s -name "*.yaml" -exec \
+            sed -i "s/ACCOUNT_ID/${{ secrets.AWS_ACCOUNT_ID }}/g" {} +
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f infrastructure/k8s/namespace.yaml
+          kubectl apply -f infrastructure/k8s/serviceaccount.yaml
+          kubectl apply -f infrastructure/k8s/configmap.yaml
+          kubectl apply -f infrastructure/k8s/services/
+          kubectl apply -f infrastructure/k8s/apps/
+          kubectl apply -f infrastructure/k8s/ingress.yaml
+
+      - name: Update image tags
+        run: |
+          SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge"
+          for SVC in $SERVICES; do
+            kubectl set image deployment/$SVC $SVC=${{ env.ECR_REGISTRY }}/nexus/$SVC:${{ github.sha }} -n nexus
+          done
+          kubectl set image deployment/web-backoffice web-backoffice=${{ env.ECR_REGISTRY }}/nexus/web-backoffice:${{ github.sha }} -n nexus
+          kubectl set image deployment/kds-display kds-display=${{ env.ECR_REGISTRY }}/nexus/kds-display:${{ github.sha }} -n nexus
+
+      - name: Wait for production rollout
+        run: |
+          for SVC in auth catalog orders payments; do
+            kubectl rollout status deployment/$SVC -n nexus --timeout=10m
+          done
+          kubectl rollout status deployment/web-backoffice -n nexus --timeout=10m

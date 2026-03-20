@@ -1,0 +1,57 @@
+# Version control
+.git
+.gitignore
+
+# Node dependencies (rebuilt in Docker)
+node_modules
+**/node_modules
+
+# Build outputs (rebuilt in Docker)
+dist
+**/dist
+.next
+**/.next
+out
+**/out
+
+# Expo / React Native build artifacts
+.expo
+**/.expo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Test artifacts
+coverage
+**/coverage
+
+# Turbo cache
+.turbo
+**/.turbo
+
+# IDE / OS
+.vscode
+.idea
+*.DS_Store
+Thumbs.db
+
+# Docker
+**/Dockerfile
+**/*.dockerfile
+docker-compose*.yml
+
+# Docs (not needed in container)
+docs
+
+# Terraform state (sensitive)
+infrastructure/terraform/.terraform
+infrastructure/terraform/*.tfstate
+infrastructure/terraform/*.tfstate.backup
+infrastructure/terraform/.terraform.lock.hcl
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
