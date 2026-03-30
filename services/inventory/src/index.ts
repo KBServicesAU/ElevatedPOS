@@ -8,6 +8,9 @@ import { stockRoutes } from './routes/stock';
 import { supplierRoutes } from './routes/suppliers';
 import { purchaseOrderRoutes } from './routes/purchaseOrders';
 import { transferRoutes } from './routes/transfers';
+import { serialTrackingRoutes } from './routes/serialTracking';
+import { lotTrackingRoutes } from './routes/lotTracking';
+import { startConsumers } from './consumers';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -26,10 +29,15 @@ async function start() {
   await app.register(supplierRoutes, { prefix: '/api/v1/suppliers' });
   await app.register(purchaseOrderRoutes, { prefix: '/api/v1/purchase-orders' });
   await app.register(transferRoutes, { prefix: '/api/v1/transfers' });
+  await app.register(serialTrackingRoutes, { prefix: '/api/v1/serials' });
+  await app.register(lotTrackingRoutes, { prefix: '/api/v1/lots' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'inventory' }));
   const port = Number(process.env['PORT'] ?? 4003);
   await app.listen({ port, host: '0.0.0.0' });
+
+  // Start Kafka consumers after HTTP server is up
+  await startConsumers();
 }
 
 start().catch((err) => { console.error(err); process.exit(1); });

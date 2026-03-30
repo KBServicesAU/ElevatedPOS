@@ -1,0 +1,484 @@
+version: "3.9"
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-api-healthcheck: &api-healthcheck
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 40s
+
+services:
+  # ─── Infrastructure ─────────────────────────────────────────────────────────
+
+  postgres:
+    <<: *service-defaults
+    image: postgres:16-alpine
+    container_name: nexus_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - nexus_internal
+
+  redis:
+    <<: *service-defaults
+    image: redis:7-alpine
+    container_name: nexus_redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - nexus_internal
+
+  typesense:
+    <<: *service-defaults
+    image: typesense/typesense:26.0
+    container_name: nexus_typesense
+    environment:
+      TYPESENSE_DATA_DIR: /data
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY}
+    volumes:
+      - typesense_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8108/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - nexus_internal
+
+  clickhouse:
+    <<: *service-defaults
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: nexus_clickhouse
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-nexus_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - nexus_internal
+
+  # ─── API Services ────────────────────────────────────────────────────────────
+
+  auth:
+    <<: *service-defaults
+    image: nexus-auth:latest
+    container_name: nexus_auth
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 4001
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4001/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  catalog:
+    <<: *service-defaults
+    image: nexus-catalog:latest
+    container_name: nexus_catalog
+    depends_on:
+      postgres:
+        condition: service_healthy
+      typesense:
+        condition: service_healthy
+    environment:
+      PORT: 4002
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      TYPESENSE_HOST: typesense
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4002/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  inventory:
+    <<: *service-defaults
+    image: nexus-inventory:latest
+    container_name: nexus_inventory
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4003
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4003/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  orders:
+    <<: *service-defaults
+    image: nexus-orders:latest
+    container_name: nexus_orders
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 4004
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4004/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  payments:
+    <<: *service-defaults
+    image: nexus-payments:latest
+    container_name: nexus_payments
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4005
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4005/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  customers:
+    <<: *service-defaults
+    image: nexus-customers:latest
+    container_name: nexus_customers
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4006
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4006/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  loyalty:
+    <<: *service-defaults
+    image: nexus-loyalty:latest
+    container_name: nexus_loyalty
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4007
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4007/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  campaigns:
+    <<: *service-defaults
+    image: nexus-campaigns:latest
+    container_name: nexus_campaigns
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 4008
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4008/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  notifications:
+    <<: *service-defaults
+    image: nexus-notifications:latest
+    container_name: nexus_notifications
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 4009
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4009/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  integrations:
+    <<: *service-defaults
+    image: nexus-integrations:latest
+    container_name: nexus_integrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4010
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4010/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  automations:
+    <<: *service-defaults
+    image: nexus-automations:latest
+    container_name: nexus_automations
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 4011
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4011/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  ai:
+    <<: *service-defaults
+    image: nexus-ai:latest
+    container_name: nexus_ai
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4012
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4012/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  franchise:
+    <<: *service-defaults
+    image: nexus-franchise:latest
+    container_name: nexus_franchise
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4013
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4013/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  reporting:
+    <<: *service-defaults
+    image: nexus-reporting:latest
+    container_name: nexus_reporting
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      PORT: 4014
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      CLICKHOUSE_URL: http://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@clickhouse:8123
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-nexus_analytics}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4014/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
+  # ─── Frontend Apps ───────────────────────────────────────────────────────────
+
+  web-backoffice:
+    <<: *service-defaults
+    image: nexus-web-backoffice:latest
+    container_name: nexus_web_backoffice
+    depends_on:
+      auth:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - nexus_internal
+
+  kds-display:
+    <<: *service-defaults
+    image: nexus-kds-display:latest
+    container_name: nexus_kds_display
+    depends_on:
+      orders:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - nexus_internal
+
+  # ─── Nginx Reverse Proxy ─────────────────────────────────────────────────────
+
+  nginx:
+    <<: *service-defaults
+    image: nginx:1.27-alpine
+    container_name: nexus_nginx
+    depends_on:
+      - web-backoffice
+      - auth
+      - catalog
+      - inventory
+      - orders
+      - payments
+      - customers
+      - loyalty
+      - campaigns
+      - notifications
+      - integrations
+      - automations
+      - ai
+      - franchise
+      - reporting
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - nexus_internal
+      - nexus_external
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  typesense_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+
+networks:
+  nexus_internal:
+    name: nexus_prod_internal
+    internal: true
+  nexus_external:
+    name: nexus_prod_external

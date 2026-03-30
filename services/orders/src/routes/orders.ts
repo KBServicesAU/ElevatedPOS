@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { eq, and, desc, gte, lte } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { generateOrderNumber, generateRefundNumber } from '../lib/orderNumber';
-import { publishEvent } from '../lib/kafka';
+import { publishTypedEvent } from '../lib/kafka';
+import { broadcastToKDS } from '../index';
+import { createEvent, EVENT_TOPICS } from '@nexus/event-schemas';
 
 const lineSchema = z.object({
   productId: z.string().uuid(),
@@ -136,17 +138,53 @@ export async function orderRoutes(app: FastifyInstance) {
       with: { lines: true },
     });
 
-    // Publish event — non-fatal if Kafka is unavailable
-    await publishEvent('order.created', {
-      id: created?.id,
-      orgId,
-      orderNumber: created?.orderNumber,
-      locationId: created?.locationId,
-      customerId: created?.customerId,
-      total: created?.total,
-      channel: created?.channel,
-      timestamp: new Date().toISOString(),
-    });
+    // Publish typed event envelope — non-fatal if Kafka is unavailable
+    if (created) {
+      try {
+        await publishTypedEvent(
+          EVENT_TOPICS.ORDERS,
+          createEvent(
+            'order.created',
+            orgId,
+            {
+              orderId: created.id,
+              orderNumber: created.orderNumber,
+              total: Number(created.total),
+              customerId: created.customerId ?? undefined,
+              lineCount: (created as typeof created & { lines: unknown[] }).lines?.length ?? 0,
+              channel: created.channel,
+            },
+            { locationId: created.locationId },
+          ),
+        );
+      } catch (err) {
+        console.error('[orders] Failed to publish order.created event', err);
+      }
+    }
+
+    // Broadcast to connected KDS clients for this location
+    if (created) {
+      broadcastToKDS(created.locationId, {
+        type: 'new_order',
+        order: {
+          orderId: created.id,
+          orderNumber: created.orderNumber,
+          orderType: created.orderType,
+          channel: created.channel,
+          tableId: created.tableId,
+          locationId: created.locationId,
+          lines: (created as typeof created & { lines: typeof schema.orderLines.$inferSelect[] }).lines?.map((l) => ({
+            name: l.name,
+            qty: Number(l.quantity),
+            modifiers: (l.modifiers as { name: string }[])?.map((m) => m.name) ?? [],
+            seatNumber: l.seatNumber,
+            course: l.course,
+          })) ?? [],
+          createdAt: created.createdAt?.toISOString() ?? new Date().toISOString(),
+          status: 'new',
+        },
+      });
+    }
 
     return reply.status(201).send({ data: created });
   });
@@ -171,15 +209,26 @@ export async function orderRoutes(app: FastifyInstance) {
       updatedAt: new Date(),
     }).where(and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId))).returning();
 
-    await publishEvent('order.completed', {
-      id: updated.id,
-      orgId,
-      orderNumber: updated.orderNumber,
-      customerId: updated.customerId,
-      total: updated.total,
-      completedAt: updated.completedAt,
-      timestamp: new Date().toISOString(),
-    });
+    try {
+      await publishTypedEvent(
+        EVENT_TOPICS.ORDERS,
+        createEvent(
+          'order.completed',
+          orgId,
+          {
+            orderId: updated.id,
+            orderNumber: updated.orderNumber,
+            total: Number(updated.total),
+            paidTotal: body.data.paidTotal,
+            customerId: updated.customerId ?? undefined,
+            completedAt: updated.completedAt?.toISOString() ?? new Date().toISOString(),
+          },
+          { locationId: updated.locationId },
+        ),
+      );
+    } catch (err) {
+      console.error('[orders] Failed to publish order.completed event', err);
+    }
 
     return reply.status(200).send({ data: updated });
   });

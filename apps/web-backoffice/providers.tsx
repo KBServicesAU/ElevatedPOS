@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ToastRegion } from '@/components/toast-region';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   // Create a stable QueryClient per component instance (prevents SSR sharing issues)
@@ -18,5 +19,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       }),
   );
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+      <ToastRegion />
+    </QueryClientProvider>
+  );
 }

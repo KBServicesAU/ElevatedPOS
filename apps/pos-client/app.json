@@ -4,7 +4,12 @@
     "slug": "nexus-pos",
     "version": "1.0.0",
     "scheme": "nexuspos",
-    "platforms": ["ios", "android"],
+    "platforms": ["ios", "android", "web"],
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/icon.png"
+    },
     "icon": "./assets/icon.png",
     "splash": { "image": "./assets/splash.png", "backgroundColor": "#1e1e2e" },
     "ios": { "supportsTablet": true, "bundleIdentifier": "com.nexuspos.client" },

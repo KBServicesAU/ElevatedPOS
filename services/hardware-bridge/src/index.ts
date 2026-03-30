@@ -1,6 +1,8 @@
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import http from 'http';
+import { printReceipt, ReceiptData } from './printers/escpos';
+import { openCashDrawer } from './printers/cashDrawer';
 
 const app = express();
 app.use(express.json());
@@ -20,11 +22,53 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// POST /print/receipt — print a receipt
+// POST /print/receipt — print a receipt (legacy stub)
 app.post('/print/receipt', (req, res) => {
   const body = req.body as { orderId?: string; lines?: unknown[]; total?: number; tender?: string };
   console.log(`[HardwareBridge] Print receipt for order ${body.orderId ?? 'unknown'}`);
   res.json({ success: true, printer: 'default' });
+});
+
+// POST /print — ESC/POS receipt via TCP
+app.post('/print', (req, res) => {
+  const body = req.body as { printer?: { host?: string; port?: number }; receipt?: ReceiptData };
+
+  if (!body.printer?.host || !body.printer?.port || !body.receipt) {
+    res.status(400).json({ error: 'Missing printer config or receipt data' });
+    return;
+  }
+
+  const { host, port } = body.printer;
+  const receipt = body.receipt;
+
+  console.log(`[HardwareBridge] ESC/POS print to ${host}:${port}`);
+
+  // Fire-and-forget; respond immediately so POS isn't blocked
+  void printReceipt({ host, port }, receipt).catch((err: unknown) =>
+    console.error('[HardwareBridge] printReceipt error:', err),
+  );
+
+  res.json({ success: true, printer: `${host}:${port}` });
+});
+
+// POST /cash-drawer — kick cash drawer via ESC/POS TCP
+app.post('/cash-drawer', (req, res) => {
+  const body = req.body as { printer?: { host?: string; port?: number } };
+
+  if (!body.printer?.host || !body.printer?.port) {
+    res.status(400).json({ error: 'Missing printer config' });
+    return;
+  }
+
+  const { host, port } = body.printer;
+
+  console.log(`[HardwareBridge] Cash drawer kick to ${host}:${port}`);
+
+  void openCashDrawer({ host, port }).catch((err: unknown) =>
+    console.error('[HardwareBridge] openCashDrawer error:', err),
+  );
+
+  res.json({ success: true });
 });
 
 // POST /display/customer — update customer-facing display

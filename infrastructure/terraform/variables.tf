@@ -69,16 +69,34 @@ variable "eks_node_desired_size" {
   default     = 5
 }
 
+variable "eks_cluster_version" {
+  description = "Kubernetes version for the EKS cluster"
+  type        = string
+  default     = "1.29"
+}
+
 variable "rds_instance_class" {
   description = "RDS instance class"
   type        = string
   default     = "db.r6g.large"
 }
 
+variable "db_instance_class" {
+  description = "RDS instance class (alias for rds_instance_class)"
+  type        = string
+  default     = "db.t3.medium"
+}
+
 variable "rds_allocated_storage" {
   description = "RDS allocated storage in GB"
   type        = number
   default     = 100
+}
+
+variable "db_allocated_storage" {
+  description = "RDS allocated storage in GB (alias for rds_allocated_storage)"
+  type        = number
+  default     = 50
 }
 
 variable "db_username" {

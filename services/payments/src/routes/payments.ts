@@ -17,6 +17,27 @@ const initiateSchema = z.object({
   isOffline: z.boolean().default(false),
 });
 
+/**
+ * Australian cash rounding — rounds to nearest $0.05.
+ * Returns { roundedTotal, roundingAmount } where roundingAmount may be negative
+ * (round down) or positive (round up).
+ */
+function australianCashRound(amount: number): { roundedTotal: number; roundingAmount: number } {
+  const cents = Math.round(amount * 100);
+  const remainder = cents % 5;
+  let roundedCents: number;
+  if (remainder === 0) {
+    roundedCents = cents;
+  } else if (remainder <= 2) {
+    roundedCents = cents - remainder;       // round down
+  } else {
+    roundedCents = cents + (5 - remainder); // round up
+  }
+  const roundedTotal = roundedCents / 100;
+  const roundingAmount = Math.round((roundedTotal - amount) * 10000) / 10000;
+  return { roundedTotal, roundingAmount };
+}
+
 export async function paymentRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
 
@@ -41,13 +62,26 @@ export async function paymentRoutes(app: FastifyInstance) {
 
     const { acquirer, ...paymentData } = body.data;
 
+    // Apply Australian cash rounding when method is cash
+    let effectiveAmount = paymentData.amount;
+    let roundingAmount = 0;
+    if (paymentData.method === 'cash') {
+      const rounded = australianCashRound(
+        paymentData.amount + paymentData.tipAmount + paymentData.surchargeAmount,
+      );
+      roundingAmount = rounded.roundingAmount;
+      // Adjust the stored amount to include the rounded total
+      effectiveAmount = rounded.roundedTotal - paymentData.tipAmount - paymentData.surchargeAmount;
+    }
+
     // Create pending payment record
     const [payment] = await db.insert(schema.payments).values({
       ...paymentData,
       orgId,
-      amount: String(paymentData.amount),
+      amount: String(effectiveAmount),
       tipAmount: String(paymentData.tipAmount),
       surchargeAmount: String(paymentData.surchargeAmount),
+      roundingAmount: String(roundingAmount),
       acquirer: acquirer ?? 'tyro',
       status: 'pending',
     }).returning();

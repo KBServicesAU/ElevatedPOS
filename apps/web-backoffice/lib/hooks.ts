@@ -2,7 +2,7 @@
  * React Query hooks for all NEXUS API resources.
  * Each hook wraps a typed fetch function from lib/api.ts.
  */
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   fetchOrders,
   fetchProducts,
@@ -15,6 +15,20 @@ import {
   fetchCampaigns,
   fetchAutomations,
   fetchIntegrationApps,
+  fetchStockAnomalies,
+  fetchChurnRisk,
+  fetchLaborOptimization,
+  fetchMenuEngineering,
+  fetchReorderSuggestions,
+  fetchSalesSummary,
+  fetchTopProducts,
+  fetchRevenueByHour,
+  fetchRevenueByChannel,
+  type StockAnomalyItem,
+  type ChurnRiskCustomer,
+  type LaborShift,
+  type MenuEngineeringItem,
+  type ReorderItem,
 } from './api';
 
 // ─── Query keys ──────────────────────────────────────────────────────────────
@@ -31,6 +45,10 @@ export const queryKeys = {
   campaigns: (params?: object) => ['campaigns', params] as const,
   automations: () => ['automations'] as const,
   integrationApps: () => ['integration-apps'] as const,
+  salesSummary: (params: object) => ['sales-summary', params] as const,
+  topProducts: (params: object) => ['top-products', params] as const,
+  revenueByHour: (params: object) => ['revenue-by-hour', params] as const,
+  revenueByChannel: (params: object) => ['revenue-by-channel', params] as const,
 };
 
 // ─── Orders ──────────────────────────────────────────────────────────────────
@@ -141,9 +159,84 @@ export function useIntegrationApps() {
   });
 }
 
+// ─── Reporting / Analytics ────────────────────────────────────────────────────
+
+export function useSalesSummary(params: Parameters<typeof fetchSalesSummary>[0]) {
+  return useQuery({
+    queryKey: queryKeys.salesSummary(params),
+    queryFn: () => fetchSalesSummary(params),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useTopProducts(params: Parameters<typeof fetchTopProducts>[0]) {
+  return useQuery({
+    queryKey: queryKeys.topProducts(params),
+    queryFn: () => fetchTopProducts(params),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useRevenueByHour(params: Parameters<typeof fetchRevenueByHour>[0]) {
+  return useQuery({
+    queryKey: queryKeys.revenueByHour(params),
+    queryFn: () => fetchRevenueByHour(params),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useRevenueByChannel(params: Parameters<typeof fetchRevenueByChannel>[0]) {
+  return useQuery({
+    queryKey: queryKeys.revenueByChannel(params),
+    queryFn: () => fetchRevenueByChannel(params),
+    staleTime: 5 * 60_000,
+  });
+}
+
 // ─── Invalidation helper ──────────────────────────────────────────────────────
 
 export function useInvalidateOrders() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: ['orders'] });
+}
+
+// ─── AI mutations ─────────────────────────────────────────────────────────────
+
+export function useStockAnomalies() {
+  return useMutation({
+    mutationFn: (payload: {
+      orgId: string;
+      locationId?: string;
+      lookbackDays?: number;
+      items: StockAnomalyItem[];
+    }) => fetchStockAnomalies(payload),
+  });
+}
+
+export function useChurnRisk() {
+  return useMutation({
+    mutationFn: (payload: { customers: ChurnRiskCustomer[] }) => fetchChurnRisk(payload),
+  });
+}
+
+export function useLaborOptimization() {
+  return useMutation({
+    mutationFn: (payload: {
+      shifts: LaborShift[];
+      forecast?: { nextWeek: Array<{ date: string; dayOfWeek: string; predictedRevenue: number }> };
+    }) => fetchLaborOptimization(payload),
+  });
+}
+
+export function useMenuEngineering() {
+  return useMutation({
+    mutationFn: (payload: { items: MenuEngineeringItem[]; period: string }) =>
+      fetchMenuEngineering(payload),
+  });
+}
+
+export function useReorderSuggestions() {
+  return useMutation({
+    mutationFn: (payload: { items: ReorderItem[] }) => fetchReorderSuggestions(payload),
+  });
 }

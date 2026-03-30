@@ -2,6 +2,9 @@ import { pgTable, uuid, varchar, boolean, timestamp, jsonb, decimal, integer, te
 
 export const poStatusEnum = pgEnum('po_status', ['draft', 'sent', 'partial', 'complete', 'cancelled']);
 export const transferStatusEnum = pgEnum('transfer_status', ['requested', 'approved', 'dispatched', 'received', 'cancelled']);
+export const serialStatusEnum = pgEnum('serial_status', ['in_stock', 'sold', 'returned', 'scrapped']);
+export const lotStatusEnum = pgEnum('lot_status', ['active', 'depleted', 'recalled', 'expired']);
+export const stocktakeStatusEnum = pgEnum('stocktake_status', ['draft', 'in_review', 'completed', 'cancelled']);
 
 export const stockItems = pgTable('stock_items', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -114,4 +117,68 @@ export const stockAdjustments = pgTable('stock_adjustments', {
   referenceType: varchar('reference_type', { length: 50 }),
   employeeId: uuid('employee_id').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const serialNumbers = pgTable('serial_numbers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  locationId: uuid('location_id').notNull(),
+  productId: uuid('product_id').notNull(),
+  variantId: uuid('variant_id'),
+  serialNumber: varchar('serial_number', { length: 255 }).notNull(),
+  status: serialStatusEnum('status').notNull().default('in_stock'),
+  purchaseOrderId: uuid('purchase_order_id'),
+  orderId: uuid('order_id'),
+  receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  soldAt: timestamp('sold_at', { withTimezone: true }),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const lotBatches = pgTable('lot_batches', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  locationId: uuid('location_id').notNull(),
+  productId: uuid('product_id').notNull(),
+  variantId: uuid('variant_id'),
+  lotNumber: varchar('lot_number', { length: 255 }).notNull(),
+  supplierId: uuid('supplier_id'),
+  quantity: decimal('quantity', { precision: 12, scale: 3 }).notNull(),
+  remainingQty: decimal('remaining_qty', { precision: 12, scale: 3 }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  unitCost: decimal('unit_cost', { precision: 12, scale: 4 }),
+  notes: text('notes'),
+  status: lotStatusEnum('status').notNull().default('active'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const stocktakes = pgTable('stocktakes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  locationId: uuid('location_id').notNull(),
+  name: varchar('name', { length: 255 }),
+  status: stocktakeStatusEnum('status').notNull().default('draft'),
+  number: varchar('number', { length: 100 }).notNull(),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+  submittedAt: timestamp('submitted_at', { withTimezone: true }),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  approvedBy: uuid('approved_by'),
+  notes: text('notes'),
+  totalVarianceValue: decimal('total_variance_value', { precision: 12, scale: 4 }).notNull().default('0'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const stocktakeLines = pgTable('stocktake_lines', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  stocktakeId: uuid('stocktake_id').notNull().references(() => stocktakes.id, { onDelete: 'cascade' }),
+  productId: uuid('product_id').notNull(),
+  sku: varchar('sku', { length: 100 }).notNull().default(''),
+  productName: varchar('product_name', { length: 255 }).notNull().default(''),
+  systemQty: decimal('system_qty', { precision: 12, scale: 3 }).notNull().default('0'),
+  countedQty: decimal('counted_qty', { precision: 12, scale: 3 }),
+  variance: decimal('variance', { precision: 12, scale: 3 }),
+  unitCost: decimal('unit_cost', { precision: 12, scale: 4 }).notNull().default('0'),
 });

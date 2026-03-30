@@ -1,4 +1,4 @@
-import { Kafka, Producer, logLevel } from 'kafkajs';
+import { Kafka, Producer, Consumer, EachMessagePayload, logLevel } from 'kafkajs';
 
 let producer: Producer | null = null;
 
@@ -41,4 +41,41 @@ export async function disconnectProducer(): Promise<void> {
     await producer.disconnect();
     producer = null;
   }
+}
+
+type MessageHandler = (topic: string, payload: Record<string, unknown>) => Promise<void>;
+
+const activeConsumers: Consumer[] = [];
+
+export async function createConsumer(
+  groupId: string,
+  topics: string[],
+  handler: MessageHandler,
+): Promise<Consumer> {
+  const kafka = getKafka();
+  const consumer = kafka.consumer({ groupId, sessionTimeout: 30_000, heartbeatInterval: 3_000 });
+  await consumer.connect();
+  for (const topic of topics) {
+    await consumer.subscribe({ topic, fromBeginning: false });
+  }
+  await consumer.run({
+    eachMessage: async ({ topic, message }: EachMessagePayload) => {
+      if (!message.value) return;
+      try {
+        const payload = JSON.parse(message.value.toString()) as Record<string, unknown>;
+        await handler(topic, payload);
+      } catch (err) {
+        console.error('[inventory/kafka] Failed to process message', topic, err);
+      }
+    },
+  });
+  activeConsumers.push(consumer);
+  return consumer;
+}
+
+export async function disconnectAllConsumers(): Promise<void> {
+  for (const c of activeConsumers) {
+    try { await c.disconnect(); } catch { /* ignore */ }
+  }
+  activeConsumers.length = 0;
 }

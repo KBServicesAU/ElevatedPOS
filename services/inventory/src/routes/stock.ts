@@ -92,8 +92,12 @@ export async function stockRoutes(app: FastifyInstance) {
         locationId,
         productId,
         variantId,
-        onHand: newQty,
-        threshold: LOW_STOCK_THRESHOLD,
+        currentQty: newQty,
+        reorderPoint: LOW_STOCK_THRESHOLD,
+        // productName and sku are not available in the stock adjustment endpoint;
+        // downstream consumers fall back to productId when these are absent.
+        productName: undefined,
+        sku: undefined,
         timestamp: new Date().toISOString(),
       });
     }

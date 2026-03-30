@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { and, desc, eq } from 'drizzle-orm';
 import { db, schema } from '../db';
-import { deliverWebhook } from '../lib/delivery';
+import { deliverWebhook } from '../lib/webhookDelivery';
 
 const ALL_EVENTS = [
   'order.created', 'order.status_changed', 'order.completed', 'order.cancelled', 'order.refunded',
@@ -79,7 +79,34 @@ export async function webhookRoutes(app: FastifyInstance) {
     return reply.status(200).send({ data: safeHook });
   });
 
-  // PUT /api/v1/integrations/webhooks/:id — update a webhook
+  // PATCH /api/v1/integrations/webhooks/:id — update URL, events, label, or enabled
+  // Also registered as PUT for backwards compatibility
+  app.patch('/:id', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+
+    const body = createWebhookSchema.partial().safeParse(request.body);
+    if (!body.success) {
+      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    }
+
+    const existing = await db.query.webhooks.findFirst({
+      where: and(eq(schema.webhooks.id, id), eq(schema.webhooks.orgId, orgId)),
+    });
+
+    if (!existing) return reply.status(404).send({ title: 'Webhook not found', status: 404 });
+
+    const [updated] = await db
+      .update(schema.webhooks)
+      .set({ ...body.data, updatedAt: new Date() })
+      .where(eq(schema.webhooks.id, id))
+      .returning();
+
+    const { secret: _secret, ...safeHook } = updated;
+    return reply.status(200).send({ data: safeHook });
+  });
+
+  // PUT /api/v1/integrations/webhooks/:id — update a webhook (legacy alias)
   app.put('/:id', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };

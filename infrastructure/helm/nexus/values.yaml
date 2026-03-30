@@ -1,0 +1,210 @@
+global:
+  imageRegistry: ""
+  imagePullPolicy: Always
+  namespace: nexus
+
+image:
+  tag: latest
+
+services:
+  auth:
+    enabled: true
+    replicas: 2
+    port: 4001
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  catalog:
+    enabled: true
+    replicas: 2
+    port: 4002
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  inventory:
+    enabled: true
+    replicas: 2
+    port: 4003
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  orders:
+    enabled: true
+    replicas: 2
+    port: 4004
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+  payments:
+    enabled: true
+    replicas: 2
+    port: 4005
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+  customers:
+    enabled: true
+    replicas: 2
+    port: 4006
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  loyalty:
+    enabled: true
+    replicas: 2
+    port: 4007
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  campaigns:
+    enabled: true
+    replicas: 2
+    port: 4008
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  notifications:
+    enabled: true
+    replicas: 2
+    port: 4009
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  integrations:
+    enabled: true
+    replicas: 2
+    port: 4010
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  automations:
+    enabled: true
+    replicas: 2
+    port: 4011
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  ai:
+    enabled: true
+    replicas: 2
+    port: 4012
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+  franchise:
+    enabled: true
+    replicas: 2
+    port: 4013
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  reporting:
+    enabled: true
+    replicas: 2
+    port: 4014
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+  webhooks:
+    enabled: true
+    replicas: 2
+    port: 4015
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  hardware-bridge:
+    enabled: true
+    replicas: 1
+    port: 9999
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+
+ingress:
+  enabled: true
+  className: nginx
+  host: api.nexus.app
+  tlsSecretName: nexus-tls
+
+postgres:
+  host: postgres
+  port: 5432
+  database: nexus
+
+redis:
+  url: redis://redis:6379
+
+kafka:
+  brokers: kafka:9092
+
+typesense:
+  host: typesense
+  port: 8108
+
+clickhouse:
+  host: clickhouse
+  port: 8123

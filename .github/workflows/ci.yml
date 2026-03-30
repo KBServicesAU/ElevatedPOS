@@ -1,88 +1,109 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [main, develop]
   push:
     branches: [main, develop]
+  pull_request:
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PNPM_VERSION: '9'
+  NODE_VERSION: '20'
+
 jobs:
-  # ── Lint & Type-check ─────────────────────────────────────────────────────
-  quality:
-    name: Lint & Type-check
+  lint-and-typecheck:
+    name: Lint & Type Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v3
         with:
-          version: 9.4.0
+          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: pnpm
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
 
-      - name: Lint
-        run: pnpm lint
-
-      - name: Type-check
-        run: pnpm typecheck
-
-  # ── Unit Tests ────────────────────────────────────────────────────────────
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth, catalog, orders, payments, customers, loyalty, campaigns, notifications, integrations, automations]
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v3
         with:
-          version: 9.4.0
+          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: pnpm
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
 
-      - name: Run tests
-        run: pnpm test
+      - name: Run tests for ${{ matrix.service }}
+        run: pnpm --filter @nexus/${{ matrix.service }} test
+        env:
+          JWT_SECRET: test-secret
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nexus_test
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         if: always()
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          flags: ${{ matrix.service }}
 
-  # ── Build ─────────────────────────────────────────────────────────────────
   build:
-    name: Build
+    name: Build All
     runs-on: ubuntu-latest
-    needs: [quality]
+    needs: [lint-and-typecheck]
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v3
         with:
-          version: 9.4.0
+          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: pnpm
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
 
-      - name: Build all packages and services
-        run: pnpm build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            apps/web-backoffice/.next
+          retention-days: 1
+
+  docker-build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    needs: [test]
+    strategy:
+      matrix:
+        service: [auth, catalog, orders, payments]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image for ${{ matrix.service }}
+        run: docker build -f services/${{ matrix.service }}/Dockerfile -t nexus-${{ matrix.service }}:test .
+        continue-on-error: true

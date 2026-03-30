@@ -13,67 +13,312 @@ const createTransferSchema = z.object({
     productName: z.string(),
     sku: z.string(),
     requestedQty: z.number().positive(),
+    unitCost: z.number().positive().optional(),
   })),
+});
+
+const receiveTransferSchema = z.object({
+  lines: z.array(z.object({
+    lineId: z.string().uuid(),
+    receivedQty: z.number().nonnegative(),
+  })).optional(),
 });
 
 export async function transferRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
 
+  // GET / — list transfers with optional filters
   app.get('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
+    const { fromLocationId, toLocationId, status } = request.query as {
+      fromLocationId?: string;
+      toLocationId?: string;
+      status?: string;
+    };
+
+    const conditions = [eq(schema.stockTransfers.orgId, orgId)];
+
+    if (fromLocationId) {
+      conditions.push(eq(schema.stockTransfers.fromLocationId, fromLocationId));
+    }
+    if (toLocationId) {
+      conditions.push(eq(schema.stockTransfers.toLocationId, toLocationId));
+    }
+    if (status && ['requested', 'approved', 'dispatched', 'received', 'cancelled'].includes(status)) {
+      conditions.push(eq(schema.stockTransfers.status, status as 'requested' | 'approved' | 'dispatched' | 'received' | 'cancelled'));
+    }
+
     const transfers = await db.query.stockTransfers.findMany({
-      where: eq(schema.stockTransfers.orgId, orgId),
+      where: and(...conditions),
       with: { lines: true },
       orderBy: [desc(schema.stockTransfers.createdAt)],
     });
-    return reply.status(200).send({ data: transfers });
+
+    return reply.status(200).send({ data: transfers, meta: { totalCount: transfers.length } });
   });
 
+  // POST / — create stock transfer request (status: requested, transfer number TRF-{year}-{seq})
   app.post('/', async (request, reply) => {
     const { orgId, sub: employeeId } = request.user as { orgId: string; sub: string };
     const body = createTransferSchema.safeParse(request.body);
-    if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
+
+    if (!body.success) {
+      return reply.status(422).send({
+        type: 'https://nexus.app/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: body.error.message,
+      });
+    }
 
     const { lines, ...transferData } = body.data;
-    const transferNumber = `TRF-${Date.now()}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    const year = new Date().getFullYear();
+    const seq = Date.now().toString().slice(-6);
+    const transferNumber = `TRF-${year}-${seq}`;
 
-    const [transfer] = await db.insert(schema.stockTransfers).values({ ...transferData, orgId, transferNumber, requestedByEmployeeId: employeeId }).returning();
-    await db.insert(schema.stockTransferLines).values(lines.map((l) => ({ ...l, transferId: transfer.id, requestedQty: String(l.requestedQty) })));
+    const [transfer] = await db
+      .insert(schema.stockTransfers)
+      .values({
+        ...transferData,
+        orgId,
+        transferNumber,
+        requestedByEmployeeId: employeeId,
+        status: 'requested',
+      })
+      .returning();
 
-    const created = await db.query.stockTransfers.findFirst({ where: eq(schema.stockTransfers.id, transfer.id), with: { lines: true } });
+    await db.insert(schema.stockTransferLines).values(
+      lines.map((l) => ({
+        transferId: transfer.id,
+        productId: l.productId,
+        variantId: l.variantId,
+        productName: l.productName,
+        sku: l.sku,
+        requestedQty: String(l.requestedQty),
+      })),
+    );
+
+    const created = await db.query.stockTransfers.findFirst({
+      where: eq(schema.stockTransfers.id, transfer.id),
+      with: { lines: true },
+    });
+
     return reply.status(201).send({ data: created });
   });
 
-  app.post('/:id/approve', async (request, reply) => {
-    const { orgId, sub: employeeId } = request.user as { orgId: string; sub: string };
-    const { id } = request.params as { id: string };
-    await db.update(schema.stockTransfers).set({ status: 'approved', approvedByEmployeeId: employeeId, updatedAt: new Date() }).where(and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)));
-    return reply.status(200).send({ data: { status: 'approved' } });
-  });
-
-  app.post('/:id/dispatch', async (request, reply) => {
+  // GET /:id — transfer detail with lines
+  app.get('/:id', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
-    await db.update(schema.stockTransfers).set({ status: 'dispatched', dispatchedAt: new Date(), updatedAt: new Date() }).where(and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)));
-    return reply.status(200).send({ data: { status: 'dispatched' } });
+
+    const transfer = await db.query.stockTransfers.findFirst({
+      where: and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)),
+      with: { lines: true },
+    });
+
+    if (!transfer) {
+      return reply.status(404).send({
+        type: 'https://nexus.app/errors/not-found',
+        title: 'Not Found',
+        status: 404,
+      });
+    }
+
+    return reply.status(200).send({ data: transfer });
   });
 
+  // POST /:id/send — draft/requested → dispatched, records dispatchedAt
+  app.post('/:id/send', async (request, reply) => {
+    const { orgId, sub: employeeId } = request.user as { orgId: string; sub: string };
+    const { id } = request.params as { id: string };
+
+    const existing = await db.query.stockTransfers.findFirst({
+      where: and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)),
+    });
+
+    if (!existing) {
+      return reply.status(404).send({
+        type: 'https://nexus.app/errors/not-found',
+        title: 'Not Found',
+        status: 404,
+      });
+    }
+
+    if (!['requested', 'approved'].includes(existing.status)) {
+      return reply.status(409).send({
+        type: 'https://nexus.app/errors/conflict',
+        title: 'Transfer cannot be sent in its current status',
+        status: 409,
+        detail: `Current status: ${existing.status}`,
+      });
+    }
+
+    const [updated] = await db
+      .update(schema.stockTransfers)
+      .set({
+        status: 'dispatched',
+        dispatchedAt: new Date(),
+        approvedByEmployeeId: employeeId,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)))
+      .returning();
+
+    return reply.status(200).send({ data: updated });
+  });
+
+  // POST /:id/receive — dispatched → received, records receivedAt, supports partial receiving
   app.post('/:id/receive', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
-    const transfer = await db.query.stockTransfers.findFirst({ where: and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)), with: { lines: true } });
-    if (!transfer) return reply.status(404).send({ title: 'Not Found', status: 404 });
+    const body = receiveTransferSchema.safeParse(request.body ?? {});
 
-    for (const line of transfer.lines) {
-      const qty = Number(line.dispatchedQty || line.requestedQty);
-      const fromItem = await db.query.stockItems.findFirst({ where: and(eq(schema.stockItems.locationId, transfer.fromLocationId), eq(schema.stockItems.productId, line.productId)) });
-      const toItem = await db.query.stockItems.findFirst({ where: and(eq(schema.stockItems.locationId, transfer.toLocationId), eq(schema.stockItems.productId, line.productId)) });
-      if (fromItem) await db.update(schema.stockItems).set({ onHand: String(Math.max(0, Number(fromItem.onHand) - qty)), updatedAt: new Date() }).where(eq(schema.stockItems.id, fromItem.id));
-      if (toItem) { await db.update(schema.stockItems).set({ onHand: String(Number(toItem.onHand) + qty), updatedAt: new Date() }).where(eq(schema.stockItems.id, toItem.id)); } else { await db.insert(schema.stockItems).values({ locationId: transfer.toLocationId, productId: line.productId, variantId: line.variantId, onHand: String(qty) }); }
-      await db.update(schema.stockTransferLines).set({ receivedQty: String(qty) }).where(eq(schema.stockTransferLines.id, line.id));
+    if (!body.success) {
+      return reply.status(422).send({
+        type: 'https://nexus.app/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: body.error.message,
+      });
     }
 
-    await db.update(schema.stockTransfers).set({ status: 'received', receivedAt: new Date(), updatedAt: new Date() }).where(eq(schema.stockTransfers.id, id));
-    return reply.status(200).send({ data: { status: 'received' } });
+    const transfer = await db.query.stockTransfers.findFirst({
+      where: and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)),
+      with: { lines: true },
+    });
+
+    if (!transfer) {
+      return reply.status(404).send({
+        type: 'https://nexus.app/errors/not-found',
+        title: 'Not Found',
+        status: 404,
+      });
+    }
+
+    if (transfer.status !== 'dispatched') {
+      return reply.status(409).send({
+        type: 'https://nexus.app/errors/conflict',
+        title: 'Transfer must be dispatched before receiving',
+        status: 409,
+        detail: `Current status: ${transfer.status}`,
+      });
+    }
+
+    // Build received qty map from body, or fall back to dispatched/requested qty
+    const lineQtyMap: Record<string, number> = {};
+    if (body.data.lines) {
+      for (const entry of body.data.lines) {
+        lineQtyMap[entry.lineId] = entry.receivedQty;
+      }
+    }
+
+    for (const line of transfer.lines) {
+      const qty = lineQtyMap[line.id] ?? Number(line.dispatchedQty || line.requestedQty);
+
+      // Update stock: deduct from source, add to destination
+      const fromItem = await db.query.stockItems.findFirst({
+        where: and(
+          eq(schema.stockItems.locationId, transfer.fromLocationId),
+          eq(schema.stockItems.productId, line.productId),
+        ),
+      });
+      const toItem = await db.query.stockItems.findFirst({
+        where: and(
+          eq(schema.stockItems.locationId, transfer.toLocationId),
+          eq(schema.stockItems.productId, line.productId),
+        ),
+      });
+
+      if (fromItem) {
+        await db
+          .update(schema.stockItems)
+          .set({ onHand: String(Math.max(0, Number(fromItem.onHand) - qty)), updatedAt: new Date() })
+          .where(eq(schema.stockItems.id, fromItem.id));
+      }
+
+      if (toItem) {
+        await db
+          .update(schema.stockItems)
+          .set({ onHand: String(Number(toItem.onHand) + qty), updatedAt: new Date() })
+          .where(eq(schema.stockItems.id, toItem.id));
+      } else {
+        await db.insert(schema.stockItems).values({
+          locationId: transfer.toLocationId,
+          productId: line.productId,
+          variantId: line.variantId,
+          onHand: String(qty),
+        });
+      }
+
+      await db
+        .update(schema.stockTransferLines)
+        .set({ receivedQty: String(qty) })
+        .where(eq(schema.stockTransferLines.id, line.id));
+    }
+
+    const [updated] = await db
+      .update(schema.stockTransfers)
+      .set({ status: 'received', receivedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)))
+      .returning();
+
+    return reply.status(200).send({ data: updated });
+  });
+
+  // POST /:id/cancel — cancel if still requested or approved
+  app.post('/:id/cancel', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+
+    const existing = await db.query.stockTransfers.findFirst({
+      where: and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)),
+    });
+
+    if (!existing) {
+      return reply.status(404).send({
+        type: 'https://nexus.app/errors/not-found',
+        title: 'Not Found',
+        status: 404,
+      });
+    }
+
+    if (!['requested', 'approved'].includes(existing.status)) {
+      return reply.status(409).send({
+        type: 'https://nexus.app/errors/conflict',
+        title: 'Only requested or approved transfers can be cancelled',
+        status: 409,
+        detail: `Current status: ${existing.status}`,
+      });
+    }
+
+    const [updated] = await db
+      .update(schema.stockTransfers)
+      .set({ status: 'cancelled', updatedAt: new Date() })
+      .where(and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)))
+      .returning();
+
+    return reply.status(200).send({ data: updated });
+  });
+
+  // POST /:id/approve — approve a requested transfer
+  app.post('/:id/approve', async (request, reply) => {
+    const { orgId, sub: employeeId } = request.user as { orgId: string; sub: string };
+    const { id } = request.params as { id: string };
+
+    const existing = await db.query.stockTransfers.findFirst({
+      where: and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)),
+    });
+
+    if (!existing) {
+      return reply.status(404).send({ title: 'Not Found', status: 404 });
+    }
+
+    const [updated] = await db
+      .update(schema.stockTransfers)
+      .set({ status: 'approved', approvedByEmployeeId: employeeId, updatedAt: new Date() })
+      .where(and(eq(schema.stockTransfers.id, id), eq(schema.stockTransfers.orgId, orgId)))
+      .returning();
+
+    return reply.status(200).send({ data: updated });
   });
 }

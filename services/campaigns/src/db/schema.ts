@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgEnum,
+  boolean,
 } from 'drizzle-orm/pg-core';
 
 export const campaignTypeEnum = pgEnum('campaign_type', [
@@ -51,4 +52,37 @@ export const campaignMessages = pgTable('campaign_messages', {
   recipientCount: integer('recipient_count').notNull().default(0),
   openCount: integer('open_count').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Segments ─────────────────────────────────────────────────────────────────
+
+export const segments = pgTable('segments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  filters: jsonb('filters').notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Campaign Templates ───────────────────────────────────────────────────────
+
+export const campaignTemplateChannelEnum = pgEnum('campaign_template_channel', [
+  'email',
+  'sms',
+  'push',
+]);
+
+export const campaignTemplates = pgTable('campaign_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  channel: campaignTemplateChannelEnum('channel').notNull(),
+  subject: text('subject'),
+  body: text('body').notNull(),
+  variables: jsonb('variables').notNull().default([]),
+  isDeleted: boolean('is_deleted').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

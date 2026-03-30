@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import { getRedisClient } from '@nexus/config';
 
 export function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
@@ -23,4 +24,27 @@ export function generateRefreshToken(): string {
 
 export function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+export async function addToBlacklist(jti: string, expiresAt: number): Promise<void> {
+  const r = getRedisClient();
+  if (!r) return;
+  const ttl = Math.floor(expiresAt - Date.now() / 1000);
+  if (ttl <= 0) return;
+  try {
+    await r.setex(`blacklist:${jti}`, ttl, '1');
+  } catch (err) {
+    console.error('[Redis] addToBlacklist failed:', err);
+  }
+}
+
+export async function isBlacklisted(jti: string): Promise<boolean> {
+  const r = getRedisClient();
+  if (!r) return false; // fail open — Redis unavailable
+  try {
+    const val = await r.exists(`blacklist:${jti}`);
+    return val === 1;
+  } catch {
+    return false; // fail open on error
+  }
 }

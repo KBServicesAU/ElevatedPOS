@@ -22,7 +22,7 @@ const METHODS: { id: PaymentMethod; label: string; icon: string; subtitle: strin
 
 export default function PaymentScreen() {
   const router = useRouter();
-  const { cartItems, clearCart, setOrderNumber } = useKioskStore();
+  const { cartItems, clearCart, setOrderNumber, orderType, tableNumber, loyaltyAccount } = useKioskStore();
   const [selected, setSelected] = useState<PaymentMethod>('card');
   const [processing, setProcessing] = useState(false);
 
@@ -32,17 +32,62 @@ export default function PaymentScreen() {
 
   async function handlePay() {
     setProcessing(true);
-    // Simulate payment processing
-    await new Promise((res) => setTimeout(res, 2200));
-    const orderNum = `K${Math.floor(100 + Math.random() * 900)}`;
-    setOrderNumber(orderNum);
+
+    // Build order payload (mirrors POST /api/v1/orders body)
+    const orderPayload = {
+      items: cartItems.map((i) => ({
+        productId: i.id,
+        name: i.name,
+        qty: i.qty,
+        unitPrice: i.price,
+        modifiers: i.modifiers,
+      })),
+      orderType,
+      tableNumber: orderType === 'dine_in' ? tableNumber : undefined,
+      loyaltyAccountPhone: loyaltyAccount?.phone ?? undefined,
+      paymentMethod: selected,
+      subtotal,
+      tax,
+      total,
+    };
+
+    try {
+      // Attempt real API call; fall through to mock on failure
+      const apiBase = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+      const res = await fetch(`${apiBase}/api/v1/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orderPayload),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOrderNumber(data?.orderNumber ?? `K${Math.floor(100 + Math.random() * 900)}`);
+      } else {
+        throw new Error('order api error');
+      }
+    } catch {
+      // Mock: generate local order number
+      await new Promise((r) => setTimeout(r, 1800));
+      setOrderNumber(`K${Math.floor(100 + Math.random() * 900)}`);
+    }
+
     clearCart();
     setProcessing(false);
     router.replace('/confirmation');
   }
 
+  const orderTypeBadge =
+    orderType === 'dine_in'
+      ? `🍽️ Dine In${tableNumber ? ` — Table ${tableNumber}` : ''}`
+      : '🥡 Take Away';
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
+      {/* Order type badge */}
+      <View style={styles.orderTypeBadge}>
+        <Text style={styles.orderTypeBadgeText}>{orderTypeBadge}</Text>
+      </View>
       <Text style={styles.title}>Choose Payment Method</Text>
 
       {/* Method cards */}
@@ -108,6 +153,17 @@ export default function PaymentScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0a0a', padding: 20 },
+  orderTypeBadge: {
+    alignSelf: 'center',
+    backgroundColor: 'rgba(245,158,11,0.12)',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.3)',
+  },
+  orderTypeBadgeText: { fontSize: 14, color: '#f59e0b', fontWeight: '700' },
   title: { fontSize: 26, fontWeight: '800', color: '#fff', marginBottom: 20, textAlign: 'center' },
   methods: { flexDirection: 'row', gap: 12, marginBottom: 24 },
   methodCard: {

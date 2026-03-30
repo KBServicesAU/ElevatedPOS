@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: nexus
   labels:
-    app.kubernetes.io/part-of: nexus
+    app.kubernetes.io/name: nexus

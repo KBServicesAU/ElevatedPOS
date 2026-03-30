@@ -5,27 +5,27 @@ on:
     branches: [develop]
 
 env:
-  NODE_VERSION: "20"
-  PNPM_VERSION: "9.4.0"
+  NODE_VERSION: '20'
+  PNPM_VERSION: '9'
   AWS_REGION: ap-southeast-2
   ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com
 
 jobs:
   deploy:
-    name: Build & Deploy
+    name: Deploy Staging
     runs-on: ubuntu-latest
     environment: staging
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v3
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "pnpm"
+          cache: 'pnpm'
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -46,8 +46,8 @@ jobs:
 
       - name: Build and push Docker images
         run: |
-          for service in auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations; do
-            docker build -t $ECR_REGISTRY/nexus-$service:${{ github.sha }} -f services/$service/Dockerfile services/$service
+          for service in auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations franchise reporting; do
+            docker build -t $ECR_REGISTRY/nexus-$service:${{ github.sha }} -f services/$service/Dockerfile .
             docker push $ECR_REGISTRY/nexus-$service:${{ github.sha }}
           done
 
@@ -59,3 +59,8 @@ jobs:
             --set global.image.tag=${{ github.sha }} \
             --set global.environment=staging \
             --wait --timeout 10m
+
+      - name: Notify deployment
+        run: |
+          echo "Staging deployment complete for SHA: ${{ github.sha }}"
+          echo "Services: auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations franchise reporting"

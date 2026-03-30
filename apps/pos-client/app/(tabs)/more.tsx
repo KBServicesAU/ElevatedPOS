@@ -35,10 +35,37 @@ const SECTIONS: Section[] = [
     title: 'Operations',
     rows: [
       {
-        id: 'drawer',
-        icon: 'cash-outline',
+        id: 'quicksale',
+        icon: 'flash-outline',
+        iconColor: '#facc15',
+        iconBg: '#422006',
+        label: 'Quick Sale',
+        sublabel: 'Custom amount, misc charges',
+        chevron: true,
+      },
+      {
+        id: 'giftcards',
+        icon: 'gift-outline',
         iconColor: '#4ade80',
         iconBg: '#14532d',
+        label: 'Gift Cards',
+        sublabel: 'Check balance, issue, void',
+        chevron: true,
+      },
+      {
+        id: 'laybys',
+        icon: 'calendar-outline',
+        iconColor: '#a78bfa',
+        iconBg: '#2e1065',
+        label: 'Laybys',
+        sublabel: 'Manage instalment plans',
+        chevron: true,
+      },
+      {
+        id: 'drawer',
+        icon: 'cash-outline',
+        iconColor: '#34d399',
+        iconBg: '#064e3b',
         label: 'Cash Drawer',
         sublabel: 'Open or count drawer',
         chevron: true,
@@ -48,8 +75,17 @@ const SECTIONS: Section[] = [
         icon: 'timer-outline',
         iconColor: '#60a5fa',
         iconBg: '#1e3a5f',
-        label: 'Clock In / Out',
-        sublabel: 'Clocked in since 9:00 AM',
+        label: 'Shift / Time Clock',
+        sublabel: 'Clock in, clock out, breaks',
+        chevron: true,
+      },
+      {
+        id: 'eod',
+        icon: 'document-text-outline',
+        iconColor: '#fbbf24',
+        iconBg: '#451a03',
+        label: 'End of Day Report',
+        sublabel: 'Close register & review sales',
         chevron: true,
       },
     ],
@@ -72,7 +108,7 @@ const SECTIONS: Section[] = [
         iconColor: '#94a3b8',
         iconBg: '#1f2937',
         label: 'Settings',
-        sublabel: 'Device, receipt, tax settings',
+        sublabel: 'Device, receipt, hardware',
         chevron: true,
       },
       {
@@ -128,7 +164,6 @@ export default function MoreScreen() {
 
   const [sound, setSound] = useState(true);
   const [autoReceipt, setAutoReceipt] = useState(false);
-  const [clockedIn, setClockedIn] = useState(true);
 
   const displayName = employee?.name ?? 'Staff';
   const displayRole =
@@ -143,6 +178,15 @@ export default function MoreScreen() {
 
   const handlePress = (id: string) => {
     switch (id) {
+      case 'quicksale':
+        router.push('/quick-sale');
+        break;
+      case 'giftcards':
+        router.push('/gift-cards');
+        break;
+      case 'laybys':
+        router.push('/laybys');
+        break;
       case 'drawer':
         Alert.alert('Cash Drawer', 'Choose an action', [
           { text: 'Open Drawer', onPress: () => Alert.alert('Cash Drawer', 'Drawer opened') },
@@ -151,26 +195,16 @@ export default function MoreScreen() {
         ]);
         break;
       case 'clockin':
-        Alert.alert(
-          clockedIn ? 'Clock Out' : 'Clock In',
-          clockedIn ? 'End your shift at 10:52 AM?' : 'Start your shift now?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: clockedIn ? 'Clock Out' : 'Clock In',
-              onPress: () => {
-                setClockedIn((v) => !v);
-                Alert.alert('Done', clockedIn ? 'Clocked out successfully' : 'Clocked in successfully');
-              },
-            },
-          ]
-        );
+        router.push('/shift');
+        break;
+      case 'eod':
+        router.push('/eod');
         break;
       case 'reports':
         Alert.alert('Reports', 'This would open the back-office dashboard at port 3000.');
         break;
       case 'settings':
-        Alert.alert('Settings', 'Device settings coming soon.');
+        router.push('/settings');
         break;
       case 'discounts':
         Alert.alert('Discounts', 'Discount management coming soon.');
@@ -213,11 +247,9 @@ export default function MoreScreen() {
           <Text style={styles.staffName}>{displayName}</Text>
           <Text style={styles.staffRole}>{displayRole} · Terminal 1</Text>
         </View>
-        <View style={[styles.clockBadge, clockedIn ? styles.clockBadgeIn : styles.clockBadgeOut]}>
-          <View style={[styles.clockDot, { backgroundColor: clockedIn ? '#4ade80' : '#f87171' }]} />
-          <Text style={[styles.clockText, { color: clockedIn ? '#4ade80' : '#f87171' }]}>
-            {clockedIn ? 'On Shift' : 'Off Shift'}
-          </Text>
+        <View style={[styles.clockBadge, styles.clockBadgeIn]}>
+          <View style={[styles.clockDot, { backgroundColor: '#4ade80' }]} />
+          <Text style={[styles.clockText, { color: '#4ade80' }]}>Terminal 1</Text>
         </View>
       </View>
 
@@ -227,10 +259,7 @@ export default function MoreScreen() {
             <Text style={styles.sectionTitle}>{section.title}</Text>
             <View style={styles.sectionCard}>
               {section.rows.map((row, index) => {
-                const sublabel =
-                  row.id === 'clockin'
-                    ? clockedIn ? 'Clocked in since 9:00 AM' : 'Not clocked in'
-                    : row.sublabel;
+                const sublabel = row.sublabel;
                 return (
                   <View key={row.id}>
                     <TouchableOpacity

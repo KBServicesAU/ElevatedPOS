@@ -1,8 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import { Plus, Zap, CheckCircle, XCircle, Play } from 'lucide-react';
-import { useAutomations } from '../../../lib/hooks';
-import type { AutomationRule } from '../../../lib/api';
+import { useAutomations } from '@/lib/hooks';
+import type { AutomationRule } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
+import { useToast } from '@/lib/use-toast';
+import { timeAgo as _timeAgo, getErrorMessage } from '@/lib/formatting';
 
 const triggerColors: Record<string, string> = {
   low_stock: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
@@ -20,21 +24,29 @@ function triggerLabel(trigger: string) {
 }
 
 function timeAgo(iso?: string) {
-  if (!iso) return 'Never';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  return iso ? _timeAgo(iso) : 'Never';
 }
 
 export function AutomationsClient() {
+  const { toast } = useToast();
   const { data, isLoading, isError } = useAutomations();
   const rules = data?.data ?? [];
   const enabled = rules.filter((r) => r.enabled).length;
   const totalRuns = rules.reduce((s, r) => s + (r.runCount ?? 0), 0);
+  const [runningId, setRunningId] = useState<string | null>(null);
+
+  async function handleRun(rule: AutomationRule) {
+    setRunningId(rule.id);
+    try {
+      await apiFetch(`automation-rules/${rule.id}/run`, { method: 'POST' });
+      toast({ title: 'Rule triggered', description: `"${rule.name}" ran successfully.`, variant: 'success' });
+    } catch (err) {
+      const msg = getErrorMessage(err, 'Failed to run rule.');
+      toast({ title: 'Failed to run rule', description: msg, variant: 'destructive' });
+    } finally {
+      setRunningId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -103,8 +115,15 @@ export function AutomationsClient() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700">
-                    <Play className="h-4 w-4" />
+                  <button
+                    onClick={() => handleRun(rule)}
+                    disabled={runningId === rule.id}
+                    title="Run now"
+                    className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50 dark:hover:bg-gray-700"
+                  >
+                    {runningId === rule.id
+                      ? <span className="block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-600" />
+                      : <Play className="h-4 w-4" />}
                   </button>
                   <span
                     className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${

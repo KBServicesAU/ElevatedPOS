@@ -1,6 +1,13 @@
 import {
-  pgTable, uuid, text, varchar, boolean, timestamp, jsonb, integer,
+  pgTable, uuid, text, varchar, boolean, timestamp, jsonb, integer, numeric, pgEnum,
 } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
+
+export const approvalTypeEnum = pgEnum('approval_type', ['discount', 'refund', 'void', 'cash_disbursement', 'stock_adjustment', 'other']);
+export const locationTypeEnum = pgEnum('location_type', ['retail', 'warehouse', 'kitchen']);
+export const approvalStatusEnum = pgEnum('approval_status', ['pending', 'approved', 'denied']);
+export const clockEventTypeEnum = pgEnum('clock_event_type', ['clock_in', 'clock_out', 'break_start', 'break_end']);
+export const shiftStatusEnum = pgEnum('shift_status', ['open', 'closed', 'approved']);
 
 export const organisations = pgTable('organisations', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -12,6 +19,20 @@ export const organisations = pgTable('organisations', {
   plan: varchar('plan', { length: 50 }).notNull().default('starter'),
   planStatus: varchar('plan_status', { length: 50 }).notNull().default('active'),
   whiteLabelThemeId: uuid('white_label_theme_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const locations = pgTable('locations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  address: jsonb('address').default({}),
+  phone: varchar('phone', { length: 50 }),
+  timezone: varchar('timezone', { length: 100 }).notNull().default('Australia/Sydney'),
+  type: locationTypeEnum('type').notNull().default('retail'),
+  settings: jsonb('settings').notNull().default({}),
+  isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -48,6 +69,59 @@ export const employees = pgTable('employees', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const approvalRequests = pgTable('approval_requests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
+  type: approvalTypeEnum('type').notNull(),
+  status: approvalStatusEnum('status').notNull().default('pending'),
+  requestedBy: uuid('requested_by').notNull().references(() => employees.id),
+  approvedBy: uuid('approved_by').references(() => employees.id),
+  locationId: uuid('location_id').notNull(),
+  amount: numeric('amount', { precision: 12, scale: 2 }),
+  metadata: jsonb('metadata').notNull().default({}),
+  reason: text('reason').notNull(),
+  approverNote: text('approver_note'),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const clockEvents = pgTable('clock_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
+  employeeId: uuid('employee_id').notNull().references(() => employees.id),
+  locationId: uuid('location_id').notNull(),
+  registerId: uuid('register_id'),
+  type: clockEventTypeEnum('type').notNull(),
+  timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+  latitude: numeric('latitude', { precision: 10, scale: 7 }),
+  longitude: numeric('longitude', { precision: 10, scale: 7 }),
+  notes: text('notes'),
+  editedBy: uuid('edited_by').references(() => employees.id),
+  editedAt: timestamp('edited_at', { withTimezone: true }),
+  editReason: text('edit_reason'),
+  isManual: boolean('is_manual').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const shifts = pgTable('shifts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
+  employeeId: uuid('employee_id').notNull().references(() => employees.id),
+  locationId: uuid('location_id').notNull(),
+  clockInAt: timestamp('clock_in_at', { withTimezone: true }).notNull(),
+  clockOutAt: timestamp('clock_out_at', { withTimezone: true }),
+  breakMinutes: integer('break_minutes').notNull().default(0),
+  totalMinutes: integer('total_minutes'),
+  status: shiftStatusEnum('status').notNull().default('open'),
+  approvedBy: uuid('approved_by').references(() => employees.id),
+  approvedAt: timestamp('approved_at', { withTimezone: true }),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const refreshTokens = pgTable('refresh_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
   employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'cascade' }),
@@ -59,3 +133,144 @@ export const refreshTokens = pgTable('refresh_tokens', {
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── OAuth 2.0 ─────────────────────────────────────────────────────────────────
+
+export const oauthClients = pgTable('oauth_clients', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').references(() => organisations.id, { onDelete: 'cascade' }), // null = global marketplace app
+  clientId: text('client_id').notNull().unique(),
+  clientSecret: text('client_secret').notNull(), // stored hashed
+  name: text('name').notNull(),
+  redirectUris: jsonb('redirect_uris').notNull().default([]), // string[]
+  scopes: jsonb('scopes').notNull().default([]), // string[]
+  isConfidential: boolean('is_confidential').notNull().default(true),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const oauthAuthCodes = pgTable('oauth_auth_codes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: uuid('client_id').notNull().references(() => oauthClients.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull(),
+  orgId: uuid('org_id').notNull(),
+  scopes: jsonb('scopes').notNull().default([]), // string[]
+  code: text('code').notNull().unique(),
+  redirectUri: text('redirect_uri').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const oauthTokens = pgTable('oauth_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: uuid('client_id').notNull().references(() => oauthClients.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id'), // nullable for client_credentials
+  orgId: uuid('org_id').notNull(),
+  accessToken: text('access_token').notNull().unique(),
+  refreshToken: text('refresh_token').unique(),
+  scopes: jsonb('scopes').notNull().default([]), // string[]
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Relations ─────────────────────────────────────────────────────────────────
+
+export const organisationsRelations = relations(organisations, ({ many }) => ({
+  locations: many(locations),
+  roles: many(roles),
+  employees: many(employees),
+}));
+
+export const locationsRelations = relations(locations, ({ one }) => ({
+  organisation: one(organisations, {
+    fields: [locations.orgId],
+    references: [organisations.id],
+  }),
+}));
+
+export const rolesRelations = relations(roles, ({ one, many }) => ({
+  organisation: one(organisations, {
+    fields: [roles.orgId],
+    references: [organisations.id],
+  }),
+  employees: many(employees),
+}));
+
+export const employeesRelations = relations(employees, ({ one, many }) => ({
+  organisation: one(organisations, {
+    fields: [employees.orgId],
+    references: [organisations.id],
+  }),
+  role: one(roles, {
+    fields: [employees.roleId],
+    references: [roles.id],
+  }),
+  clockEvents: many(clockEvents),
+  shifts: many(shifts),
+  refreshTokens: many(refreshTokens),
+}));
+
+export const clockEventsRelations = relations(clockEvents, ({ one }) => ({
+  organisation: one(organisations, {
+    fields: [clockEvents.orgId],
+    references: [organisations.id],
+  }),
+  employee: one(employees, {
+    fields: [clockEvents.employeeId],
+    references: [employees.id],
+  }),
+}));
+
+export const shiftsRelations = relations(shifts, ({ one }) => ({
+  organisation: one(organisations, {
+    fields: [shifts.orgId],
+    references: [organisations.id],
+  }),
+  employee: one(employees, {
+    fields: [shifts.employeeId],
+    references: [employees.id],
+  }),
+}));
+
+export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
+  employee: one(employees, {
+    fields: [refreshTokens.employeeId],
+    references: [employees.id],
+  }),
+}));
+
+export const approvalRequestsRelations = relations(approvalRequests, ({ one }) => ({
+  organisation: one(organisations, {
+    fields: [approvalRequests.orgId],
+    references: [organisations.id],
+  }),
+  requestedByEmployee: one(employees, {
+    fields: [approvalRequests.requestedBy],
+    references: [employees.id],
+  }),
+}));
+
+export const oauthClientsRelations = relations(oauthClients, ({ one, many }) => ({
+  organisation: one(organisations, {
+    fields: [oauthClients.orgId],
+    references: [organisations.id],
+  }),
+  authCodes: many(oauthAuthCodes),
+  tokens: many(oauthTokens),
+}));
+
+export const oauthAuthCodesRelations = relations(oauthAuthCodes, ({ one }) => ({
+  client: one(oauthClients, {
+    fields: [oauthAuthCodes.clientId],
+    references: [oauthClients.id],
+  }),
+}));
+
+export const oauthTokensRelations = relations(oauthTokens, ({ one }) => ({
+  client: one(oauthClients, {
+    fields: [oauthTokens.clientId],
+    references: [oauthClients.id],
+  }),
+}));

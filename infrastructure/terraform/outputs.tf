@@ -20,6 +20,11 @@ output "rds_endpoint" {
   sensitive   = true
 }
 
+output "rds_port" {
+  description = "RDS PostgreSQL port"
+  value       = aws_db_instance.nexus.port
+}
+
 output "rds_database_name" {
   description = "RDS database name"
   value       = aws_db_instance.nexus.db_name

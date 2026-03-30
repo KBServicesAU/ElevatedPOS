@@ -5,55 +5,80 @@ import * as schema from './schema';
 
 const pool = new Pool({
   connectionString: process.env['DATABASE_URL'] ?? 'postgresql://nexus:nexus_dev@localhost:5432/nexus_auth_dev',
+  ssl: process.env['NODE_TLS_REJECT_UNAUTHORIZED'] === '0' ? { rejectUnauthorized: false } : undefined,
 });
 const db = drizzle(pool, { schema });
 
-const ORG_ID = '00000000-0000-0000-0000-000000000001';
+const ORG_ID  = '00000000-0000-0000-0000-000000000001';
+const ROLE_ID = '00000000-0000-0000-0000-000000000002';
 
 async function seed() {
   console.log('🌱 Seeding auth service…');
 
-  const passwordHash = await bcrypt.hash('nexus2024!', 12);
-  const pinHash = await bcrypt.hash('1234', 10);
+  // ── Organisation ──────────────────────────────────────────────────────────
+  await db.insert(schema.organisations).values({
+    id: ORG_ID,
+    name: 'NEXUS Demo Store',
+    slug: 'nexus-demo',
+    country: 'AU',
+    currency: 'AUD',
+    timezone: 'Australia/Sydney',
+    plan: 'starter',
+    planStatus: 'active',
+  }).onConflictDoNothing();
+  console.log('  ✓ Organisation: NEXUS Demo Store');
 
-  // Owner account
+  // ── Owner role ────────────────────────────────────────────────────────────
+  await db.insert(schema.roles).values({
+    id: ROLE_ID,
+    orgId: ORG_ID,
+    name: 'Owner',
+    description: 'Full access to all features',
+    isSystemRole: true,
+    permissions: { '*': true },
+  }).onConflictDoNothing();
+  console.log('  ✓ Role: Owner');
+
+  // ── Employees ─────────────────────────────────────────────────────────────
+  const ownerPassHash = await bcrypt.hash('nexus2024!', 12);
+  const ownerPin      = await bcrypt.hash('1234', 10);
+
   await db.insert(schema.employees).values({
     orgId: ORG_ID,
-    name: 'Store Owner',
+    firstName: 'Store',
+    lastName: 'Owner',
     email: 'owner@nexuspos.dev',
-    passwordHash,
-    pinHash,
-    role: 'owner',
+    passwordHash: ownerPassHash,
+    pin: ownerPin,
+    roleId: ROLE_ID,
+    locationIds: [],
+    employmentType: 'full_time',
     isActive: true,
   }).onConflictDoNothing();
-  console.log('  ✓ Employee: owner@nexuspos.dev / password: nexus2024! / PIN: 1234');
+  console.log('  ✓ Employee: owner@nexuspos.dev  |  password: nexus2024!  |  PIN: 1234');
 
-  // Manager
+  const managerPassHash = await bcrypt.hash('manager123!', 12);
+  const managerPin      = await bcrypt.hash('5678', 10);
+
   await db.insert(schema.employees).values({
     orgId: ORG_ID,
-    name: 'Jane Manager',
+    firstName: 'Jane',
+    lastName: 'Manager',
     email: 'manager@nexuspos.dev',
-    passwordHash: await bcrypt.hash('manager123!', 12),
-    pinHash: await bcrypt.hash('5678', 10),
-    role: 'manager',
+    passwordHash: managerPassHash,
+    pin: managerPin,
+    roleId: ROLE_ID,
+    locationIds: [],
+    employmentType: 'full_time',
     isActive: true,
   }).onConflictDoNothing();
-  console.log('  ✓ Employee: manager@nexuspos.dev / PIN: 5678');
+  console.log('  ✓ Employee: manager@nexuspos.dev  |  password: manager123!  |  PIN: 5678');
 
-  // Cashier
-  await db.insert(schema.employees).values({
-    orgId: ORG_ID,
-    name: 'Alex Cashier',
-    email: 'cashier@nexuspos.dev',
-    passwordHash: await bcrypt.hash('cashier123!', 12),
-    pinHash: await bcrypt.hash('9999', 10),
-    role: 'cashier',
-    isActive: true,
-  }).onConflictDoNothing();
-  console.log('  ✓ Employee: cashier@nexuspos.dev / PIN: 9999');
-
-  console.log('✅ Auth seed complete');
+  console.log('\n✅ Auth seed complete');
   await pool.end();
 }
 
-seed().catch((err) => { console.error(err); process.exit(1); });
+seed().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

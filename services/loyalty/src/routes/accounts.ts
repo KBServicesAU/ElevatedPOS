@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, lte, gte } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 
 async function recalculateTier(accountId: string, orgId: string, lifetimePoints: number) {
@@ -137,6 +137,9 @@ export async function accountRoutes(app: FastifyInstance) {
         points: z.number().int().positive(),
         orderId: z.string().uuid().optional(),
         idempotencyKey: z.string().min(1).max(64),
+        // Optional context for multiplier matching
+        productId: z.string().optional(),
+        categoryId: z.string().optional(),
       })
       .safeParse(request.body);
     if (!parsed.success) {
@@ -171,8 +174,51 @@ export async function accountRoutes(app: FastifyInstance) {
       });
     }
 
-    const newPoints = account.points + parsed.data.points;
-    const newLifetimePoints = account.lifetimePoints + parsed.data.points;
+    // ── Apply active multiplier events ─────────────────────────────────────────
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
+    const todayDow = today.getDay(); // 0 = Sunday
+
+    const activeMultiplierEvents = await db.query.pointsMultiplierEvents.findMany({
+      where: and(
+        eq(schema.pointsMultiplierEvents.orgId, orgId),
+        eq(schema.pointsMultiplierEvents.isActive, true),
+        lte(schema.pointsMultiplierEvents.startDate, todayStr),
+        gte(schema.pointsMultiplierEvents.endDate, todayStr),
+      ),
+    });
+
+    // Find matching events (day of week + product/category)
+    const matchingMultipliers = activeMultiplierEvents
+      .filter((evt) => {
+        const dows = (evt.daysOfWeek ?? []) as number[];
+        if (dows.length > 0 && !dows.includes(todayDow)) return false;
+
+        const productIds = (evt.productIds ?? null) as string[] | null;
+        const categoryIds = (evt.categoryIds ?? null) as string[] | null;
+
+        // If event scopes to specific products or categories, check match
+        const hasProductScope = productIds !== null && productIds.length > 0;
+        const hasCategoryScope = categoryIds !== null && categoryIds.length > 0;
+
+        if (!hasProductScope && !hasCategoryScope) return true; // applies to all
+        if (hasProductScope && parsed.data.productId && productIds!.includes(parsed.data.productId)) return true;
+        if (hasCategoryScope && parsed.data.categoryId && categoryIds!.includes(parsed.data.categoryId)) return true;
+        return false;
+      })
+      .map((evt) => Number(evt.multiplier));
+
+    // Use the highest matching multiplier, fallback to 1
+    const campaignMultiplier = matchingMultipliers.length > 0
+      ? Math.max(...matchingMultipliers)
+      : 1;
+
+    const basePoints = parsed.data.points;
+    const finalPoints = Math.floor(basePoints * campaignMultiplier);
+    // ──────────────────────────────────────────────────────────────────────────
+
+    const newPoints = account.points + finalPoints;
+    const newLifetimePoints = account.lifetimePoints + finalPoints;
 
     await db
       .update(schema.loyaltyAccounts)
@@ -186,7 +232,7 @@ export async function accountRoutes(app: FastifyInstance) {
         accountId,
         orderId: parsed.data.orderId ?? null,
         type: 'earn',
-        points: parsed.data.points,
+        points: finalPoints,
         idempotencyKey: parsed.data.idempotencyKey,
       })
       .returning();
@@ -194,7 +240,15 @@ export async function accountRoutes(app: FastifyInstance) {
     // Recalculate tier based on lifetime points
     await recalculateTier(accountId, orgId, newLifetimePoints);
 
-    return reply.status(200).send({ data: { transaction: tx, newBalance: newPoints } });
+    return reply.status(200).send({
+      data: {
+        transaction: tx,
+        newBalance: newPoints,
+        basePoints,
+        campaignMultiplier,
+        finalPoints,
+      },
+    });
   });
 
   // POST /accounts/:accountId/redeem — redeem points

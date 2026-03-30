@@ -27,3 +27,13 @@ export type { ToastVariant } from './components/Toast.js';
 export { CurrencyDisplay } from './components/CurrencyDisplay.js';
 
 export { EmptyState } from './components/EmptyState.js';
+
+export { Input } from './components/Input.js';
+
+export { Select } from './components/Select.js';
+export type { SelectOption } from './components/Select.js';
+
+export { Tabs } from './components/Tabs.js';
+export type { Tab } from './components/Tabs.js';
+
+export { StatCard } from './components/StatCard.js';

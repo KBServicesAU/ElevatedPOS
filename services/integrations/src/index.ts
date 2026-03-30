@@ -6,6 +6,8 @@ import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { appRoutes } from './routes/apps';
 import { webhookRoutes } from './routes/webhooks';
+import { connectorRoutes } from './routes/connectors';
+import { startRetryPoller } from './lib/webhookDelivery';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -42,12 +44,17 @@ async function start() {
 
   await app.register(appRoutes, { prefix: '/api/v1/integrations/apps' });
   await app.register(webhookRoutes, { prefix: '/api/v1/integrations/webhooks' });
+  await app.register(connectorRoutes, { prefix: '/api/v1/connectors' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'integrations' }));
 
   const port = Number(process.env['PORT'] ?? 4010);
   await app.listen({ port, host: '0.0.0.0' });
   app.log.info(`Integrations service listening on port ${port}`);
+
+  // Start webhook retry poller (exponential backoff for failed deliveries)
+  const stopRetryPoller = startRetryPoller();
+  app.addHook('onClose', async () => stopRetryPoller());
 }
 
 start().catch((err) => {

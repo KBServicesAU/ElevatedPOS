@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhooks
+  namespace: nexus
+  labels:
+    app: webhooks
+    app.kubernetes.io/part-of: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webhooks
+  template:
+    metadata:
+      labels:
+        app: webhooks
+    spec:
+      serviceAccountName: nexus-service
+      containers:
+        - name: webhooks
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/webhooks:latest
+          ports:
+            - containerPort: 4015
+          envFrom:
+            - configMapRef:
+                name: nexus-config
+            - secretRef:
+                name: nexus-secrets
+          env:
+            - name: PORT
+              value: "4015"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4015
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4015
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhooks
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: webhooks
+  ports:
+    - port: 4015
+      targetPort: 4015
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: webhooks
+  namespace: nexus
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: webhooks
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

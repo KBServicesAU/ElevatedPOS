@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
+import { sendEmail } from '../lib/channels/email.js';
+import { sendSms } from '../lib/channels/sms.js';
+import { sendPush } from '../lib/channels/push.js';
 
 const CHANNELS = ['email', 'sms', 'push'] as const;
 
@@ -24,7 +27,7 @@ const createTemplateSchema = z.object({
 export async function notificationRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
 
-  // POST /notifications/send — send a notification
+  // POST /notifications/send — send a notification via the appropriate channel
   app.post('/send', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const parsed = sendSchema.safeParse(request.body);
@@ -37,19 +40,75 @@ export async function notificationRoutes(app: FastifyInstance) {
       });
     }
 
+    const { channel, recipient, subject, body: messageBody, templateId } = parsed.data;
+
+    // Create log entry in 'queued' state before dispatching
     const now = new Date();
     const [log] = await db
       .insert(schema.notificationLogs)
       .values({
         orgId,
-        templateId: parsed.data.templateId ?? null,
-        channel: parsed.data.channel,
-        recipient: parsed.data.recipient,
-        subject: parsed.data.subject ?? null,
-        status: 'sent',
-        sentAt: now,
+        templateId: templateId ?? null,
+        channel,
+        recipient,
+        subject: subject ?? null,
+        status: 'queued',
       })
       .returning();
+
+    // Dispatch via the appropriate channel
+    let dispatchSuccess = false;
+    let dispatchError: string | undefined;
+
+    try {
+      if (channel === 'email') {
+        const result = await sendEmail({
+          to: recipient,
+          subject: subject ?? '(no subject)',
+          htmlBody: messageBody,
+          textBody: messageBody,
+          orgId,
+        });
+        dispatchSuccess = result.success;
+        dispatchError = result.error;
+      } else if (channel === 'sms') {
+        const result = await sendSms({ to: recipient, body: messageBody, orgId });
+        dispatchSuccess = result.success;
+        dispatchError = result.error;
+      } else if (channel === 'push') {
+        // For push, the recipient field is treated as the device token
+        const result = await sendPush({
+          deviceToken: recipient,
+          title: subject ?? 'Notification',
+          body: messageBody,
+          orgId,
+        });
+        dispatchSuccess = result.success;
+        dispatchError = result.error;
+      }
+    } catch (err) {
+      dispatchSuccess = false;
+      dispatchError = err instanceof Error ? err.message : String(err);
+    }
+
+    // Update log status based on dispatch result
+    const finalStatus = dispatchSuccess ? 'sent' : 'failed';
+    await db
+      .update(schema.notificationLogs)
+      .set({
+        status: finalStatus,
+        sentAt: dispatchSuccess ? now : null,
+        errorMessage: dispatchError ?? null,
+      })
+      .where(eq(schema.notificationLogs.id, log.id));
+
+    if (!dispatchSuccess) {
+      return reply.status(502).send({
+        messageId: log.id,
+        status: 'failed',
+        error: dispatchError ?? 'Dispatch failed',
+      });
+    }
 
     return reply.status(200).send({
       messageId: log.id,

@@ -8,6 +8,7 @@ import {
   verifyPin,
   generateRefreshToken,
   hashToken,
+  addToBlacklist,
 } from '../lib/tokens';
 
 const loginSchema = z.object({
@@ -287,6 +288,12 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/logout', {
     onRequest: [app.authenticate],
   }, async (request, reply) => {
+    // Blacklist the current access token's JTI so it can't be reused
+    const jwtPayload = request.user as { jti?: string; exp?: number };
+    if (jwtPayload.jti && jwtPayload.exp) {
+      await addToBlacklist(jwtPayload.jti, jwtPayload.exp);
+    }
+
     const body = refreshSchema.safeParse(request.body);
     if (body.success) {
       const tokenHash = hashToken(body.data.refreshToken);

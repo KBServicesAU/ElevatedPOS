@@ -5,6 +5,9 @@ import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { campaignRoutes } from './routes/campaigns.js';
+import { segmentRoutes } from './routes/segments.js';
+import { templateRoutes } from './routes/templates.js';
+import { startConsumers } from './consumers/index.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -37,12 +40,17 @@ async function start() {
   );
 
   await app.register(campaignRoutes, { prefix: '/api/v1/campaigns' });
+  await app.register(segmentRoutes, { prefix: '/api/v1/segments' });
+  await app.register(templateRoutes, { prefix: '/api/v1/templates' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'campaigns' }));
 
   const port = Number(process.env['PORT'] ?? 4008);
   await app.listen({ port, host: '0.0.0.0' });
   app.log.info(`Campaigns service listening on port ${port}`);
+
+  // Start Kafka consumers after HTTP server is up
+  await startConsumers();
 }
 
 start().catch((err) => {

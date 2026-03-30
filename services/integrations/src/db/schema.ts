@@ -33,5 +33,8 @@ export const webhookDeliveries = pgTable('webhook_deliveries', {
   statusCode: integer('status_code'),
   response: text('response'),
   success: boolean('success').notNull().default(false),
+  durationMs: integer('duration_ms'),
+  retryCount: integer('retry_count').notNull().default(0),
+  nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
   attemptedAt: timestamp('attempted_at', { withTimezone: true }).notNull().defaultNow(),
 });

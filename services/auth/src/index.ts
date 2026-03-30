@@ -4,10 +4,17 @@ import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
+import { getRedisClient } from '@nexus/config';
+import { isBlacklisted } from './lib/tokens';
 import { db } from './db';
 import { authRoutes } from './routes/auth';
 import { employeeRoutes } from './routes/employees';
 import { roleRoutes } from './routes/roles';
+import { approvalRoutes } from './routes/approvals';
+import { timeClockRoutes } from './routes/timeClock';
+import { oauthRoutes } from './routes/oauth';
+import { locationRoutes } from './routes/locations';
+import { payrollRoutes } from './routes/payroll';
 
 const app = Fastify({
   logger: {
@@ -23,9 +30,13 @@ async function start() {
     origin: process.env['ALLOWED_ORIGINS']?.split(',') ?? ['http://localhost:3000'],
     credentials: true,
   });
+  const redis = getRedisClient();
   await app.register(rateLimit, {
-    max: 200,
-    timeWindow: '1 minute',
+    max: 100,
+    timeWindow: '15 minutes',
+    redis: redis ?? undefined,
+    keyGenerator: (req) => req.ip,
+    errorResponseBuilder: () => ({ statusCode: 429, error: 'Too Many Requests', message: 'Rate limit exceeded' }),
   });
   await app.register(sensible);
   await app.register(jwt, {
@@ -39,9 +50,39 @@ async function start() {
     },
   });
 
+  app.decorate('authenticate', async (
+    request: Parameters<typeof app.authenticate>[0],
+    reply: Parameters<typeof app.authenticate>[1],
+  ) => {
+    try {
+      await request.jwtVerify();
+      const payload = request.user as { jti?: string };
+      if (payload.jti && await isBlacklisted(payload.jti)) {
+        return reply.status(401).send({
+          type: 'https://nexus.app/errors/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          detail: 'Token has been revoked.',
+        });
+      }
+    } catch {
+      return reply.status(401).send({
+        type: 'https://nexus.app/errors/unauthorized',
+        title: 'Unauthorized',
+        status: 401,
+      });
+    }
+  });
+
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
   await app.register(employeeRoutes, { prefix: '/api/v1/employees' });
   await app.register(roleRoutes, { prefix: '/api/v1/roles' });
+  await app.register(approvalRoutes, { prefix: '/api/v1/approvals' });
+  await app.register(timeClockRoutes, { prefix: '/api/v1/time-clock' });
+  // OAuth 2.0 — no JWT authenticate hook; uses its own client_id/secret auth
+  await app.register(oauthRoutes, { prefix: '/api/v1/oauth' });
+  await app.register(locationRoutes, { prefix: '/api/v1/locations' });
+  await app.register(payrollRoutes, { prefix: '/api/v1/payroll' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'auth', timestamp: new Date().toISOString() }));
 

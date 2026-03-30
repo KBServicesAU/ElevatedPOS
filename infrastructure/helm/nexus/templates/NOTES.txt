@@ -1,0 +1,13 @@
+NEXUS has been deployed!
+
+Access the backoffice at: https://{{ .Values.ingress.host }}
+
+Run 'kubectl get pods -n {{ .Values.global.namespace }}' to check pod status.
+
+Run 'kubectl get svc -n {{ .Values.global.namespace }}' to list all services.
+
+To check HPA status:
+  kubectl get hpa -n {{ .Values.global.namespace }}
+
+To view logs for a service (e.g. auth):
+  kubectl logs -l app=auth -n {{ .Values.global.namespace }} --tail=100

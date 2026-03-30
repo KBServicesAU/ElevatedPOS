@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useAuthStore } from '../store/auth';
+import { useOfflineSync } from '../hooks/useOfflineSync';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -21,6 +22,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  // Hydrate persisted auth from AsyncStorage on first mount
+  useEffect(() => {
+    useAuthStore.getState()._hydrate();
+  }, []);
+
+  // Start offline sync listener (initializes SQLite DB + NetInfo subscription)
+  useOfflineSync();
+
   return (
     <>
       <AuthGuard>

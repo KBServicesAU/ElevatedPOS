@@ -15,7 +15,7 @@ export class ApiError extends Error {
   }
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api/proxy/${path}`, {
     ...init,
     headers: {
@@ -25,6 +25,12 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
+    // Expired / invalid session — boot user to login
+    if (res.status === 401 && typeof window !== 'undefined') {
+      const next = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = `/login?next=${next}`;
+    }
+
     let message = `HTTP ${res.status}`;
     try {
       const body = await res.json();
@@ -54,8 +60,21 @@ export interface Order {
   discountTotal: number;
   total: number;
   itemCount: number;
+  paymentMethod?: string;
   createdAt: string;
   completedAt?: string;
+}
+
+export interface OrderLineItem {
+  id: string;
+  productId: string;
+  productName: string;
+  sku?: string;
+  qty: number;
+  unitPrice: number;
+  discountTotal: number;
+  taxTotal: number;
+  lineTotal: number;
 }
 
 export interface OrdersResponse {
@@ -69,6 +88,8 @@ export function fetchOrders(params?: {
   search?: string;
   limit?: number;
   cursor?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }): Promise<OrdersResponse> {
   const qs = new URLSearchParams();
   if (params?.status) qs.set('status', params.status);
@@ -76,6 +97,8 @@ export function fetchOrders(params?: {
   if (params?.search) qs.set('search', params.search);
   if (params?.limit) qs.set('limit', String(params.limit));
   if (params?.cursor) qs.set('cursor', params.cursor);
+  if (params?.dateFrom) qs.set('dateFrom', params.dateFrom);
+  if (params?.dateTo) qs.set('dateTo', params.dateTo);
   return apiFetch<OrdersResponse>(`orders?${qs}`);
 }
 
@@ -204,11 +227,14 @@ export function fetchPurchaseOrders(): Promise<{ data: PurchaseOrder[] }> {
 
 export interface Employee {
   id: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
-  role: string;
-  clockedIn: boolean;
-  status: string;
+  roleId?: string;
+  role?: { id: string; name: string } | string;
+  clockedIn?: boolean;
+  isActive?: boolean;
+  status?: string;
   createdAt: string;
 }
 
@@ -293,4 +319,267 @@ export interface IntegrationApp {
 
 export function fetchIntegrationApps(): Promise<{ data: IntegrationApp[] }> {
   return apiFetch<{ data: IntegrationApp[] }>('integration-apps');
+}
+
+// ─── AI ───────────────────────────────────────────────────────────────────────
+
+export interface StockAnomalyItem {
+  productId: string;
+  name: string;
+  sku: string;
+  currentStock: number;
+  avgDailySales: number;
+  daysOfStock: number;
+  lastMovementDays: number;
+}
+
+export interface StockAnomaly {
+  productId: string;
+  name: string;
+  type: 'spike' | 'stagnant' | 'negative' | 'overstock';
+  severity: 'low' | 'medium' | 'high';
+  message: string;
+  recommendation: string;
+}
+
+export interface StockAnomalyResponse {
+  anomalies: StockAnomaly[];
+  summary: string;
+}
+
+export function fetchStockAnomalies(payload: {
+  orgId: string;
+  locationId?: string;
+  lookbackDays?: number;
+  items: StockAnomalyItem[];
+}): Promise<StockAnomalyResponse> {
+  return apiFetch<StockAnomalyResponse>('ai/stock-anomaly', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface ChurnRiskCustomer {
+  customerId: string;
+  name: string;
+  daysSinceLastVisit: number;
+  visitCount30d: number;
+  visitCount90d: number;
+  avgOrderValue: number;
+  lifetimeValue: number;
+  tier: string;
+}
+
+export interface ChurnRiskScore {
+  customerId: string;
+  name: string;
+  churnRisk: number;
+  riskLevel: 'high' | 'medium' | 'low';
+  primaryFactor: string;
+  recommendation: string;
+}
+
+export interface ChurnRiskResponse {
+  scores: ChurnRiskScore[];
+  highRiskCount: number;
+  summary: string;
+}
+
+export function fetchChurnRisk(payload: {
+  customers: ChurnRiskCustomer[];
+}): Promise<ChurnRiskResponse> {
+  return apiFetch<ChurnRiskResponse>('ai/churn-risk', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface LaborShift {
+  date: string;
+  dayOfWeek: string;
+  staffCount: number;
+  revenue: number;
+  transactions: number;
+  avgServiceTime: number;
+}
+
+export interface LaborInsight {
+  date: string;
+  issue: 'overstaffed' | 'understaffed' | 'optimal';
+  actualStaff: number;
+  recommendedStaff: number;
+  revenuePerStaff: number;
+  message: string;
+}
+
+export interface LaborNextWeekRec {
+  date: string;
+  recommendedStaff: number;
+  reasoning: string;
+}
+
+export interface LaborOptimizationResponse {
+  insights: LaborInsight[];
+  nextWeekRecommendations: LaborNextWeekRec[];
+  summary: string;
+}
+
+export function fetchLaborOptimization(payload: {
+  shifts: LaborShift[];
+  forecast?: { nextWeek: Array<{ date: string; dayOfWeek: string; predictedRevenue: number }> };
+}): Promise<LaborOptimizationResponse> {
+  return apiFetch<LaborOptimizationResponse>('ai/labor-optimization', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface MenuEngineeringItem {
+  productId: string;
+  name: string;
+  category: string;
+  unitsSold: number;
+  revenue: number;
+  costPrice: number;
+  salePrice: number;
+  margin: number;
+}
+
+export interface MenuAnalysisEntry {
+  productId: string;
+  name: string;
+  quadrant: 'star' | 'plowhorse' | 'puzzle' | 'dog';
+  popularityScore: number;
+  marginScore: number;
+  recommendation: string;
+  action: 'promote' | 'reprice' | 'remove' | 'bundle';
+}
+
+export interface MenuEngineeringResponse {
+  analysis: MenuAnalysisEntry[];
+  stars: string[];
+  plowhorses: string[];
+  puzzles: string[];
+  dogs: string[];
+  summary: string;
+}
+
+export function fetchMenuEngineering(payload: {
+  items: MenuEngineeringItem[];
+  period: string;
+}): Promise<MenuEngineeringResponse> {
+  return apiFetch<MenuEngineeringResponse>('ai/menu-engineering', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface ReorderItem {
+  productId: string;
+  name: string;
+  sku: string;
+  supplierId: string;
+  supplierName: string;
+  currentStock: number;
+  avgDailySales: number;
+  leadTimeDays: number;
+  reorderPoint: number;
+  reorderQty: number;
+  unitCost: number;
+}
+
+export interface ReorderSuggestion {
+  productId: string;
+  name: string;
+  supplierId: string;
+  supplierName: string;
+  suggestedQty: number;
+  urgency: 'urgent' | 'soon' | 'optional';
+  daysUntilStockout: number;
+  estimatedCost: number;
+  reasoning: string;
+}
+
+export interface ReorderSuggestionsResponse {
+  suggestions: ReorderSuggestion[];
+  totalEstimatedCost: number;
+  urgentCount: number;
+  summary: string;
+}
+
+export function fetchReorderSuggestions(payload: {
+  items: ReorderItem[];
+}): Promise<ReorderSuggestionsResponse> {
+  return apiFetch<ReorderSuggestionsResponse>('ai/reorder-suggestions', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+// ─── Reporting / Analytics ────────────────────────────────────────────────────
+
+export interface SalesSummary {
+  totalRevenue: number;
+  totalOrders: number;
+  totalDiscounts: number;
+  totalTax: number;
+  avgOrderValue: number;
+}
+
+export interface TopProduct {
+  productId: string;
+  productName: string;
+  totalQuantity: number;
+  totalRevenue: number;
+  orderCount: number;
+}
+
+export interface RevenueByHour {
+  hour: number;
+  totalRevenue: number;
+  orderCount: number;
+}
+
+export interface RevenueByChannel {
+  channel: string;
+  totalRevenue: number;
+  orderCount: number;
+  avgOrderValue: number;
+}
+
+export function fetchSalesSummary(params: {
+  orgId: string;
+  from: string;
+  to: string;
+}): Promise<{ data: SalesSummary }> {
+  const qs = new URLSearchParams({ orgId: params.orgId, from: params.from, to: params.to });
+  return apiFetch<{ data: SalesSummary }>(`reports/sales?${qs}`);
+}
+
+export function fetchTopProducts(params: {
+  orgId: string;
+  from: string;
+  to: string;
+  limit?: number;
+}): Promise<{ data: TopProduct[] }> {
+  const qs = new URLSearchParams({ orgId: params.orgId, from: params.from, to: params.to });
+  if (params.limit) qs.set('limit', String(params.limit));
+  return apiFetch<{ data: TopProduct[] }>(`reports/products?${qs}`);
+}
+
+export function fetchRevenueByHour(params: {
+  orgId: string;
+  date: string;
+}): Promise<{ data: RevenueByHour[] }> {
+  const qs = new URLSearchParams({ orgId: params.orgId, date: params.date });
+  return apiFetch<{ data: RevenueByHour[] }>(`reports/revenue-by-hour?${qs}`);
+}
+
+export function fetchRevenueByChannel(params: {
+  orgId: string;
+  from: string;
+  to: string;
+}): Promise<{ data: RevenueByChannel[] }> {
+  const qs = new URLSearchParams({ orgId: params.orgId, from: params.from, to: params.to });
+  return apiFetch<{ data: RevenueByChannel[] }>(`reports/revenue-by-channel?${qs}`);
 }

@@ -1,6 +1,14 @@
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
 
 export default function HomePage() {
+  // Redirect authenticated users straight to the dashboard
+  const token = cookies().get('nexus_token')?.value;
+  if (token) {
+    redirect('/dashboard');
+  }
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-nexus-950 via-nexus-900 to-nexus-800 p-8">
       <div className="mb-12 text-center">
@@ -18,13 +26,12 @@ export default function HomePage() {
         {[
           { href: '/login', label: 'Sign In', icon: '🔐', desc: 'Access your dashboard' },
           { href: '/dashboard', label: 'Dashboard', icon: '📊', desc: 'Real-time overview' },
-          { href: '/pos', label: 'POS Terminal', icon: '🛒', desc: 'Sell screen' },
-          { href: '/catalog', label: 'Catalog', icon: '📦', desc: 'Products & categories' },
-          { href: '/inventory', label: 'Inventory', icon: '🏭', desc: 'Stock management' },
-          { href: '/customers', label: 'Customers', icon: '👥', desc: 'CRM & loyalty' },
-          { href: '/reports', label: 'Reports', icon: '📈', desc: 'Analytics & insights' },
-          { href: '/staff', label: 'Staff', icon: '👤', desc: 'Employees & shifts' },
-          { href: '/settings', label: 'Settings', icon: '⚙️', desc: 'Configuration' },
+          { href: '/dashboard/catalog', label: 'Catalog', icon: '📦', desc: 'Products & categories' },
+          { href: '/dashboard/inventory', label: 'Inventory', icon: '🏭', desc: 'Stock management' },
+          { href: '/dashboard/customers', label: 'Customers', icon: '👥', desc: 'CRM & loyalty' },
+          { href: '/dashboard/reports', label: 'Reports', icon: '📈', desc: 'Analytics & insights' },
+          { href: '/dashboard/staff', label: 'Staff', icon: '👤', desc: 'Employees & shifts' },
+          { href: '/dashboard/settings', label: 'Settings', icon: '⚙️', desc: 'Configuration' },
         ].map((item) => (
           <Link
             key={item.href}
@@ -39,7 +46,7 @@ export default function HomePage() {
       </div>
 
       <p className="mt-12 text-xs text-nexus-600">
-        NEXUS v0.1.0 · Built with Next.js 14 · © 2025
+        NEXUS v1.0 · Built with Next.js 14 · © {new Date().getFullYear()}
       </p>
     </main>
   );

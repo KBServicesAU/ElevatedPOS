@@ -45,6 +45,11 @@ export const automationExecutions = pgTable('automation_executions', {
   triggerPayload: jsonb('trigger_payload').notNull().default({}),
   status: automationExecutionStatusEnum('status').notNull().default('pending'),
   errorMessage: text('error_message'),
+  // Temporal workflow tracking
+  workflowId: text('workflow_id'),
+  runId: text('run_id'),
+  output: text('output'),
+  startedAt: timestamp('started_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
 });

@@ -1,0 +1,1133 @@
+# ─── auth ─────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth
+  namespace: nexus
+  labels:
+    app: auth
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth
+  template:
+    metadata:
+      labels:
+        app: auth
+    spec:
+      containers:
+        - name: auth
+          image: nexus-auth:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4001
+          env:
+            - name: PORT
+              value: "4001"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4001
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: auth
+  ports:
+    - port: 4001
+      targetPort: 4001
+---
+# ─── catalog ──────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+  namespace: nexus
+  labels:
+    app: catalog
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalog
+  template:
+    metadata:
+      labels:
+        app: catalog
+    spec:
+      containers:
+        - name: catalog
+          image: nexus-catalog:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4002
+          env:
+            - name: PORT
+              value: "4002"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4002
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4002
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: catalog
+  ports:
+    - port: 4002
+      targetPort: 4002
+---
+# ─── inventory ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+  namespace: nexus
+  labels:
+    app: inventory
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inventory
+  template:
+    metadata:
+      labels:
+        app: inventory
+    spec:
+      containers:
+        - name: inventory
+          image: nexus-inventory:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4003
+          env:
+            - name: PORT
+              value: "4003"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4003
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4003
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: inventory
+  ports:
+    - port: 4003
+      targetPort: 4003
+---
+# ─── orders ───────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+  namespace: nexus
+  labels:
+    app: orders
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: orders
+  template:
+    metadata:
+      labels:
+        app: orders
+    spec:
+      containers:
+        - name: orders
+          image: nexus-orders:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4004
+          env:
+            - name: PORT
+              value: "4004"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4004
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4004
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: orders
+  ports:
+    - port: 4004
+      targetPort: 4004
+---
+# ─── payments ─────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments
+  namespace: nexus
+  labels:
+    app: payments
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payments
+  template:
+    metadata:
+      labels:
+        app: payments
+    spec:
+      containers:
+        - name: payments
+          image: nexus-payments:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4005
+          env:
+            - name: PORT
+              value: "4005"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4005
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4005
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: payments
+  ports:
+    - port: 4005
+      targetPort: 4005
+---
+# ─── customers ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customers
+  namespace: nexus
+  labels:
+    app: customers
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: customers
+  template:
+    metadata:
+      labels:
+        app: customers
+    spec:
+      containers:
+        - name: customers
+          image: nexus-customers:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4006
+          env:
+            - name: PORT
+              value: "4006"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4006
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4006
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customers
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: customers
+  ports:
+    - port: 4006
+      targetPort: 4006
+---
+# ─── loyalty ──────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loyalty
+  namespace: nexus
+  labels:
+    app: loyalty
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: loyalty
+  template:
+    metadata:
+      labels:
+        app: loyalty
+    spec:
+      containers:
+        - name: loyalty
+          image: nexus-loyalty:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4007
+          env:
+            - name: PORT
+              value: "4007"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4007
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4007
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loyalty
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: loyalty
+  ports:
+    - port: 4007
+      targetPort: 4007
+---
+# ─── campaigns ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: campaigns
+  namespace: nexus
+  labels:
+    app: campaigns
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: campaigns
+  template:
+    metadata:
+      labels:
+        app: campaigns
+    spec:
+      containers:
+        - name: campaigns
+          image: nexus-campaigns:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4008
+          env:
+            - name: PORT
+              value: "4008"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4008
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4008
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: campaigns
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: campaigns
+  ports:
+    - port: 4008
+      targetPort: 4008
+---
+# ─── notifications ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifications
+  namespace: nexus
+  labels:
+    app: notifications
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notifications
+  template:
+    metadata:
+      labels:
+        app: notifications
+    spec:
+      containers:
+        - name: notifications
+          image: nexus-notifications:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4009
+          env:
+            - name: PORT
+              value: "4009"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4009
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4009
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notifications
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: notifications
+  ports:
+    - port: 4009
+      targetPort: 4009
+---
+# ─── integrations ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: integrations
+  namespace: nexus
+  labels:
+    app: integrations
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: integrations
+  template:
+    metadata:
+      labels:
+        app: integrations
+    spec:
+      containers:
+        - name: integrations
+          image: nexus-integrations:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4010
+          env:
+            - name: PORT
+              value: "4010"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4010
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4010
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: integrations
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: integrations
+  ports:
+    - port: 4010
+      targetPort: 4010
+---
+# ─── automations ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: automations
+  namespace: nexus
+  labels:
+    app: automations
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: automations
+  template:
+    metadata:
+      labels:
+        app: automations
+    spec:
+      containers:
+        - name: automations
+          image: nexus-automations:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4011
+          env:
+            - name: PORT
+              value: "4011"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4011
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4011
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: automations
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: automations
+  ports:
+    - port: 4011
+      targetPort: 4011
+---
+# ─── ai ───────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai
+  namespace: nexus
+  labels:
+    app: ai
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai
+  template:
+    metadata:
+      labels:
+        app: ai
+    spec:
+      containers:
+        - name: ai
+          image: nexus-ai:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4012
+          env:
+            - name: PORT
+              value: "4012"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4012
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4012
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: ai
+  ports:
+    - port: 4012
+      targetPort: 4012
+---
+# ─── franchise ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: franchise
+  namespace: nexus
+  labels:
+    app: franchise
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: franchise
+  template:
+    metadata:
+      labels:
+        app: franchise
+    spec:
+      containers:
+        - name: franchise
+          image: nexus-franchise:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4013
+          env:
+            - name: PORT
+              value: "4013"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4013
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4013
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: franchise
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: franchise
+  ports:
+    - port: 4013
+      targetPort: 4013
+---
+# ─── reporting ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reporting
+  namespace: nexus
+  labels:
+    app: reporting
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: reporting
+  template:
+    metadata:
+      labels:
+        app: reporting
+    spec:
+      containers:
+        - name: reporting
+          image: nexus-reporting:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4014
+          env:
+            - name: PORT
+              value: "4014"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4014
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4014
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reporting
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: reporting
+  ports:
+    - port: 4014
+      targetPort: 4014

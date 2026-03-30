@@ -305,6 +305,91 @@ X-Nexus-Timestamp: <unix-epoch-ms>
 
 ---
 
+## Campaigns — `/campaigns`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/campaigns` | List campaigns |
+| POST | `/campaigns` | Create campaign |
+| GET | `/campaigns/:id` | Get campaign |
+| PATCH | `/campaigns/:id` | Update campaign |
+| DELETE | `/campaigns/:id` | Delete campaign |
+| POST | `/campaigns/:id/send` | Send/schedule campaign |
+| GET | `/campaigns/:id/stats` | Campaign performance stats |
+
+---
+
+## Notifications — `/notifications`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/notifications/email` | Send email notification |
+| POST | `/notifications/sms` | Send SMS notification |
+| POST | `/notifications/push` | Send push notification |
+| POST | `/notifications/push/bulk` | Send to multiple devices |
+| GET | `/notifications/logs` | List notification logs |
+| GET | `/notifications/logs/stats` | Stats by channel (last 30 days) |
+| POST | `/notifications/devices` | Register device token |
+| DELETE | `/notifications/devices/:token` | Unregister device token |
+
+---
+
+## Automations — `/automations`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/automations` | List automation rules |
+| POST | `/automations` | Create rule |
+| GET | `/automations/:id` | Get rule |
+| PATCH | `/automations/:id` | Update rule |
+| DELETE | `/automations/:id` | Delete rule |
+| POST | `/automations/:id/trigger` | Manually trigger rule |
+| GET | `/automations/:id/executions` | Execution history |
+
+---
+
+## Franchise — `/franchise`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/franchise/groups` | List franchise groups |
+| POST | `/franchise/groups` | Create group |
+| GET | `/franchise/groups/:id/locations` | List franchise locations |
+| POST | `/franchise/groups/:id/locations` | Add location |
+| GET | `/franchise/royalties` | List royalty statements |
+| POST | `/franchise/royalties/generate` | Generate statements |
+| GET | `/franchise/compliance` | Compliance check results |
+
+---
+
+## Reporting — `/reports`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/reports/sales-summary` | Sales KPIs for a date range |
+| GET | `/reports/top-products` | Top products by revenue |
+| GET | `/reports/revenue-by-hour` | Hourly revenue breakdown |
+| GET | `/reports/revenue-by-channel` | Revenue by sales channel |
+| GET | `/reports/revenue-by-day` | Daily revenue trend |
+| POST | `/reports/ingest` | Ingest order data (internal) |
+
+---
+
+## Webhooks — `/webhooks`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/webhooks` | Register webhook endpoint |
+| GET | `/webhooks` | List endpoints |
+| GET | `/webhooks/:id` | Get endpoint + delivery stats |
+| PATCH | `/webhooks/:id` | Update endpoint |
+| DELETE | `/webhooks/:id` | Delete endpoint |
+| POST | `/webhooks/:id/test` | Send test ping |
+| GET | `/webhooks/:id/deliveries` | Last 50 deliveries |
+| POST | `/webhooks/ingest` | Ingest event for delivery (internal) |
+
+---
+
 ## Error Format
 
 All errors follow RFC 7807:

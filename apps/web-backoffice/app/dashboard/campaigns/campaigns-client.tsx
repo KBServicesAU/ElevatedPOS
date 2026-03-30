@@ -1,8 +1,9 @@
 'use client';
 
 import { Plus, Megaphone, Mail, MessageSquare, Tag, Calendar } from 'lucide-react';
-import { useCampaigns } from '../../../lib/hooks';
-import type { Campaign } from '../../../lib/api';
+import { useCampaigns } from '@/lib/hooks';
+import type { Campaign } from '@/lib/api';
+import { formatDate } from '@/lib/formatting';
 
 const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -29,10 +30,6 @@ const typeColors: Record<string, string> = {
   points_multiplier: 'bg-yellow-50 text-yellow-600',
 };
 
-function formatDate(iso?: string) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-AU', { month: 'short', day: 'numeric' });
-}
 
 export function CampaignsClient() {
   const { data, isLoading, isError } = useCampaigns();
@@ -129,7 +126,7 @@ export function CampaignsClient() {
                         <td className="px-5 py-3.5">
                           <span className="inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
                             <Calendar className="h-3.5 w-3.5" />
-                            {c.scheduledAt ? formatDate(c.scheduledAt) : c.sentAt ? `Sent ${formatDate(c.sentAt)}` : 'Not scheduled'}
+                            {c.scheduledAt ? formatDate(c.scheduledAt, { month: 'short', day: 'numeric' }) : c.sentAt ? `Sent ${formatDate(c.sentAt, { month: 'short', day: 'numeric' })}` : 'Not scheduled'}
                           </span>
                         </td>
                       </tr>

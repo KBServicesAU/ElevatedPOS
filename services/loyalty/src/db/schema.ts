@@ -8,7 +8,56 @@ import {
   integer,
   pgEnum,
   uniqueIndex,
+  jsonb,
+  text,
+  date,
 } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
+
+export const billingCycleEnum = pgEnum('billing_cycle', ['monthly', 'annual', 'one_time']);
+
+export const membershipStatusEnum = pgEnum('membership_status', [
+  'trialing',
+  'active',
+  'past_due',
+  'cancelled',
+  'expired',
+]);
+
+export const membershipPlans = pgTable('membership_plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  price: decimal('price', { precision: 10, scale: 2 }).notNull(),
+  billingCycle: billingCycleEnum('billing_cycle').notNull(),
+  benefits: jsonb('benefits').notNull().default([]),
+  pointsMultiplier: decimal('points_multiplier', { precision: 5, scale: 2 }).notNull().default('1.00'),
+  tierOverride: varchar('tier_override', { length: 100 }),
+  isActive: boolean('is_active').notNull().default(true),
+  trialDays: integer('trial_days').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const membershipSubscriptions = pgTable('membership_subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  customerId: uuid('customer_id').notNull(),
+  planId: uuid('plan_id')
+    .notNull()
+    .references(() => membershipPlans.id),
+  status: membershipStatusEnum('status').notNull().default('active'),
+  currentPeriodStart: timestamp('current_period_start', { withTimezone: true }).notNull(),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }).notNull(),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+  paymentMethodRef: text('payment_method_ref'),
+  dunningAttempts: integer('dunning_attempts').notNull().default(0),
+  lastDunningAt: timestamp('last_dunning_at', { withTimezone: true }),
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const loyaltyTxTypeEnum = pgEnum('loyalty_tx_type', [
   'earn',
@@ -71,3 +120,94 @@ export const loyaltyTransactions = pgTable(
     idempotencyUnique: uniqueIndex('loyalty_tx_org_idempotency_key').on(t.orgId, t.idempotencyKey),
   }),
 );
+
+// ─── Points Multiplier Events ─────────────────────────────────────────────────
+
+export const pointsMultiplierEvents = pgTable('points_multiplier_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  multiplier: decimal('multiplier', { precision: 5, scale: 2 }).notNull(),
+  startDate: date('start_date').notNull(),
+  endDate: date('end_date').notNull(),
+  // 0 = Sunday, 1 = Monday, ..., 6 = Saturday. Empty array = all days
+  daysOfWeek: jsonb('days_of_week').notNull().default([]),
+  // null = applies to all products/categories
+  productIds: jsonb('product_ids').default(null),
+  categoryIds: jsonb('category_ids').default(null),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Stamp / Punch-Card Programs ──────────────────────────────────────────────
+
+export const stampCardStatusEnum = pgEnum('stamp_card_status', [
+  'active',
+  'completed',
+  'expired',
+  'archived',
+]);
+
+export const stampPrograms = pgTable('stamp_programs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  stampsRequired: integer('stamps_required').notNull(),
+  reward: varchar('reward', { length: 255 }).notNull(),
+  rewardValue: decimal('reward_value', { precision: 10, scale: 2 }).notNull().default('0.00'),
+  isActive: boolean('is_active').notNull().default(true),
+  expiryDays: integer('expiry_days'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const customerStampCards = pgTable('customer_stamp_cards', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  customerId: uuid('customer_id').notNull(),
+  programId: uuid('program_id')
+    .notNull()
+    .references(() => stampPrograms.id),
+  currentStamps: integer('current_stamps').notNull().default(0),
+  status: stampCardStatusEnum('status').notNull().default('active'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const stampEvents = pgTable('stamp_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  cardId: uuid('card_id')
+    .notNull()
+    .references(() => customerStampCards.id),
+  orderId: uuid('order_id'),
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Relations ────────────────────────────────────────────────────────────────
+
+export const stampProgramsRelations = relations(stampPrograms, ({ many }) => ({
+  cards: many(customerStampCards),
+}));
+
+export const customerStampCardsRelations = relations(customerStampCards, ({ one, many }) => ({
+  program: one(stampPrograms, {
+    fields: [customerStampCards.programId],
+    references: [stampPrograms.id],
+  }),
+  events: many(stampEvents),
+}));
+
+export const stampEventsRelations = relations(stampEvents, ({ one }) => ({
+  card: one(customerStampCards, {
+    fields: [stampEvents.cardId],
+    references: [customerStampCards.id],
+  }),
+}));
+
+// pointsMultiplierEvents has no FK relations — standalone table scoped by orgId

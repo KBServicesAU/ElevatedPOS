@@ -1,8 +1,8 @@
 'use client';
 
 import { Star, TrendingUp, Gift, Plus, Users } from 'lucide-react';
-import { useLoyaltyPrograms } from '../../../lib/hooks';
-import type { LoyaltyProgram, LoyaltyTier } from '../../../lib/api';
+import { useLoyaltyPrograms } from '@/lib/hooks';
+import type { LoyaltyProgram, LoyaltyTier } from '@/lib/api';
 
 const tierColors: Record<string, string> = {
   Bronze: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',

@@ -1,221 +1,156 @@
 import { describe, it, expect } from 'vitest';
+import { createHmac } from 'crypto';
+import {
+  validateWebhookSignature,
+  buildWebhookPayload,
+  computeBackoffDelay,
+  maskCredential,
+  parseAppKey,
+  isValidRedirectUri,
+} from './lib/utils.js';
 
-// Unit tests for integrations business logic
+// ─── validateWebhookSignature ─────────────────────────────────────────────────
 
-function normaliseWebhookUrl(url: string): string {
-  const trimmed = url.trim();
-  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-    return 'https://' + trimmed;
-  }
-  return trimmed;
-}
+describe('validateWebhookSignature', () => {
+  const secret = 'my-secret-key';
+  const payload = JSON.stringify({ event: 'order.created', orderId: 'ord-123' });
 
-function isValidWebhookUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
-  } catch {
-    return false;
-  }
-}
-
-function generateWebhookSecret(length = 32): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    result += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return result;
-}
-
-function maskWebhookSecret(secret: string): string {
-  if (secret.length <= 8) return '****';
-  return secret.slice(0, 4) + '****' + secret.slice(-4);
-}
-
-type WebhookEvent =
-  | 'order.created'
-  | 'order.updated'
-  | 'customer.created'
-  | 'payment.captured'
-  | 'inventory.low_stock';
-
-function isValidEvent(event: string): event is WebhookEvent {
-  return [
-    'order.created',
-    'order.updated',
-    'customer.created',
-    'payment.captured',
-    'inventory.low_stock',
-  ].includes(event);
-}
-
-function formatEventList(events: string[]): string {
-  if (events.length === 0) return 'No events';
-  if (events.length === 1) return events[0];
-  if (events.length === 2) return `${events[0]} and ${events[1]}`;
-  return `${events[0]}, ${events[1]}, +${events.length - 2} more`;
-}
-
-function deliveryStatusIcon(success: boolean): '✓' | '✗' {
-  return success ? '✓' : '✗';
-}
-
-function appCategoryFromId(appId: string): string {
-  if (appId.startsWith('pos_')) return 'POS';
-  if (appId.startsWith('ecom_')) return 'E-Commerce';
-  if (appId.startsWith('acct_')) return 'Accounting';
-  if (appId.startsWith('ship_')) return 'Shipping';
-  if (appId.startsWith('mktg_')) return 'Marketing';
-  return 'Other';
-}
-
-function buildWebhookPayloadPreview(payload: Record<string, unknown>, maxKeys = 3): string {
-  const keys = Object.keys(payload).slice(0, maxKeys);
-  const preview = keys.map((k) => `${k}: ${JSON.stringify(payload[k])}`).join(', ');
-  const extra = Object.keys(payload).length - keys.length;
-  return extra > 0 ? `{ ${preview}, +${extra} more }` : `{ ${preview} }`;
-}
-
-describe('normaliseWebhookUrl', () => {
-  it('prepends https to bare domain', () => {
-    expect(normaliseWebhookUrl('example.com/hook')).toBe('https://example.com/hook');
+  it('returns true for a valid HMAC-SHA256 signature', () => {
+    const sig = createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+    expect(validateWebhookSignature(payload, secret, sig)).toBe(true);
   });
 
-  it('trims leading/trailing whitespace', () => {
-    expect(normaliseWebhookUrl('  https://example.com/hook  ')).toBe('https://example.com/hook');
+  it('returns true when signature is prefixed with sha256=', () => {
+    const sig = 'sha256=' + createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+    expect(validateWebhookSignature(payload, secret, sig)).toBe(true);
   });
 
-  it('leaves existing https:// urls unchanged', () => {
-    expect(normaliseWebhookUrl('https://example.com/hook')).toBe('https://example.com/hook');
+  it('returns false for a tampered payload', () => {
+    const sig = createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+    expect(validateWebhookSignature('tampered-payload', secret, sig)).toBe(false);
   });
 
-  it('leaves existing http:// urls unchanged', () => {
-    expect(normaliseWebhookUrl('http://localhost:3000/hook')).toBe('http://localhost:3000/hook');
+  it('returns false for an incorrect signature', () => {
+    expect(validateWebhookSignature(payload, secret, 'deadbeef'.repeat(8))).toBe(false);
   });
 });
 
-describe('isValidWebhookUrl', () => {
-  it('accepts valid https urls', () => {
-    expect(isValidWebhookUrl('https://example.com/webhook')).toBe(true);
+// ─── buildWebhookPayload ──────────────────────────────────────────────────────
+
+describe('buildWebhookPayload', () => {
+  const secret = 'webhook-secret';
+
+  it('includes the correct eventType and orgId in the payload', () => {
+    const payload = buildWebhookPayload('order.created', { id: 'ord-1' }, 'org-abc', secret);
+    expect(payload.eventType).toBe('order.created');
+    expect(payload.orgId).toBe('org-abc');
   });
 
-  it('accepts valid http urls', () => {
-    expect(isValidWebhookUrl('http://localhost:3000/webhook')).toBe(true);
+  it('includes a signature prefixed with sha256=', () => {
+    const payload = buildWebhookPayload('order.created', {}, 'org-abc', secret);
+    expect(payload.signature).toMatch(/^sha256=/);
   });
 
-  it('rejects invalid urls', () => {
-    expect(isValidWebhookUrl('not a url')).toBe(false);
-    expect(isValidWebhookUrl('')).toBe(false);
-  });
-});
-
-describe('generateWebhookSecret', () => {
-  it('generates a string of the requested length', () => {
-    const secret = generateWebhookSecret(32);
-    expect(secret).toHaveLength(32);
+  it('generates a unique id for each call', () => {
+    const p1 = buildWebhookPayload('order.created', {}, 'org-abc', secret);
+    const p2 = buildWebhookPayload('order.created', {}, 'org-abc', secret);
+    expect(p1.id).not.toBe(p2.id);
   });
 
-  it('generates only alphanumeric characters', () => {
-    const secret = generateWebhookSecret(100);
-    expect(/^[A-Za-z0-9]+$/.test(secret)).toBe(true);
-  });
-
-  it('generates different values on each call', () => {
-    const a = generateWebhookSecret(32);
-    const b = generateWebhookSecret(32);
-    expect(a).not.toBe(b);
+  it('includes a valid ISO timestamp', () => {
+    const payload = buildWebhookPayload('order.created', {}, 'org-abc', secret);
+    expect(() => new Date(payload.timestamp)).not.toThrow();
+    expect(new Date(payload.timestamp).toISOString()).toBe(payload.timestamp);
   });
 });
 
-describe('maskWebhookSecret', () => {
-  it('masks middle portion of long secrets', () => {
-    const result = maskWebhookSecret('ABCD1234WXYZ5678');
-    expect(result).toBe('ABCD****5678');
+// ─── computeBackoffDelay ──────────────────────────────────────────────────────
+
+describe('computeBackoffDelay', () => {
+  it('returns 1 second delay for attempt 1', () => {
+    expect(computeBackoffDelay(1)).toBe(1_000);
   });
 
-  it('returns **** for short secrets', () => {
-    expect(maskWebhookSecret('12345678')).toBe('****');
-    expect(maskWebhookSecret('abc')).toBe('****');
-  });
-});
-
-describe('isValidEvent', () => {
-  it('accepts known event names', () => {
-    expect(isValidEvent('order.created')).toBe(true);
-    expect(isValidEvent('inventory.low_stock')).toBe(true);
+  it('returns 2 second delay for attempt 2', () => {
+    expect(computeBackoffDelay(2)).toBe(2_000);
   });
 
-  it('rejects unknown event names', () => {
-    expect(isValidEvent('order.deleted')).toBe(false);
-    expect(isValidEvent('')).toBe(false);
+  it('returns 4 second delay for attempt 3', () => {
+    expect(computeBackoffDelay(3)).toBe(4_000);
+  });
+
+  it('caps the delay at 1 hour (3600000ms)', () => {
+    expect(computeBackoffDelay(20)).toBe(3_600_000);
   });
 });
 
-describe('formatEventList', () => {
-  it('returns "No events" for empty array', () => {
-    expect(formatEventList([])).toBe('No events');
+// ─── maskCredential ───────────────────────────────────────────────────────────
+
+describe('maskCredential', () => {
+  it('shows only the last 4 characters for a long credential', () => {
+    const result = maskCredential('sk_live_ABCDEFGHIJKLMN1234');
+    expect(result).toBe('****1234');
   });
 
-  it('returns the single event name for one event', () => {
-    expect(formatEventList(['order.created'])).toBe('order.created');
+  it('fully masks very short credentials', () => {
+    expect(maskCredential('abc')).toBe('****');
   });
 
-  it('joins two events with "and"', () => {
-    expect(formatEventList(['order.created', 'order.updated'])).toBe('order.created and order.updated');
+  it('handles a credential of exactly 8 characters', () => {
+    const result = maskCredential('12345678');
+    expect(result.endsWith('5678')).toBe(true);
+    expect(result.startsWith('****')).toBe(true);
   });
 
-  it('shows first two plus count for three or more events', () => {
-    const result = formatEventList(['order.created', 'order.updated', 'customer.created', 'payment.captured']);
-    expect(result).toBe('order.created, order.updated, +2 more');
-  });
-});
-
-describe('deliveryStatusIcon', () => {
-  it('returns ✓ for successful deliveries', () => {
-    expect(deliveryStatusIcon(true)).toBe('✓');
-  });
-
-  it('returns ✗ for failed deliveries', () => {
-    expect(deliveryStatusIcon(false)).toBe('✗');
+  it('returns **** for empty string', () => {
+    expect(maskCredential('')).toBe('****');
   });
 });
 
-describe('appCategoryFromId', () => {
-  it('identifies POS apps', () => {
-    expect(appCategoryFromId('pos_square')).toBe('POS');
+// ─── parseAppKey ──────────────────────────────────────────────────────────────
+
+describe('parseAppKey', () => {
+  it('extracts the app key from a well-formed marketplace URL', () => {
+    const key = parseAppKey('https://marketplace.nexus.app/marketplace/apps/shopify');
+    expect(key).toBe('shopify');
   });
 
-  it('identifies e-commerce apps', () => {
-    expect(appCategoryFromId('ecom_shopify')).toBe('E-Commerce');
+  it('extracts the app key when additional path segments follow', () => {
+    const key = parseAppKey('https://marketplace.nexus.app/marketplace/apps/xero/settings');
+    expect(key).toBe('xero');
   });
 
-  it('identifies accounting apps', () => {
-    expect(appCategoryFromId('acct_xero')).toBe('Accounting');
+  it('returns null when the URL has no apps path segment', () => {
+    const key = parseAppKey('https://marketplace.nexus.app/marketplace/other');
+    expect(key).toBeNull();
   });
 
-  it('returns Other for unknown prefixes', () => {
-    expect(appCategoryFromId('misc_app')).toBe('Other');
+  it('returns null for an invalid URL', () => {
+    expect(parseAppKey('not-a-url')).toBeNull();
   });
 });
 
-describe('buildWebhookPayloadPreview', () => {
-  it('shows all keys when under limit', () => {
-    const result = buildWebhookPayloadPreview({ id: '123', status: 'paid' });
-    expect(result).toContain('id:');
-    expect(result).toContain('status:');
-    expect(result).not.toContain('+');
+// ─── isValidRedirectUri ───────────────────────────────────────────────────────
+
+describe('isValidRedirectUri', () => {
+  const allowed = [
+    'https://app.nexus.com/oauth/callback',
+    'https://staging.nexus.com/oauth/callback',
+  ];
+
+  it('returns true for an exact match in the whitelist', () => {
+    expect(isValidRedirectUri('https://app.nexus.com/oauth/callback', allowed)).toBe(true);
   });
 
-  it('truncates and shows overflow count when over limit', () => {
-    const result = buildWebhookPayloadPreview(
-      { a: 1, b: 2, c: 3, d: 4, e: 5 },
-      3,
-    );
-    expect(result).toContain('+2 more');
+  it('returns false for a URI not in the whitelist', () => {
+    expect(isValidRedirectUri('https://evil.com/steal', allowed)).toBe(false);
   });
 
-  it('handles empty payload', () => {
-    expect(buildWebhookPayloadPreview({})).toBe('{  }');
+  it('returns false for an empty URI', () => {
+    expect(isValidRedirectUri('', allowed)).toBe(false);
+  });
+
+  it('returns false when the allowed list is empty', () => {
+    expect(isValidRedirectUri('https://app.nexus.com/oauth/callback', [])).toBe(false);
   });
 });

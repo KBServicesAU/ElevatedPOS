@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { CheckCircle, XCircle, ExternalLink, Plus, Zap } from 'lucide-react';
-import { useIntegrationApps } from '../../../lib/hooks';
-import type { IntegrationApp } from '../../../lib/api';
+import { useIntegrationApps } from '@/lib/hooks';
+import type { IntegrationApp } from '@/lib/api';
 
 // Static marketplace catalog (installed status comes from API)
 const MARKETPLACE: Array<Omit<IntegrationApp, 'installed' | 'installedAt'> & { logo: string }> = [

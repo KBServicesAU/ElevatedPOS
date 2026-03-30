@@ -115,6 +115,65 @@ services:
     ports:
       - "8080:8080"
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: nexus_clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: nexus_analytics
+      CLICKHOUSE_USER: nexus
+      CLICKHOUSE_PASSWORD: nexus_ch_dev
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./volumes/clickhouse:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  franchise:
+    build:
+      context: ../../
+      dockerfile: services/franchise/Dockerfile
+    container_name: nexus_franchise
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4013
+      NODE_ENV: development
+      DATABASE_URL: postgresql://nexus:nexus_dev@postgres:5432/nexus_dev
+      REDIS_URL: redis://:nexus_redis_dev@redis:6379
+      JWT_SECRET: nexus_dev_jwt_secret_min_32_chars_long
+    ports:
+      - "4013:4013"
+
+  reporting:
+    build:
+      context: ../../
+      dockerfile: services/reporting/Dockerfile
+    container_name: nexus_reporting
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      PORT: 4014
+      NODE_ENV: development
+      DATABASE_URL: postgresql://nexus:nexus_dev@postgres:5432/nexus_dev
+      REDIS_URL: redis://:nexus_redis_dev@redis:6379
+      JWT_SECRET: nexus_dev_jwt_secret_min_32_chars_long
+      CLICKHOUSE_URL: http://nexus:nexus_ch_dev@clickhouse:8123
+      CLICKHOUSE_DB: nexus_analytics
+    ports:
+      - "4014:4014"
+
 networks:
   default:
     name: nexus_dev_network

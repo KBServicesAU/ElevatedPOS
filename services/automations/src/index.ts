@@ -5,6 +5,8 @@ import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { automationRoutes } from './routes/automations.js';
+import { startWorker } from './temporal/worker.js';
+import { startEventConsumer } from './lib/eventConsumer.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -43,6 +45,16 @@ async function start() {
   const port = Number(process.env['PORT'] ?? 4011);
   await app.listen({ port, host: '0.0.0.0' });
   app.log.info(`Automations service listening on port ${port}`);
+
+  // Start Temporal worker (fire-and-forget; gracefully degrades if Temporal unavailable)
+  startWorker().catch((err: unknown) => {
+    app.log.warn({ err }, 'Temporal worker failed to start — continuing without worker');
+  });
+
+  // Start Kafka event consumer (fire-and-forget; gracefully degrades if Kafka unavailable)
+  startEventConsumer().catch((err: unknown) => {
+    app.log.warn({ err }, 'Kafka event consumer failed to start — continuing without consumer');
+  });
 }
 
 start().catch((err) => {

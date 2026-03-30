@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 53111",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
@@ -19,6 +19,7 @@
     "@radix-ui/react-slot": "^1.1.0",
     "@radix-ui/react-toast": "^1.2.1",
     "@radix-ui/react-tooltip": "^1.1.2",
+    "@stripe/terminal-js": "^0.26.0",
     "@tanstack/react-query": "^5.49.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
@@ -28,6 +29,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.12.7",
+    "stripe": "^21.0.1",
     "tailwind-merge": "^2.3.0",
     "zustand": "^4.5.4"
   },
