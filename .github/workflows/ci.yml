@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [auth, catalog, orders, payments, customers, loyalty, campaigns, notifications, integrations, automations]
+        service: [auth, catalog, inventory, orders, payments, customers, loyalty, campaigns, notifications, integrations, automations, ai, franchise, reporting, webhooks]
     steps:
       - uses: actions/checkout@v4
 
@@ -100,7 +100,7 @@ jobs:
     needs: [test]
     strategy:
       matrix:
-        service: [auth, catalog, orders, payments]
+        service: [auth, catalog, inventory, orders, payments, customers, loyalty, campaigns, notifications, integrations, automations, ai, franchise, reporting, webhooks]
     steps:
       - uses: actions/checkout@v4
 

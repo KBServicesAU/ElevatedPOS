@@ -32,7 +32,7 @@ jobs:
         run: |
           TAG=${GITHUB_REF#refs/tags/}
           aws eks update-kubeconfig --name nexus-production --region ${{ env.AWS_REGION }}
-          helm upgrade --install nexus ./infrastructure/k8s/helm/nexus \
+          helm upgrade --install nexus ./infrastructure/helm/nexus \
             --namespace nexus-production \
             --set global.image.tag=$TAG \
             --set global.environment=production \

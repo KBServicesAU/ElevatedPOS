@@ -46,7 +46,7 @@ jobs:
 
       - name: Build and push Docker images
         run: |
-          for service in auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations franchise reporting; do
+          for service in auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai franchise reporting webhooks; do
             docker build -t $ECR_REGISTRY/nexus-$service:${{ github.sha }} -f services/$service/Dockerfile .
             docker push $ECR_REGISTRY/nexus-$service:${{ github.sha }}
           done
@@ -54,7 +54,7 @@ jobs:
       - name: Deploy to EKS
         run: |
           aws eks update-kubeconfig --name nexus-staging --region ${{ env.AWS_REGION }}
-          helm upgrade --install nexus ./infrastructure/k8s/helm/nexus \
+          helm upgrade --install nexus ./infrastructure/helm/nexus \
             --namespace nexus-staging \
             --set global.image.tag=${{ github.sha }} \
             --set global.environment=staging \
@@ -63,4 +63,4 @@ jobs:
       - name: Notify deployment
         run: |
           echo "Staging deployment complete for SHA: ${{ github.sha }}"
-          echo "Services: auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations franchise reporting"
+          echo "Services: auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai franchise reporting webhooks"

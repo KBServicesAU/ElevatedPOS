@@ -43,6 +43,9 @@ jobs:
           - { name: automations,     context: services/automations }
           - { name: ai,              context: services/ai }
           - { name: hardware-bridge, context: services/hardware-bridge }
+          - { name: franchise,       context: services/franchise }
+          - { name: reporting,       context: services/reporting }
+          - { name: webhooks,        context: services/webhooks }
           - { name: web-backoffice,  context: apps/web-backoffice }
           - { name: kds-display,     context: apps/kds-display }
     steps:
@@ -110,7 +113,7 @@ jobs:
 
       - name: Update image tags
         run: |
-          SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge"
+          SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge franchise reporting webhooks"
           for SVC in $SERVICES; do
             kubectl set image deployment/$SVC $SVC=${{ env.ECR_REGISTRY }}/nexus/$SVC:${{ github.sha }} -n nexus
           done
@@ -159,7 +162,7 @@ jobs:
 
       - name: Update image tags
         run: |
-          SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge"
+          SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge franchise reporting webhooks"
           for SVC in $SERVICES; do
             kubectl set image deployment/$SVC $SVC=${{ env.ECR_REGISTRY }}/nexus/$SVC:${{ github.sha }} -n nexus
           done
