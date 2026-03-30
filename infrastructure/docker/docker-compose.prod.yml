@@ -386,6 +386,28 @@ services:
     networks:
       - nexus_internal
 
+  webhooks:
+    <<: *service-defaults
+    image: nexus-webhooks:latest
+    container_name: nexus_webhooks
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 4015
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4015/health"]
+      <<: *api-healthcheck
+    networks:
+      - nexus_internal
+
   # ─── Frontend Apps ───────────────────────────────────────────────────────────
 
   web-backoffice:
@@ -450,6 +472,7 @@ services:
       - ai
       - franchise
       - reporting
+      - webhooks
     ports:
       - "80:80"
       - "443:443"

@@ -78,6 +78,7 @@ async function getTerminal() {
   if (_terminal) return _terminal;
   const { loadStripeTerminal } = await import('@stripe/terminal-js');
   const StripeTerminal = await loadStripeTerminal();
+  if (!StripeTerminal) throw new Error('Stripe Terminal SDK failed to load');
   _terminal = StripeTerminal.create({
     onFetchConnectionToken: async () => {
       const res = await fetch('/api/stripe/connection-token', { method: 'POST' });

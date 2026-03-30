@@ -303,6 +303,7 @@ locals {
     "auth", "catalog", "inventory", "orders", "payments",
     "customers", "loyalty", "campaigns", "notifications",
     "integrations", "automations", "ai", "hardware-bridge",
+    "franchise", "reporting", "webhooks",
     "web-backoffice", "kds-display",
   ]
 }

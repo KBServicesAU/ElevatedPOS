@@ -1051,6 +1051,87 @@ spec:
     - port: 4013
       targetPort: 4013
 ---
+# ─── webhooks ─────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhooks
+  namespace: nexus
+  labels:
+    app: webhooks
+    app.kubernetes.io/name: nexus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webhooks
+  template:
+    metadata:
+      labels:
+        app: webhooks
+    spec:
+      containers:
+        - name: webhooks
+          image: nexus-webhooks:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4015
+          env:
+            - name: PORT
+              value: "4015"
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: nexus-config
+                  key: NODE_ENV
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: JWT_SECRET
+            - name: INTERNAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: INTERNAL_SECRET
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4015
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4015
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhooks
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: webhooks
+  ports:
+    - port: 4015
+      targetPort: 4015
+---
 # ─── reporting ────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment

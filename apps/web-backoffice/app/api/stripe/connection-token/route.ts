@@ -14,7 +14,7 @@ export async function POST() {
   }
 
   try {
-    const stripe = new Stripe(secretKey, { apiVersion: '2024-06-20' });
+    const stripe = new Stripe(secretKey, { apiVersion: '2026-03-25.dahlia' });
     const token = await stripe.terminal.connectionTokens.create();
     return Response.json({ secret: token.secret, simulated: false });
   } catch (err) {

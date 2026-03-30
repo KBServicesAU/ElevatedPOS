@@ -112,6 +112,13 @@ spec:
                 name: reporting
                 port:
                   number: 4014
+          - path: /api/v1/webhooks
+            pathType: Prefix
+            backend:
+              service:
+                name: webhooks
+                port:
+                  number: 4015
           - path: /
             pathType: Prefix
             backend:
