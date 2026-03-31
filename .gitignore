@@ -79,3 +79,7 @@ credentials/
 # Temp tool-result files
 tool-results/
 *.tool-results/
+
+# Local secrets file — never commit
+.secrets.production
+.secrets.*

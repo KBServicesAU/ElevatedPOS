@@ -44,9 +44,9 @@ export async function deliverWebhook(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Nexus-Signature': signature,
-        'X-Nexus-Event': event,
-        'X-Nexus-Delivery': crypto.randomUUID(),
+        'X-ElevatedPOS-Signature': signature,
+        'X-ElevatedPOS-Event': event,
+        'X-ElevatedPOS-Delivery': crypto.randomUUID(),
       },
       body,
       signal: AbortSignal.timeout(10_000),

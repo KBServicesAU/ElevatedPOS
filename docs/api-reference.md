@@ -272,8 +272,8 @@ Create a new employee.
 
 **Webhook signature verification:**
 ```
-X-Nexus-Signature: sha256=<hmac-sha256-hex>
-X-Nexus-Timestamp: <unix-epoch-ms>
+X-ElevatedPOS-Signature: sha256=<hmac-sha256-hex>
+X-ElevatedPOS-Timestamp: <unix-epoch-ms>
 ```
 
 ### Marketplace Apps

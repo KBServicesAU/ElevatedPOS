@@ -72,9 +72,9 @@ export async function deliverWebhook(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Nexus-Event': delivery.event,
-          'X-Nexus-Signature': signature,
-          'X-Nexus-Delivery': delivery.id,
+          'X-ElevatedPOS-Event': delivery.event,
+          'X-ElevatedPOS-Signature': signature,
+          'X-ElevatedPOS-Delivery': delivery.id,
         },
         body,
         signal: controller.signal,
