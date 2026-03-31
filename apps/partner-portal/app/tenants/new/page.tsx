@@ -132,7 +132,7 @@ export default function NewTenantPage() {
         {/* Header */}
         <header className="bg-white border-b border-slate-200 px-8 py-4">
           <h1 className="text-xl font-bold text-slate-900">Provision New Tenant</h1>
-          <p className="text-sm text-slate-500">Set up a new tenant on the NEXUS platform</p>
+          <p className="text-sm text-slate-500">Set up a new tenant on the ElevatedPOS platform</p>
         </header>
 
         <div className="p-8 max-w-3xl">

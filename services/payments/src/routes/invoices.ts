@@ -236,7 +236,7 @@ export async function invoiceRoutes(app: FastifyInstance) {
         currency: invoice.currency,
       },
       seller: {
-        name: 'NEXUS POS',                          // Replace with org profile lookup
+        name: 'ElevatedPOS',                          // Replace with org profile lookup
         logoUrl: '/logo-placeholder.png',
         address: null,                               // Populate from org settings
         abn: null,

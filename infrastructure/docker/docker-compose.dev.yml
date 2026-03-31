@@ -3,41 +3,41 @@ version: "3.9"
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: nexus_postgres
+    container_name: elevatedpos_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: nexus
-      POSTGRES_PASSWORD: nexus_dev
-      POSTGRES_DB: nexus_dev
+      POSTGRES_USER: elevatedpos
+      POSTGRES_PASSWORD: elevatedpos_dev
+      POSTGRES_DB: elevatedpos_dev
     ports:
       - "5432:5432"
     volumes:
       - ./volumes/postgres:/var/lib/postgresql/data
       - ./init/postgres:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus_dev"]
+      test: ["CMD-SHELL", "pg_isready -U elevatedpos -d elevatedpos_dev"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: nexus_redis
+    container_name: elevatedpos_redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --requirepass nexus_redis_dev
+    command: redis-server --appendonly yes --requirepass elevatedpos_redis_dev
     ports:
       - "6379:6379"
     volumes:
       - ./volumes/redis:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "nexus_redis_dev", "ping"]
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "elevatedpos_redis_dev", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.1
-    container_name: nexus_zookeeper
+    container_name: elevatedpos_zookeeper
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -47,7 +47,7 @@ services:
 
   kafka:
     image: confluentinc/cp-kafka:7.6.1
-    container_name: nexus_kafka
+    container_name: elevatedpos_kafka
     restart: unless-stopped
     depends_on:
       - zookeeper
@@ -69,11 +69,11 @@ services:
 
   typesense:
     image: typesense/typesense:26.0
-    container_name: nexus_typesense
+    container_name: elevatedpos_typesense
     restart: unless-stopped
     environment:
       TYPESENSE_DATA_DIR: /data
-      TYPESENSE_API_KEY: nexus-typesense-dev-key
+      TYPESENSE_API_KEY: elevatedpos-typesense-dev-key
     ports:
       - "8108:8108"
     volumes:
@@ -81,7 +81,7 @@ services:
 
   mailhog:
     image: mailhog/mailhog:latest
-    container_name: nexus_mailhog
+    container_name: elevatedpos_mailhog
     restart: unless-stopped
     ports:
       - "1025:1025"
@@ -89,7 +89,7 @@ services:
 
   temporal:
     image: temporalio/auto-setup:1.24.0
-    container_name: nexus_temporal
+    container_name: elevatedpos_temporal
     restart: unless-stopped
     depends_on:
       postgres:
@@ -97,15 +97,15 @@ services:
     environment:
       - DB=postgres12
       - DB_PORT=5432
-      - POSTGRES_USER=nexus
-      - POSTGRES_PWD=nexus_dev
+      - POSTGRES_USER=elevatedpos
+      - POSTGRES_PWD=elevatedpos_dev
       - POSTGRES_SEEDS=postgres
     ports:
       - "7233:7233"
 
   temporal-ui:
     image: temporalio/ui:2.26.2
-    container_name: nexus_temporal_ui
+    container_name: elevatedpos_temporal_ui
     restart: unless-stopped
     depends_on:
       - temporal
@@ -117,12 +117,12 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
-    container_name: nexus_clickhouse
+    container_name: elevatedpos_clickhouse
     restart: unless-stopped
     environment:
-      CLICKHOUSE_DB: nexus_analytics
-      CLICKHOUSE_USER: nexus
-      CLICKHOUSE_PASSWORD: nexus_ch_dev
+      CLICKHOUSE_DB: elevatedpos_analytics
+      CLICKHOUSE_USER: elevatedpos
+      CLICKHOUSE_PASSWORD: elevatedpos_ch_dev
     ports:
       - "8123:8123"
       - "9000:9000"
@@ -138,7 +138,7 @@ services:
     build:
       context: ../../
       dockerfile: services/franchise/Dockerfile
-    container_name: nexus_franchise
+    container_name: elevatedpos_franchise
     restart: unless-stopped
     depends_on:
       postgres:
@@ -146,9 +146,9 @@ services:
     environment:
       PORT: 4013
       NODE_ENV: development
-      DATABASE_URL: postgresql://nexus:nexus_dev@postgres:5432/nexus_dev
-      REDIS_URL: redis://:nexus_redis_dev@redis:6379
-      JWT_SECRET: nexus_dev_jwt_secret_min_32_chars_long
+      DATABASE_URL: postgresql://elevatedpos:elevatedpos_dev@postgres:5432/elevatedpos_dev
+      REDIS_URL: redis://:elevatedpos_redis_dev@redis:6379
+      JWT_SECRET: elevatedpos_dev_jwt_secret_min_32_chars_long
     ports:
       - "4013:4013"
 
@@ -156,7 +156,7 @@ services:
     build:
       context: ../../
       dockerfile: services/reporting/Dockerfile
-    container_name: nexus_reporting
+    container_name: elevatedpos_reporting
     restart: unless-stopped
     depends_on:
       postgres:
@@ -166,11 +166,11 @@ services:
     environment:
       PORT: 4014
       NODE_ENV: development
-      DATABASE_URL: postgresql://nexus:nexus_dev@postgres:5432/nexus_dev
-      REDIS_URL: redis://:nexus_redis_dev@redis:6379
-      JWT_SECRET: nexus_dev_jwt_secret_min_32_chars_long
-      CLICKHOUSE_URL: http://nexus:nexus_ch_dev@clickhouse:8123
-      CLICKHOUSE_DB: nexus_analytics
+      DATABASE_URL: postgresql://elevatedpos:elevatedpos_dev@postgres:5432/elevatedpos_dev
+      REDIS_URL: redis://:elevatedpos_redis_dev@redis:6379
+      JWT_SECRET: elevatedpos_dev_jwt_secret_min_32_chars_long
+      CLICKHOUSE_URL: http://elevatedpos:elevatedpos_ch_dev@clickhouse:8123
+      CLICKHOUSE_DB: elevatedpos_analytics
     ports:
       - "4014:4014"
 
@@ -178,7 +178,7 @@ services:
     build:
       context: ../../
       dockerfile: services/webhooks/Dockerfile
-    container_name: nexus_webhooks
+    container_name: elevatedpos_webhooks
     restart: unless-stopped
     depends_on:
       postgres:
@@ -188,13 +188,13 @@ services:
     environment:
       PORT: 4015
       NODE_ENV: development
-      DATABASE_URL: postgresql://nexus:nexus_dev@postgres:5432/nexus_dev
-      REDIS_URL: redis://:nexus_redis_dev@redis:6379
-      JWT_SECRET: nexus_dev_jwt_secret_min_32_chars_long
-      INTERNAL_SECRET: nexus_dev_internal_secret
+      DATABASE_URL: postgresql://elevatedpos:elevatedpos_dev@postgres:5432/elevatedpos_dev
+      REDIS_URL: redis://:elevatedpos_redis_dev@redis:6379
+      JWT_SECRET: elevatedpos_dev_jwt_secret_min_32_chars_long
+      INTERNAL_SECRET: elevatedpos_dev_internal_secret
     ports:
       - "4015:4015"
 
 networks:
   default:
-    name: nexus_dev_network
+    name: elevatedpos_dev_network

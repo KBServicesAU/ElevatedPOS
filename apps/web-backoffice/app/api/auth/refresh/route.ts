@@ -5,7 +5,7 @@ const AUTH_API_URL = process.env.AUTH_API_URL ?? 'http://localhost:4001';
 
 export async function POST(_request: NextRequest) {
   const cookieStore = cookies();
-  const refreshToken = cookieStore.get('nexus_refresh_token')?.value;
+  const refreshToken = cookieStore.get('elevatedpos_refresh_token')?.value;
 
   if (!refreshToken) {
     return NextResponse.json({ error: 'No refresh token' }, { status: 401 });
@@ -29,15 +29,15 @@ export async function POST(_request: NextRequest) {
     if (!upstream.ok) {
       // Refresh failed — clear both cookies so middleware redirects to login
       const response = NextResponse.json({ error: 'Session expired' }, { status: 401 });
-      response.cookies.delete('nexus_token');
-      response.cookies.delete('nexus_refresh_token');
+      response.cookies.delete('elevatedpos_token');
+      response.cookies.delete('elevatedpos_refresh_token');
       return response;
     }
 
     const { accessToken } = data as { accessToken: string };
 
     const response = NextResponse.json({ ok: true });
-    response.cookies.set('nexus_token', accessToken, {
+    response.cookies.set('elevatedpos_token', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',

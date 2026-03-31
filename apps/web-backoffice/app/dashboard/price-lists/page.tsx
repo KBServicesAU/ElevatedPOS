@@ -3,7 +3,7 @@ import { PriceListsClient } from './price-lists-client';
 import PriceListsLoading from './loading';
 
 export const metadata = {
-  title: 'Price Lists — NEXUS',
+  title: 'Price Lists — ElevatedPOS',
 };
 
 export default function PriceListsPage() {

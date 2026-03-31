@@ -17,10 +17,10 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "nexus-terraform-state"
+    bucket         = "elevatedpos-terraform-state"
     key            = "prod/terraform.tfstate"
     region         = "ap-southeast-2"
-    dynamodb_table = "nexus-terraform-locks"
+    dynamodb_table = "elevatedpos-terraform-locks"
     encrypt        = true
   }
 }
@@ -30,7 +30,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project     = "nexus"
+      Project     = "elevatedpos"
       Environment = var.environment
       ManagedBy   = "terraform"
     }
@@ -67,7 +67,7 @@ module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
 
-  name = "nexus-${var.environment}"
+  name = "elevatedpos-${var.environment}"
   cidr = var.vpc_cidr
 
   azs             = var.availability_zones
@@ -95,7 +95,7 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 20.0"
 
-  cluster_name    = "nexus-${var.environment}"
+  cluster_name    = "elevatedpos-${var.environment}"
   cluster_version = "1.29"
 
   cluster_endpoint_public_access = true
@@ -122,13 +122,13 @@ module "eks" {
 
 # ─── RDS PostgreSQL ─────────────────────────────────────────────────────────
 
-resource "aws_db_subnet_group" "nexus" {
-  name       = "nexus-${var.environment}"
+resource "aws_db_subnet_group" "elevatedpos" {
+  name       = "elevatedpos-${var.environment}"
   subnet_ids = module.vpc.private_subnets
 }
 
 resource "aws_security_group" "rds" {
-  name        = "nexus-rds-${var.environment}"
+  name        = "elevatedpos-rds-${var.environment}"
   description = "RDS PostgreSQL security group"
   vpc_id      = module.vpc.vpc_id
 
@@ -147,26 +147,26 @@ resource "aws_security_group" "rds" {
   }
 }
 
-resource "aws_db_instance" "nexus" {
-  identifier        = "nexus-${var.environment}"
+resource "aws_db_instance" "elevatedpos" {
+  identifier        = "elevatedpos-${var.environment}"
   engine            = "postgres"
   engine_version    = "16.1"
   instance_class    = var.rds_instance_class
   allocated_storage = var.rds_allocated_storage
   storage_encrypted = true
 
-  db_name  = "nexus"
+  db_name  = "elevatedpos"
   username = var.db_username
   password = var.db_password
 
-  db_subnet_group_name   = aws_db_subnet_group.nexus.name
+  db_subnet_group_name   = aws_db_subnet_group.elevatedpos.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   multi_az               = var.environment == "prod"
   publicly_accessible    = false
   deletion_protection    = var.environment == "prod"
   skip_final_snapshot    = var.environment != "prod"
-  final_snapshot_identifier = var.environment == "prod" ? "nexus-prod-final" : null
+  final_snapshot_identifier = var.environment == "prod" ? "elevatedpos-prod-final" : null
 
   backup_retention_period = var.environment == "prod" ? 7 : 1
   backup_window           = "03:00-04:00"
@@ -177,13 +177,13 @@ resource "aws_db_instance" "nexus" {
 
 # ─── ElastiCache Redis ───────────────────────────────────────────────────────
 
-resource "aws_elasticache_subnet_group" "nexus" {
-  name       = "nexus-${var.environment}"
+resource "aws_elasticache_subnet_group" "elevatedpos" {
+  name       = "elevatedpos-${var.environment}"
   subnet_ids = module.vpc.private_subnets
 }
 
 resource "aws_security_group" "redis" {
-  name        = "nexus-redis-${var.environment}"
+  name        = "elevatedpos-redis-${var.environment}"
   description = "ElastiCache Redis security group"
   vpc_id      = module.vpc.vpc_id
 
@@ -202,15 +202,15 @@ resource "aws_security_group" "redis" {
   }
 }
 
-resource "aws_elasticache_replication_group" "nexus" {
-  replication_group_id = "nexus-${var.environment}"
-  description          = "NEXUS Redis cache"
+resource "aws_elasticache_replication_group" "elevatedpos" {
+  replication_group_id = "elevatedpos-${var.environment}"
+  description          = "ElevatedPOS Redis cache"
 
   node_type            = var.redis_node_type
   num_cache_clusters   = var.environment == "prod" ? 2 : 1
   port                 = 6379
 
-  subnet_group_name  = aws_elasticache_subnet_group.nexus.name
+  subnet_group_name  = aws_elasticache_subnet_group.elevatedpos.name
   security_group_ids = [aws_security_group.redis.id]
 
   at_rest_encryption_enabled = true
@@ -222,7 +222,7 @@ resource "aws_elasticache_replication_group" "nexus" {
 # ─── MSK (Managed Kafka) ────────────────────────────────────────────────────
 
 resource "aws_security_group" "msk" {
-  name        = "nexus-msk-${var.environment}"
+  name        = "elevatedpos-msk-${var.environment}"
   description = "MSK Kafka security group"
   vpc_id      = module.vpc.vpc_id
 
@@ -248,8 +248,8 @@ resource "aws_security_group" "msk" {
   }
 }
 
-resource "aws_msk_cluster" "nexus" {
-  cluster_name           = "nexus-${var.environment}"
+resource "aws_msk_cluster" "elevatedpos" {
+  cluster_name           = "elevatedpos-${var.environment}"
   kafka_version          = "3.5.1"
   number_of_broker_nodes = var.environment == "prod" ? 3 : 1
 
@@ -286,7 +286,7 @@ resource "aws_msk_cluster" "nexus" {
 
 # ─── ACM Certificate ─────────────────────────────────────────────────────────
 
-resource "aws_acm_certificate" "nexus" {
+resource "aws_acm_certificate" "elevatedpos" {
   domain_name               = var.domain_name
   subject_alternative_names = ["*.${var.domain_name}", "api.${var.domain_name}"]
   validation_method         = "DNS"
@@ -311,7 +311,7 @@ locals {
 resource "aws_ecr_repository" "services" {
   for_each = toset(local.services)
 
-  name                 = "nexus/${each.key}"
+  name                 = "elevatedpos/${each.key}"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -343,8 +343,8 @@ resource "aws_ecr_lifecycle_policy" "services" {
 
 # ─── IAM ─────────────────────────────────────────────────────────────────────
 
-resource "aws_iam_role" "nexus_service" {
-  name = "nexus-service-${var.environment}"
+resource "aws_iam_role" "elevatedpos_service" {
+  name = "elevatedpos-service-${var.environment}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -354,16 +354,16 @@ resource "aws_iam_role" "nexus_service" {
       Principal = { Federated = module.eks.oidc_provider_arn }
       Condition = {
         StringEquals = {
-          "${module.eks.oidc_provider}:sub" = "system:serviceaccount:nexus:nexus-service"
+          "${module.eks.oidc_provider}:sub" = "system:serviceaccount:elevatedpos:elevatedpos-service"
         }
       }
     }]
   })
 }
 
-resource "aws_iam_role_policy" "nexus_service" {
-  name = "nexus-service-policy"
-  role = aws_iam_role.nexus_service.id
+resource "aws_iam_role_policy" "elevatedpos_service" {
+  name = "elevatedpos-service-policy"
+  role = aws_iam_role.elevatedpos_service.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -377,8 +377,8 @@ resource "aws_iam_role_policy" "nexus_service" {
           "s3:ListBucket",
         ]
         Resource = [
-          aws_s3_bucket.nexus_assets.arn,
-          "${aws_s3_bucket.nexus_assets.arn}/*",
+          aws_s3_bucket.elevatedpos_assets.arn,
+          "${aws_s3_bucket.elevatedpos_assets.arn}/*",
         ]
       },
       {
@@ -394,7 +394,7 @@ resource "aws_iam_role_policy" "nexus_service" {
         Action = [
           "secretsmanager:GetSecretValue",
         ]
-        Resource = "arn:aws:secretsmanager:${var.aws_region}:*:secret:nexus/*"
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:*:secret:elevatedpos/*"
       },
     ]
   })
@@ -402,19 +402,19 @@ resource "aws_iam_role_policy" "nexus_service" {
 
 # ─── S3 (media / assets) ────────────────────────────────────────────────────
 
-resource "aws_s3_bucket" "nexus_assets" {
-  bucket = "nexus-assets-${var.environment}-${data.aws_caller_identity.current.account_id}"
+resource "aws_s3_bucket" "elevatedpos_assets" {
+  bucket = "elevatedpos-assets-${var.environment}-${data.aws_caller_identity.current.account_id}"
 }
 
-resource "aws_s3_bucket_versioning" "nexus_assets" {
-  bucket = aws_s3_bucket.nexus_assets.id
+resource "aws_s3_bucket_versioning" "elevatedpos_assets" {
+  bucket = aws_s3_bucket.elevatedpos_assets.id
   versioning_configuration {
     status = "Enabled"
   }
 }
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "nexus_assets" {
-  bucket = aws_s3_bucket.nexus_assets.id
+resource "aws_s3_bucket_server_side_encryption_configuration" "elevatedpos_assets" {
+  bucket = aws_s3_bucket.elevatedpos_assets.id
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
@@ -422,8 +422,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "nexus_assets" {
   }
 }
 
-resource "aws_s3_bucket_public_access_block" "nexus_assets" {
-  bucket                  = aws_s3_bucket.nexus_assets.id
+resource "aws_s3_bucket_public_access_block" "elevatedpos_assets" {
+  bucket                  = aws_s3_bucket.elevatedpos_assets.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true

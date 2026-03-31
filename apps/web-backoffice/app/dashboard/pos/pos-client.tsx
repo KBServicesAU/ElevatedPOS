@@ -35,7 +35,7 @@ export default function POSClientPage() {
           </a>
           <button
             onClick={() => setFullscreen((v) => !v)}
-            className="flex items-center gap-2 rounded-lg bg-nexus-500 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-nexus-600"
+            className="flex items-center gap-2 rounded-lg bg-elevatedpos-500 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-elevatedpos-600"
           >
             <Maximize2 className="h-4 w-4" />
             {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
@@ -77,7 +77,7 @@ export default function POSClientPage() {
           <iframe
             key={iframeKey}
             src={POS_WEB_URL}
-            title="NEXUS POS"
+            title="ElevatedPOS"
             className={`
               w-full rounded-b-xl border border-gray-200 bg-gray-950
               dark:border-gray-700
@@ -143,7 +143,7 @@ export default function POSClientPage() {
                 ].map(({ step, label, cmd }) => (
                   <div key={step} className="rounded-lg bg-gray-50 p-2.5 dark:bg-gray-800">
                     <div className="mb-1 flex items-center gap-2">
-                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-nexus-500 text-[10px] font-bold text-white">
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-elevatedpos-500 text-[10px] font-bold text-white">
                         {step}
                       </span>
                       <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{label}</span>

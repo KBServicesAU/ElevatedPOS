@@ -20,7 +20,7 @@ services:
   postgres:
     <<: *service-defaults
     image: postgres:16-alpine
-    container_name: nexus_postgres
+    container_name: elevatedpos_postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -36,12 +36,12 @@ services:
       retries: 5
       start_period: 20s
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   redis:
     <<: *service-defaults
     image: redis:7-alpine
-    container_name: nexus_redis
+    container_name: elevatedpos_redis
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
@@ -52,12 +52,12 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   typesense:
     <<: *service-defaults
     image: typesense/typesense:26.0
-    container_name: nexus_typesense
+    container_name: elevatedpos_typesense
     environment:
       TYPESENSE_DATA_DIR: /data
       TYPESENSE_API_KEY: ${TYPESENSE_API_KEY}
@@ -70,14 +70,14 @@ services:
       retries: 3
       start_period: 20s
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   clickhouse:
     <<: *service-defaults
     image: clickhouse/clickhouse-server:24-alpine
-    container_name: nexus_clickhouse
+    container_name: elevatedpos_clickhouse
     environment:
-      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-nexus_analytics}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-elevatedpos_analytics}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
     volumes:
@@ -89,14 +89,14 @@ services:
       retries: 3
       start_period: 20s
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   # ─── API Services ────────────────────────────────────────────────────────────
 
   auth:
     <<: *service-defaults
-    image: nexus-auth:latest
-    container_name: nexus_auth
+    image: elevatedpos-auth:latest
+    container_name: elevatedpos_auth
     depends_on:
       postgres:
         condition: service_healthy
@@ -113,12 +113,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4001/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   catalog:
     <<: *service-defaults
-    image: nexus-catalog:latest
-    container_name: nexus_catalog
+    image: elevatedpos-catalog:latest
+    container_name: elevatedpos_catalog
     depends_on:
       postgres:
         condition: service_healthy
@@ -137,12 +137,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4002/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   inventory:
     <<: *service-defaults
-    image: nexus-inventory:latest
-    container_name: nexus_inventory
+    image: elevatedpos-inventory:latest
+    container_name: elevatedpos_inventory
     depends_on:
       postgres:
         condition: service_healthy
@@ -156,12 +156,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4003/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   orders:
     <<: *service-defaults
-    image: nexus-orders:latest
-    container_name: nexus_orders
+    image: elevatedpos-orders:latest
+    container_name: elevatedpos_orders
     depends_on:
       postgres:
         condition: service_healthy
@@ -177,12 +177,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4004/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   payments:
     <<: *service-defaults
-    image: nexus-payments:latest
-    container_name: nexus_payments
+    image: elevatedpos-payments:latest
+    container_name: elevatedpos_payments
     depends_on:
       postgres:
         condition: service_healthy
@@ -198,12 +198,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4005/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   customers:
     <<: *service-defaults
-    image: nexus-customers:latest
-    container_name: nexus_customers
+    image: elevatedpos-customers:latest
+    container_name: elevatedpos_customers
     depends_on:
       postgres:
         condition: service_healthy
@@ -217,12 +217,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4006/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   loyalty:
     <<: *service-defaults
-    image: nexus-loyalty:latest
-    container_name: nexus_loyalty
+    image: elevatedpos-loyalty:latest
+    container_name: elevatedpos_loyalty
     depends_on:
       postgres:
         condition: service_healthy
@@ -236,12 +236,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4007/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   campaigns:
     <<: *service-defaults
-    image: nexus-campaigns:latest
-    container_name: nexus_campaigns
+    image: elevatedpos-campaigns:latest
+    container_name: elevatedpos_campaigns
     depends_on:
       postgres:
         condition: service_healthy
@@ -257,12 +257,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4008/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   notifications:
     <<: *service-defaults
-    image: nexus-notifications:latest
-    container_name: nexus_notifications
+    image: elevatedpos-notifications:latest
+    container_name: elevatedpos_notifications
     depends_on:
       postgres:
         condition: service_healthy
@@ -282,12 +282,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4009/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   integrations:
     <<: *service-defaults
-    image: nexus-integrations:latest
-    container_name: nexus_integrations
+    image: elevatedpos-integrations:latest
+    container_name: elevatedpos_integrations
     depends_on:
       postgres:
         condition: service_healthy
@@ -301,12 +301,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4010/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   automations:
     <<: *service-defaults
-    image: nexus-automations:latest
-    container_name: nexus_automations
+    image: elevatedpos-automations:latest
+    container_name: elevatedpos_automations
     depends_on:
       postgres:
         condition: service_healthy
@@ -322,12 +322,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4011/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   ai:
     <<: *service-defaults
-    image: nexus-ai:latest
-    container_name: nexus_ai
+    image: elevatedpos-ai:latest
+    container_name: elevatedpos_ai
     depends_on:
       postgres:
         condition: service_healthy
@@ -342,12 +342,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4012/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   franchise:
     <<: *service-defaults
-    image: nexus-franchise:latest
-    container_name: nexus_franchise
+    image: elevatedpos-franchise:latest
+    container_name: elevatedpos_franchise
     depends_on:
       postgres:
         condition: service_healthy
@@ -361,12 +361,12 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4013/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   reporting:
     <<: *service-defaults
-    image: nexus-reporting:latest
-    container_name: nexus_reporting
+    image: elevatedpos-reporting:latest
+    container_name: elevatedpos_reporting
     depends_on:
       postgres:
         condition: service_healthy
@@ -380,17 +380,17 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       INTERNAL_SECRET: ${INTERNAL_SECRET}
       CLICKHOUSE_URL: http://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@clickhouse:8123
-      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-nexus_analytics}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-elevatedpos_analytics}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4014/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   webhooks:
     <<: *service-defaults
-    image: nexus-webhooks:latest
-    container_name: nexus_webhooks
+    image: elevatedpos-webhooks:latest
+    container_name: elevatedpos_webhooks
     depends_on:
       postgres:
         condition: service_healthy
@@ -407,14 +407,14 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4015/health"]
       <<: *api-healthcheck
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   # ─── Frontend Apps ───────────────────────────────────────────────────────────
 
   web-backoffice:
     <<: *service-defaults
-    image: nexus-web-backoffice:latest
-    container_name: nexus_web_backoffice
+    image: elevatedpos-web-backoffice:latest
+    container_name: elevatedpos_web_backoffice
     depends_on:
       auth:
         condition: service_healthy
@@ -430,12 +430,12 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   kds-display:
     <<: *service-defaults
-    image: nexus-kds-display:latest
-    container_name: nexus_kds_display
+    image: elevatedpos-kds-display:latest
+    container_name: elevatedpos_kds_display
     depends_on:
       orders:
         condition: service_healthy
@@ -454,14 +454,14 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - nexus_internal
+      - elevatedpos_internal
 
   # ─── Nginx Reverse Proxy ─────────────────────────────────────────────────────
 
   nginx:
     <<: *service-defaults
     image: nginx:1.27-alpine
-    container_name: nexus_nginx
+    container_name: elevatedpos_nginx
     depends_on:
       - web-backoffice
       - auth
@@ -492,8 +492,8 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - nexus_internal
-      - nexus_external
+      - elevatedpos_internal
+      - elevatedpos_external
 
 volumes:
   postgres_data:
@@ -506,8 +506,8 @@ volumes:
     driver: local
 
 networks:
-  nexus_internal:
-    name: nexus_prod_internal
+  elevatedpos_internal:
+    name: elevatedpos_prod_internal
     internal: true
-  nexus_external:
-    name: nexus_prod_external
+  elevatedpos_external:
+    name: elevatedpos_prod_external

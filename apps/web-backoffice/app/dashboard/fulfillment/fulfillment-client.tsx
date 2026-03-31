@@ -130,7 +130,7 @@ export default function FulfillmentClient() {
             onClick={() => setActiveTab(id)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               activeTab === id
-                ? 'border-nexus-500 text-nexus-600 dark:text-nexus-400'
+                ? 'border-elevatedpos-500 text-elevatedpos-600 dark:text-elevatedpos-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
             }`}
           >

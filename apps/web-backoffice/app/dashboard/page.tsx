@@ -206,7 +206,7 @@ export default async function DashboardPage() {
           </div>
           <div>
             <h3 className="font-semibold text-white">AI Insights</h3>
-            <p className="text-xs text-purple-200">Powered by NEXUS AI Copilot · refreshes hourly</p>
+            <p className="text-xs text-purple-200">Powered by ElevatedPOS AI Copilot · refreshes hourly</p>
           </div>
         </div>
 

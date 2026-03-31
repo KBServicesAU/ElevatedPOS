@@ -297,7 +297,7 @@ export default function MoreScreen() {
           </View>
         ))}
 
-        <Text style={styles.version}>NEXUS POS v1.0.0 · Terminal 1</Text>
+        <Text style={styles.version}>ElevatedPOS v1.0.0 · Terminal 1</Text>
       </ScrollView>
     </SafeAreaView>
   );

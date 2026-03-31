@@ -15,7 +15,7 @@ export function createServiceToken(fromService: string, toService: string): stri
   return jwt.sign(
     { sub: fromService, aud: toService, type: 'service' },
     SECRET(),
-    { expiresIn: '5m', issuer: 'nexus-auth' },
+    { expiresIn: '5m', issuer: 'elevatedpos-auth' },
   );
 }
 
@@ -27,7 +27,7 @@ export function createServiceToken(fromService: string, toService: string): stri
 export function verifyServiceToken(token: string, expectedService: string): boolean {
   try {
     const payload = jwt.verify(token, SECRET(), {
-      issuer: 'nexus-auth',
+      issuer: 'elevatedpos-auth',
     }) as { type?: string; aud?: string | string[] };
 
     if (payload.type !== 'service') return false;

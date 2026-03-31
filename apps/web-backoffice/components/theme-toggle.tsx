@@ -16,10 +16,10 @@ export function ThemeToggle() {
     setIsDark(next);
     if (next) {
       document.documentElement.classList.add('dark');
-      localStorage.setItem('nexus-theme', 'dark');
+      localStorage.setItem('elevatedpos-theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('nexus-theme', 'light');
+      localStorage.setItem('elevatedpos-theme', 'light');
     }
   };
 

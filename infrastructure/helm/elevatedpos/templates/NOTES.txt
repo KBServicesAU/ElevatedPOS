@@ -1,4 +1,4 @@
-NEXUS has been deployed!
+ElevatedPOS has been deployed!
 
 Access the backoffice at: https://{{ .Values.ingress.host }}
 

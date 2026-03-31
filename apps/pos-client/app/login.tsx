@@ -87,7 +87,7 @@ export default function LoginScreen() {
           <View style={styles.logoBox}>
             <Ionicons name="storefront" size={32} color="#818cf8" />
           </View>
-          <Text style={styles.appName}>NEXUS POS</Text>
+          <Text style={styles.appName}>ElevatedPOS</Text>
           <Text style={styles.subtitle}>Enter your PIN to continue</Text>
         </View>
 

@@ -5,7 +5,7 @@ const AUTH_API_URL = process.env.AUTH_API_URL ?? 'http://localhost:4001';
 
 export async function POST(request: NextRequest) {
   const cookieStore = cookies();
-  const token = cookieStore.get('nexus_token')?.value;
+  const token = cookieStore.get('elevatedpos_token')?.value;
 
   // Tell the auth service to blacklist the token (best-effort)
   if (token) {
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   }
 
   const response = NextResponse.json({ ok: true });
-  response.cookies.delete('nexus_token');
-  response.cookies.delete('nexus_refresh_token');
+  response.cookies.delete('elevatedpos_token');
+  response.cookies.delete('elevatedpos_refresh_token');
   return response;
 }

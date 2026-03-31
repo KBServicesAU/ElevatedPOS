@@ -55,12 +55,12 @@ const APPS = [
   },
 ] as const;
 
-interface NexusAppBarProps {
+interface ElevatedPOSAppBarProps {
   currentApp: string;
   appLabel: string;
 }
 
-export function NexusAppBar({ currentApp, appLabel }: NexusAppBarProps) {
+export function ElevatedPOSAppBar({ currentApp, appLabel }: ElevatedPOSAppBarProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -114,7 +114,7 @@ export function NexusAppBar({ currentApp, appLabel }: NexusAppBarProps) {
         {open && (
           <div className="absolute right-0 top-full mt-1.5 w-72 rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
             <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">NEXUS Platform</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">ElevatedPOS Platform</p>
             </div>
             <div className="grid grid-cols-2 gap-1 p-2">
               {APPS.map((app) => {

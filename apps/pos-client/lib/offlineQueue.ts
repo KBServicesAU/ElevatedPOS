@@ -9,7 +9,7 @@ type DB = ReturnType<typeof SQLite.openDatabaseSync> | null;
 let db: DB = null;
 
 if (!isWeb) {
-  db = SQLite.openDatabaseSync('nexus_offline.db');
+  db = SQLite.openDatabaseSync('elevatedpos_offline.db');
 }
 
 // Initialize tables

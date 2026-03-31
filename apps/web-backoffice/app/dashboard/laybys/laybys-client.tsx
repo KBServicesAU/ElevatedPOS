@@ -132,7 +132,7 @@ export default function LaybysClient() {
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-500 transition-colors"
+          className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 transition-colors"
         >
           <Plus className="h-4 w-4" />
           New Lay-by
@@ -147,7 +147,7 @@ export default function LaybysClient() {
             onClick={() => setActiveTab(id)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               activeTab === id
-                ? 'border-nexus-500 text-nexus-600 dark:text-nexus-400'
+                ? 'border-elevatedpos-500 text-elevatedpos-600 dark:text-elevatedpos-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
             }`}
           >
@@ -262,7 +262,7 @@ export default function LaybysClient() {
                   placeholder="e.g. Jane Smith"
                   value={form.customerName}
                   onChange={(e) => setForm({ ...form, customerName: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                 />
               </div>
               <div>
@@ -272,7 +272,7 @@ export default function LaybysClient() {
                   placeholder="e.g. Samsung 65&quot; TV"
                   value={form.itemsSummary}
                   onChange={(e) => setForm({ ...form, itemsSummary: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -284,7 +284,7 @@ export default function LaybysClient() {
                     placeholder="e.g. 800"
                     value={form.total}
                     onChange={(e) => setForm({ ...form, total: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                   />
                 </div>
                 <div>
@@ -295,7 +295,7 @@ export default function LaybysClient() {
                     placeholder="e.g. 200"
                     value={form.depositAmount}
                     onChange={(e) => setForm({ ...form, depositAmount: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                   />
                 </div>
               </div>
@@ -304,7 +304,7 @@ export default function LaybysClient() {
                 <select
                   value={form.installmentCount}
                   onChange={(e) => setForm({ ...form, installmentCount: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
                 >
                   <option value="2">2 payments</option>
                   <option value="3">3 payments</option>
@@ -324,7 +324,7 @@ export default function LaybysClient() {
               <button
                 onClick={handleCreate}
                 disabled={!form.customerName || !form.total || !form.depositAmount || saving}
-                className="flex items-center gap-2 rounded-lg bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-500 disabled:opacity-50 transition-colors"
+                className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
               >
                 {saving ? (
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />

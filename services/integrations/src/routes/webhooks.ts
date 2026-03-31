@@ -163,7 +163,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       type: 'webhook.test',
       merchantId: orgId,
       timestamp: new Date().toISOString(),
-      data: { message: 'This is a test ping from NEXUS. Your webhook is working correctly.' },
+      data: { message: 'This is a test ping from ElevatedPOS. Your webhook is working correctly.' },
     };
 
     const result = await deliverWebhook(id, 'webhook.test', testPayload);

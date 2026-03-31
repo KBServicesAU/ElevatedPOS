@@ -1,8 +1,8 @@
 {
-  "name": "nexus",
+  "name": "elevatedpos",
   "version": "0.1.0",
   "private": true,
-  "description": "NEXUS — Unified Commerce & Operations Platform",
+  "description": "ElevatedPOS — Unified Commerce & Operations Platform",
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"

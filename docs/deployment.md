@@ -1,4 +1,4 @@
-# NEXUS Deployment Guide
+# ElevatedPOS Deployment Guide
 
 ## Prerequisites
 
@@ -43,7 +43,7 @@ cp .env.example .env
 
 Key variables to set locally:
 ```
-DATABASE_URL=postgres://nexus:nexus@localhost:5432/nexus
+DATABASE_URL=postgres://elevatedpos:elevatedpos@localhost:5432/elevatedpos
 REDIS_URL=redis://localhost:6379
 KAFKA_BROKERS=localhost:9092
 JWT_SECRET=dev-secret-change-in-production
@@ -94,12 +94,12 @@ Services will hot-reload on file changes via `tsx --watch`.
 
 ```bash
 # Create the S3 bucket and DynamoDB table for Terraform state
-aws s3 mb s3://nexus-terraform-state --region ap-southeast-2
+aws s3 mb s3://elevatedpos-terraform-state --region ap-southeast-2
 aws s3api put-bucket-versioning \
-  --bucket nexus-terraform-state \
+  --bucket elevatedpos-terraform-state \
   --versioning-configuration Status=Enabled
 aws dynamodb create-table \
-  --table-name nexus-terraform-locks \
+  --table-name elevatedpos-terraform-locks \
   --attribute-definitions AttributeName=LockID,AttributeType=S \
   --key-schema AttributeName=LockID,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST \
@@ -130,7 +130,7 @@ terraform apply \
 ```bash
 aws eks update-kubeconfig \
   --region ap-southeast-2 \
-  --name nexus-prod
+  --name elevatedpos-prod
 ```
 
 ### Step 4 — Create Kubernetes namespace and secrets
@@ -139,8 +139,8 @@ aws eks update-kubeconfig \
 kubectl apply -f infrastructure/k8s/namespace.yaml
 
 # Create the secrets (substitute real values)
-kubectl create secret generic nexus-secrets \
-  --from-literal=DATABASE_URL="postgres://nexus:<password>@<rds-endpoint>:5432/nexus?sslmode=require" \
+kubectl create secret generic elevatedpos-secrets \
+  --from-literal=DATABASE_URL="postgres://elevatedpos:<password>@<rds-endpoint>:5432/elevatedpos?sslmode=require" \
   --from-literal=REDIS_URL="rediss://<redis-endpoint>:6379" \
   --from-literal=KAFKA_BROKERS="<broker1>:9094,<broker2>:9094,<broker3>:9094" \
   --from-literal=JWT_SECRET="<64-char-random-string>" \
@@ -150,7 +150,7 @@ kubectl create secret generic nexus-secrets \
   --from-literal=TYRO_API_KEY="..." \
   --from-literal=SENDGRID_API_KEY="..." \
   --from-literal=TWILIO_AUTH_TOKEN="..." \
-  -n nexus
+  -n elevatedpos
 ```
 
 ### Step 5 — Build and push Docker images
@@ -167,21 +167,21 @@ IMAGE_TAG=$(git rev-parse --short HEAD)
 
 for SERVICE in auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge; do
   docker build \
-    -t $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/$SERVICE:$IMAGE_TAG \
-    -t $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/$SERVICE:latest \
+    -t $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/$SERVICE:$IMAGE_TAG \
+    -t $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/$SERVICE:latest \
     -f services/$SERVICE/Dockerfile .
-  docker push $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/$SERVICE:$IMAGE_TAG
-  docker push $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/$SERVICE:latest
+  docker push $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/$SERVICE:$IMAGE_TAG
+  docker push $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/$SERVICE:latest
 done
 
 # Web apps
 for APP in web-backoffice kds-display; do
   docker build \
-    -t $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/$APP:$IMAGE_TAG \
-    -t $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/$APP:latest \
+    -t $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/$APP:$IMAGE_TAG \
+    -t $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/$APP:latest \
     -f apps/$APP/Dockerfile .
-  docker push $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/$APP:$IMAGE_TAG
-  docker push $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/$APP:latest
+  docker push $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/$APP:$IMAGE_TAG
+  docker push $ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/$APP:latest
 done
 ```
 
@@ -208,13 +208,13 @@ kubectl apply -f infrastructure/k8s/ingress.yaml
 # Run migrations for each service via a one-off pod
 for SERVICE in auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations; do
   kubectl run migrate-$SERVICE \
-    --image=$ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/$SERVICE:latest \
+    --image=$ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/$SERVICE:latest \
     --restart=Never \
     --rm \
     --attach \
-    --env-from=secret/nexus-secrets \
-    --env-from=configmap/nexus-config \
-    -n nexus \
+    --env-from=secret/elevatedpos-secrets \
+    --env-from=configmap/elevatedpos-config \
+    -n elevatedpos \
     -- pnpm db:migrate
 done
 ```
@@ -223,19 +223,19 @@ done
 
 ```bash
 # Check all pods are running
-kubectl get pods -n nexus
+kubectl get pods -n elevatedpos
 
 # Check service endpoints
-kubectl get services -n nexus
+kubectl get services -n elevatedpos
 
 # Check ingress
-kubectl get ingress -n nexus
+kubectl get ingress -n elevatedpos
 
 # Tail logs for a service
-kubectl logs -f deployment/orders -n nexus
+kubectl logs -f deployment/orders -n elevatedpos
 
 # Scale a service manually if needed
-kubectl scale deployment orders --replicas=5 -n nexus
+kubectl scale deployment orders --replicas=5 -n elevatedpos
 ```
 
 ---
@@ -304,14 +304,14 @@ jobs:
 To rollback a deployment to the previous image:
 
 ```bash
-kubectl rollout undo deployment/orders -n nexus
+kubectl rollout undo deployment/orders -n elevatedpos
 ```
 
 To rollback to a specific revision:
 
 ```bash
-kubectl rollout history deployment/orders -n nexus
-kubectl rollout undo deployment/orders --to-revision=3 -n nexus
+kubectl rollout history deployment/orders -n elevatedpos
+kubectl rollout undo deployment/orders --to-revision=3 -n elevatedpos
 ```
 
 ---
@@ -322,7 +322,7 @@ HPAs are configured for all services. To adjust limits:
 
 ```bash
 # Manual override
-kubectl patch hpa orders -n nexus -p '{"spec":{"maxReplicas":30}}'
+kubectl patch hpa orders -n elevatedpos -p '{"spec":{"maxReplicas":30}}'
 
 # Or edit the manifest and reapply
 kubectl apply -f infrastructure/k8s/services/orders.yaml
@@ -330,6 +330,6 @@ kubectl apply -f infrastructure/k8s/services/orders.yaml
 
 For peak trading periods (e.g., Black Friday), pre-scale:
 ```bash
-kubectl scale deployment orders --replicas=15 -n nexus
-kubectl scale deployment payments --replicas=10 -n nexus
+kubectl scale deployment orders --replicas=15 -n elevatedpos
+kubectl scale deployment payments --replicas=10 -n elevatedpos
 ```

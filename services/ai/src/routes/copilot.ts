@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { createAnthropicClient } from '../lib/anthropic.js';
 
 const COPILOT_SYSTEM_PROMPT =
-  'You are NEXUS AI Copilot, an intelligent assistant for retail and hospitality operators. ' +
+  'You are ElevatedPOS AI Copilot, an intelligent assistant for retail and hospitality operators. ' +
   'You help with inventory management, sales analysis, customer insights, and operational decisions. ' +
   'Be concise and actionable.';
 

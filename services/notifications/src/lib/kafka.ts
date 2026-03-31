@@ -17,13 +17,13 @@ let consumer: Consumer | null = null;
 
 export async function startConsumer(handler: NotificationHandler): Promise<void> {
   const kafka = new Kafka({
-    clientId: 'nexus-notifications',
+    clientId: 'elevatedpos-notifications',
     brokers: (process.env['KAFKA_BROKERS'] ?? 'localhost:9092').split(','),
     logLevel: logLevel.WARN,
   });
 
   consumer = kafka.consumer({
-    groupId: 'nexus-notifications-group',
+    groupId: 'elevatedpos-notifications-group',
     sessionTimeout: 30_000,
     heartbeatInterval: 3_000,
   });

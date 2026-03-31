@@ -5,7 +5,7 @@ let producer: Producer | null = null;
 
 function getKafka(): Kafka {
   return new Kafka({
-    clientId: 'nexus-orders',
+    clientId: 'elevatedpos-orders',
     brokers: (process.env['KAFKA_BROKERS'] ?? 'localhost:9092').split(','),
     logLevel: logLevel.WARN,
   });
@@ -33,7 +33,7 @@ export async function publishEvent(topic: string, payload: object): Promise<void
           value: JSON.stringify(payload),
           headers: {
             'content-type': 'application/json',
-            source: 'nexus-orders',
+            source: 'elevatedpos-orders',
             timestamp: String(Date.now()),
           },
         },
@@ -47,7 +47,7 @@ export async function publishEvent(topic: string, payload: object): Promise<void
 
 /**
  * Publish a fully-formed {@link BaseEvent} envelope to the given Kafka topic.
- * Uses `orgId` as the partition key and attaches standard NEXUS headers.
+ * Uses `orgId` as the partition key and attaches standard ElevatedPOS headers.
  * Failures are non-fatal — errors are logged but never propagated to callers.
  */
 export async function publishTypedEvent(topic: string, event: BaseEvent): Promise<void> {
@@ -64,7 +64,7 @@ export async function publishTypedEvent(topic: string, event: BaseEvent): Promis
             'event-type': event.eventType,
             'event-version': event.version,
             'event-id': event.eventId,
-            source: 'nexus-orders',
+            source: 'elevatedpos-orders',
           },
         },
       ],

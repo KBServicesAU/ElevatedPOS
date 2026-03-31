@@ -25,7 +25,7 @@ export default function RootLayout() {
           name="loyalty"
           options={{ title: 'Sign In for Rewards', headerBackVisible: true }}
         />
-        <Stack.Screen name="menu" options={{ title: 'NEXUS Kiosk', headerBackVisible: false }} />
+        <Stack.Screen name="menu" options={{ title: 'ElevatedPOS Kiosk', headerBackVisible: false }} />
         <Stack.Screen name="age-verification" options={{ headerShown: false }} />
         <Stack.Screen name="cart" options={{ title: 'Your Order', headerBackVisible: true }} />
         <Stack.Screen name="payment" options={{ title: 'Payment', headerBackVisible: true }} />

@@ -76,7 +76,7 @@ const keyInterfaces = [
     name: 'NexusClientConfig',
     body: `interface NexusClientConfig {
   apiKey: string;           // required — server-side only
-  baseUrl?: string;         // default: https://api.nexus.app
+  baseUrl?: string;         // default: https://api.elevatedpos.com.au
   timeout?: number;         // default: 30_000 ms
 }`,
   },
@@ -110,8 +110,8 @@ const keyInterfaces = [
 }`,
   },
   {
-    name: 'NexusApiError',
-    body: `class NexusApiError extends Error {
+    name: 'ElevatedPOSApiError',
+    body: `class ElevatedPOSApiError extends Error {
   status: number;   // HTTP status code (0 = network error)
   type: string;     // RFC 9457 problem type URI
   message: string;  // human-readable title
@@ -145,7 +145,7 @@ export default function SdkPage() {
         <div className="flex items-start justify-between mb-3">
           <h1 className="text-3xl font-bold text-white">TypeScript SDK</h1>
           <a
-            href="https://github.com/nexus-pos/api-client"
+            href="https://github.com/elevatedpos/api-client"
             className="flex items-center gap-2 px-3 py-1.5 border border-gray-700 hover:border-gray-500 text-gray-400 hover:text-gray-200 rounded-lg text-sm transition-colors"
           >
             <Github className="w-4 h-4" />
@@ -153,7 +153,7 @@ export default function SdkPage() {
           </a>
         </div>
         <p className="text-gray-400 mb-4">
-          The official NEXUS client for Node.js and TypeScript. Strongly typed, zero production
+          The official ElevatedPOS client for Node.js and TypeScript. Strongly typed, zero production
           dependencies — uses the platform <code className="font-mono text-indigo-300 text-sm">fetch</code> API.
         </p>
         <div className="flex items-center gap-2 mb-10">
@@ -207,8 +207,8 @@ export default function SdkPage() {
             <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { createClient } from '@nexus/api-client';
 
 const nexus = createClient({
-  apiKey: process.env.NEXUS_API_KEY!,   // never expose this in the browser
-  // baseUrl: 'https://sandbox.nexus.app', // uncomment to use sandbox
+  apiKey: process.env.ELEVATEDPOS_API_KEY!,   // never expose this in the browser
+  // baseUrl: 'https://sandbox.elevatedpos.com.au', // uncomment to use sandbox
 });`}</pre>
           </div>
 
@@ -223,7 +223,7 @@ const nexus = createClient({
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`// OAuth: use a proxy that injects the bearer token server-side
 // and call your own backend endpoints to avoid exposing the token.
-// The NEXUS API also accepts:  Authorization: Bearer <access_token>
+// The ElevatedPOS API also accepts:  Authorization: Bearer <access_token>
 // Set this at the gateway level when forwarding merchant requests.`}</pre>
           </div>
         </section>
@@ -239,7 +239,7 @@ const nexus = createClient({
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { createClient } from '@nexus/api-client';
 
-const nexus = createClient({ apiKey: process.env.NEXUS_API_KEY! });
+const nexus = createClient({ apiKey: process.env.ELEVATEDPOS_API_KEY! });
 
 // List products with pagination
 const { data: products, meta } = await nexus.catalog.products.list({
@@ -286,7 +286,7 @@ await nexus.loyalty.accounts.accruePoints(customers[0].id, {
             <Layers className="w-5 h-5 text-indigo-400" />
             Method Reference
           </h2>
-          <p className="text-sm text-gray-500 mb-6">All methods are <code className="font-mono text-indigo-300 text-xs">async</code> and return typed promises. Errors throw <code className="font-mono text-indigo-300 text-xs">NexusApiError</code>.</p>
+          <p className="text-sm text-gray-500 mb-6">All methods are <code className="font-mono text-indigo-300 text-xs">async</code> and return typed promises. Errors throw <code className="font-mono text-indigo-300 text-xs">ElevatedPOSApiError</code>.</p>
 
           <div className="space-y-6">
             {resources.map((resource) => (
@@ -315,7 +315,7 @@ await nexus.loyalty.accounts.accruePoints(customers[0].id, {
         <section className="mb-12">
           <h2 className="text-xl font-bold text-white mb-1">Webhook Verification</h2>
           <p className="text-sm text-gray-500 mb-4">
-            NEXUS signs every delivery with <code className="font-mono text-indigo-300 text-xs">X-Nexus-Signature: sha256=HMAC(secret, body)</code>.
+            ElevatedPOS signs every delivery with <code className="font-mono text-indigo-300 text-xs">X-ElevatedPOS-Signature: sha256=HMAC(secret, body)</code>.
             Use <code className="font-mono text-indigo-300 text-xs">verifyWebhookSignature</code> to validate incoming requests.
           </p>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6">
@@ -324,12 +324,12 @@ await nexus.loyalty.accounts.accruePoints(customers[0].id, {
 // Next.js App Router example
 export async function POST(request: Request) {
   const rawBody = await request.text();
-  const signature = request.headers.get('x-nexus-signature') ?? '';
+  const signature = request.headers.get('x-elevatedpos-signature') ?? '';
 
   const isValid = await verifyWebhookSignature(
     rawBody,
     signature,
-    process.env.NEXUS_WEBHOOK_SECRET!,
+    process.env.ELEVATEDPOS_WEBHOOK_SECRET!,
   );
 
   if (!isValid) {
@@ -347,7 +347,7 @@ export async function POST(request: Request) {
           <h3 className="text-sm font-semibold text-gray-300 mb-2">Register a webhook</h3>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`const { data: webhook } = await nexus.webhooks.create({
-  url: 'https://yourapp.com/api/nexus-webhook',
+  url: 'https://yourapp.com/api/elevatedpos-webhook',
   events: ['order.completed', 'payment.captured', 'inventory.low_stock'],
   label: 'Production handler',
 });
@@ -372,22 +372,22 @@ deliveries.forEach((d) => {
             Error Handling
           </h2>
           <p className="text-sm text-gray-500 mb-4">
-            All failed requests throw a typed <code className="font-mono text-indigo-300 text-xs">NexusApiError</code>. Network timeouts throw with <code className="font-mono text-indigo-300 text-xs">status === 0</code>.
+            All failed requests throw a typed <code className="font-mono text-indigo-300 text-xs">ElevatedPOSApiError</code>. Network timeouts throw with <code className="font-mono text-indigo-300 text-xs">status === 0</code>.
           </p>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { createClient, NexusApiError } from '@nexus/api-client';
+            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { createClient, ElevatedPOSApiError } from '@nexus/api-client';
 
-const nexus = createClient({ apiKey: process.env.NEXUS_API_KEY! });
+const nexus = createClient({ apiKey: process.env.ELEVATEDPOS_API_KEY! });
 
 try {
   const { data: product } = await nexus.catalog.products.get('nonexistent-id');
 } catch (err) {
-  if (err instanceof NexusApiError) {
+  if (err instanceof ElevatedPOSApiError) {
     // Strongly typed properties:
     console.error(err.status);          // 404
     console.error(err.message);         // "Not Found"
     console.error(err.detail);          // "Product not found"
-    console.error(err.type);            // "https://nexus.app/errors/not-found"
+    console.error(err.type);            // "https://elevatedpos.com.au/errors/not-found"
 
     // Convenience getters:
     if (err.isNotFound)        { /* handle 404 */ }
@@ -430,7 +430,7 @@ try {
             <p className="text-xs text-gray-400">Issues, pull requests, and discussions welcome.</p>
           </div>
           <a
-            href="https://github.com/nexus-pos/api-client"
+            href="https://github.com/elevatedpos/api-client"
             className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
           >
             View SDK <ArrowRight className="w-3.5 h-3.5" />

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { LayoutDashboard, CreditCard, Grid2X2, ChefHat, Tablet } from 'lucide-react';
 
 const APPS = [
-  { id: 'dashboard', label: 'Dashboard',   description: 'Back office & management', icon: LayoutDashboard, href: '/dashboard', color: 'bg-nexus-500'   },
+  { id: 'dashboard', label: 'Dashboard',   description: 'Back office & management', icon: LayoutDashboard, href: '/dashboard', color: 'bg-elevatedpos-500'   },
   { id: 'pos',       label: 'POS',         description: 'Point of sale terminal',   icon: CreditCard,      href: '/pos',       color: 'bg-emerald-500' },
   { id: 'kds',       label: 'KDS Display', description: 'Kitchen display system',   icon: ChefHat,         href: '/kds',       color: 'bg-orange-500'  },
   { id: 'kiosk',     label: 'Kiosk',       description: 'Self-service ordering',    icon: Tablet,          href: '/kiosk',     color: 'bg-yellow-500'  },
@@ -41,7 +41,7 @@ export function AppSwitcher({ currentApp = 'dashboard' }: AppSwitcherProps) {
         aria-expanded={open}
         className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors duration-150 ${
           open
-            ? 'bg-nexus-50 text-nexus-600 dark:bg-nexus-900/30 dark:text-nexus-400'
+            ? 'bg-elevatedpos-50 text-elevatedpos-600 dark:bg-elevatedpos-900/30 dark:text-elevatedpos-400'
             : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200'
         }`}
       >
@@ -53,7 +53,7 @@ export function AppSwitcher({ currentApp = 'dashboard' }: AppSwitcherProps) {
         <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
           <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-              NEXUS Platform
+              ElevatedPOS Platform
             </p>
           </div>
 
@@ -68,7 +68,7 @@ export function AppSwitcher({ currentApp = 'dashboard' }: AppSwitcherProps) {
                   onClick={() => setOpen(false)}
                   className={`flex flex-col items-start gap-2 rounded-lg p-3 transition-colors duration-150 ${
                     isCurrent
-                      ? 'bg-nexus-50 ring-1 ring-nexus-200 dark:bg-nexus-900/20 dark:ring-nexus-800'
+                      ? 'bg-elevatedpos-50 ring-1 ring-elevatedpos-200 dark:bg-elevatedpos-900/20 dark:ring-elevatedpos-800'
                       : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
@@ -77,11 +77,11 @@ export function AppSwitcher({ currentApp = 'dashboard' }: AppSwitcherProps) {
                   </div>
                   <div>
                     <div className="flex items-center gap-1">
-                      <span className={`text-sm font-medium ${isCurrent ? 'text-nexus-700 dark:text-nexus-300' : 'text-gray-800 dark:text-gray-100'}`}>
+                      <span className={`text-sm font-medium ${isCurrent ? 'text-elevatedpos-700 dark:text-elevatedpos-300' : 'text-gray-800 dark:text-gray-100'}`}>
                         {app.label}
                       </span>
                       {isCurrent && (
-                        <span className="rounded-full bg-nexus-100 px-1.5 py-0.5 text-[10px] font-semibold text-nexus-600 dark:bg-nexus-900/40 dark:text-nexus-400">
+                        <span className="rounded-full bg-elevatedpos-100 px-1.5 py-0.5 text-[10px] font-semibold text-elevatedpos-600 dark:bg-elevatedpos-900/40 dark:text-elevatedpos-400">
                           Current
                         </span>
                       )}

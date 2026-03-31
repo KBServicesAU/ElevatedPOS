@@ -125,7 +125,7 @@ export default function AICopilot() {
               <Sparkles className="h-4 w-4 text-white" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-white">NEXUS AI Copilot</p>
+              <p className="text-sm font-semibold text-white">ElevatedPOS AI Copilot</p>
               <p className="text-xs text-purple-200">Powered by Claude</p>
             </div>
           </div>

@@ -32,20 +32,20 @@ const steps = [
   {
     step: '2',
     title: 'Redirect the merchant',
-    description: 'Send the merchant to the NEXUS authorization URL with your client_id, requested scopes, and redirect_uri.',
-    endpoint: 'GET https://app.nexus.app/oauth/authorize',
+    description: 'Send the merchant to the ElevatedPOS authorization URL with your client_id, requested scopes, and redirect_uri.',
+    endpoint: 'GET https://app.elevatedpos.com.au/oauth/authorize',
   },
   {
     step: '3',
     title: 'Merchant approves',
-    description: 'The merchant reviews requested permissions on the NEXUS consent screen and approves or denies.',
+    description: 'The merchant reviews requested permissions on the ElevatedPOS consent screen and approves or denies.',
     endpoint: null,
   },
   {
     step: '4',
     title: 'Exchange the code',
-    description: 'NEXUS redirects to your redirect_uri with a code parameter. Exchange it for tokens immediately — codes expire in 60 seconds.',
-    endpoint: 'POST https://api.nexus.app/api/v1/oauth/token',
+    description: 'ElevatedPOS redirects to your redirect_uri with a code parameter. Exchange it for tokens immediately — codes expire in 60 seconds.',
+    endpoint: 'POST https://api.elevatedpos.com.au/api/v1/oauth/token',
   },
   {
     step: '5',
@@ -74,7 +74,7 @@ export default function OAuthPage() {
           <h1 className="text-3xl font-bold text-white">OAuth 2.0</h1>
         </div>
         <p className="text-gray-400 mb-10">
-          Implement the Authorization Code flow to access the NEXUS API on behalf of merchant accounts. OAuth apps can
+          Implement the Authorization Code flow to access the ElevatedPOS API on behalf of merchant accounts. OAuth apps can
           act on a merchant's data with the exact permissions they approve — no need to handle merchant credentials.
         </p>
 
@@ -137,7 +137,7 @@ export default function OAuthPage() {
         <section className="mb-12">
           <h2 className="text-xl font-bold text-white mb-4">Authorization URL</h2>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
-            <pre className="text-sm text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap break-all">{`https://app.nexus.app/oauth/authorize
+            <pre className="text-sm text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap break-all">{`https://app.elevatedpos.com.au/oauth/authorize
   ?response_type=code
   &client_id=YOUR_CLIENT_ID
   &redirect_uri=https%3A%2F%2Fyourapp.com%2Fcallback
@@ -169,14 +169,14 @@ export default function OAuthPage() {
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
             <p className="text-xs text-gray-500 mb-2 font-mono">Node.js — exchange authorization code for tokens</p>
             <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`async function exchangeCodeForTokens(code: string) {
-  const response = await fetch('https://api.nexus.app/api/v1/oauth/token', {
+  const response = await fetch('https://api.elevatedpos.com.au/api/v1/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'authorization_code',
       code,
-      client_id: process.env.NEXUS_CLIENT_ID,
-      client_secret: process.env.NEXUS_CLIENT_SECRET,
+      client_id: process.env.ELEVATEDPOS_CLIENT_ID,
+      client_secret: process.env.ELEVATEDPOS_CLIENT_SECRET,
       redirect_uri: 'https://yourapp.com/callback',
     }),
   });
@@ -194,14 +194,14 @@ export default function OAuthPage() {
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
             <p className="text-xs text-gray-500 mb-2 font-mono">Node.js — refresh an expired access token</p>
             <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`async function refreshAccessToken(refreshToken: string) {
-  const response = await fetch('https://api.nexus.app/api/v1/oauth/token', {
+  const response = await fetch('https://api.elevatedpos.com.au/api/v1/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-      client_id: process.env.NEXUS_CLIENT_ID,
-      client_secret: process.env.NEXUS_CLIENT_SECRET,
+      client_id: process.env.ELEVATEDPOS_CLIENT_ID,
+      client_secret: process.env.ELEVATEDPOS_CLIENT_SECRET,
     }),
   });
 
@@ -279,17 +279,17 @@ export default function OAuthPage() {
             <h2 className="text-xl font-bold text-white">Token Revocation</h2>
           </div>
           <p className="text-gray-400 text-sm mb-4">
-            Tokens can be revoked by the merchant (via the NEXUS dashboard) or programmatically by your app:
+            Tokens can be revoked by the merchant (via the ElevatedPOS dashboard) or programmatically by your app:
           </p>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`// Revoke a token (access or refresh)
-await fetch('https://api.nexus.app/api/v1/oauth/revoke', {
+await fetch('https://api.elevatedpos.com.au/api/v1/oauth/revoke', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     token: accessTokenOrRefreshToken,
-    client_id: process.env.NEXUS_CLIENT_ID,
-    client_secret: process.env.NEXUS_CLIENT_SECRET,
+    client_id: process.env.ELEVATEDPOS_CLIENT_ID,
+    client_secret: process.env.ELEVATEDPOS_CLIENT_SECRET,
   }),
 });
 // Returns 200 OK on success (even if token was already expired)`}</pre>
@@ -365,7 +365,7 @@ await fetch('https://api.nexus.app/api/v1/oauth/revoke', {
               },
               {
                 title: 'Rotate refresh tokens on every use',
-                detail: 'NEXUS issues a new refresh token each time you use one. Always store and use the latest refresh token. If a previous refresh token is presented, NEXUS will revoke the entire token family.',
+                detail: 'ElevatedPOS issues a new refresh token each time you use one. Always store and use the latest refresh token. If a previous refresh token is presented, ElevatedPOS will revoke the entire token family.',
               },
               {
                 title: 'Store tokens encrypted at rest',

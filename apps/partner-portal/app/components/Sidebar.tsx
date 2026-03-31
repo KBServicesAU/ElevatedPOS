@@ -22,7 +22,7 @@ export function Sidebar() {
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 bg-indigo-600 rounded flex items-center justify-center text-xs font-bold text-white">N</div>
           <div>
-            <div className="text-sm font-bold text-white">NEXUS</div>
+            <div className="text-sm font-bold text-white">ElevatedPOS</div>
             <div className="text-xs text-slate-500">Partner Portal</div>
           </div>
         </div>

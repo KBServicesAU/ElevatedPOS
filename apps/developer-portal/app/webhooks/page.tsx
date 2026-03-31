@@ -325,7 +325,7 @@ export default function WebhooksPage() {
           <h1 className="text-3xl font-bold text-white">Webhooks</h1>
         </div>
         <p className="text-gray-400 mb-1">
-          Receive real-time event notifications from the NEXUS platform. When an event occurs, NEXUS sends an HTTP{' '}
+          Receive real-time event notifications from the ElevatedPOS platform. When an event occurs, ElevatedPOS sends an HTTP{' '}
           <code className="font-mono text-indigo-300 bg-gray-900 px-1 py-0.5 rounded text-xs">POST</code> request to
           your configured endpoint with a signed JSON payload.
         </p>
@@ -343,7 +343,7 @@ export default function WebhooksPage() {
               },
               {
                 title: 'Receive',
-                body: 'NEXUS makes an HTTP POST to your endpoint within seconds of an event occurring, with a JSON payload.',
+                body: 'ElevatedPOS makes an HTTP POST to your endpoint within seconds of an event occurring, with a JSON payload.',
                 color: 'text-emerald-400',
               },
               {
@@ -362,11 +362,11 @@ export default function WebhooksPage() {
           <h3 className="text-sm font-semibold text-gray-300 mb-3">How HMAC-SHA256 Signing Works</h3>
           <p className="text-gray-400 text-sm mb-3">
             Every webhook delivery includes an{' '}
-            <code className="font-mono text-indigo-300 bg-gray-900 px-1 py-0.5 rounded text-xs">X-Nexus-Signature</code>{' '}
+            <code className="font-mono text-indigo-300 bg-gray-900 px-1 py-0.5 rounded text-xs">X-ElevatedPOS-Signature</code>{' '}
             header containing an HMAC-SHA256 digest of the raw request body, keyed with your webhook secret:
           </p>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
-            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`X-Nexus-Signature: sha256=<hex-digest>
+            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`X-ElevatedPOS-Signature: sha256=<hex-digest>
 
 # Computed as:
 HMAC-SHA256(key=WEBHOOK_SECRET, message=rawRequestBody)`}</pre>
@@ -420,9 +420,9 @@ export function verifyWebhookSignature(
 }
 
 // Express.js usage
-app.post('/webhooks/nexus', express.raw({ type: 'application/json' }), (req, res) => {
-  const sig = req.headers['x-nexus-signature'] as string;
-  if (!verifyWebhookSignature(req.body, sig, process.env.NEXUS_WEBHOOK_SECRET!)) {
+app.post('/webhooks/elevatedpos', express.raw({ type: 'application/json' }), (req, res) => {
+  const sig = req.headers['x-elevatedpos-signature'] as string;
+  if (!verifyWebhookSignature(req.body, sig, process.env.ELEVATEDPOS_WEBHOOK_SECRET!)) {
     return res.status(401).json({ error: 'Invalid signature' });
   }
   const event = JSON.parse(req.body.toString());
@@ -450,10 +450,10 @@ def verify_webhook_signature(raw_body: bytes, signature: str, secret: str) -> bo
     return hmac.compare_digest(expected, signature)
 
 # Flask usage
-@app.route('/webhooks/nexus', methods=['POST'])
-def nexus_webhook():
-    sig = request.headers.get('X-Nexus-Signature', '')
-    if not verify_webhook_signature(request.get_data(), sig, NEXUS_WEBHOOK_SECRET):
+@app.route('/webhooks/elevatedpos', methods=['POST'])
+def elevatedpos_webhook():
+    sig = request.headers.get('X-ElevatedPOS-Signature', '')
+    if not verify_webhook_signature(request.get_data(), sig, ELEVATEDPOS_WEBHOOK_SECRET):
         return jsonify(error='Invalid signature'), 401
     event = request.get_json()
     task_queue.enqueue(process_event, event)
@@ -476,9 +476,9 @@ function verifyWebhookSignature(string $rawBody, string $signature, string $secr
 }
 
 $rawBody = file_get_contents('php://input');
-$sig = $_SERVER['HTTP_X_NEXUS_SIGNATURE'] ?? '';
+$sig = $_SERVER['HTTP_X_ELEVATEDPOS_SIGNATURE'] ?? '';
 
-if (!verifyWebhookSignature($rawBody, $sig, getenv('NEXUS_WEBHOOK_SECRET'))) {
+if (!verifyWebhookSignature($rawBody, $sig, getenv('ELEVATEDPOS_WEBHOOK_SECRET'))) {
     http_response_code(401);
     die(json_encode(['error' => 'Invalid signature']));
 }
@@ -550,7 +550,7 @@ http_response_code(200);`}</pre>
           </div>
           <p className="text-gray-400 text-sm mb-6">
             Webhooks are retried when your endpoint returns a non-2xx status code or times out (30-second timeout per
-            attempt). NEXUS makes <strong className="text-gray-200">3 total delivery attempts</strong> with the
+            attempt). ElevatedPOS makes <strong className="text-gray-200">3 total delivery attempts</strong> with the
             following schedule:
           </p>
 
@@ -582,7 +582,7 @@ http_response_code(200);`}</pre>
                 <p className="text-sm font-semibold text-red-300 mb-1">Endpoint Suspension</p>
                 <p className="text-sm text-gray-400 leading-relaxed">
                   If an endpoint accumulates <strong className="text-gray-200">10 consecutive delivery failures</strong>,
-                  NEXUS will automatically suspend webhook delivery to that endpoint to protect platform throughput.
+                  ElevatedPOS will automatically suspend webhook delivery to that endpoint to protect platform throughput.
                   You will receive an email notification when suspension occurs. Re-enable the endpoint from your
                   integration dashboard after resolving the issue.
                 </p>
@@ -598,7 +598,7 @@ http_response_code(200);`}</pre>
             Use the integrations service to fire a test payload to your endpoint:
           </p>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`curl -X POST https://api.nexus.app/api/v1/integrations/{integrationId}/webhooks/test \\
+            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`curl -X POST https://api.elevatedpos.com.au/api/v1/integrations/{integrationId}/webhooks/test \\
   -H "Authorization: Bearer <token>" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -621,11 +621,11 @@ http_response_code(200);`}</pre>
             {[
               {
                 title: 'Always verify signatures',
-                detail: 'Never process a webhook payload without first verifying the HMAC-SHA256 signature. This ensures the request originated from NEXUS and the body was not tampered with in transit.',
+                detail: 'Never process a webhook payload without first verifying the HMAC-SHA256 signature. This ensures the request originated from ElevatedPOS and the body was not tampered with in transit.',
               },
               {
                 title: 'Return 200 quickly',
-                detail: 'Your endpoint should return a 2xx response within 30 seconds. Move heavy processing to a background queue. If NEXUS receives a timeout, it will retry the event.',
+                detail: 'Your endpoint should return a 2xx response within 30 seconds. Move heavy processing to a background queue. If ElevatedPOS receives a timeout, it will retry the event.',
               },
               {
                 title: 'Process events asynchronously',
@@ -645,11 +645,11 @@ http_response_code(200);`}</pre>
               },
               {
                 title: 'Rotate secrets periodically',
-                detail: 'Webhook secrets should be rotated every 90 days. NEXUS supports overlapping secrets during rotation — your old secret remains valid for 24 hours after a new one is set.',
+                detail: 'Webhook secrets should be rotated every 90 days. ElevatedPOS supports overlapping secrets during rotation — your old secret remains valid for 24 hours after a new one is set.',
               },
               {
                 title: 'Use HTTPS endpoints only',
-                detail: 'NEXUS only delivers to HTTPS endpoints with a valid TLS certificate. HTTP endpoints are rejected to prevent data exposure.',
+                detail: 'ElevatedPOS only delivers to HTTPS endpoints with a valid TLS certificate. HTTP endpoints are rejected to prevent data exposure.',
               },
             ].map(({ title, detail }) => (
               <div key={title} className="flex gap-3 p-4 bg-gray-900 border border-gray-800 rounded-xl">

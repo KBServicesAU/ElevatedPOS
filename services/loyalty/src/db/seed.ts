@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import * as schema from './schema';
 
 const pool = new Pool({
-  connectionString: process.env['DATABASE_URL'] ?? 'postgresql://nexus:nexus_dev@localhost:5432/nexus_loyalty_dev',
+  connectionString: process.env['DATABASE_URL'] ?? 'postgresql://elevatedpos:elevatedpos_dev@localhost:5432/elevatedpos_loyalty_dev',
 });
 const db = drizzle(pool, { schema });
 
@@ -16,11 +16,11 @@ async function seed() {
 
   const [program] = await db.insert(schema.loyaltyPrograms).values({
     orgId: ORG_ID,
-    name: 'NEXUS Rewards',
+    name: 'ElevatedPOS Rewards',
     earnRate: 10, // 10 points per $1
     active: true,
   }).returning().onConflictDoNothing();
-  console.log('  ✓ Loyalty program: NEXUS Rewards (10 pts/$1)');
+  console.log('  ✓ Loyalty program: ElevatedPOS Rewards (10 pts/$1)');
 
   if (!program) { await pool.end(); return; }
 

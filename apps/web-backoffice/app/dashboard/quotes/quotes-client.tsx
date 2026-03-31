@@ -242,7 +242,7 @@ export default function QuotesClient() {
         </div>
         <button
           onClick={() => { resetForm(); setShowModal(true); }}
-          className="flex items-center gap-2 rounded-lg bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-500 transition-colors"
+          className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 transition-colors"
         >
           <Plus className="h-4 w-4" />
           New Quote
@@ -257,7 +257,7 @@ export default function QuotesClient() {
             onClick={() => setActiveTab(id)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               activeTab === id
-                ? 'border-nexus-500 text-nexus-600 dark:text-nexus-400'
+                ? 'border-elevatedpos-500 text-elevatedpos-600 dark:text-elevatedpos-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
             }`}
           >
@@ -368,7 +368,7 @@ export default function QuotesClient() {
                   placeholder="e.g. Acme Corp"
                   value={form.customerName}
                   onChange={(e) => setForm({ ...form, customerName: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                 />
               </div>
 
@@ -379,7 +379,7 @@ export default function QuotesClient() {
                   <button
                     type="button"
                     onClick={addLineItem}
-                    className="flex items-center gap-1 text-xs text-nexus-600 hover:text-nexus-500 dark:text-nexus-400"
+                    className="flex items-center gap-1 text-xs text-elevatedpos-600 hover:text-elevatedpos-500 dark:text-elevatedpos-400"
                   >
                     <Plus className="h-3 w-3" /> Add Row
                   </button>
@@ -392,7 +392,7 @@ export default function QuotesClient() {
                         placeholder="Product name"
                         value={item.productName}
                         onChange={(e) => updateLineItem(idx, 'productName', e.target.value)}
-                        className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                        className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                       />
                       <input
                         type="number"
@@ -400,7 +400,7 @@ export default function QuotesClient() {
                         placeholder="Qty"
                         value={item.qty}
                         onChange={(e) => updateLineItem(idx, 'qty', Number(e.target.value))}
-                        className="w-20 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                        className="w-20 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                       />
                       <input
                         type="number"
@@ -409,7 +409,7 @@ export default function QuotesClient() {
                         placeholder="Unit $"
                         value={item.unitPrice || ''}
                         onChange={(e) => updateLineItem(idx, 'unitPrice', Number(e.target.value))}
-                        className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                        className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                       />
                       {form.lineItems.length > 1 && (
                         <button onClick={() => removeLineItem(idx)} className="text-red-400 hover:text-red-600 transition-colors">
@@ -431,7 +431,7 @@ export default function QuotesClient() {
                     placeholder="0"
                     value={form.discountPct}
                     onChange={(e) => setForm({ ...form, discountPct: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                   />
                 </div>
                 <div>
@@ -440,7 +440,7 @@ export default function QuotesClient() {
                     type="date"
                     value={form.validUntil}
                     onChange={(e) => setForm({ ...form, validUntil: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                   />
                 </div>
               </div>
@@ -452,7 +452,7 @@ export default function QuotesClient() {
                   placeholder="Optional notes for the customer..."
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500 resize-none"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500 resize-none"
                 />
               </div>
 
@@ -480,7 +480,7 @@ export default function QuotesClient() {
               <button
                 onClick={() => handleSave('sent')}
                 disabled={!form.customerName || saving}
-                className="flex items-center gap-2 rounded-lg bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-500 disabled:opacity-50 transition-colors"
+                className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
               >
                 {saving ? (
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />

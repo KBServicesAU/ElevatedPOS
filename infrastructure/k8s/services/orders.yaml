@@ -2,10 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: orders
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: orders
-    app.kubernetes.io/part-of: nexus
+    app.kubernetes.io/part-of: elevatedpos
 spec:
   replicas: 3
   selector:
@@ -16,17 +16,17 @@ spec:
       labels:
         app: orders
     spec:
-      serviceAccountName: nexus-service
+      serviceAccountName: elevatedpos-service
       containers:
         - name: orders
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/orders:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/orders:latest
           ports:
             - containerPort: 4004
           envFrom:
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
           env:
             - name: PORT
               value: "4004"
@@ -54,7 +54,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: orders
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   selector:
     app: orders
@@ -66,7 +66,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: orders
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

@@ -162,7 +162,7 @@ export function NotificationBell() {
           <div className="max-h-80 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-10">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-200 border-t-nexus-600" />
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-200 border-t-elevatedpos-600" />
               </div>
             ) : notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
@@ -193,7 +193,7 @@ export function NotificationBell() {
                       <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">{n.body}</p>
                     </div>
                     {!n.read && (
-                      <span className="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-nexus-600" />
+                      <span className="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-elevatedpos-600" />
                     )}
                   </button>
                 );
@@ -205,7 +205,7 @@ export function NotificationBell() {
           <div className="border-t border-gray-100 px-4 py-3 dark:border-gray-800">
             <a
               href="/dashboard/alerts"
-              className="block text-center text-sm font-medium text-nexus-600 hover:text-nexus-700 dark:text-nexus-400"
+              className="block text-center text-sm font-medium text-elevatedpos-600 hover:text-elevatedpos-700 dark:text-elevatedpos-400"
               onClick={() => setOpen(false)}
             >
               View all alerts →

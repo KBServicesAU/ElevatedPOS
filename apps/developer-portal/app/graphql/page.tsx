@@ -2,8 +2,8 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Layers, Zap, Lock, Terminal } from 'lucide-react';
 
 export const metadata = {
-  title: 'GraphQL API — NEXUS Developer Platform',
-  description: 'Query the NEXUS catalog with the GraphQL API. Flexible, typed, and documented.',
+  title: 'GraphQL API — ElevatedPOS Developer Platform',
+  description: 'Query the ElevatedPOS catalog with the GraphQL API. Flexible, typed, and documented.',
 };
 
 const queryExamples = [
@@ -213,7 +213,7 @@ export default function GraphQLPage() {
           <div className="w-7 h-7 bg-indigo-600 rounded flex items-center justify-center text-xs font-bold text-white">
             N
           </div>
-          <span className="text-sm font-semibold text-gray-200">NEXUS</span>
+          <span className="text-sm font-semibold text-gray-200">ElevatedPOS</span>
           <span className="text-gray-600">/</span>
           <Link href="/" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
             Developers
@@ -245,7 +245,7 @@ export default function GraphQLPage() {
           </div>
           <h1 className="text-4xl font-bold text-white mb-4 tracking-tight">GraphQL API</h1>
           <p className="text-lg text-gray-400 max-w-2xl leading-relaxed">
-            The NEXUS catalog is available as a GraphQL API alongside the REST endpoints.
+            The ElevatedPOS catalog is available as a GraphQL API alongside the REST endpoints.
             Query exactly the fields you need, batch related data in a single request, and explore the
             schema interactively in the playground.
           </p>
@@ -253,7 +253,7 @@ export default function GraphQLPage() {
           {/* Endpoint callout */}
           <div className="mt-6 flex items-center gap-3 px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg w-fit">
             <span className="text-xs font-mono text-gray-500 uppercase tracking-wider">Endpoint</span>
-            <code className="text-sm font-mono text-indigo-300">POST https://api.nexus.app/catalog/graphql</code>
+            <code className="text-sm font-mono text-indigo-300">POST https://api.elevatedpos.com.au/catalog/graphql</code>
           </div>
         </div>
 
@@ -302,7 +302,7 @@ export default function GraphQLPage() {
           <div className="flex gap-3 p-4 bg-amber-950/30 border border-amber-800/40 rounded-lg mb-5">
             <Lock className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-amber-200/80 leading-relaxed">
-              All GraphQL requests must include a valid JWT issued by the NEXUS Auth service.
+              All GraphQL requests must include a valid JWT issued by the ElevatedPOS Auth service.
               Pass it as an <code className="text-amber-300 font-mono">Authorization</code> header.
               Queries are automatically scoped to the <code className="text-amber-300 font-mono">orgId</code> embedded in the token —
               you cannot access another organisation&apos;s data.
@@ -570,7 +570,7 @@ export default function GraphQLPage() {
       </div>
 
       <footer className="border-t border-gray-800 px-6 py-6 text-center text-xs text-gray-600 mt-8">
-        © 2024 NEXUS POS. Developer Platform — API v1.2.0
+        © 2024 ElevatedPOS. Developer Platform — API v1.2.0
       </footer>
     </div>
   );

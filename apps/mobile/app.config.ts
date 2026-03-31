@@ -7,22 +7,22 @@ const roleConfig: Record<
   { name: string; slug: string; bundleIdentifier: string; package: string }
 > = {
   pos: {
-    name: 'NEXUS POS',
-    slug: 'nexus-pos',
-    bundleIdentifier: 'com.nexuspos.pos',
-    package: 'com.nexuspos.pos',
+    name: 'ElevatedPOS',
+    slug: 'elevatedpos-pos',
+    bundleIdentifier: 'com.au.elevatedpos.pos',
+    package: 'com.au.elevatedpos.pos',
   },
   kds: {
-    name: 'NEXUS KDS',
-    slug: 'nexus-kds',
-    bundleIdentifier: 'com.nexuspos.kds',
-    package: 'com.nexuspos.kds',
+    name: 'ElevatedPOS KDS',
+    slug: 'elevatedpos-kds',
+    bundleIdentifier: 'com.au.elevatedpos.kds',
+    package: 'com.au.elevatedpos.kds',
   },
   kiosk: {
-    name: 'NEXUS Kiosk',
-    slug: 'nexus-kiosk',
-    bundleIdentifier: 'com.nexuspos.kiosk',
-    package: 'com.nexuspos.kiosk',
+    name: 'ElevatedPOS Kiosk',
+    slug: 'elevatedpos-kiosk',
+    bundleIdentifier: 'com.au.elevatedpos.kiosk',
+    package: 'com.au.elevatedpos.kiosk',
   },
 };
 
@@ -30,10 +30,10 @@ const resolved = ROLE_LOCK ? roleConfig[ROLE_LOCK] : null;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'NEXUS',
-  slug: resolved?.slug ?? 'nexus-mobile',
+  name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
+  slug: resolved?.slug ?? 'elevatedpos-mobile',
   version: '1.0.0',
-  scheme: 'nexus',
+  scheme: 'elevatedpos',
   orientation: 'default',
   platforms: ['ios', 'android'],
   icon: './assets/icon.png',
@@ -45,7 +45,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: resolved?.bundleIdentifier ?? process.env['APP_BUNDLE_ID_IOS'] ?? 'com.nexuspos.mobile',
+    bundleIdentifier: resolved?.bundleIdentifier ?? process.env['APP_BUNDLE_ID_IOS'] ?? 'com.au.elevatedpos.mobile',
     requireFullScreen: true,
   },
   android: {
@@ -53,7 +53,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#0a0a0a',
     },
-    package: resolved?.package ?? process.env['APP_PACKAGE_ANDROID'] ?? 'com.nexuspos.mobile',
+    package: resolved?.package ?? process.env['APP_PACKAGE_ANDROID'] ?? 'com.au.elevatedpos.mobile',
   },
   plugins: [
     'expo-router',

@@ -17,7 +17,7 @@ async function start() {
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   await app.register(jwt, {
     secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production',
-    verify: { issuer: 'nexus-auth' },
+    verify: { issuer: 'elevatedpos-auth' },
   });
 
   app.decorate(

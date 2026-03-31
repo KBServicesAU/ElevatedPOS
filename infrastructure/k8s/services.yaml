@@ -3,10 +3,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: auth
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: auth
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: auth
-          image: nexus-auth:latest
+          image: elevatedpos-auth:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4001
@@ -29,22 +29,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -70,7 +70,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: auth
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -84,10 +84,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: catalog
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: catalog
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -100,7 +100,7 @@ spec:
     spec:
       containers:
         - name: catalog
-          image: nexus-catalog:latest
+          image: elevatedpos-catalog:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4002
@@ -110,22 +110,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -151,7 +151,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: catalog
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -165,10 +165,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: inventory
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: inventory
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -181,7 +181,7 @@ spec:
     spec:
       containers:
         - name: inventory
-          image: nexus-inventory:latest
+          image: elevatedpos-inventory:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4003
@@ -191,22 +191,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -232,7 +232,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: inventory
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -246,10 +246,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: orders
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: orders
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -262,7 +262,7 @@ spec:
     spec:
       containers:
         - name: orders
-          image: nexus-orders:latest
+          image: elevatedpos-orders:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4004
@@ -272,22 +272,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -313,7 +313,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: orders
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -327,10 +327,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: payments
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: payments
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -343,7 +343,7 @@ spec:
     spec:
       containers:
         - name: payments
-          image: nexus-payments:latest
+          image: elevatedpos-payments:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4005
@@ -353,22 +353,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -394,7 +394,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: payments
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -408,10 +408,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: customers
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: customers
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -424,7 +424,7 @@ spec:
     spec:
       containers:
         - name: customers
-          image: nexus-customers:latest
+          image: elevatedpos-customers:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4006
@@ -434,22 +434,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -475,7 +475,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: customers
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -489,10 +489,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: loyalty
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: loyalty
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -505,7 +505,7 @@ spec:
     spec:
       containers:
         - name: loyalty
-          image: nexus-loyalty:latest
+          image: elevatedpos-loyalty:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4007
@@ -515,22 +515,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -556,7 +556,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: loyalty
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -570,10 +570,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: campaigns
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: campaigns
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -586,7 +586,7 @@ spec:
     spec:
       containers:
         - name: campaigns
-          image: nexus-campaigns:latest
+          image: elevatedpos-campaigns:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4008
@@ -596,22 +596,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -637,7 +637,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: campaigns
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -651,10 +651,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: notifications
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: notifications
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -667,7 +667,7 @@ spec:
     spec:
       containers:
         - name: notifications
-          image: nexus-notifications:latest
+          image: elevatedpos-notifications:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4009
@@ -677,22 +677,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -718,7 +718,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: notifications
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -732,10 +732,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: integrations
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: integrations
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -748,7 +748,7 @@ spec:
     spec:
       containers:
         - name: integrations
-          image: nexus-integrations:latest
+          image: elevatedpos-integrations:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4010
@@ -758,22 +758,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -799,7 +799,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: integrations
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -813,10 +813,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: automations
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: automations
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -829,7 +829,7 @@ spec:
     spec:
       containers:
         - name: automations
-          image: nexus-automations:latest
+          image: elevatedpos-automations:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4011
@@ -839,22 +839,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -880,7 +880,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: automations
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -894,10 +894,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ai
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: ai
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -910,7 +910,7 @@ spec:
     spec:
       containers:
         - name: ai
-          image: nexus-ai:latest
+          image: elevatedpos-ai:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4012
@@ -920,22 +920,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -961,7 +961,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ai
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -975,10 +975,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: franchise
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: franchise
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -991,7 +991,7 @@ spec:
     spec:
       containers:
         - name: franchise
-          image: nexus-franchise:latest
+          image: elevatedpos-franchise:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4013
@@ -1001,22 +1001,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -1042,7 +1042,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: franchise
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -1056,10 +1056,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: webhooks
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: webhooks
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -1072,7 +1072,7 @@ spec:
     spec:
       containers:
         - name: webhooks
-          image: nexus-webhooks:latest
+          image: elevatedpos-webhooks:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4015
@@ -1082,22 +1082,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: INTERNAL_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: INTERNAL_SECRET
           resources:
             requests:
@@ -1123,7 +1123,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: webhooks
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:
@@ -1137,10 +1137,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: reporting
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: reporting
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -1153,7 +1153,7 @@ spec:
     spec:
       containers:
         - name: reporting
-          image: nexus-reporting:latest
+          image: elevatedpos-reporting:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 4014
@@ -1163,22 +1163,22 @@ spec:
             - name: NODE_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: nexus-config
+                  name: elevatedpos-config
                   key: NODE_ENV
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: DATABASE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: JWT_SECRET
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: nexus-secrets
+                  name: elevatedpos-secrets
                   key: ANTHROPIC_API_KEY
           resources:
             requests:
@@ -1204,7 +1204,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: reporting
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   type: ClusterIP
   selector:

@@ -134,7 +134,7 @@ export class XeroConnector extends BaseConnector {
       body: JSON.stringify({
         ManualJournals: [
           {
-            Narration: `NEXUS POS Sales Journal — ${date}`,
+            Narration: `ElevatedPOS Sales Journal — ${date}`,
             Date: date,
             JournalLines: journalLines,
           },

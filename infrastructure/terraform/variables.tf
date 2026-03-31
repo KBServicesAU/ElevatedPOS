@@ -18,7 +18,7 @@ variable "environment" {
 variable "domain_name" {
   description = "Primary domain for the platform"
   type        = string
-  default     = "nexuspos.app"
+  default     = "elevatedpos.com.au"
 }
 
 variable "vpc_cidr" {
@@ -102,7 +102,7 @@ variable "db_allocated_storage" {
 variable "db_username" {
   description = "RDS master username"
   type        = string
-  default     = "nexus"
+  default     = "elevatedpos"
   sensitive   = true
 }
 
@@ -127,7 +127,7 @@ variable "msk_instance_type" {
 variable "cluster_name" {
   description = "EKS cluster name"
   type        = string
-  default     = "nexus"
+  default     = "elevatedpos"
 }
 
 variable "eks_node_instance_type" {

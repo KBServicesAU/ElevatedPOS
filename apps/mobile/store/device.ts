@@ -23,13 +23,13 @@ interface DeviceStore {
 }
 
 const KEYS = {
-  deviceId: 'nexus_device_id',
-  deviceToken: 'nexus_device_token',
-  role: 'nexus_device_role',
-  locationId: 'nexus_location_id',
-  registerId: 'nexus_register_id',
-  orgId: 'nexus_org_id',
-  label: 'nexus_device_label',
+  deviceId: 'elevatedpos_device_id',
+  deviceToken: 'elevatedpos_device_token',
+  role: 'elevatedpos_device_role',
+  locationId: 'elevatedpos_location_id',
+  registerId: 'elevatedpos_register_id',
+  orgId: 'elevatedpos_org_id',
+  label: 'elevatedpos_device_label',
 } as const;
 
 export const useDeviceStore = create<DeviceStore>((set) => ({

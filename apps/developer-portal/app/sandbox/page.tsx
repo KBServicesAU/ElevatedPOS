@@ -213,7 +213,7 @@ function highlightJson(json: string): React.ReactNode[] {
 
 export default function SandboxPage() {
   const [method, setMethod] = useState<HttpMethod>('GET');
-  const [baseUrl] = useState('https://sandbox.nexus.app');
+  const [baseUrl] = useState('https://sandbox.elevatedpos.com.au');
   const [path, setPath] = useState('/api/v1/catalog/products?limit=10');
   const [headers, setHeaders] = useState<Header[]>([
     { id: uid(), key: 'Authorization', value: 'Bearer YOUR_SANDBOX_TOKEN', enabled: true },
@@ -512,7 +512,7 @@ export default function SandboxPage() {
                   <Globe className="w-3.5 h-3.5 text-emerald-400" />
                   <span className="text-xs font-semibold text-gray-300">Sandbox URL</span>
                 </div>
-                <code className="text-xs font-mono text-emerald-300 break-all">sandbox.nexus.app</code>
+                <code className="text-xs font-mono text-emerald-300 break-all">sandbox.elevatedpos.com.au</code>
               </div>
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-3">
                 <div className="flex items-center gap-2 mb-1.5">

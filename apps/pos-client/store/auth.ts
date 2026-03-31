@@ -29,7 +29,7 @@ interface AuthActions {
 
 type AuthStore = AuthState & AuthActions;
 
-const STORAGE_KEY = 'nexus_auth';
+const STORAGE_KEY = 'elevatedpos_auth';
 
 export const useAuthStore = create<AuthStore>((set) => ({
   token: null,

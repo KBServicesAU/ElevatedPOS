@@ -1,7 +1,7 @@
 global:
   imageRegistry: ""
   imagePullPolicy: Always
-  namespace: nexus
+  namespace: elevatedpos
 
 image:
   tag: latest
@@ -187,13 +187,13 @@ services:
 ingress:
   enabled: true
   className: nginx
-  host: api.nexus.app
-  tlsSecretName: nexus-tls
+  host: api.elevatedpos.com.au
+  tlsSecretName: elevatedpos-tls
 
 postgres:
   host: postgres
   port: 5432
-  database: nexus
+  database: elevatedpos
 
 redis:
   url: redis://redis:6379

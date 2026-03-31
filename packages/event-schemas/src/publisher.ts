@@ -34,7 +34,7 @@ export class KafkaEventPublisher implements EventPublisher {
             'content-type': 'application/json',
             'event-type': event.eventType,
             'event-version': event.version,
-            source: 'nexus',
+            source: 'elevatedpos',
           },
         },
       ],

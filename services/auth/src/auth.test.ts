@@ -13,7 +13,7 @@ describe('Auth service — JWT utilities', () => {
 
   beforeEach(async () => {
     app = Fastify({ logger: false });
-    await app.register(jwt, { secret: 'test-secret', sign: { expiresIn: '15m', issuer: 'nexus-auth' }, verify: { issuer: 'nexus-auth' } });
+    await app.register(jwt, { secret: 'test-secret', sign: { expiresIn: '15m', issuer: 'elevatedpos-auth' }, verify: { issuer: 'elevatedpos-auth' } });
   });
 
   it('signs and verifies a valid token', async () => {
@@ -26,7 +26,7 @@ describe('Auth service — JWT utilities', () => {
 
   it('rejects a token signed with a different secret', async () => {
     const otherApp = Fastify({ logger: false });
-    await otherApp.register(jwt, { secret: 'different-secret', sign: { issuer: 'nexus-auth' }, verify: { issuer: 'nexus-auth' } });
+    await otherApp.register(jwt, { secret: 'different-secret', sign: { issuer: 'elevatedpos-auth' }, verify: { issuer: 'elevatedpos-auth' } });
     const badToken = otherApp.jwt.sign({ sub: 'emp_1', orgId: 'org_1' });
     expect(() => app.jwt.verify(badToken)).toThrow();
   });

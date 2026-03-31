@@ -247,13 +247,13 @@ export function CommandPalette() {
                   onClick={() => handleSelect(cmd)}
                   className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
                     isSelected
-                      ? 'bg-nexus-50 text-nexus-700 dark:bg-nexus-950/30 dark:text-nexus-300'
+                      ? 'bg-elevatedpos-50 text-elevatedpos-700 dark:bg-elevatedpos-950/30 dark:text-elevatedpos-300'
                       : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800'
                   }`}
                 >
                   <Icon
                     className={`h-4 w-4 shrink-0 ${
-                      isSelected ? 'text-nexus-500' : 'text-gray-400 dark:text-gray-500'
+                      isSelected ? 'text-elevatedpos-500' : 'text-gray-400 dark:text-gray-500'
                     }`}
                   />
                   <span className="flex-1 text-sm font-medium">{cmd.label}</span>
@@ -261,7 +261,7 @@ export function CommandPalette() {
                     <kbd
                       className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-xs ${
                         isSelected
-                          ? 'border-nexus-200 bg-nexus-100 text-nexus-600 dark:border-nexus-700 dark:bg-nexus-900 dark:text-nexus-400'
+                          ? 'border-elevatedpos-200 bg-elevatedpos-100 text-elevatedpos-600 dark:border-elevatedpos-700 dark:bg-elevatedpos-900 dark:text-elevatedpos-400'
                           : 'border-gray-200 bg-gray-100 text-gray-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400'
                       }`}
                     >

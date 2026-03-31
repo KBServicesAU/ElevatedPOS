@@ -205,7 +205,7 @@ export default function MarkdownsClient() {
         </div>
         <button
           onClick={() => { resetForm(); setShowModal(true); }}
-          className="flex items-center gap-2 rounded-lg bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-500 transition-colors"
+          className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 transition-colors"
         >
           <Plus className="h-4 w-4" />
           Create Markdown
@@ -220,7 +220,7 @@ export default function MarkdownsClient() {
             onClick={() => setActiveTab(id)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               activeTab === id
-                ? 'border-nexus-500 text-nexus-600 dark:text-nexus-400'
+                ? 'border-elevatedpos-500 text-elevatedpos-600 dark:text-elevatedpos-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
             }`}
           >
@@ -333,7 +333,7 @@ export default function MarkdownsClient() {
                   placeholder="e.g. End of Season Sale"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                 />
               </div>
 
@@ -344,7 +344,7 @@ export default function MarkdownsClient() {
                   placeholder="Optional description"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                 />
               </div>
 
@@ -354,7 +354,7 @@ export default function MarkdownsClient() {
                 <select
                   value={form.scope}
                   onChange={(e) => setForm({ ...form, scope: e.target.value as ScopeType, category: '', productSearch: '' })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
                 >
                   <option value="all">All Products</option>
                   <option value="category">By Category</option>
@@ -368,7 +368,7 @@ export default function MarkdownsClient() {
                   <select
                     value={form.category}
                     onChange={(e) => setForm({ ...form, category: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
                   >
                     <option value="">Select a category</option>
                     {MOCK_CATEGORIES.map((c) => (
@@ -386,7 +386,7 @@ export default function MarkdownsClient() {
                     placeholder="Search for a product..."
                     value={form.productSearch}
                     onChange={(e) => setForm({ ...form, productSearch: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                   />
                 </div>
               )}
@@ -403,7 +403,7 @@ export default function MarkdownsClient() {
                         onClick={() => setForm({ ...form, discountType: type })}
                         className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                           form.discountType === type
-                            ? 'border-nexus-500 bg-nexus-50 text-nexus-700 dark:bg-nexus-900/30 dark:text-nexus-300'
+                            ? 'border-elevatedpos-500 bg-elevatedpos-50 text-elevatedpos-700 dark:bg-elevatedpos-900/30 dark:text-elevatedpos-300'
                             : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
                         }`}
                       >
@@ -424,7 +424,7 @@ export default function MarkdownsClient() {
                     placeholder={form.discountType === 'percentage' ? '10' : '50.00'}
                     value={form.discountValue}
                     onChange={(e) => setForm({ ...form, discountValue: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                   />
                 </div>
               </div>
@@ -437,7 +437,7 @@ export default function MarkdownsClient() {
                     type="datetime-local"
                     value={form.startsAt}
                     onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                   />
                 </div>
                 <div>
@@ -446,7 +446,7 @@ export default function MarkdownsClient() {
                     type="datetime-local"
                     value={form.endsAt}
                     onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                   />
                 </div>
               </div>
@@ -473,7 +473,7 @@ export default function MarkdownsClient() {
               <button
                 onClick={handleCreate}
                 disabled={!form.name || !form.discountValue || saving}
-                className="flex items-center gap-2 rounded-lg bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-500 disabled:opacity-50 transition-colors"
+                className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
               >
                 {saving ? (
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />

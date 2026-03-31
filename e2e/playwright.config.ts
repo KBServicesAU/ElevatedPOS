@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Playwright E2E configuration for NEXUS.
+ * Playwright E2E configuration for ElevatedPOS.
  *
  * Tests cover the core transaction loop:
  *   POS (add items → charge) → Payment page (card / cash) → KDS (ticket appears)

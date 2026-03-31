@@ -72,7 +72,7 @@ function AppBar({ current }: { current: string }) {
           );
         })}
       </div>
-      <span className="text-[10px] text-gray-600">NEXUS POS</span>
+      <span className="text-[10px] text-gray-600">ElevatedPOS</span>
     </div>
   );
 }

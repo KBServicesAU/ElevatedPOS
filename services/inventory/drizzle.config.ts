@@ -5,7 +5,7 @@ export default defineConfig({
   schema: './src/db/schema.ts',
   out: './src/db/migrations',
   dbCredentials: {
-    url: process.env['DATABASE_URL'] ?? 'postgresql://nexus:nexus_dev@localhost:5432/nexus_inventory_dev',
+    url: process.env['DATABASE_URL'] ?? 'postgresql://elevatedpos:elevatedpos_dev@localhost:5432/elevatedpos_inventory_dev',
   },
   migrations: {
     table: '__drizzle_migrations',

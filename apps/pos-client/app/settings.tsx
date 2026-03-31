@@ -13,7 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const STORAGE_KEY = 'nexus_settings';
+const STORAGE_KEY = 'elevatedpos_settings';
 
 type FontSize = 'small' | 'medium' | 'large';
 
@@ -67,9 +67,9 @@ export default function SettingsScreen() {
 
   async function loadSyncMeta() {
     try {
-      const ts = await AsyncStorage.getItem('nexus_last_sync');
+      const ts = await AsyncStorage.getItem('elevatedpos_last_sync');
       if (ts) setLastSync(new Date(ts).toLocaleString());
-      const pending = await AsyncStorage.getItem('nexus_pending_count');
+      const pending = await AsyncStorage.getItem('elevatedpos_pending_count');
       if (pending) setPendingItems(Number(pending));
     } catch {
       // ignore
@@ -97,8 +97,8 @@ export default function SettingsScreen() {
     try {
       await new Promise((r) => setTimeout(r, 1200));
       const now = new Date().toISOString();
-      await AsyncStorage.setItem('nexus_last_sync', now);
-      await AsyncStorage.setItem('nexus_pending_count', '0');
+      await AsyncStorage.setItem('elevatedpos_last_sync', now);
+      await AsyncStorage.setItem('elevatedpos_pending_count', '0');
       setLastSync(new Date(now).toLocaleString());
       setPendingItems(0);
       Alert.alert('Sync Complete', 'All pending items have been synced.');

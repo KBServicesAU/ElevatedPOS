@@ -260,7 +260,7 @@ export default function MembershipsClient() {
         {activeMainTab === 'plans' && (
           <button
             onClick={openCreatePlan}
-            className="flex items-center gap-2 rounded-lg bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-500 transition-colors"
+            className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 transition-colors"
           >
             <Plus className="h-4 w-4" />
             Create Plan
@@ -276,7 +276,7 @@ export default function MembershipsClient() {
             onClick={() => setActiveMainTab(tab)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 capitalize transition-colors ${
               activeMainTab === tab
-                ? 'border-nexus-500 text-nexus-600 dark:text-nexus-400'
+                ? 'border-elevatedpos-500 text-elevatedpos-600 dark:text-elevatedpos-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
             }`}
           >
@@ -317,7 +317,7 @@ export default function MembershipsClient() {
               </div>
 
               {plan.trialDays > 0 && (
-                <p className="text-xs text-nexus-600 dark:text-nexus-400 mb-2">{plan.trialDays}-day free trial</p>
+                <p className="text-xs text-elevatedpos-600 dark:text-elevatedpos-400 mb-2">{plan.trialDays}-day free trial</p>
               )}
 
               <ul className="space-y-1 mb-4">
@@ -364,7 +364,7 @@ export default function MembershipsClient() {
                 onClick={() => setSubFilter(id)}
                 className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                   subFilter === id
-                    ? 'border-nexus-500 text-nexus-600 dark:text-nexus-400'
+                    ? 'border-elevatedpos-500 text-elevatedpos-600 dark:text-elevatedpos-400'
                     : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
                 }`}
               >
@@ -462,7 +462,7 @@ export default function MembershipsClient() {
                   placeholder="e.g. Gold"
                   value={planForm.name}
                   onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                 />
               </div>
 
@@ -473,7 +473,7 @@ export default function MembershipsClient() {
                   placeholder="Brief description"
                   value={planForm.description}
                   onChange={(e) => setPlanForm({ ...planForm, description: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                 />
               </div>
 
@@ -487,7 +487,7 @@ export default function MembershipsClient() {
                     placeholder="9.00"
                     value={planForm.price}
                     onChange={(e) => setPlanForm({ ...planForm, price: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                   />
                 </div>
                 <div>
@@ -495,7 +495,7 @@ export default function MembershipsClient() {
                   <select
                     value={planForm.billingCycle}
                     onChange={(e) => setPlanForm({ ...planForm, billingCycle: e.target.value as BillingCycle })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
                   >
                     <option value="monthly">Monthly</option>
                     <option value="annual">Annual</option>
@@ -513,7 +513,7 @@ export default function MembershipsClient() {
                     placeholder="0"
                     value={planForm.trialDays}
                     onChange={(e) => setPlanForm({ ...planForm, trialDays: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                   />
                 </div>
                 <div>
@@ -525,7 +525,7 @@ export default function MembershipsClient() {
                     placeholder="1"
                     value={planForm.pointsMultiplier}
                     onChange={(e) => setPlanForm({ ...planForm, pointsMultiplier: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                   />
                 </div>
               </div>
@@ -536,7 +536,7 @@ export default function MembershipsClient() {
                   <button
                     type="button"
                     onClick={addBenefit}
-                    className="flex items-center gap-1 text-xs text-nexus-600 hover:text-nexus-500 dark:text-nexus-400"
+                    className="flex items-center gap-1 text-xs text-elevatedpos-600 hover:text-elevatedpos-500 dark:text-elevatedpos-400"
                   >
                     <Plus className="h-3 w-3" /> Add Benefit
                   </button>
@@ -549,7 +549,7 @@ export default function MembershipsClient() {
                         placeholder="e.g. 10% member discount"
                         value={b}
                         onChange={(e) => updateBenefit(idx, e.target.value)}
-                        className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                        className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                       />
                       {planForm.benefits.length > 1 && (
                         <button onClick={() => removeBenefit(idx)} className="text-red-400 hover:text-red-600 transition-colors">
@@ -565,7 +565,7 @@ export default function MembershipsClient() {
                 <button
                   type="button"
                   onClick={() => setPlanForm({ ...planForm, isActive: !planForm.isActive })}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${planForm.isActive ? 'bg-nexus-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${planForm.isActive ? 'bg-elevatedpos-600' : 'bg-gray-300 dark:bg-gray-600'}`}
                 >
                   <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${planForm.isActive ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
                 </button>
@@ -583,7 +583,7 @@ export default function MembershipsClient() {
               <button
                 onClick={handleSavePlan}
                 disabled={!planForm.name || !planForm.price || saving}
-                className="flex items-center gap-2 rounded-lg bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-500 disabled:opacity-50 transition-colors"
+                className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
               >
                 {saving ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <Check className="h-4 w-4" />}
                 {editingPlan ? 'Save Changes' : 'Create Plan'}

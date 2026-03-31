@@ -210,7 +210,7 @@ export async function automationRoutes(app: FastifyInstance) {
     try {
       const workflowId = `automation-${id}-${Date.now()}`;
       const handle = await client.workflow.start(automationTriggerWorkflow, {
-        taskQueue: 'nexus-automations',
+        taskQueue: 'elevatedpos-automations',
         workflowId,
         args: [{ automationId: id, triggerData: bodyParsed.data.triggerData, orgId }],
       });

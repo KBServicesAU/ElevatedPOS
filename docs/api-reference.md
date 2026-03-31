@@ -1,6 +1,6 @@
-# NEXUS API Reference
+# ElevatedPOS API Reference
 
-Base URL: `https://api.nexuspos.app/api/v1`
+Base URL: `https://api.elevatedpos.com.au/api/v1`
 
 All endpoints require a Bearer token in the `Authorization` header:
 ```
@@ -395,7 +395,7 @@ X-Nexus-Timestamp: <unix-epoch-ms>
 All errors follow RFC 7807:
 ```json
 {
-  "type": "https://nexuspos.app/errors/validation",
+  "type": "https://elevatedpos.com.au/errors/validation",
   "title": "Validation Error",
   "status": 422,
   "detail": "sku: Required"

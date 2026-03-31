@@ -38,7 +38,7 @@ export function middleware(request: NextRequest) {
   if (isFullscreenApp(pathname)) return NextResponse.next();
 
   // Check for auth cookie
-  const token = request.cookies.get('nexus_token')?.value;
+  const token = request.cookies.get('elevatedpos_token')?.value;
 
   // Redirect already-authenticated users away from login page
   if (PUBLIC_PATHS.has(pathname)) {

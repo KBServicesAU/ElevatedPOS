@@ -1,7 +1,7 @@
 import { TransfersClient } from './transfers-client';
 
 export const metadata = {
-  title: 'Stock Transfers — NEXUS',
+  title: 'Stock Transfers — ElevatedPOS',
 };
 
 export default function TransfersPage() {

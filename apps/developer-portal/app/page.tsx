@@ -18,7 +18,7 @@ const navCards = [
     href: '/api-reference',
     icon: BookOpen,
     title: 'API Reference',
-    description: 'Complete REST API documentation for all NEXUS services with request/response examples.',
+    description: 'Complete REST API documentation for all ElevatedPOS services with request/response examples.',
     color: 'text-indigo-400',
     border: 'border-indigo-900/50 hover:border-indigo-700',
   },
@@ -34,7 +34,7 @@ const navCards = [
     href: '/oauth',
     icon: KeyRound,
     title: 'OAuth Apps',
-    description: 'Register OAuth 2.0 applications to access the NEXUS API on behalf of merchants.',
+    description: 'Register OAuth 2.0 applications to access the ElevatedPOS API on behalf of merchants.',
     color: 'text-amber-400',
     border: 'border-amber-900/50 hover:border-amber-700',
   },
@@ -42,7 +42,7 @@ const navCards = [
     href: '/webhooks',
     icon: Webhook,
     title: 'Webhooks',
-    description: 'Subscribe to real-time events from the NEXUS platform using HMAC-signed webhooks.',
+    description: 'Subscribe to real-time events from the ElevatedPOS platform using HMAC-signed webhooks.',
     color: 'text-purple-400',
     border: 'border-purple-900/50 hover:border-purple-700',
   },
@@ -85,14 +85,14 @@ export default function DevPortalHome() {
       <nav className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 bg-indigo-600 rounded flex items-center justify-center text-xs font-bold text-white">N</div>
-          <span className="text-sm font-semibold text-gray-200">NEXUS</span>
+          <span className="text-sm font-semibold text-gray-200">ElevatedPOS</span>
           <span className="text-gray-600">/</span>
           <span className="text-sm text-gray-400">Developers</span>
         </div>
         <div className="flex items-center gap-6 text-sm text-gray-400">
           <Link href="/api-reference" className="hover:text-gray-200 transition-colors">Docs</Link>
           <Link href="/changelog" className="hover:text-gray-200 transition-colors">Changelog</Link>
-          <a href="https://github.com/nexus-pos" className="hover:text-gray-200 transition-colors">GitHub</a>
+          <a href="https://github.com/elevatedpos" className="hover:text-gray-200 transition-colors">GitHub</a>
           <Link
             href="/sandbox"
             className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-sm font-medium transition-colors"
@@ -109,7 +109,7 @@ export default function DevPortalHome() {
           API v1.2.0 — Now with GraphQL for Catalog
         </div>
         <h1 className="text-5xl font-bold text-white mb-4 tracking-tight">
-          NEXUS Developer Platform
+          ElevatedPOS Developer Platform
         </h1>
         <p className="text-xl text-gray-400 mb-8 max-w-2xl mx-auto">
           Build integrations that operators love. Access inventory, orders, payments, loyalty, and more through a unified REST + GraphQL API.
@@ -200,7 +200,7 @@ export default function DevPortalHome() {
 
       {/* Footer */}
       <footer className="border-t border-gray-800 px-6 py-6 text-center text-xs text-gray-600">
-        © 2024 NEXUS POS. Developer Platform — API v1.2.0
+        © 2024 ElevatedPOS. Developer Platform — API v1.2.0
       </footer>
     </div>
   );

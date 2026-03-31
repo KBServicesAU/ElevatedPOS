@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import * as schema from './schema';
 
 const pool = new Pool({
-  connectionString: process.env['DATABASE_URL'] ?? 'postgresql://nexus:nexus_dev@localhost:5432/nexus_integrations_dev',
+  connectionString: process.env['DATABASE_URL'] ?? 'postgresql://elevatedpos:elevatedpos_dev@localhost:5432/elevatedpos_integrations_dev',
 });
 const db = drizzle(pool, { schema });
 

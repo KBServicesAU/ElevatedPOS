@@ -108,7 +108,7 @@ export const MARKETPLACE_APPS: MarketplaceApp[] = [
     id: 'shopify',
     name: 'Shopify',
     category: 'ecommerce',
-    description: 'Unified inventory and order management across your Shopify store and NEXUS POS. Real-time stock sync and omni-channel reporting.',
+    description: 'Unified inventory and order management across your Shopify store and ElevatedPOS. Real-time stock sync and omni-channel reporting.',
     logoUrl: 'https://cdn.nexus.app/integrations/shopify.svg',
     developer: 'Shopify Inc',
     pricing: 'Shopify plan required',

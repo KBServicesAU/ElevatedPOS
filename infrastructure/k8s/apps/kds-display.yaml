@@ -2,10 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kds-display
-  namespace: nexus
+  namespace: elevatedpos
   labels:
     app: kds-display
-    app.kubernetes.io/part-of: nexus
+    app.kubernetes.io/part-of: elevatedpos
 spec:
   replicas: 2
   selector:
@@ -16,17 +16,17 @@ spec:
       labels:
         app: kds-display
     spec:
-      serviceAccountName: nexus-service
+      serviceAccountName: elevatedpos-service
       containers:
         - name: kds-display
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/kds-display:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/kds-display:latest
           ports:
             - containerPort: 3001
           envFrom:
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
           env:
             - name: PORT
               value: "3001"
@@ -56,7 +56,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kds-display
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   selector:
     app: kds-display
@@ -68,7 +68,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: kds-display
-  namespace: nexus
+  namespace: elevatedpos
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

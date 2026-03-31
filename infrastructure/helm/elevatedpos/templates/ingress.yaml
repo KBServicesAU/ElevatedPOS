@@ -2,10 +2,10 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: nexus-ingress
+  name: elevatedpos-ingress
   namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
     app.kubernetes.io/managed-by: {{ .Release.Service }}
   annotations:
     kubernetes.io/ingress.class: {{ .Values.ingress.className | quote }}

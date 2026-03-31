@@ -25,7 +25,7 @@ test.describe('KDS Display', () => {
   test('shows connect screen when no locationId provided', async ({ page }) => {
     await goToKDS(page);
 
-    await expect(page.getByText(/nexus kds/i)).toBeVisible();
+    await expect(page.getByText(/elevatedpos kds/i)).toBeVisible();
     await expect(page.getByPlaceholder(/location id/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /connect/i })).toBeDisabled();
   });
@@ -52,7 +52,7 @@ test.describe('KDS Display', () => {
     await goToKDS(page, TEST_LOCATION_ID);
 
     // WS will fail to connect in offline mode → board is still rendered
-    await expect(page.getByText(/nexus kds/i)).toBeVisible();
+    await expect(page.getByText(/elevatedpos kds/i)).toBeVisible();
 
     // Eventually shows either "Kitchen Clear" (connected, empty) or
     // "Reconnecting" (offline — WS failed).  Both are valid in offline mode.

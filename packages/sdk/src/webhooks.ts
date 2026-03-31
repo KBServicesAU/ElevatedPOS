@@ -5,12 +5,12 @@ import type { NexusEvent, NexusEventType } from './types.js';
 type EventHandler<T extends NexusEvent = NexusEvent> = (event: T) => void | Promise<void>;
 
 /**
- * WebhookHandler verifies NEXUS webhook signatures and dispatches events
+ * WebhookHandler verifies ElevatedPOS webhook signatures and dispatches events
  * to type-safe handlers.
  *
  * @example
  * ```ts
- * const handler = new WebhookHandler({ secret: process.env.NEXUS_WEBHOOK_SECRET });
+ * const handler = new WebhookHandler({ secret: process.env.ELEVATEDPOS_WEBHOOK_SECRET });
  *
  * handler.on('order.completed', async (event) => {
  *   console.log('Order completed:', event.data.order.orderNumber);
@@ -18,7 +18,7 @@ type EventHandler<T extends NexusEvent = NexusEvent> = (event: T) => void | Prom
  *
  * // In your Express/Fastify route:
  * const rawBody = await req.text();
- * const signature = req.headers['x-nexus-signature'];
+ * const signature = req.headers['x-elevatedpos-signature'];
  * await handler.handle(rawBody, signature);
  * ```
  */

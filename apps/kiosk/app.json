@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "NEXUS Kiosk",
-    "slug": "nexus-kiosk",
+    "name": "ElevatedPOS Kiosk",
+    "slug": "elevatedpos-kiosk",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,7 +10,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#0a0a0a"
     },
-    "scheme": "nexus-kiosk",
+    "scheme": "elevatedpos-kiosk",
     "platforms": ["ios", "android", "web"],
     "plugins": ["expo-router"],
     "experiments": {

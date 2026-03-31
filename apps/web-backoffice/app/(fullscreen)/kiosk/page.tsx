@@ -75,7 +75,7 @@ function AppBar({ current }: { current: string }) {
           );
         })}
       </div>
-      <span className="text-[10px] text-gray-700">NEXUS Kiosk</span>
+      <span className="text-[10px] text-gray-700">ElevatedPOS Kiosk</span>
     </div>
   );
 }

@@ -151,7 +151,7 @@ function ConnectScreen({ onConnect }: { onConnect: (locationId: string) => void 
   return (
     <div className="flex h-screen flex-col items-center justify-center bg-[#0f0f0f] text-white">
       <ChefHat className="mb-4 h-16 w-16 text-yellow-400" />
-      <h1 className="mb-2 text-3xl font-extrabold tracking-wide">NEXUS KDS</h1>
+      <h1 className="mb-2 text-3xl font-extrabold tracking-wide">ElevatedPOS KDS</h1>
       <p className="mb-8 text-gray-400">Enter your Location ID to connect</p>
       <div className="flex w-full max-w-sm flex-col gap-3">
         <input
@@ -296,7 +296,7 @@ export default function KDSPage() {
       <div className="flex items-center justify-between border-b border-[#2a2a2a] px-6 py-3">
         <div className="flex items-center gap-3">
           <ChefHat className="h-6 w-6 text-yellow-400" />
-          <span className="text-lg font-bold tracking-wide">NEXUS KDS</span>
+          <span className="text-lg font-bold tracking-wide">ElevatedPOS KDS</span>
           <span className="rounded-full bg-[#2a2a2a] px-3 py-0.5 text-sm text-gray-400 font-mono">
             {locationId.slice(0, 8)}…
           </span>

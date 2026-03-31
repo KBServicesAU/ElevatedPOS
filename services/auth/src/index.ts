@@ -44,10 +44,10 @@ async function start() {
     secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production',
     sign: {
       expiresIn: process.env['JWT_ACCESS_EXPIRY'] ?? '15m',
-      issuer: 'nexus-auth',
+      issuer: 'elevatedpos-auth',
     },
     verify: {
-      issuer: 'nexus-auth',
+      issuer: 'elevatedpos-auth',
     },
   });
 

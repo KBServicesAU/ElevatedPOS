@@ -275,7 +275,7 @@ async function proxyRequest(request: NextRequest, segments: string[]): Promise<N
   const targetUrl = `${mapping.base}${mapping.prefix}${subPath}${request.nextUrl.search}`;
 
   const cookieStore = cookies();
-  const token = cookieStore.get('nexus_token')?.value;
+  const token = cookieStore.get('elevatedpos_token')?.value;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

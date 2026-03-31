@@ -6,7 +6,7 @@
 # ─── EKS Node IAM Role ────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "eks_node" {
-  name = "nexus-eks-node-${var.environment}"
+  name = "elevatedpos-eks-node-${var.environment}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -36,7 +36,7 @@ resource "aws_iam_role_policy_attachment" "eks_node_ecr" {
 # ─── EKS Cluster IAM Role ─────────────────────────────────────────────────────
 
 resource "aws_iam_role" "eks_cluster" {
-  name = "nexus-eks-cluster-${var.environment}"
+  name = "elevatedpos-eks-cluster-${var.environment}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -96,7 +96,7 @@ resource "aws_eks_addon" "ebs_csi_driver" {
 # ─── EBS CSI Driver IAM Role ──────────────────────────────────────────────────
 
 resource "aws_iam_role" "ebs_csi" {
-  name = "nexus-ebs-csi-${var.environment}"
+  name = "elevatedpos-ebs-csi-${var.environment}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

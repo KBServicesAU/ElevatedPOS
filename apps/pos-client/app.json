@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "NEXUS POS",
-    "slug": "nexus-pos",
+    "name": "ElevatedPOS",
+    "slug": "elevatedpos-pos",
     "version": "1.0.0",
-    "scheme": "nexuspos",
+    "scheme": "elevatedpos",
     "platforms": ["ios", "android", "web"],
     "web": {
       "bundler": "metro",
@@ -12,8 +12,8 @@
     },
     "icon": "./assets/icon.png",
     "splash": { "image": "./assets/splash.png", "backgroundColor": "#1e1e2e" },
-    "ios": { "supportsTablet": true, "bundleIdentifier": "com.nexuspos.client" },
-    "android": { "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#1e1e2e" }, "package": "com.nexuspos.client" },
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.au.elevatedpos.client" },
+    "android": { "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#1e1e2e" }, "package": "com.au.elevatedpos.client" },
     "plugins": ["expo-router"]
   }
 }

@@ -12,13 +12,13 @@ const app = Fastify({ logger: true, trustProxy: true });
 const anthropic = new Anthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] });
 
 const SYSTEM_PROMPT =
-  'You are NEXUS AI, a business intelligence assistant for a Point of Sale system. ' +
+  'You are ElevatedPOS AI, a business intelligence assistant for a Point of Sale system. ' +
   'Answer concisely about sales data, inventory, customers, and business performance. ' +
   'If asked about specific metrics, provide data-driven insights.';
 
-const NEXUS_SUPPORT_PROMPT =
-  'You are NEXUS Support AI, an expert assistant for the NEXUS Point of Sale platform. ' +
-  'NEXUS is a modern cloud-based POS system for restaurants, cafes, retail stores, bars, and franchises. ' +
+const ELEVATEDPOS_SUPPORT_PROMPT =
+  'You are ElevatedPOS Support AI, an expert assistant for the ElevatedPOS Point of Sale platform. ' +
+  'ElevatedPOS is a modern cloud-based POS system for restaurants, cafes, retail stores, bars, and franchises. ' +
   'It includes: order management, inventory tracking, customer loyalty programs, employee management, ' +
   'campaign marketing, payment processing, kitchen display system (KDS), reporting & analytics, ' +
   'and AI-powered business intelligence. ' +
@@ -188,7 +188,7 @@ async function start() {
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   await app.register(jwt, {
     secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production',
-    verify: { issuer: 'nexus-auth' },
+    verify: { issuer: 'elevatedpos-auth' },
   });
 
   app.decorate(
@@ -670,7 +670,7 @@ async function start() {
 
       const { step, answers } = parsed.data;
       const prompt =
-        `You are guiding a new business owner through setting up their NEXUS POS account. ` +
+        `You are guiding a new business owner through setting up their ElevatedPOS account. ` +
         `They are currently on step: "${step}".\n` +
         `Answers provided so far: ${JSON.stringify(answers)}\n\n` +
         `Based on their answers, determine the next most important question to ask to configure their account. ` +
@@ -694,7 +694,7 @@ async function start() {
         const message = await anthropic.messages.create({
           model: 'claude-haiku-4-5',
           max_tokens: 1024,
-          system: NEXUS_SUPPORT_PROMPT,
+          system: ELEVATEDPOS_SUPPORT_PROMPT,
           messages: [{ role: 'user', content: prompt }],
         });
 
@@ -713,7 +713,7 @@ async function start() {
     },
   );
 
-  // ── POST /api/v1/ai/support — NEXUS platform support Q&A ────────────────────
+  // ── POST /api/v1/ai/support — ElevatedPOS platform support Q&A ────────────────────
   // Model: claude-haiku-4-5
   app.post('/api/v1/ai/support', { onRequest: [app.authenticate] }, async (request, reply) => {
     const parsed = supportSchema.safeParse(request.body);
@@ -734,7 +734,7 @@ async function start() {
       : '';
 
     const prompt =
-      `Answer the following NEXUS POS support question clearly and helpfully.${contextSection}\n\n` +
+      `Answer the following ElevatedPOS support question clearly and helpfully.${contextSection}\n\n` +
       `Question: ${question}\n\n` +
       `Respond ONLY with valid JSON in this exact structure:\n` +
       `{\n` +
@@ -749,7 +749,7 @@ async function start() {
       const message = await anthropic.messages.create({
         model: 'claude-haiku-4-5',
         max_tokens: 1024,
-        system: NEXUS_SUPPORT_PROMPT,
+        system: ELEVATEDPOS_SUPPORT_PROMPT,
         messages: [{ role: 'user', content: prompt }],
       });
 

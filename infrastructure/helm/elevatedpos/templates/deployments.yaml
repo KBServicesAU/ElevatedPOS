@@ -8,7 +8,7 @@ metadata:
   namespace: {{ $.Values.global.namespace }}
   labels:
     app: {{ $name }}
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
     app.kubernetes.io/component: {{ $name }}
     app.kubernetes.io/managed-by: {{ $.Release.Service }}
 spec:
@@ -20,21 +20,21 @@ spec:
     metadata:
       labels:
         app: {{ $name }}
-        app.kubernetes.io/name: nexus
+        app.kubernetes.io/name: elevatedpos
         app.kubernetes.io/component: {{ $name }}
     spec:
-      serviceAccountName: nexus-app
+      serviceAccountName: elevatedpos-app
       containers:
         - name: {{ $name }}
-          image: "{{ $.Values.global.imageRegistry }}nexus/{{ $name }}:{{ $.Values.image.tag }}"
+          image: "{{ $.Values.global.imageRegistry }}elevatedpos/{{ $name }}:{{ $.Values.image.tag }}"
           imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
           ports:
             - containerPort: {{ $svc.port }}
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
           env:
             - name: PORT
               value: {{ $svc.port | quote }}

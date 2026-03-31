@@ -48,24 +48,24 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-nexus-950 via-nexus-900 to-nexus-800 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-elevatedpos-950 via-elevatedpos-900 to-elevatedpos-800 p-4">
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="mb-8 text-center">
-          <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-nexus-500 shadow-xl shadow-nexus-500/30">
+          <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-elevatedpos-500 shadow-xl shadow-elevatedpos-500/30">
             <span className="text-3xl font-bold text-white">N</span>
           </div>
           <h1 className="text-2xl font-bold text-white">Welcome back</h1>
-          <p className="mt-1 text-sm text-nexus-400">Sign in to your NEXUS account</p>
+          <p className="mt-1 text-sm text-elevatedpos-400">Sign in to your ElevatedPOS account</p>
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-nexus-700/50 bg-nexus-800/60 p-6 shadow-2xl backdrop-blur">
+        <div className="rounded-2xl border border-elevatedpos-700/50 bg-elevatedpos-800/60 p-6 shadow-2xl backdrop-blur">
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'password' ? (
               <>
                 <div>
-                  <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-nexus-200">
+                  <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-elevatedpos-200">
                     Email address
                   </label>
                   <input
@@ -77,16 +77,16 @@ export default function LoginPage() {
                     placeholder="you@yourstore.com"
                     required
                     disabled={loading}
-                    className="w-full rounded-lg border border-nexus-600/50 bg-nexus-900/60 px-3.5 py-2.5 text-sm text-white placeholder-nexus-500 outline-none ring-nexus-500 transition focus:border-nexus-500 focus:ring-2 disabled:opacity-50"
+                    className="w-full rounded-lg border border-elevatedpos-600/50 bg-elevatedpos-900/60 px-3.5 py-2.5 text-sm text-white placeholder-elevatedpos-500 outline-none ring-elevatedpos-500 transition focus:border-elevatedpos-500 focus:ring-2 disabled:opacity-50"
                   />
                 </div>
 
                 <div>
                   <div className="mb-1.5 flex items-center justify-between">
-                    <label htmlFor="password" className="text-sm font-medium text-nexus-200">
+                    <label htmlFor="password" className="text-sm font-medium text-elevatedpos-200">
                       Password
                     </label>
-                    <Link href="/forgot-password" className="text-xs text-nexus-400 hover:text-nexus-200">
+                    <Link href="/forgot-password" className="text-xs text-elevatedpos-400 hover:text-elevatedpos-200">
                       Forgot password?
                     </Link>
                   </div>
@@ -99,13 +99,13 @@ export default function LoginPage() {
                     placeholder="••••••••"
                     required
                     disabled={loading}
-                    className="w-full rounded-lg border border-nexus-600/50 bg-nexus-900/60 px-3.5 py-2.5 text-sm text-white placeholder-nexus-500 outline-none ring-nexus-500 transition focus:border-nexus-500 focus:ring-2 disabled:opacity-50"
+                    className="w-full rounded-lg border border-elevatedpos-600/50 bg-elevatedpos-900/60 px-3.5 py-2.5 text-sm text-white placeholder-elevatedpos-500 outline-none ring-elevatedpos-500 transition focus:border-elevatedpos-500 focus:ring-2 disabled:opacity-50"
                   />
                 </div>
               </>
             ) : (
               <div>
-                <label htmlFor="pin" className="mb-1.5 block text-sm font-medium text-nexus-200">
+                <label htmlFor="pin" className="mb-1.5 block text-sm font-medium text-elevatedpos-200">
                   PIN
                 </label>
                 <input
@@ -119,9 +119,9 @@ export default function LoginPage() {
                   placeholder="••••"
                   required
                   disabled={loading}
-                  className="w-full rounded-lg border border-nexus-600/50 bg-nexus-900/60 px-3.5 py-2.5 text-center text-2xl tracking-[0.5em] text-white placeholder-nexus-500 outline-none ring-nexus-500 transition focus:border-nexus-500 focus:ring-2 disabled:opacity-50"
+                  className="w-full rounded-lg border border-elevatedpos-600/50 bg-elevatedpos-900/60 px-3.5 py-2.5 text-center text-2xl tracking-[0.5em] text-white placeholder-elevatedpos-500 outline-none ring-elevatedpos-500 transition focus:border-elevatedpos-500 focus:ring-2 disabled:opacity-50"
                 />
-                <p className="mt-1.5 text-xs text-nexus-500">Enter your staff PIN</p>
+                <p className="mt-1.5 text-xs text-elevatedpos-500">Enter your staff PIN</p>
               </div>
             )}
 
@@ -135,7 +135,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-nexus-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-nexus-500/25 transition hover:bg-nexus-400 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-lg bg-elevatedpos-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-elevatedpos-500/25 transition hover:bg-elevatedpos-400 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
@@ -153,23 +153,23 @@ export default function LoginPage() {
 
           <div className="mt-4">
             <div className="relative flex items-center">
-              <div className="flex-1 border-t border-nexus-700" />
-              <span className="mx-3 text-xs text-nexus-500">or</span>
-              <div className="flex-1 border-t border-nexus-700" />
+              <div className="flex-1 border-t border-elevatedpos-700" />
+              <span className="mx-3 text-xs text-elevatedpos-500">or</span>
+              <div className="flex-1 border-t border-elevatedpos-700" />
             </div>
             <button
               type="button"
               onClick={() => { setMode(mode === 'pin' ? 'password' : 'pin'); setError(''); }}
-              className="mt-3 w-full rounded-lg border border-nexus-600/50 bg-nexus-900/40 px-4 py-2.5 text-sm font-medium text-nexus-200 transition hover:bg-nexus-800"
+              className="mt-3 w-full rounded-lg border border-elevatedpos-600/50 bg-elevatedpos-900/40 px-4 py-2.5 text-sm font-medium text-elevatedpos-200 transition hover:bg-elevatedpos-800"
             >
               {mode === 'pin' ? 'Sign in with Email & Password' : 'Sign in with PIN'}
             </button>
           </div>
         </div>
 
-        <p className="mt-6 text-center text-xs text-nexus-600">
+        <p className="mt-6 text-center text-xs text-elevatedpos-600">
           Need access?{' '}
-          <Link href="mailto:support@nexus.app" className="text-nexus-400 hover:text-nexus-200">
+          <Link href="mailto:support@elevatedpos.com.au" className="text-elevatedpos-400 hover:text-elevatedpos-200">
             Contact your administrator
           </Link>
         </p>

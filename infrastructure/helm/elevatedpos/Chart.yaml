@@ -1,6 +1,6 @@
 apiVersion: v2
-name: nexus
-description: NEXUS Unified Commerce Platform
+name: elevatedpos
+description: ElevatedPOS Unified Commerce Platform
 type: application
 version: 1.0.0
 appVersion: "1.0.0"
@@ -9,4 +9,4 @@ keywords:
   - commerce
   - retail
 maintainers:
-  - name: NEXUS Team
+  - name: ElevatedPOS Team

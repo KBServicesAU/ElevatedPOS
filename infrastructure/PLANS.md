@@ -1,4 +1,4 @@
-# NEXUS Plan Tiers
+# ElevatedPOS Plan Tiers
 
 ## Starter (Free / Base)
 - POS terminals (unlimited)

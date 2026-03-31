@@ -2,7 +2,7 @@ import { Kafka, Consumer, EachMessagePayload, logLevel } from 'kafkajs';
 
 function getKafka(): Kafka {
   return new Kafka({
-    clientId: 'nexus-campaigns',
+    clientId: 'elevatedpos-campaigns',
     brokers: (process.env['KAFKA_BROKERS'] ?? 'localhost:9092').split(','),
     logLevel: logLevel.WARN,
   });

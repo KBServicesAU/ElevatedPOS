@@ -10,7 +10,7 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error('[NEXUS] Unhandled error:', error);
+    console.error('[ElevatedPOS] Unhandled error:', error);
   }, [error]);
 
   return (

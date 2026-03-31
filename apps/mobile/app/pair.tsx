@@ -51,7 +51,7 @@ export default function PairScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.card}>
-        <Text style={styles.logo}>NEXUS</Text>
+        <Text style={styles.logo}>ElevatedPOS</Text>
         {ROLE_LOCK && (
           <View style={styles.roleBadge}>
             <Text style={styles.roleBadgeText}>{ROLE_LOCK.toUpperCase()} DEVICE</Text>

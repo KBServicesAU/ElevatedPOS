@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import * as schema from './schema';
 
 const pool = new Pool({
-  connectionString: process.env['DATABASE_URL'] ?? 'postgresql://nexus:nexus_dev@localhost:5432/nexus_auth_dev',
+  connectionString: process.env['DATABASE_URL'] ?? 'postgresql://elevatedpos:elevatedpos_dev@localhost:5432/elevatedpos_auth_dev',
   ssl: process.env['NODE_TLS_REJECT_UNAUTHORIZED'] === '0' ? { rejectUnauthorized: false } : undefined,
 });
 const db = drizzle(pool, { schema });
@@ -18,15 +18,15 @@ async function seed() {
   // ── Organisation ──────────────────────────────────────────────────────────
   await db.insert(schema.organisations).values({
     id: ORG_ID,
-    name: 'NEXUS Demo Store',
-    slug: 'nexus-demo',
+    name: 'ElevatedPOS Demo Store',
+    slug: 'elevatedpos-demo',
     country: 'AU',
     currency: 'AUD',
     timezone: 'Australia/Sydney',
     plan: 'starter',
     planStatus: 'active',
   }).onConflictDoNothing();
-  console.log('  ✓ Organisation: NEXUS Demo Store');
+  console.log('  ✓ Organisation: ElevatedPOS Demo Store');
 
   // ── Owner role ────────────────────────────────────────────────────────────
   await db.insert(schema.roles).values({
@@ -47,7 +47,7 @@ async function seed() {
     orgId: ORG_ID,
     firstName: 'Store',
     lastName: 'Owner',
-    email: 'owner@nexuspos.dev',
+    email: 'owner@elevatedpos.dev',
     passwordHash: ownerPassHash,
     pin: ownerPin,
     roleId: ROLE_ID,
@@ -55,7 +55,7 @@ async function seed() {
     employmentType: 'full_time',
     isActive: true,
   }).onConflictDoNothing();
-  console.log('  ✓ Employee: owner@nexuspos.dev  |  password: nexus2024!  |  PIN: 1234');
+  console.log('  ✓ Employee: owner@elevatedpos.dev  |  password: nexus2024!  |  PIN: 1234');
 
   const managerPassHash = await bcrypt.hash('manager123!', 12);
   const managerPin      = await bcrypt.hash('5678', 10);
@@ -64,7 +64,7 @@ async function seed() {
     orgId: ORG_ID,
     firstName: 'Jane',
     lastName: 'Manager',
-    email: 'manager@nexuspos.dev',
+    email: 'manager@elevatedpos.dev',
     passwordHash: managerPassHash,
     pin: managerPin,
     roleId: ROLE_ID,
@@ -72,7 +72,7 @@ async function seed() {
     employmentType: 'full_time',
     isActive: true,
   }).onConflictDoNothing();
-  console.log('  ✓ Employee: manager@nexuspos.dev  |  password: manager123!  |  PIN: 5678');
+  console.log('  ✓ Employee: manager@elevatedpos.dev  |  password: manager123!  |  PIN: 5678');
 
   console.log('\n✅ Auth seed complete');
   await pool.end();

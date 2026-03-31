@@ -1,7 +1,7 @@
 import { Worker, NativeConnection } from '@temporalio/worker';
 import * as activities from './activities.js';
 
-const TASK_QUEUE = 'nexus-automations';
+const TASK_QUEUE = 'elevatedpos-automations';
 
 let workerInstance: Worker | null = null;
 

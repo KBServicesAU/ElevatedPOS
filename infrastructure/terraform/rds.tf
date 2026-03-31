@@ -5,8 +5,8 @@
 
 # ─── Parameter Group ──────────────────────────────────────────────────────────
 
-resource "aws_db_parameter_group" "nexus" {
-  name   = "nexus-${var.environment}-pg16"
+resource "aws_db_parameter_group" "elevatedpos" {
+  name   = "elevatedpos-${var.environment}-pg16"
   family = "postgres16"
 
   parameter {
@@ -46,8 +46,8 @@ resource "aws_db_parameter_group" "nexus" {
 resource "aws_db_instance" "nexus_replica" {
   count = var.environment == "prod" ? 1 : 0
 
-  identifier          = "nexus-${var.environment}-replica"
-  replicate_source_db = aws_db_instance.nexus.identifier
+  identifier          = "elevatedpos-${var.environment}-replica"
+  replicate_source_db = aws_db_instance.elevatedpos.identifier
 
   instance_class    = var.db_instance_class
   storage_encrypted = true
@@ -55,19 +55,19 @@ resource "aws_db_instance" "nexus_replica" {
   publicly_accessible = false
   skip_final_snapshot = true
 
-  parameter_group_name = aws_db_parameter_group.nexus.name
+  parameter_group_name = aws_db_parameter_group.elevatedpos.name
 
   performance_insights_enabled = true
 
   tags = {
-    Name = "nexus-${var.environment}-replica"
+    Name = "elevatedpos-${var.environment}-replica"
   }
 }
 
 # ─── RDS Proxy (connection pooling) ───────────────────────────────────────────
 
 resource "aws_iam_role" "rds_proxy" {
-  name = "nexus-rds-proxy-${var.environment}"
+  name = "elevatedpos-rds-proxy-${var.environment}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -80,7 +80,7 @@ resource "aws_iam_role" "rds_proxy" {
 }
 
 resource "aws_iam_role_policy" "rds_proxy_secrets" {
-  name = "nexus-rds-proxy-secrets"
+  name = "elevatedpos-rds-proxy-secrets"
   role = aws_iam_role.rds_proxy.id
 
   policy = jsonencode({
@@ -88,13 +88,13 @@ resource "aws_iam_role_policy" "rds_proxy_secrets" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["secretsmanager:GetSecretValue"]
-      Resource = "arn:aws:secretsmanager:${var.aws_region}:*:secret:nexus/rds*"
+      Resource = "arn:aws:secretsmanager:${var.aws_region}:*:secret:elevatedpos/rds*"
     }]
   })
 }
 
-resource "aws_db_proxy" "nexus" {
-  name                   = "nexus-${var.environment}"
+resource "aws_db_proxy" "elevatedpos" {
+  name                   = "elevatedpos-${var.environment}"
   engine_family          = "POSTGRESQL"
   idle_client_timeout    = 1800
   require_tls            = true
@@ -106,12 +106,12 @@ resource "aws_db_proxy" "nexus" {
     auth_scheme = "SECRETS"
     description = "RDS master credentials"
     iam_auth    = "DISABLED"
-    secret_arn  = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:nexus/rds-credentials"
+    secret_arn  = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:elevatedpos/rds-credentials"
   }
 }
 
-resource "aws_db_proxy_default_target_group" "nexus" {
-  db_proxy_name = aws_db_proxy.nexus.name
+resource "aws_db_proxy_default_target_group" "elevatedpos" {
+  db_proxy_name = aws_db_proxy.elevatedpos.name
 
   connection_pool_config {
     connection_borrow_timeout    = 120
@@ -120,10 +120,10 @@ resource "aws_db_proxy_default_target_group" "nexus" {
   }
 }
 
-resource "aws_db_proxy_target" "nexus" {
-  db_instance_identifier = aws_db_instance.nexus.identifier
-  db_proxy_name          = aws_db_proxy.nexus.name
-  target_group_name      = aws_db_proxy_default_target_group.nexus.name
+resource "aws_db_proxy_target" "elevatedpos" {
+  db_instance_identifier = aws_db_instance.elevatedpos.identifier
+  db_proxy_name          = aws_db_proxy.elevatedpos.name
+  target_group_name      = aws_db_proxy_default_target_group.elevatedpos.name
 }
 
 # ─── RDS Snapshot (manual baseline) ──────────────────────────────────────────
@@ -131,8 +131,8 @@ resource "aws_db_proxy_target" "nexus" {
 resource "aws_db_snapshot" "nexus_baseline" {
   count = var.environment == "prod" ? 1 : 0
 
-  db_instance_identifier = aws_db_instance.nexus.identifier
-  db_snapshot_identifier = "nexus-${var.environment}-baseline"
+  db_instance_identifier = aws_db_instance.elevatedpos.identifier
+  db_snapshot_identifier = "elevatedpos-${var.environment}-baseline"
 
   lifecycle {
     ignore_changes = [db_snapshot_identifier]

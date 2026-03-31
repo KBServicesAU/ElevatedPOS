@@ -1,7 +1,7 @@
 /**
  * Kafka event consumer for the automations service.
  *
- * Subscribes to the NEXUS domain topics and, for each incoming event, queries
+ * Subscribes to the ElevatedPOS domain topics and, for each incoming event, queries
  * the database for enabled automation rules whose `trigger` matches the event
  * type.  Matching rules are evaluated against the event payload's conditions
  * and, if they pass, inserted as pending execution records.
@@ -18,7 +18,7 @@ import { evaluateConditions, type Condition } from './utils.js';
 // ─── Topic → automation trigger mapping ──────────────────────────────────────
 
 /**
- * Maps a NEXUS event type (the `eventType` field in the envelope) to the
+ * Maps a ElevatedPOS event type (the `eventType` field in the envelope) to the
  * `automation_trigger` enum value stored in the database.
  *
  * Only event types that have a corresponding trigger enum value are
@@ -43,7 +43,7 @@ const SUBSCRIBED_TOPICS = [
 
 // ─── Consumer group ───────────────────────────────────────────────────────────
 
-const CONSUMER_GROUP = 'nexus-automations-consumer';
+const CONSUMER_GROUP = 'elevatedpos-automations-consumer';
 
 // ─── Internal state ───────────────────────────────────────────────────────────
 
@@ -72,7 +72,7 @@ async function handleMessage({ topic, message }: EachMessagePayload): Promise<vo
   const payload = (envelope['payload'] ?? {}) as Record<string, unknown>;
 
   if (!eventType || !orgId) {
-    // Not a valid NEXUS event envelope — skip silently
+    // Not a valid ElevatedPOS event envelope — skip silently
     return;
   }
 
@@ -161,7 +161,7 @@ export async function startEventConsumer(): Promise<void> {
 
   try {
     const kafka = new Kafka({
-      clientId: 'nexus-automations',
+      clientId: 'elevatedpos-automations',
       brokers: brokers.split(','),
       logLevel: logLevel.WARN,
     });

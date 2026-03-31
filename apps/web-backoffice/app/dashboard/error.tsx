@@ -11,7 +11,7 @@ export default function DashboardError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error('[NEXUS] Dashboard page error:', error);
+    console.error('[ElevatedPOS] Dashboard page error:', error);
   }, [error]);
 
   return (
@@ -35,7 +35,7 @@ export default function DashboardError({
         <div className="flex items-center justify-center gap-3">
           <button
             onClick={reset}
-            className="flex items-center gap-2 rounded-lg bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-700 active:scale-95 transition-transform"
+            className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-700 active:scale-95 transition-transform"
           >
             <RefreshCw className="h-4 w-4" />
             Try again

@@ -34,7 +34,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${checked ? 'bg-nexus-600' : 'bg-gray-200 dark:bg-gray-700'}`}
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${checked ? 'bg-elevatedpos-600' : 'bg-gray-200 dark:bg-gray-700'}`}
       role="switch"
       aria-checked={checked}
     >
@@ -58,10 +58,10 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 const inputCls =
-  'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white';
+  'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white';
 
 const selectCls =
-  'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-nexus-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white';
+  'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white';
 
 // ─── Loading Skeleton ─────────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ function SaveButton({ saving, saved, onClick }: { saving: boolean; saved: boolea
     <button
       onClick={onClick}
       disabled={saving}
-      className="flex items-center gap-2 rounded-lg bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-700 active:scale-95 transition-transform disabled:opacity-60 disabled:cursor-not-allowed"
+      className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-700 active:scale-95 transition-transform disabled:opacity-60 disabled:cursor-not-allowed"
     >
       {saving ? (
         <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
@@ -109,8 +109,8 @@ function SectionCard({
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800">
-        <div className="rounded-lg bg-nexus-50 p-2 dark:bg-nexus-900/30">
-          <Icon className="h-5 w-5 text-nexus-600 dark:text-nexus-400" />
+        <div className="rounded-lg bg-elevatedpos-50 p-2 dark:bg-elevatedpos-900/30">
+          <Icon className="h-5 w-5 text-elevatedpos-600 dark:text-elevatedpos-400" />
         </div>
         <div>
           <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
@@ -302,8 +302,8 @@ function LocationsTab() {
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-gray-800">
         <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-nexus-50 p-2 dark:bg-nexus-900/30">
-            <MapPin className="h-5 w-5 text-nexus-600 dark:text-nexus-400" />
+          <div className="rounded-lg bg-elevatedpos-50 p-2 dark:bg-elevatedpos-900/30">
+            <MapPin className="h-5 w-5 text-elevatedpos-600 dark:text-elevatedpos-400" />
           </div>
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-white">Locations</h3>
@@ -312,7 +312,7 @@ function LocationsTab() {
         </div>
         <button
           onClick={() => setShowAdd(!showAdd)}
-          className="flex items-center gap-1.5 rounded-lg bg-nexus-600 px-3 py-2 text-sm font-medium text-white hover:bg-nexus-700"
+          className="flex items-center gap-1.5 rounded-lg bg-elevatedpos-600 px-3 py-2 text-sm font-medium text-white hover:bg-elevatedpos-700"
         >
           <Plus className="h-4 w-4" /> Add Location
         </button>
@@ -346,7 +346,7 @@ function LocationsTab() {
             </select>
           </div>
           <div className="mt-3 flex gap-2">
-            <button onClick={addLocation} className="rounded-lg bg-nexus-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-nexus-700">
+            <button onClick={addLocation} className="rounded-lg bg-elevatedpos-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-elevatedpos-700">
               Add
             </button>
             <button onClick={() => setShowAdd(false)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400">
@@ -477,7 +477,7 @@ function ReceiptsTab() {
       </div>
 
       <Field label="Business Logo" hint="Displayed at top of receipts and invoices (PNG or SVG, max 2MB)">
-        <div className="flex items-center gap-3 rounded-lg border-2 border-dashed border-gray-200 p-4 hover:border-nexus-400 dark:border-gray-700">
+        <div className="flex items-center gap-3 rounded-lg border-2 border-dashed border-gray-200 p-4 hover:border-elevatedpos-400 dark:border-gray-700">
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800">
             <Upload className="h-5 w-5 text-gray-400" />
           </div>
@@ -632,7 +632,7 @@ function TaxTab() {
                   <input className={inputCls + ' py-1.5'} type="number" placeholder="%" min="0" max="100" value={newRate.percent} onChange={(e) => setNewRate((n) => ({ ...n, percent: e.target.value }))} />
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  <button onClick={addRate} className="rounded-lg bg-nexus-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-nexus-700">
+                  <button onClick={addRate} className="rounded-lg bg-elevatedpos-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-elevatedpos-700">
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </td>
@@ -650,7 +650,7 @@ function TaxTab() {
 const DEFAULT_PAYMENT_METHODS = [
   { id: 'cash', label: 'Cash', description: 'Physical cash payments', enabled: true, surcharge: '', rounding: '0.05' },
   { id: 'card', label: 'Card (EFTPOS)', description: 'Credit and debit card via terminal', enabled: true, surcharge: '1.5', rounding: '' },
-  { id: 'giftcard', label: 'Gift Card', description: 'NEXUS-issued gift cards', enabled: true, surcharge: '', rounding: '' },
+  { id: 'giftcard', label: 'Gift Card', description: 'ElevatedPOS-issued gift cards', enabled: true, surcharge: '', rounding: '' },
   { id: 'account', label: 'Account / Credit', description: 'Customer account credit', enabled: false, surcharge: '', rounding: '' },
   { id: 'layby', label: 'Lay-by', description: 'Pay over time with deposits', enabled: false, surcharge: '', rounding: '' },
   { id: 'bnpl', label: 'BNPL', description: 'Buy now, pay later (Afterpay, Zip)', enabled: false, surcharge: '1.9', rounding: '' },
@@ -705,11 +705,11 @@ function PaymentsTab() {
         ) : methods.map((m) => (
           <div
             key={m.id}
-            className={`rounded-xl border p-4 transition-colors ${m.enabled ? 'border-nexus-200 bg-nexus-50/30 dark:border-nexus-800 dark:bg-nexus-900/10' : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900'}`}
+            className={`rounded-xl border p-4 transition-colors ${m.enabled ? 'border-elevatedpos-200 bg-elevatedpos-50/30 dark:border-elevatedpos-800 dark:bg-elevatedpos-900/10' : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900'}`}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <DollarSign className={`h-5 w-5 ${m.enabled ? 'text-nexus-600' : 'text-gray-400'}`} />
+                <DollarSign className={`h-5 w-5 ${m.enabled ? 'text-elevatedpos-600' : 'text-gray-400'}`} />
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">{m.label}</p>
                   <p className="text-xs text-gray-500">{m.description}</p>
@@ -857,8 +857,8 @@ function NotificationsTab() {
       {/* Integrations Quick Links */}
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800">
-          <div className="rounded-lg bg-nexus-50 p-2 dark:bg-nexus-900/30">
-            <Plug className="h-5 w-5 text-nexus-600 dark:text-nexus-400" />
+          <div className="rounded-lg bg-elevatedpos-50 p-2 dark:bg-elevatedpos-900/30">
+            <Plug className="h-5 w-5 text-elevatedpos-600 dark:text-elevatedpos-400" />
           </div>
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-white">Integrations</h3>
@@ -870,7 +870,7 @@ function NotificationsTab() {
             <a
               key={app.name}
               href="/dashboard/integrations"
-              className="group flex items-center justify-between rounded-xl border border-gray-200 p-4 hover:border-nexus-300 hover:bg-nexus-50/30 dark:border-gray-700 dark:hover:border-nexus-700 transition-colors"
+              className="group flex items-center justify-between rounded-xl border border-gray-200 p-4 hover:border-elevatedpos-300 hover:bg-elevatedpos-50/30 dark:border-gray-700 dark:hover:border-elevatedpos-700 transition-colors"
             >
               <div className="flex items-center gap-3">
                 <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${app.color} text-xs font-bold text-white`}>
@@ -885,13 +885,13 @@ function NotificationsTab() {
                 <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${app.connected ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'}`}>
                   {app.connected ? 'Connected' : 'Not connected'}
                 </span>
-                <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-nexus-600 transition-colors" />
+                <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-elevatedpos-600 transition-colors" />
               </div>
             </a>
           ))}
         </div>
         <div className="border-t border-gray-100 px-5 py-3 dark:border-gray-800">
-          <a href="/dashboard/integrations" className="text-sm font-medium text-nexus-600 hover:text-nexus-700 dark:text-nexus-400">
+          <a href="/dashboard/integrations" className="text-sm font-medium text-elevatedpos-600 hover:text-elevatedpos-700 dark:text-elevatedpos-400">
             Manage all integrations →
           </a>
         </div>
@@ -930,7 +930,7 @@ export default function SettingsPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
                 activeTab === tab.id
-                  ? 'border-nexus-600 text-nexus-600 dark:border-nexus-400 dark:text-nexus-400'
+                  ? 'border-elevatedpos-600 text-elevatedpos-600 dark:border-elevatedpos-400 dark:text-elevatedpos-400'
                   : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
               }`}
             >

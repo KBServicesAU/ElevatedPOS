@@ -59,7 +59,7 @@ const versions: VersionEntry[] = [
   {
     version: 'v1.0.0',
     date: '2024-04-01',
-    summary: 'Initial public release of the NEXUS POS REST API.',
+    summary: 'Initial public release of the ElevatedPOS REST API.',
     changes: [
       { type: 'added', text: 'Authentication: JWT login, refresh, logout, and OAuth 2.0 Authorization Code flow.' },
       { type: 'added', text: 'Catalog API: products, variants, categories, modifiers, price lists, bundles, markdowns.' },

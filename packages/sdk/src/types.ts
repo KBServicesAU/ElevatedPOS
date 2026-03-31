@@ -166,7 +166,7 @@ export interface PaginatedResponse<T> {
 }
 
 export interface NexusClientConfig {
-  /** Your NEXUS API base URL, e.g. https://api.nexus.app */
+  /** Your ElevatedPOS API base URL, e.g. https://api.elevatedpos.com.au */
   baseUrl: string;
   /** Your API key (starts with nxs_) */
   apiKey: string;

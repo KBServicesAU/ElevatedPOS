@@ -1,6 +1,6 @@
 /**
  * Server-side session helper.
- * Decodes the nexus_token JWT payload WITHOUT signature verification
+ * Decodes the elevatedpos_token JWT payload WITHOUT signature verification
  * (acceptable because we only use it for display purposes — the proxy
  * route and auth service still enforce real auth on every API call).
  */
@@ -27,7 +27,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 
 export async function getSessionUser(): Promise<SessionUser | null> {
   const cookieStore = cookies();
-  const token = cookieStore.get('nexus_token')?.value;
+  const token = cookieStore.get('elevatedpos_token')?.value;
   if (!token) return null;
 
   const payload = decodeJwtPayload(token);

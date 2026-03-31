@@ -1,5 +1,5 @@
 /**
- * React Query hooks for all NEXUS API resources.
+ * React Query hooks for all ElevatedPOS API resources.
  * Each hook wraps a typed fetch function from lib/api.ts.
  */
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';

@@ -1,4 +1,4 @@
-# NEXUS Production Deployment Guide
+# ElevatedPOS Production Deployment Guide
 
 ## Prerequisites
 - AWS account with appropriate IAM permissions
@@ -118,9 +118,9 @@ With enterprise/adhoc provisioning:
 ### Which APK goes to which customer?
 | Product tier | Android | iOS |
 |---|---|---|
-| Base (POS) | `nexus-pos.apk` | `nexus-pos.ipa` |
-| + KDS addon | `nexus-kds.apk` | `nexus-kds.ipa` |
-| + Kiosk addon | `nexus-kiosk.apk` | `nexus-kiosk.ipa` |
+| Base (POS) | `elevatedpos-pos.apk` | `elevatedpos-pos.ipa` |
+| + KDS addon | `elevatedpos-kds.apk` | `elevatedpos-kds.ipa` |
+| + Kiosk addon | `elevatedpos-kiosk.apk` | `elevatedpos-kiosk.ipa` |
 
 ---
 
@@ -137,7 +137,7 @@ With enterprise/adhoc provisioning:
 
 ## 7. Monitoring
 
-- **Logs**: `kubectl logs -n nexus -l app=<service> --follow`
+- **Logs**: `kubectl logs -n elevatedpos -l app=<service> --follow`
 - **Metrics**: CloudWatch Container Insights (enabled by EKS add-on)
 - **Health checks**: All services expose `GET /health` → `{ status: 'ok' }`
 - **Alerts**: Configure CloudWatch alarms for CPU, memory, error rates

@@ -4,7 +4,7 @@ import { Providers } from '../providers';
 import { CommandPalette } from '../components/CommandPalette';
 
 export const metadata: Metadata = {
-  title: { default: 'NEXUS', template: '%s | NEXUS' },
+  title: { default: 'ElevatedPOS', template: '%s | ElevatedPOS' },
   description: 'Unified Commerce & Operations Platform',
 };
 
@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Inline script runs before React — prevents flash of wrong theme */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('nexus-theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('elevatedpos-theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();`,
           }}
         />
       </head>

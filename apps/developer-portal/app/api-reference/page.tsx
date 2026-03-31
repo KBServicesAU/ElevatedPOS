@@ -191,7 +191,7 @@ export default function ApiReferencePage() {
         <div className="max-w-4xl mx-auto px-8 py-10">
           <h1 className="text-3xl font-bold text-white mb-2">API Reference</h1>
           <p className="text-gray-400 mb-10">
-            Base URL: <code className="font-mono text-indigo-300 bg-gray-900 px-2 py-0.5 rounded text-sm">https://api.nexus.app</code>
+            Base URL: <code className="font-mono text-indigo-300 bg-gray-900 px-2 py-0.5 rounded text-sm">https://api.elevatedpos.com.au</code>
             &nbsp;&middot;&nbsp;All endpoints require <code className="font-mono text-indigo-300 bg-gray-900 px-2 py-0.5 rounded text-sm">Authorization: Bearer &lt;token&gt;</code>
           </p>
 
@@ -199,7 +199,7 @@ export default function ApiReferencePage() {
           <section id="authentication" className="mb-12">
             <h2 className="text-xl font-bold text-white mb-1">Authentication</h2>
             <p className="text-gray-400 text-sm mb-4">
-              NEXUS supports <strong className="text-gray-200">Bearer JWT</strong> for internal integrations and <strong className="text-gray-200">OAuth 2.0 (Authorization Code)</strong> for partner apps.
+              ElevatedPOS supports <strong className="text-gray-200">Bearer JWT</strong> for internal integrations and <strong className="text-gray-200">OAuth 2.0 (Authorization Code)</strong> for partner apps.
             </p>
             <div className="mb-6 bg-gray-900 border border-gray-800 rounded-lg p-4">
               <p className="text-xs text-gray-500 mb-2 font-mono">Authorization header</p>
@@ -294,7 +294,7 @@ export default function ApiReferencePage() {
             </p>
             <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6">
               <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`{
-  "type": "https://nexus.app/errors/validation",
+  "type": "https://elevatedpos.com.au/errors/validation",
   "title": "Validation Error",
   "status": 422,
   "detail": "sku is required",

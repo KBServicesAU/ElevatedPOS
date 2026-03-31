@@ -190,7 +190,7 @@ export default function AttractScreen() {
           <View style={styles.logoRing}>
             <Text style={styles.logoEmoji}>🍽️</Text>
           </View>
-          <Text style={styles.businessName}>NEXUS Restaurant</Text>
+          <Text style={styles.businessName}>ElevatedPOS Restaurant</Text>
           <Text style={styles.businessTagline}>Powered by ElevatedPOS</Text>
         </View>
 

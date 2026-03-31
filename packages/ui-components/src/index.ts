@@ -1,5 +1,5 @@
 // @nexus/ui-components
-// Shared UI component library for NEXUS POS web apps.
+// Shared UI component library for ElevatedPOS web apps.
 // Consumed by apps/web-backoffice and apps/kds-display.
 
 export { Badge } from './components/Badge.js';

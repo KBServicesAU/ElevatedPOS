@@ -9,7 +9,7 @@ export default function PosLayout() {
       headerStyle: { backgroundColor: '#1a1a2e' }, headerTintColor: '#fff',
       headerTitleStyle: { fontWeight: '800' },
     }}>
-      <Tabs.Screen name="index" options={{ title: 'Sell', headerTitle: 'NEXUS POS', tabBarIcon: ({ color, size }) => <Ionicons name="cart-outline" color={color} size={size} /> }} />
+      <Tabs.Screen name="index" options={{ title: 'Sell', headerTitle: 'ElevatedPOS', tabBarIcon: ({ color, size }) => <Ionicons name="cart-outline" color={color} size={size} /> }} />
       <Tabs.Screen name="orders" options={{ title: 'Orders', tabBarIcon: ({ color, size }) => <Ionicons name="list-outline" color={color} size={size} /> }} />
       <Tabs.Screen name="customers" options={{ title: 'Customers', tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" color={color} size={size} /> }} />
       <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: ({ color, size }) => <Ionicons name="ellipsis-horizontal-outline" color={color} size={size} /> }} />

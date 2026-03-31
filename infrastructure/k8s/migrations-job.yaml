@@ -5,16 +5,16 @@
 # (or use drizzle-kit directly via npx in the pod command).
 #
 # Trigger with:
-#   kubectl create job --from=cronjob/nexus-migrations nexus-migrations-$(date +%s) -n nexus
+#   kubectl create job --from=cronjob/elevatedpos-migrations elevatedpos-migrations-$(date +%s) -n elevatedpos
 # or apply this manifest directly before each deploy.
 
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nexus-migrations
-  namespace: nexus
+  name: elevatedpos-migrations
+  namespace: elevatedpos
   labels:
-    app.kubernetes.io/part-of: nexus
+    app.kubernetes.io/part-of: elevatedpos
     app.kubernetes.io/component: migrations
 spec:
   ttlSecondsAfterFinished: 300
@@ -22,116 +22,116 @@ spec:
   template:
     metadata:
       labels:
-        app: nexus-migrations
+        app: elevatedpos-migrations
     spec:
       restartPolicy: OnFailure
-      serviceAccountName: nexus-service
+      serviceAccountName: elevatedpos-service
       initContainers:
         # Run each service's migration sequentially to avoid lock contention
         - name: migrate-auth
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/auth:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/auth:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-catalog
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/catalog:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/catalog:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-inventory
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/inventory:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/inventory:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-orders
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/orders:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/orders:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-payments
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/payments:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/payments:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-customers
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/customers:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/customers:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-loyalty
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/loyalty:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/loyalty:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-campaigns
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/campaigns:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/campaigns:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-notifications
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/notifications:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/notifications:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-integrations
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/integrations:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/integrations:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-automations
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/automations:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/automations:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-franchise
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/franchise:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/franchise:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
         - name: migrate-webhooks
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/webhooks:latest
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/webhooks:latest
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
-                name: nexus-secrets
+                name: elevatedpos-secrets
             - configMapRef:
-                name: nexus-config
+                name: elevatedpos-config
       containers:
         - name: done
           image: busybox:1.36

@@ -1,8 +1,8 @@
-# NEXUS — Architecture Guide
+# ElevatedPOS — Architecture Guide
 
 ## Overview
 
-NEXUS is a cloud-native, microservices-based unified commerce platform built for Australian retail and hospitality operators. It is designed to run on AWS EKS with full offline-capable POS clients.
+ElevatedPOS is a cloud-native, microservices-based unified commerce platform built for Australian retail and hospitality operators. It is designed to run on AWS EKS with full offline-capable POS clients.
 
 ## System Architecture
 
@@ -22,7 +22,7 @@ NEXUS is a cloud-native, microservices-based unified commerce platform built for
                     ┌──────────────────────────────────────┤
                     │                                      │
           ┌─────────┴──────────────────────────────────────┐
-          │              Kubernetes (EKS) — namespace: nexus│
+          │              Kubernetes (EKS) — namespace: elevatedpos│
           │                                                 │
           │  auth:4001      catalog:4002   inventory:4003   │
           │  orders:4004    payments:4005  customers:4006   │
@@ -46,7 +46,7 @@ NEXUS is a cloud-native, microservices-based unified commerce platform built for
 The codebase uses **Turborepo** with **pnpm workspaces**:
 
 ```
-nexus/
+elevatedpos/
 ├── apps/
 │   ├── web-backoffice/     Next.js 14 App Router — merchant back office
 │   ├── pos-client/         Expo Router — iOS/Android POS terminal

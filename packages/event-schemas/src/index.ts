@@ -12,7 +12,7 @@ export * from './staff';
 // ─── Generic envelope (event-sourcing / Kafka pattern) ────────────────────────
 
 /**
- * Generic event envelope.  All Kafka messages published by NEXUS services are
+ * Generic event envelope.  All Kafka messages published by ElevatedPOS services are
  * wrapped in this shape so consumers can route on `eventType` before
  * deserialising the `payload`.
  */
@@ -65,7 +65,7 @@ export type TypedRefundProcessedEvent = BaseEvent<{ refundId: string; orderId: s
 
 export type TypedCampaignSentEvent = BaseEvent<{ campaignId: string; recipientCount: number; channel: string }> & { eventType: 'campaign.sent' };
 
-/** Discriminated union of all typed NEXUS events */
+/** Discriminated union of all typed ElevatedPOS events */
 export type NexusEvent =
   | TypedOrderCreatedEvent
   | TypedOrderCompletedEvent

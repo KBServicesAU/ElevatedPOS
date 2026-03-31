@@ -8,7 +8,7 @@ metadata:
   namespace: {{ $.Values.global.namespace }}
   labels:
     app: {{ $name }}
-    app.kubernetes.io/name: nexus
+    app.kubernetes.io/name: elevatedpos
     app.kubernetes.io/component: {{ $name }}
     app.kubernetes.io/managed-by: {{ $.Release.Service }}
 spec:

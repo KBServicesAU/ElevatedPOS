@@ -4,7 +4,7 @@ let producer: Producer | null = null;
 
 function getKafka(): Kafka {
   return new Kafka({
-    clientId: 'nexus-loyalty',
+    clientId: 'elevatedpos-loyalty',
     brokers: (process.env['KAFKA_BROKERS'] ?? 'localhost:9092').split(','),
     logLevel: logLevel.WARN,
   });
@@ -27,7 +27,7 @@ export async function publishEvent(topic: string, payload: object): Promise<void
         {
           key: (payload as Record<string, string>)['id'] ?? String(Date.now()),
           value: JSON.stringify(payload),
-          headers: { 'content-type': 'application/json', source: 'nexus-loyalty' },
+          headers: { 'content-type': 'application/json', source: 'elevatedpos-loyalty' },
         },
       ],
     });

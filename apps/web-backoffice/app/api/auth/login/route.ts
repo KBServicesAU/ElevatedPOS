@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     // Build response and set httpOnly cookies
     const response = NextResponse.json({ user }, { status: 200 });
 
-    response.cookies.set('nexus_token', accessToken, {
+    response.cookies.set('elevatedpos_token', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (refreshToken) {
-      response.cookies.set('nexus_refresh_token', refreshToken, {
+      response.cookies.set('elevatedpos_refresh_token', refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',

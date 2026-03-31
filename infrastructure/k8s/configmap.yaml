@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: nexus-config
-  namespace: nexus
+  name: elevatedpos-config
+  namespace: elevatedpos
 data:
   NODE_ENV: "production"
   LOG_LEVEL: "info"
-  TYPESENSE_HOST: "typesense.nexus.svc.cluster.local"
+  TYPESENSE_HOST: "typesense.elevatedpos.svc.cluster.local"
   # Service discovery URLs (internal cluster DNS)
   AUTH_SERVICE_URL: "http://auth:4001"
   CATALOG_SERVICE_URL: "http://catalog:4002"
@@ -24,7 +24,7 @@ data:
   REPORTING_SERVICE_URL: "http://reporting:4014"
   WEBHOOKS_SERVICE_URL: "http://webhooks:4015"
   REDIS_URL: "redis://redis:6379"
-  CLICKHOUSE_HOST: "clickhouse.nexus.svc.cluster.local"
+  CLICKHOUSE_HOST: "clickhouse.elevatedpos.svc.cluster.local"
   CLICKHOUSE_PORT: "8123"
   # Set to "true" on environments with Stripe test keys but no physical
   # Terminal hardware (e.g. staging). Production should be "false".

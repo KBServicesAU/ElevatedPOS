@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import * as schema from './schema';
 
 const pool = new Pool({
-  connectionString: process.env['DATABASE_URL'] ?? 'postgresql://nexus:nexus_dev@localhost:5432/nexus_campaigns_dev',
+  connectionString: process.env['DATABASE_URL'] ?? 'postgresql://elevatedpos:elevatedpos_dev@localhost:5432/elevatedpos_campaigns_dev',
 });
 const db = drizzle(pool, { schema });
 
@@ -18,7 +18,7 @@ async function seed() {
       name:    'Welcome New Customers',
       type:    'email',
       status:  'active',
-      subject: 'Welcome to NEXUS — your first visit reward inside!',
+      subject: 'Welcome to ElevatedPOS — your first visit reward inside!',
       body:    'Hi {{firstName}}, thanks for joining us! Use code WELCOME10 for 10% off your next visit.',
       audienceFilter: { trigger: 'customer.created' },
     },

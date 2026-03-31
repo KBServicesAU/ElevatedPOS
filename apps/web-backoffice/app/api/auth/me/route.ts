@@ -5,7 +5,7 @@ const AUTH_API_URL = process.env.AUTH_API_URL ?? 'http://localhost:4001';
 
 export async function GET() {
   const cookieStore = cookies();
-  const token = cookieStore.get('nexus_token')?.value;
+  const token = cookieStore.get('elevatedpos_token')?.value;
 
   if (!token) {
     return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });

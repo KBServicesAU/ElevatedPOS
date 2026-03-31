@@ -1,13 +1,13 @@
-# NEXUS — Unified Commerce & Operations Platform
+# ElevatedPOS — Unified Commerce & Operations Platform
 
 > Australia-first · Cloud-native · AI-powered · Offline-capable
 
-NEXUS is a next-generation POS and unified commerce platform designed for retail, hospitality, QSR, franchise, and hybrid operators. It combines the best of EPOS Now, Lightspeed, Toast, Square, Shopify POS, and Revel while exceeding them in speed, flexibility, AI capabilities, and developer extensibility.
+ElevatedPOS is a next-generation POS and unified commerce platform designed for retail, hospitality, QSR, franchise, and hybrid operators. It combines the best of EPOS Now, Lightspeed, Toast, Square, Shopify POS, and Revel while exceeding them in speed, flexibility, AI capabilities, and developer extensibility.
 
 ## Architecture
 
 ```
-nexus/
+elevatedpos/
 ├── apps/
 │   ├── web-backoffice/     # Next.js 14 — Back office UI (port 3000)
 │   ├── pos-client/         # React Native + Expo — POS app

@@ -10,7 +10,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        nexus: {
+        elevatedpos: {
           50:  '#f0f4ff',
           100: '#e0eaff',
           200: '#c7d7fe',

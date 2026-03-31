@@ -12,7 +12,7 @@ resource "aws_route53_zone" "primary" {
   name  = var.domain_name
 
   tags = {
-    Project     = "nexus"
+    Project     = "elevatedpos"
     Environment = var.environment
   }
 }
@@ -43,7 +43,7 @@ resource "aws_acm_certificate" "wildcard" {
   }
 
   tags = {
-    Project     = "nexus"
+    Project     = "elevatedpos"
     Environment = var.environment
   }
 }
@@ -83,8 +83,8 @@ resource "aws_route53_record" "apex" {
   type    = "A"
 
   alias {
-    name                   = aws_lb.nexus.dns_name
-    zone_id                = aws_lb.nexus.zone_id
+    name                   = aws_lb.elevatedpos.dns_name
+    zone_id                = aws_lb.elevatedpos.zone_id
     evaluate_target_health = true
   }
 }
@@ -96,8 +96,8 @@ resource "aws_route53_record" "app" {
   type    = "A"
 
   alias {
-    name                   = aws_lb.nexus.dns_name
-    zone_id                = aws_lb.nexus.zone_id
+    name                   = aws_lb.elevatedpos.dns_name
+    zone_id                = aws_lb.elevatedpos.zone_id
     evaluate_target_health = true
   }
 }
@@ -109,8 +109,8 @@ resource "aws_route53_record" "api" {
   type    = "A"
 
   alias {
-    name                   = aws_lb.nexus.dns_name
-    zone_id                = aws_lb.nexus.zone_id
+    name                   = aws_lb.elevatedpos.dns_name
+    zone_id                = aws_lb.elevatedpos.zone_id
     evaluate_target_health = true
   }
 }

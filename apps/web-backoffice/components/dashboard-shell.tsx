@@ -59,10 +59,10 @@ export function DashboardShell({ children, firstName, lastName, role }: Dashboar
         {/* Logo */}
         <div className="flex h-16 items-center justify-between gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-nexus-500 shadow-sm">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-elevatedpos-500 shadow-sm">
               <span className="text-base font-bold text-white">N</span>
             </div>
-            <span className="text-lg font-bold text-gray-900 dark:text-white">NEXUS</span>
+            <span className="text-lg font-bold text-gray-900 dark:text-white">ElevatedPOS</span>
           </div>
           {/* Close button — mobile only */}
           <button
