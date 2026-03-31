@@ -248,7 +248,7 @@ export function LocationsClient() {
               </div>
 
               <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
-                <p className="text-xs text-gray-500 dark:text-gray-400">Today's Revenue</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Today&apos;s Revenue</p>
                 <p className="mt-0.5 text-lg font-bold text-gray-900 dark:text-white">
                   {formatCurrency(loc.revenueToday)}
                 </p>
