@@ -4,19 +4,13 @@ export class NexusApiError extends Error {
   readonly detail: string | undefined;
   readonly requestId: string | undefined;
 
-  constructor(options: {
-    message: string;
-    statusCode: number;
-    code: string;
-    detail?: string;
-    requestId?: string;
-  }) {
-    super(options.message);
+  constructor(statusCode: number, code: string, message: string, detail?: string, requestId?: string) {
+    super(message);
     this.name = 'NexusApiError';
-    this.statusCode = options.statusCode;
-    this.code = options.code;
-    this.detail = options.detail;
-    this.requestId = options.requestId;
+    this.statusCode = statusCode;
+    this.code = code;
+    this.detail = detail;
+    this.requestId = requestId;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 

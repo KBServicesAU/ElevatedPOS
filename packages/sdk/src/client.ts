@@ -52,13 +52,13 @@ async function handleError(error: unknown): Promise<never> {
     } catch {
       // ignore JSON parse errors
     }
-    throw new NexusApiError({
-      message: String(body['title'] ?? error.message),
-      statusCode: error.response.status,
-      code: String(body['code'] ?? 'unknown'),
-      detail: body['detail'] != null ? String(body['detail']) : undefined,
-      requestId: error.response.headers.get('x-request-id') ?? undefined,
-    });
+    throw new NexusApiError(
+      error.response.status,
+      String(body['code'] ?? 'unknown'),
+      String(body['title'] ?? error.message),
+      body['detail'] != null ? String(body['detail']) : undefined,
+      error.response.headers.get('x-request-id') ?? undefined,
+    );
   }
   if (error instanceof TimeoutError) {
     throw new NexusNetworkError('Request timed out', error);

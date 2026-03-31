@@ -10,7 +10,7 @@ type EventHandler<T extends NexusEvent = NexusEvent> = (event: T) => void | Prom
  *
  * @example
  * ```ts
- * const handler = new WebhookHandler({ secret: process.env.ELEVATEDPOS_WEBHOOK_SECRET });
+ * const handler = new WebhookHandler(process.env.ELEVATEDPOS_WEBHOOK_SECRET!);
  *
  * handler.on('order.completed', async (event) => {
  *   console.log('Order completed:', event.data.order.orderNumber);
@@ -19,24 +19,40 @@ type EventHandler<T extends NexusEvent = NexusEvent> = (event: T) => void | Prom
  * // In your Express/Fastify route:
  * const rawBody = await req.text();
  * const signature = req.headers['x-elevatedpos-signature'];
- * await handler.handle(rawBody, signature);
+ * const timestamp = req.headers['x-elevatedpos-timestamp'];
+ * await handler.handle(rawBody, signature, timestamp);
  * ```
  */
+
+/** Maximum age of a webhook timestamp before it is rejected (5 minutes). */
+const MAX_TIMESTAMP_AGE_MS = 5 * 60 * 1000;
+
 export class WebhookHandler {
   private readonly secret: string;
   private readonly handlers = new Map<NexusEventType, EventHandler[]>();
 
-  constructor(options: { secret: string }) {
-    this.secret = options.secret;
+  constructor(secret: string) {
+    this.secret = secret;
   }
 
   /**
-   * Verifies an HMAC-SHA256 webhook signature.
+   * Verifies an HMAC-SHA256 webhook signature including timestamp freshness.
+   * The signed content is `${timestamp}.${payload}`.
    * Uses timing-safe comparison to prevent timing attacks.
+   *
+   * @param payload   - Raw JSON string body of the webhook
+   * @param signature - Value of the `x-elevatedpos-signature` header (`sha256=<hex>`)
+   * @param timestamp - Unix millisecond timestamp string from the signing process
    */
-  verifySignature(payload: string, signature: string): boolean {
+  verifySignature(payload: string, signature: string, timestamp: string): boolean {
+    const ts = Number(timestamp);
+    if (!Number.isFinite(ts)) return false;
+
+    // Reject webhooks older than MAX_TIMESTAMP_AGE_MS to prevent replay attacks
+    if (Math.abs(Date.now() - ts) > MAX_TIMESTAMP_AGE_MS) return false;
+
     const expected = createHmac('sha256', this.secret)
-      .update(payload, 'utf8')
+      .update(`${ts}.${payload}`, 'utf8')
       .digest('hex');
 
     // Support "sha256=<hex>" prefix format
@@ -52,10 +68,19 @@ export class WebhookHandler {
   }
 
   /**
-   * Parses a raw webhook payload into a typed NexusEvent.
+   * Verifies the signature and parses a raw webhook payload into a typed NexusEvent.
+   * Throws NexusWebhookSignatureError if the signature is invalid.
    * Throws if the payload is not valid JSON or missing required fields.
+   *
+   * @param payload   - Raw JSON string body of the webhook
+   * @param signature - Value of the `x-elevatedpos-signature` header
+   * @param timestamp - Unix millisecond timestamp string
    */
-  parseEvent(payload: string): NexusEvent {
+  parseEvent(payload: string, signature: string, timestamp: string): NexusEvent {
+    if (!this.verifySignature(payload, signature, timestamp)) {
+      throw new NexusWebhookSignatureError();
+    }
+
     let parsed: unknown;
     try {
       parsed = JSON.parse(payload);
@@ -109,13 +134,13 @@ export class WebhookHandler {
   /**
    * Verifies the signature, parses the event, and dispatches to registered handlers.
    * Throws NexusWebhookSignatureError if the signature is invalid.
+   *
+   * @param payload   - Raw JSON string body of the webhook
+   * @param signature - Value of the `x-elevatedpos-signature` header
+   * @param timestamp - Unix millisecond timestamp string
    */
-  async handle(payload: string, signature: string): Promise<NexusEvent> {
-    if (!this.verifySignature(payload, signature)) {
-      throw new NexusWebhookSignatureError();
-    }
-
-    const event = this.parseEvent(payload);
+  async handle(payload: string, signature: string, timestamp: string): Promise<NexusEvent> {
+    const event = this.parseEvent(payload, signature, timestamp);
     const handlers = this.handlers.get(event.type as NexusEventType) ?? [];
 
     await Promise.all(handlers.map((h) => h(event)));
@@ -125,11 +150,12 @@ export class WebhookHandler {
 
   /**
    * Convenience method: verifies and parses without dispatching to handlers.
+   *
+   * @param payload   - Raw JSON string body of the webhook
+   * @param signature - Value of the `x-elevatedpos-signature` header
+   * @param timestamp - Unix millisecond timestamp string
    */
-  verify(payload: string, signature: string): NexusEvent {
-    if (!this.verifySignature(payload, signature)) {
-      throw new NexusWebhookSignatureError();
-    }
-    return this.parseEvent(payload);
+  verify(payload: string, signature: string, timestamp: string): NexusEvent {
+    return this.parseEvent(payload, signature, timestamp);
   }
 }
