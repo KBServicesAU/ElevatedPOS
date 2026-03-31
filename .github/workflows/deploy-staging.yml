@@ -47,15 +47,15 @@ jobs:
       - name: Build and push Docker images
         run: |
           for service in auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai franchise reporting webhooks; do
-            docker build -t $ECR_REGISTRY/nexus-$service:${{ github.sha }} -f services/$service/Dockerfile .
-            docker push $ECR_REGISTRY/nexus-$service:${{ github.sha }}
+            docker build -t $ECR_REGISTRY/elevatedpos-$service:${{ github.sha }} -f services/$service/Dockerfile .
+            docker push $ECR_REGISTRY/elevatedpos-$service:${{ github.sha }}
           done
 
       - name: Deploy to EKS
         run: |
-          aws eks update-kubeconfig --name nexus-staging --region ${{ env.AWS_REGION }}
-          helm upgrade --install nexus ./infrastructure/helm/nexus \
-            --namespace nexus-staging \
+          aws eks update-kubeconfig --name elevatedpos-staging --region ${{ env.AWS_REGION }}
+          helm upgrade --install elevatedpos ./infrastructure/helm/elevatedpos \
+            --namespace elevatedpos-staging \
             --set global.image.tag=${{ github.sha }} \
             --set global.environment=staging \
             --wait --timeout 10m

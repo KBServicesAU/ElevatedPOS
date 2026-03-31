@@ -72,8 +72,8 @@ jobs:
           file: ${{ matrix.target.context }}/Dockerfile
           push: true
           tags: |
-            ${{ env.ECR_REGISTRY }}/nexus/${{ matrix.target.name }}:${{ github.sha }}
-            ${{ env.ECR_REGISTRY }}/nexus/${{ matrix.target.name }}:latest
+            ${{ env.ECR_REGISTRY }}/elevatedpos/${{ matrix.target.name }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/elevatedpos/${{ matrix.target.name }}:latest
           cache-from: type=gha,scope=${{ matrix.target.name }}
           cache-to:   type=gha,mode=max,scope=${{ matrix.target.name }}
 
@@ -95,7 +95,7 @@ jobs:
           aws-region:            ${{ env.AWS_REGION }}
 
       - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name nexus-staging --region ${{ env.AWS_REGION }}
+        run: aws eks update-kubeconfig --name elevatedpos-staging --region ${{ env.AWS_REGION }}
 
       - name: Replace ACCOUNT_ID in manifests
         run: |
@@ -114,25 +114,25 @@ jobs:
       - name: Run database migrations
         run: |
           # Delete any previous migration job, then apply and wait for completion
-          kubectl delete job nexus-migrations -n nexus --ignore-not-found
+          kubectl delete job elevatedpos-migrations -n elevatedpos --ignore-not-found
           kubectl apply -f infrastructure/k8s/migrations-job.yaml
-          kubectl wait --for=condition=complete job/nexus-migrations \
-            -n nexus --timeout=10m
+          kubectl wait --for=condition=complete job/elevatedpos-migrations \
+            -n elevatedpos --timeout=10m
 
       - name: Update image tags
         run: |
           SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge franchise reporting webhooks"
           for SVC in $SERVICES; do
-            kubectl set image deployment/$SVC $SVC=${{ env.ECR_REGISTRY }}/nexus/$SVC:${{ github.sha }} -n nexus
+            kubectl set image deployment/$SVC $SVC=${{ env.ECR_REGISTRY }}/elevatedpos/$SVC:${{ github.sha }} -n elevatedpos
           done
-          kubectl set image deployment/web-backoffice web-backoffice=${{ env.ECR_REGISTRY }}/nexus/web-backoffice:${{ github.sha }} -n nexus
-          kubectl set image deployment/kds-display kds-display=${{ env.ECR_REGISTRY }}/nexus/kds-display:${{ github.sha }} -n nexus
+          kubectl set image deployment/web-backoffice web-backoffice=${{ env.ECR_REGISTRY }}/elevatedpos/web-backoffice:${{ github.sha }} -n elevatedpos
+          kubectl set image deployment/kds-display kds-display=${{ env.ECR_REGISTRY }}/elevatedpos/kds-display:${{ github.sha }} -n elevatedpos
 
       - name: Wait for rollout
         run: |
-          kubectl rollout status deployment/orders -n nexus --timeout=5m
-          kubectl rollout status deployment/payments -n nexus --timeout=5m
-          kubectl rollout status deployment/web-backoffice -n nexus --timeout=5m
+          kubectl rollout status deployment/orders -n elevatedpos --timeout=5m
+          kubectl rollout status deployment/payments -n elevatedpos --timeout=5m
+          kubectl rollout status deployment/web-backoffice -n elevatedpos --timeout=5m
 
   # ── Deploy to Production ──────────────────────────────────────────────────
   deploy-prod:
@@ -152,7 +152,7 @@ jobs:
           aws-region:            ${{ env.AWS_REGION }}
 
       - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name nexus-prod --region ${{ env.AWS_REGION }}
+        run: aws eks update-kubeconfig --name elevatedpos-prod --region ${{ env.AWS_REGION }}
 
       - name: Replace ACCOUNT_ID in manifests
         run: |
@@ -170,23 +170,23 @@ jobs:
 
       - name: Run database migrations
         run: |
-          kubectl delete job nexus-migrations -n nexus --ignore-not-found
+          kubectl delete job elevatedpos-migrations -n elevatedpos --ignore-not-found
           kubectl apply -f infrastructure/k8s/migrations-job.yaml
-          kubectl wait --for=condition=complete job/nexus-migrations \
-            -n nexus --timeout=10m
+          kubectl wait --for=condition=complete job/elevatedpos-migrations \
+            -n elevatedpos --timeout=10m
 
       - name: Update image tags
         run: |
           SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge franchise reporting webhooks"
           for SVC in $SERVICES; do
-            kubectl set image deployment/$SVC $SVC=${{ env.ECR_REGISTRY }}/nexus/$SVC:${{ github.sha }} -n nexus
+            kubectl set image deployment/$SVC $SVC=${{ env.ECR_REGISTRY }}/elevatedpos/$SVC:${{ github.sha }} -n elevatedpos
           done
-          kubectl set image deployment/web-backoffice web-backoffice=${{ env.ECR_REGISTRY }}/nexus/web-backoffice:${{ github.sha }} -n nexus
-          kubectl set image deployment/kds-display kds-display=${{ env.ECR_REGISTRY }}/nexus/kds-display:${{ github.sha }} -n nexus
+          kubectl set image deployment/web-backoffice web-backoffice=${{ env.ECR_REGISTRY }}/elevatedpos/web-backoffice:${{ github.sha }} -n elevatedpos
+          kubectl set image deployment/kds-display kds-display=${{ env.ECR_REGISTRY }}/elevatedpos/kds-display:${{ github.sha }} -n elevatedpos
 
       - name: Wait for production rollout
         run: |
           for SVC in auth catalog orders payments; do
-            kubectl rollout status deployment/$SVC -n nexus --timeout=10m
+            kubectl rollout status deployment/$SVC -n elevatedpos --timeout=10m
           done
-          kubectl rollout status deployment/web-backoffice -n nexus --timeout=10m
+          kubectl rollout status deployment/web-backoffice -n elevatedpos --timeout=10m
