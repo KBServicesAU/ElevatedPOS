@@ -110,7 +110,7 @@ module "eks" {
   version = "~> 20.0"
 
   cluster_name    = "elevatedpos-${var.environment}"
-  cluster_version = "1.29"
+  cluster_version = "1.32"
 
   cluster_endpoint_public_access = true
 
