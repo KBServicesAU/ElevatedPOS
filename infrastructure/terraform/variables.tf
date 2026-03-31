@@ -123,3 +123,33 @@ variable "msk_instance_type" {
   type        = string
   default     = "kafka.m5.large"
 }
+
+variable "cluster_name" {
+  description = "EKS cluster name"
+  type        = string
+  default     = "nexus"
+}
+
+variable "eks_node_instance_type" {
+  description = "EKS worker node instance type (single value alias for eks_node_instance_types)"
+  type        = string
+  default     = "t3.medium"
+}
+
+variable "eks_node_desired_capacity" {
+  description = "EKS desired node count (alias for eks_node_desired_size)"
+  type        = number
+  default     = 2
+}
+
+variable "eks_node_min_capacity" {
+  description = "EKS minimum node count (alias for eks_node_min_size)"
+  type        = number
+  default     = 1
+}
+
+variable "eks_node_max_capacity" {
+  description = "EKS maximum node count (alias for eks_node_max_size)"
+  type        = number
+  default     = 5
+}

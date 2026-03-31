@@ -1,0 +1,47 @@
+{
+  "cli": { "version": ">= 12.0.0" },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "ios": { "simulator": false }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "ios": { "simulator": true }
+    },
+    "production": {
+      "android": { "buildType": "apk" },
+      "ios": {
+        "credentialsSource": "remote",
+        "enterpriseProvisioning": "adhoc"
+      }
+    },
+    "production-pos": {
+      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos" } },
+      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos" } }
+    },
+    "production-kds": {
+      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds" } },
+      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds" } }
+    },
+    "production-kiosk": {
+      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk" } },
+      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk" } }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "../credentials/play-store-service-account.json",
+        "track": "internal"
+      },
+      "ios": {
+        "appleId": "",
+        "ascAppId": ""
+      }
+    }
+  }
+}

@@ -25,15 +25,17 @@ interface CartItem extends Product {
 
 // ─── Static catalogue ────────────────────────────────────────────────────────
 
+// Deterministic placeholder UUIDs for the static demo catalogue.
+// In production these would be real catalog service IDs.
 const PRODUCTS: Product[] = [
-  { id: 'p1', name: 'Flat White',    price: 5.50,  category: 'Coffee',   emoji: '☕' },
-  { id: 'p2', name: 'Iced Latte',    price: 6.00,  category: 'Coffee',   emoji: '🥤' },
-  { id: 'p3', name: 'Cold Brew',     price: 5.00,  category: 'Coffee',   emoji: '🧊' },
-  { id: 'p4', name: 'Pour Over',     price: 8.00,  category: 'Coffee',   emoji: '☕' },
-  { id: 'p5', name: 'Croissant',     price: 4.00,  category: 'Pastries', emoji: '🥐' },
-  { id: 'p6', name: 'Banana Bread',  price: 4.50,  category: 'Pastries', emoji: '🍞' },
-  { id: 'p7', name: 'Avocado Toast', price: 14.50, category: 'Food',     emoji: '🥑' },
-  { id: 'p8', name: 'Eggs Benedict', price: 18.00, category: 'Food',     emoji: '🍳' },
+  { id: '00000000-0000-0000-0000-000000000001', name: 'Flat White',    price: 5.50,  category: 'Coffee',   emoji: '☕' },
+  { id: '00000000-0000-0000-0000-000000000002', name: 'Iced Latte',    price: 6.00,  category: 'Coffee',   emoji: '🥤' },
+  { id: '00000000-0000-0000-0000-000000000003', name: 'Cold Brew',     price: 5.00,  category: 'Coffee',   emoji: '🧊' },
+  { id: '00000000-0000-0000-0000-000000000004', name: 'Pour Over',     price: 8.00,  category: 'Coffee',   emoji: '☕' },
+  { id: '00000000-0000-0000-0000-000000000005', name: 'Croissant',     price: 4.00,  category: 'Pastries', emoji: '🥐' },
+  { id: '00000000-0000-0000-0000-000000000006', name: 'Banana Bread',  price: 4.50,  category: 'Pastries', emoji: '🍞' },
+  { id: '00000000-0000-0000-0000-000000000007', name: 'Avocado Toast', price: 14.50, category: 'Food',     emoji: '🥑' },
+  { id: '00000000-0000-0000-0000-000000000008', name: 'Eggs Benedict', price: 18.00, category: 'Food',     emoji: '🍳' },
 ];
 
 const CATEGORIES = ['All', 'Coffee', 'Pastries', 'Food'];

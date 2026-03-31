@@ -277,7 +277,10 @@ export default function KDSPage() {
     // Optimistic removal
     setTickets((prev) => prev.filter((t) => t.orderId !== orderId));
     try {
-      await fetch(`${ORDERS_API}/api/v1/kds/bump/${orderId}`, { method: 'POST' });
+      // Route through the local Next.js proxy so INTERNAL_SECRET is never
+      // exposed to the browser.  The proxy adds the header server-side and
+      // forwards the request to the orders service.
+      await fetch(`/api/bump/${encodeURIComponent(orderId)}`, { method: 'POST' });
     } catch {
       // Bump is best-effort from KDS; server will broadcast to all connected KDS
     }

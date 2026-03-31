@@ -33,20 +33,46 @@ export async function kdsRoutes(app: FastifyInstance) {
     });
   });
 
-  // POST /api/v1/kds/bump/:orderId — mark order as bumped/ready, broadcast
-  app.post('/bump/:orderId', { onRequest: [app.authenticate] } as Parameters<typeof app.post>[1], async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
+  // POST /api/v1/kds/bump/:orderId — mark order as bumped/ready, broadcast.
+  // Accepts either a valid JWT (staff/POS) or the x-internal-secret header
+  // (KDS displays, which are dedicated hardware without user sessions).
+  app.post('/bump/:orderId', async (request, reply) => {
     const { orderId } = request.params as { orderId: string };
+    const internalSecret = process.env['INTERNAL_SECRET'];
+    const providedSecret = request.headers['x-internal-secret'];
+    const isInternalCall = internalSecret && providedSecret === internalSecret;
+
+    let orgId: string | null = null;
+
+    if (isInternalCall) {
+      // Trusted internal call from KDS proxy — no JWT required.
+      // orgId is not available; skip tenant-scoping for this operation.
+      orgId = null;
+    } else {
+      // Require valid JWT for non-internal callers.
+      try {
+        await request.jwtVerify();
+        orgId = (request.user as { orgId: string }).orgId;
+      } catch {
+        return reply.status(401).send({ title: 'Unauthorized', status: 401 });
+      }
+    }
 
     const order = await db.query.orders.findFirst({
-      where: and(eq(schema.orders.id, orderId), eq(schema.orders.orgId, orgId)),
+      where: orgId
+        ? and(eq(schema.orders.id, orderId), eq(schema.orders.orgId, orgId))
+        : eq(schema.orders.id, orderId),
     });
     if (!order) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
     const [updated] = await db
       .update(schema.orders)
       .set({ status: 'completed', updatedAt: new Date() })
-      .where(and(eq(schema.orders.id, orderId), eq(schema.orders.orgId, orgId)))
+      .where(
+        orgId
+          ? and(eq(schema.orders.id, orderId), eq(schema.orders.orgId, orgId))
+          : eq(schema.orders.id, orderId),
+      )
       .returning();
 
     broadcastToKDS(order.locationId, {

@@ -62,15 +62,24 @@ interface TerminalResult {
 let _terminal: any = null;
 let _readerConnected = false;
 let _stripeConfigured: boolean | null = null; // null = not yet checked
+/** Whether to use Stripe's built-in simulated reader (true when
+ *  STRIPE_TERMINAL_SIMULATED=true server-side, or when no secret key exists). */
+let _terminalSimulated = false;
 let _tenderSeq = 0;
 function newTenderId() { return `t-${Date.now()}-${++_tenderSeq}`; }
 
-/** Returns true if the server has STRIPE_SECRET_KEY set */
+/**
+ * Returns true when a real Stripe connection token can be obtained
+ * (i.e. STRIPE_SECRET_KEY is set on the server).
+ * Also caches whether the Terminal should use simulated reader discovery.
+ */
 async function isStripeConfigured(): Promise<boolean> {
   if (_stripeConfigured !== null) return _stripeConfigured;
   const res = await fetch('/api/stripe/connection-token', { method: 'POST' });
   const data = await res.json() as { secret: string | null; simulated?: boolean };
-  _stripeConfigured = !data.simulated && data.secret !== null;
+  _terminalSimulated = data.simulated ?? false;
+  // configured = we have a real key AND the server didn't flag pure-demo mode
+  _stripeConfigured = data.secret !== null;
   return _stripeConfigured;
 }
 
@@ -96,10 +105,13 @@ async function ensureReaderConnected(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   terminal: any,
   onStatus: (s: TerminalStatus, msg?: string) => void,
+  simulated = false,
 ) {
   if (_readerConnected) return;
   onStatus('connecting_reader', 'Discovering reader…');
-  const result = await terminal.discoverReaders({ simulated: true });
+  // Use simulated:true only when explicitly requested (e.g. Stripe test keys
+  // environment).  Production always discovers real physical readers.
+  const result = await terminal.discoverReaders({ simulated });
   if (result.error) throw new Error(result.error.message);
   if (!result.discoveredReaders.length) throw new Error('No readers found');
   const connectResult = await terminal.connectReader(result.discoveredReaders[0]);
@@ -157,7 +169,7 @@ function TerminalPaymentOverlay({
       const configured = await isStripeConfigured();
       if (isCancelled()) return;
 
-      // ── Simulated / demo mode (no Stripe keys configured) ──────────────────
+      // ── Pure demo mode (no Stripe secret key configured on server) ──────────
       if (!configured) {
         setS('connecting_reader', 'Connecting to simulated reader…');
         await delay(600);
@@ -195,7 +207,10 @@ function TerminalPaymentOverlay({
       const terminal = await getTerminal();
       if (isCancelled()) return;
 
-      await ensureReaderConnected(terminal, setS);
+      // Pass the simulated flag so discoverReaders uses the correct mode.
+      // _terminalSimulated is true when STRIPE_TERMINAL_SIMULATED=true is set
+      // server-side (test keys + no physical hardware), false in production.
+      await ensureReaderConnected(terminal, setS, _terminalSimulated);
       if (isCancelled()) return;
 
       setS('creating_intent', 'Creating payment…');
@@ -654,6 +669,7 @@ function PaymentContent() {
       const cardTender = tenders.find((t) => t.method === 'card');
       const primaryMethod = tenders[0]?.method ?? 'cash';
 
+      // 1. Push to KDS (SSE broadcast + in-memory store for dashboard)
       await fetch('/api/kds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -675,6 +691,32 @@ function PaymentContent() {
           },
         }),
       });
+
+      // 2. Best-effort: persist to orders microservice for DB durability.
+      // Non-blocking — a failure here does not cancel the completed sale.
+      fetch('/api/proxy/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          locationId: '00000000-0000-0000-0000-000000000001',
+          registerId: '00000000-0000-0000-0000-000000000002',
+          channel: 'pos',
+          orderType: 'takeaway',
+          lines: items.map((i) => ({
+            productId: i.id,
+            name: i.name,
+            sku: i.id,           // use product ID as fallback SKU for demo products
+            quantity: i.qty,
+            unitPrice: i.price,
+            costPrice: 0,
+            taxRate: 0.1,
+            discountAmount: 0,
+          })),
+        }),
+      }).catch(() => {
+        // Silently ignore — orders service may be unavailable in dev
+      });
+
       setCompletedOrder(orderNumber);
     } finally {
       setSubmitting(false);

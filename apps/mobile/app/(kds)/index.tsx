@@ -1,0 +1,310 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useDeviceStore } from '../../store/device';
+
+interface KdsItem {
+  name: string;
+  qty: number;
+  modifiers?: string[];
+}
+
+interface KdsTicket {
+  id: string;
+  orderNumber: string;
+  channel: string;
+  items: KdsItem[];
+  createdAt: string;
+  status: 'pending' | 'in_progress' | 'ready';
+}
+
+const ORDERS_API = process.env['EXPO_PUBLIC_ORDERS_API_URL'] ?? 'http://localhost:4004';
+
+function getElapsedSeconds(createdAt: string): number {
+  return Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000);
+}
+
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function getTimerColor(seconds: number): string {
+  if (seconds < 300) return '#22c55e';   // green < 5 min
+  if (seconds < 600) return '#f59e0b';   // yellow < 10 min
+  return '#ef4444';                       // red 10 min+
+}
+
+function getChannelColor(channel: string): string {
+  switch (channel.toLowerCase()) {
+    case 'pos': return '#6366f1';
+    case 'kiosk': return '#f59e0b';
+    case 'online': return '#06b6d4';
+    default: return '#888';
+  }
+}
+
+function TicketCard({ ticket, onBump }: { ticket: KdsTicket; onBump: (id: string) => void }) {
+  const [elapsed, setElapsed] = useState(getElapsedSeconds(ticket.createdAt));
+  const [bumping, setBumping] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed(getElapsedSeconds(ticket.createdAt)), 1000);
+    return () => clearInterval(interval);
+  }, [ticket.createdAt]);
+
+  async function handleBump() {
+    setBumping(true);
+    try { await onBump(ticket.id); } finally { setBumping(false); }
+  }
+
+  const timerColor = getTimerColor(elapsed);
+  const channelColor = getChannelColor(ticket.channel);
+
+  return (
+    <View style={[styles.card, { borderTopColor: timerColor }]}>
+      <View style={styles.cardHeader}>
+        <View style={styles.orderRow}>
+          <Text style={styles.orderNumber}>#{ticket.orderNumber}</Text>
+          <View style={[styles.channelBadge, { backgroundColor: `${channelColor}22`, borderColor: `${channelColor}55` }]}>
+            <Text style={[styles.channelText, { color: channelColor }]}>{ticket.channel.toUpperCase()}</Text>
+          </View>
+        </View>
+        <Text style={[styles.timer, { color: timerColor }]}>{formatElapsed(elapsed)}</Text>
+      </View>
+
+      <View style={styles.itemsList}>
+        {ticket.items.map((item, idx) => (
+          <View key={idx} style={styles.itemRow}>
+            <Text style={styles.itemQty}>{item.qty}x</Text>
+            <View style={styles.itemDetails}>
+              <Text style={styles.itemName}>{item.name}</Text>
+              {item.modifiers?.map((mod, mi) => (
+                <Text key={mi} style={styles.itemMod}>· {mod}</Text>
+              ))}
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <TouchableOpacity
+        style={[styles.bumpBtn, bumping ? styles.bumpBtnBumping : null]}
+        onPress={handleBump}
+        disabled={bumping}
+        activeOpacity={0.8}
+      >
+        {bumping ? (
+          <ActivityIndicator color="#000" size="small" />
+        ) : (
+          <Text style={styles.bumpBtnText}>BUMP</Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+export default function KDSScreen() {
+  const { identity } = useDeviceStore();
+  const [tickets, setTickets] = useState<KdsTicket[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectAttempt = useRef(0);
+  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMounted = useRef(true);
+
+  const connect = useCallback(() => {
+    if (!identity) return;
+    const wsBase = ORDERS_API.replace(/^http/, 'ws');
+    const url = `${wsBase}/api/v1/kds/stream?locationId=${identity.locationId}`;
+
+    try {
+      const ws = new WebSocket(url, undefined);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (!isMounted.current) return;
+        setConnected(true);
+        setError(null);
+        reconnectAttempt.current = 0;
+        // Send auth
+        ws.send(JSON.stringify({ type: 'auth', token: identity.deviceToken }));
+      };
+
+      ws.onmessage = (event) => {
+        if (!isMounted.current) return;
+        try {
+          const msg = JSON.parse(event.data as string) as { type: string; tickets?: KdsTicket[]; ticket?: KdsTicket; ticketId?: string };
+          if (msg.type === 'snapshot' && msg.tickets) {
+            setTickets(msg.tickets);
+          } else if (msg.type === 'ticket_created' && msg.ticket) {
+            setTickets((prev) => [...prev, msg.ticket!]);
+          } else if (msg.type === 'ticket_bumped' && msg.ticketId) {
+            setTickets((prev) => prev.filter((t) => t.id !== msg.ticketId));
+          }
+        } catch { /* ignore parse errors */ }
+      };
+
+      ws.onclose = () => {
+        if (!isMounted.current) return;
+        setConnected(false);
+        scheduleReconnect();
+      };
+
+      ws.onerror = () => {
+        if (!isMounted.current) return;
+        setError('Connection error');
+        setConnected(false);
+      };
+    } catch (err) {
+      setError('Failed to connect');
+      scheduleReconnect();
+    }
+  }, [identity]);
+
+  function scheduleReconnect() {
+    const attempt = reconnectAttempt.current;
+    const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+    reconnectAttempt.current += 1;
+    reconnectTimeout.current = setTimeout(() => {
+      if (isMounted.current) connect();
+    }, delay);
+  }
+
+  useEffect(() => {
+    isMounted.current = true;
+    connect();
+    return () => {
+      isMounted.current = false;
+      if (wsRef.current) wsRef.current.close();
+      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+    };
+  }, [connect]);
+
+  async function handleBump(ticketId: string) {
+    if (!identity) return;
+    try {
+      await fetch(`${ORDERS_API}/api/v1/kds/tickets/${ticketId}/bump`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${identity.deviceToken}`,
+        },
+      });
+    } catch { /* optimistically remove from UI via WS event */ }
+    // Optimistic removal
+    setTickets((prev) => prev.filter((t) => t.id !== ticketId));
+  }
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Kitchen Display</Text>
+        <View style={styles.headerRight}>
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          <View style={[styles.connDot, { backgroundColor: connected ? '#22c55e' : '#ef4444' }]} />
+          <Text style={styles.connLabel}>{connected ? 'Live' : 'Reconnecting...'}</Text>
+        </View>
+      </View>
+
+      {tickets.length === 0 ? (
+        <View style={styles.clearKitchen}>
+          <Text style={styles.clearEmoji}>✅</Text>
+          <Text style={styles.clearTitle}>Kitchen Clear</Text>
+          <Text style={styles.clearSub}>No pending tickets</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={tickets}
+          keyExtractor={(t) => t.id}
+          numColumns={3}
+          contentContainerStyle={styles.ticketGrid}
+          renderItem={({ item }) => <TicketCard ticket={item} onBump={handleBump} />}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: '#111',
+    borderBottomWidth: 1,
+    borderBottomColor: '#222',
+  },
+  headerTitle: { fontSize: 20, fontWeight: '900', color: '#fff', letterSpacing: 1 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  errorText: { fontSize: 12, color: '#ef4444' },
+  connDot: { width: 10, height: 10, borderRadius: 5 },
+  connLabel: { fontSize: 13, color: '#888', fontWeight: '600' },
+  clearKitchen: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  clearEmoji: { fontSize: 64, marginBottom: 16 },
+  clearTitle: { fontSize: 28, fontWeight: '800', color: '#22c55e', marginBottom: 8 },
+  clearSub: { fontSize: 16, color: '#555' },
+  ticketGrid: { padding: 12, gap: 12 },
+  card: {
+    flex: 1,
+    backgroundColor: '#141414',
+    borderRadius: 16,
+    margin: 6,
+    borderTopWidth: 4,
+    borderTopColor: '#22c55e',
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    overflow: 'hidden',
+    minWidth: 200,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  orderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  orderNumber: { fontSize: 20, fontWeight: '900', color: '#fff' },
+  channelBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+  },
+  channelText: { fontSize: 11, fontWeight: '700' },
+  timer: { fontSize: 22, fontWeight: '900' },
+  itemsList: { paddingHorizontal: 14, paddingBottom: 12, flex: 1 },
+  itemRow: { flexDirection: 'row', marginBottom: 6 },
+  itemQty: { fontSize: 15, fontWeight: '800', color: '#f59e0b', marginRight: 8, minWidth: 24 },
+  itemDetails: { flex: 1 },
+  itemName: { fontSize: 15, fontWeight: '600', color: '#fff' },
+  itemMod: { fontSize: 12, color: '#666', marginTop: 1 },
+  bumpBtn: {
+    backgroundColor: '#22c55e',
+    margin: 10,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    shadowColor: '#22c55e',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  bumpBtnBumping: { opacity: 0.6 },
+  bumpBtnText: { fontSize: 16, fontWeight: '900', color: '#000', letterSpacing: 1 },
+});

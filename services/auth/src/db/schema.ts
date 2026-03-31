@@ -274,3 +274,52 @@ export const oauthTokensRelations = relations(oauthTokens, ({ one }) => ({
     references: [oauthClients.id],
   }),
 }));
+
+// ── Device Pairing ────────────────────────────────────────────────────────────
+
+export const deviceRoleEnum = pgEnum('device_role', ['pos', 'kds', 'kiosk']);
+export const deviceStatusEnum = pgEnum('device_status', ['active', 'revoked']);
+
+export const devicePairingCodes = pgTable('device_pairing_codes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
+  code: varchar('code', { length: 8 }).notNull().unique(),
+  role: deviceRoleEnum('role').notNull(),
+  locationId: uuid('location_id').notNull().references(() => locations.id, { onDelete: 'cascade' }),
+  registerId: uuid('register_id'),
+  label: varchar('label', { length: 100 }),
+  createdBy: uuid('created_by').notNull().references(() => employees.id),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const devices = pgTable('devices', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 255 }).notNull().unique(),
+  role: deviceRoleEnum('role').notNull(),
+  locationId: uuid('location_id').notNull().references(() => locations.id, { onDelete: 'cascade' }),
+  registerId: uuid('register_id'),
+  label: varchar('label', { length: 100 }),
+  platform: varchar('platform', { length: 20 }),
+  appVersion: varchar('app_version', { length: 20 }),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+  status: deviceStatusEnum('status').notNull().default('active'),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  revokedBy: uuid('revoked_by').references(() => employees.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const devicesRelations = relations(devices, ({ one }) => ({
+  organisation: one(organisations, { fields: [devices.orgId], references: [organisations.id] }),
+  location: one(locations, { fields: [devices.locationId], references: [locations.id] }),
+  revokedByEmployee: one(employees, { fields: [devices.revokedBy], references: [employees.id] }),
+}));
+
+export const devicePairingCodesRelations = relations(devicePairingCodes, ({ one }) => ({
+  organisation: one(organisations, { fields: [devicePairingCodes.orgId], references: [organisations.id] }),
+  location: one(locations, { fields: [devicePairingCodes.locationId], references: [locations.id] }),
+  createdByEmployee: one(employees, { fields: [devicePairingCodes.createdBy], references: [employees.id] }),
+}));

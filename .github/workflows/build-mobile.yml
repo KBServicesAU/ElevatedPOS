@@ -1,0 +1,55 @@
+name: Build Mobile APKs
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        required: true
+        default: 'preview'
+        type: choice
+        options: [preview, production-pos, production-kds, production-kiosk]
+
+jobs:
+  build:
+    name: Build ${{ matrix.role }} APK
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        role: [pos, kds, kiosk]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: '9'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build ${{ matrix.role }} APK
+        working-directory: apps/mobile
+        run: eas build --profile production-${{ matrix.role }} --platform android --non-interactive --no-wait
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+
+      - name: Build ${{ matrix.role }} IPA (iPad)
+        working-directory: apps/mobile
+        run: eas build --profile production-${{ matrix.role }} --platform ios --non-interactive --no-wait
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}

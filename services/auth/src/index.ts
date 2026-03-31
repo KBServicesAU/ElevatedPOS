@@ -15,6 +15,7 @@ import { timeClockRoutes } from './routes/timeClock';
 import { oauthRoutes } from './routes/oauth';
 import { locationRoutes } from './routes/locations';
 import { payrollRoutes } from './routes/payroll';
+import { deviceRoutes } from './routes/devices';
 
 const app = Fastify({
   logger: {
@@ -83,6 +84,7 @@ async function start() {
   await app.register(oauthRoutes, { prefix: '/api/v1/oauth' });
   await app.register(locationRoutes, { prefix: '/api/v1/locations' });
   await app.register(payrollRoutes, { prefix: '/api/v1/payroll' });
+  await app.register(deviceRoutes, { prefix: '/api/v1/devices' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'auth', timestamp: new Date().toISOString() }));
 

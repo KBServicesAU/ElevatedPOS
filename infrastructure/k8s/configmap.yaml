@@ -26,3 +26,6 @@ data:
   REDIS_URL: "redis://redis:6379"
   CLICKHOUSE_HOST: "clickhouse.nexus.svc.cluster.local"
   CLICKHOUSE_PORT: "8123"
+  # Set to "true" on environments with Stripe test keys but no physical
+  # Terminal hardware (e.g. staging). Production should be "false".
+  STRIPE_TERMINAL_SIMULATED: "false"

@@ -9,10 +9,17 @@ build/
 .expo/
 out/
 
-# Environment
+# Environment — never commit real secrets
 .env
 .env.local
 .env.*.local
+# Environment-specific files that might contain real secrets
+.env.production
+.env.staging
+.env.prod
+# Allow .env.example and .env.test (checked-in defaults only, no real secrets)
+!.env.example
+!.env.test
 
 # Logs
 *.log
@@ -37,3 +44,38 @@ coverage/
 
 # Turbo
 .turbo/
+
+# Playwright E2E
+e2e/playwright-report/
+e2e/test-results/
+e2e/.playwright/
+
+# Secrets and certificates — should never be committed
+*.pem
+*.key
+*.p12
+*.pfx
+infrastructure/k8s/secrets.yaml
+# (the .template variant IS committed — it has no real values)
+
+# Terraform state — contains sensitive outputs
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+# Allow the example vars file
+!*.tfvars.example
+
+# Expo / React Native
+.expo/
+apps/mobile/android/
+apps/mobile/ios/
+apps/kiosk/android/
+apps/kiosk/ios/
+*.ipa
+*.apk
+credentials/
+
+# Temp tool-result files
+tool-results/
+*.tool-results/

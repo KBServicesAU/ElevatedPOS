@@ -111,6 +111,14 @@ jobs:
           kubectl apply -f infrastructure/k8s/apps/
           kubectl apply -f infrastructure/k8s/ingress.yaml
 
+      - name: Run database migrations
+        run: |
+          # Delete any previous migration job, then apply and wait for completion
+          kubectl delete job nexus-migrations -n nexus --ignore-not-found
+          kubectl apply -f infrastructure/k8s/migrations-job.yaml
+          kubectl wait --for=condition=complete job/nexus-migrations \
+            -n nexus --timeout=10m
+
       - name: Update image tags
         run: |
           SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge franchise reporting webhooks"
@@ -159,6 +167,13 @@ jobs:
           kubectl apply -f infrastructure/k8s/services/
           kubectl apply -f infrastructure/k8s/apps/
           kubectl apply -f infrastructure/k8s/ingress.yaml
+
+      - name: Run database migrations
+        run: |
+          kubectl delete job nexus-migrations -n nexus --ignore-not-found
+          kubectl apply -f infrastructure/k8s/migrations-job.yaml
+          kubectl wait --for=condition=complete job/nexus-migrations \
+            -n nexus --timeout=10m
 
       - name: Update image tags
         run: |

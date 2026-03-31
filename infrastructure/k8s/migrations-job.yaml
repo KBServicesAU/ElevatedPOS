@@ -1,0 +1,138 @@
+# Run once before a new deployment to apply pending Drizzle migrations.
+# Usage: kubectl apply -f infrastructure/k8s/migrations-job.yaml
+# The job creates one Pod per service that runs `node dist/db/migrate.js`.
+# Each service must expose a compiled migrate entry-point at dist/db/migrate.js
+# (or use drizzle-kit directly via npx in the pod command).
+#
+# Trigger with:
+#   kubectl create job --from=cronjob/nexus-migrations nexus-migrations-$(date +%s) -n nexus
+# or apply this manifest directly before each deploy.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nexus-migrations
+  namespace: nexus
+  labels:
+    app.kubernetes.io/part-of: nexus
+    app.kubernetes.io/component: migrations
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: nexus-migrations
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: nexus-service
+      initContainers:
+        # Run each service's migration sequentially to avoid lock contention
+        - name: migrate-auth
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/auth:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-catalog
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/catalog:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-inventory
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/inventory:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-orders
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/orders:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-payments
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/payments:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-customers
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/customers:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-loyalty
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/loyalty:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-campaigns
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/campaigns:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-notifications
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/notifications:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-integrations
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/integrations:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-automations
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/automations:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-franchise
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/franchise:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+        - name: migrate-webhooks
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/nexus/webhooks:latest
+          command: ["npx", "drizzle-kit", "migrate"]
+          envFrom:
+            - secretRef:
+                name: nexus-secrets
+            - configMapRef:
+                name: nexus-config
+      containers:
+        - name: done
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'All migrations complete'"]
