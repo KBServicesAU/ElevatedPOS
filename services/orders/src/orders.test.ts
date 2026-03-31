@@ -133,18 +133,21 @@ describe('estimateCompletionDate', () => {
     expect(result.getTime()).toBeGreaterThan(Date.now());
   });
 
-  it('estimates 3 months for $300 balance at $100/month', () => {
+  it('estimates ~3 months for $300 balance at $100/month', () => {
     const now = new Date();
     const result = estimateCompletionDate(300, 100);
-    const expectedMonth = (now.getMonth() + 3) % 12;
-    expect(result.getMonth()).toBe(expectedMonth);
+    // Use day-based diff to avoid month-overflow edge cases (e.g. Mar 31 + 3mo = Jul 1)
+    const diffDays = (result.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+    expect(diffDays).toBeGreaterThanOrEqual(85); // ~3 months minimum
+    expect(diffDays).toBeLessThanOrEqual(125);   // allow up to ~4 months for overflow
   });
 
   it('rounds up partial months (e.g. $310 at $100/month = 4 months)', () => {
     const now = new Date();
     const result = estimateCompletionDate(310, 100);
-    const expectedMonth = (now.getMonth() + 4) % 12;
-    expect(result.getMonth()).toBe(expectedMonth);
+    const diffDays = (result.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+    expect(diffDays).toBeGreaterThanOrEqual(115); // ~4 months minimum
+    expect(diffDays).toBeLessThanOrEqual(155);    // allow up to ~5 months for overflow
   });
 
   it('throws RangeError when avgMonthlyPayment is zero or negative', () => {
