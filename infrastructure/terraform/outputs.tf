@@ -44,7 +44,7 @@ output "msk_bootstrap_brokers_tls" {
 
 output "acm_certificate_arn" {
   description = "ACM certificate ARN"
-  value       = aws_acm_certificate.elevatedpos.arn
+  value       = aws_acm_certificate_validation.wildcard.certificate_arn
 }
 
 output "s3_assets_bucket" {

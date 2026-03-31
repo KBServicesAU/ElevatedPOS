@@ -5,7 +5,7 @@ resource "aws_lb" "elevatedpos" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = aws_subnet.public[*].id
+  subnets            = module.vpc.public_subnets
 
   enable_deletion_protection = var.environment == "production"
   enable_http2               = true
@@ -42,7 +42,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "alb_logs" {
 resource "aws_security_group" "alb" {
   name        = "elevatedpos-alb-${var.environment}"
   description = "ALB security group"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
     from_port   = 80
@@ -105,7 +105,7 @@ resource "aws_lb_target_group" "elevatedpos" {
   name     = "elevatedpos-${var.environment}"
   port     = 80
   protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  vpc_id   = module.vpc.vpc_id
 
   health_check {
     enabled             = true

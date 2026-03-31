@@ -37,6 +37,20 @@ provider "aws" {
   }
 }
 
+# Explicit alias used by dns.tf for ACM certificate (ALB requires ap-southeast-2)
+provider "aws" {
+  alias  = "ap-southeast-2"
+  region = "ap-southeast-2"
+
+  default_tags {
+    tags = {
+      Project     = "elevatedpos"
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
@@ -285,16 +299,8 @@ resource "aws_msk_cluster" "elevatedpos" {
 }
 
 # ─── ACM Certificate ─────────────────────────────────────────────────────────
-
-resource "aws_acm_certificate" "elevatedpos" {
-  domain_name               = var.domain_name
-  subject_alternative_names = ["*.${var.domain_name}", "api.${var.domain_name}"]
-  validation_method         = "DNS"
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
+# Defined in dns.tf as aws_acm_certificate.wildcard (includes DNS validation).
+# Reference: aws_acm_certificate_validation.wildcard.certificate_arn
 
 # ─── ECR Repositories ────────────────────────────────────────────────────────
 
