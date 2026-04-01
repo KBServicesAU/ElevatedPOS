@@ -14,22 +14,18 @@ async function seed() {
 
   await db.insert(schema.campaigns).values([
     {
-      orgId:   ORG_ID,
-      name:    'Welcome New Customers',
-      type:    'email',
-      status:  'active',
-      subject: 'Welcome to ElevatedPOS — your first visit reward inside!',
-      body:    'Hi {{firstName}}, thanks for joining us! Use code WELCOME10 for 10% off your next visit.',
-      audienceFilter: { trigger: 'customer.created' },
+      orgId:          ORG_ID,
+      name:           'Welcome New Customers',
+      type:           'email',
+      status:         'active',
+      targetSegment:  { trigger: 'customer.created' } as unknown,
     },
     {
-      orgId:   ORG_ID,
-      name:    'Gold Tier Congratulations',
-      type:    'email',
-      status:  'active',
-      subject: "Congratulations — you've reached Gold tier!",
-      body:    "Hi {{firstName}}, you've earned Gold status! Enjoy 1.5x points on every purchase from now on.",
-      audienceFilter: { trigger: 'loyalty.tier_changed', tier: 'Gold' },
+      orgId:          ORG_ID,
+      name:           'Gold Tier Congratulations',
+      type:           'email',
+      status:         'active',
+      targetSegment:  { trigger: 'loyalty.tier_changed', tier: 'Gold' } as unknown,
     },
   ]).onConflictDoNothing();
   console.log('  ✓ Campaigns: Welcome + Gold tier emails');

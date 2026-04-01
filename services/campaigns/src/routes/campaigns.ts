@@ -48,16 +48,18 @@ export async function campaignRoutes(app: FastifyInstance) {
       });
     }
     const { scheduledAt, ...rest } = parsed.data;
-    const [created] = await db
+    const createdRows = await db
       .insert(schema.campaigns)
       .values({
         orgId,
-        ...rest,
+        name: rest.name,
+        type: rest.type,
+        targetSegment: rest.targetSegment as unknown,
         scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
         status: scheduledAt ? 'scheduled' : 'draft',
       })
       .returning();
-    return reply.status(201).send({ data: created });
+    return reply.status(201).send({ data: createdRows[0] });
   });
 
   // GET /campaigns/:id — get campaign with messages
@@ -116,16 +118,18 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
 
     const { scheduledAt, ...rest } = parsed.data;
-    const [updated] = await db
+    const updatedRows = await db
       .update(schema.campaigns)
       .set({
-        ...rest,
+        ...(rest.name !== undefined ? { name: rest.name } : {}),
+        ...(rest.type !== undefined ? { type: rest.type } : {}),
+        ...(rest.targetSegment !== undefined ? { targetSegment: rest.targetSegment as unknown } : {}),
         ...(scheduledAt !== undefined ? { scheduledAt: new Date(scheduledAt) } : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(schema.campaigns.id, id), eq(schema.campaigns.orgId, orgId)))
       .returning();
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedRows[0] });
   });
 
   // POST /campaigns/:id/launch — transition to active, set startedAt

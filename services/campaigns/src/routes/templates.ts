@@ -53,11 +53,18 @@ export async function templateRoutes(app: FastifyInstance) {
         detail: 'subject is required for email templates',
       });
     }
-    const [created] = await db
+    const createdRows = await db
       .insert(schema.campaignTemplates)
-      .values({ orgId, channel, ...rest, variables: rest.variables })
+      .values({
+        orgId,
+        channel,
+        name: rest.name,
+        subject: rest.subject ?? null,
+        body: rest.body,
+        variables: rest.variables as unknown,
+      })
       .returning();
-    return reply.status(201).send({ data: created });
+    return reply.status(201).send({ data: createdRows[0] });
   });
 
   // GET / — list templates (exclude soft-deleted)
@@ -171,12 +178,19 @@ export async function templateRoutes(app: FastifyInstance) {
       });
     }
 
-    const [updated] = await db
+    const updatedRows = await db
       .update(schema.campaignTemplates)
-      .set({ ...parsed.data, updatedAt: new Date() })
+      .set({
+        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+        ...(parsed.data.channel !== undefined ? { channel: parsed.data.channel } : {}),
+        ...(parsed.data.subject !== undefined ? { subject: parsed.data.subject ?? null } : {}),
+        ...(parsed.data.body !== undefined ? { body: parsed.data.body } : {}),
+        ...(parsed.data.variables !== undefined ? { variables: parsed.data.variables as unknown } : {}),
+        updatedAt: new Date(),
+      })
       .where(and(eq(schema.campaignTemplates.id, id), eq(schema.campaignTemplates.orgId, orgId)))
       .returning();
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedRows[0] });
   });
 
   // DELETE /:id — soft delete

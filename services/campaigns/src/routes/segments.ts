@@ -24,46 +24,6 @@ const createSegmentSchema = z.object({
   filters: z.array(filterSchema).min(1),
 });
 
-/**
- * Applies segment filters against a plain customer object for in-memory estimation.
- * In production this would push down to a SQL query against the customers DB.
- */
-function matchesFilters(
-  customer: Record<string, unknown>,
-  filters: z.infer<typeof filterSchema>[],
-): boolean {
-  for (const f of filters) {
-    const raw = customer[f.field];
-    const val = f.value;
-    switch (f.operator) {
-      case 'eq':
-        if (raw !== val) return false;
-        break;
-      case 'neq':
-        if (raw === val) return false;
-        break;
-      case 'gt':
-        if (typeof raw !== 'number' || typeof val !== 'number' || raw <= val) return false;
-        break;
-      case 'gte':
-        if (typeof raw !== 'number' || typeof val !== 'number' || raw < val) return false;
-        break;
-      case 'lt':
-        if (typeof raw !== 'number' || typeof val !== 'number' || raw >= val) return false;
-        break;
-      case 'lte':
-        if (typeof raw !== 'number' || typeof val !== 'number' || raw > val) return false;
-        break;
-      case 'contains':
-        if (typeof raw !== 'string' || typeof val !== 'string' || !raw.includes(val)) return false;
-        break;
-      case 'in':
-        if (!Array.isArray(val) || !val.includes(String(raw))) return false;
-        break;
-    }
-  }
-  return true;
-}
 
 export async function segmentRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
@@ -80,11 +40,16 @@ export async function segmentRoutes(app: FastifyInstance) {
         detail: parsed.error.message,
       });
     }
-    const [created] = await db
+    const createdRows = await db
       .insert(schema.segments)
-      .values({ orgId, ...parsed.data, filters: parsed.data.filters })
+      .values({
+        orgId,
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        filters: parsed.data.filters as unknown,
+      })
       .returning();
-    return reply.status(201).send({ data: created });
+    return reply.status(201).send({ data: createdRows[0] });
   });
 
   // GET / — list segments for org
@@ -197,11 +162,16 @@ export async function segmentRoutes(app: FastifyInstance) {
         detail: `Segment ${id} not found`,
       });
     }
-    const [updated] = await db
+    const updatedRows = await db
       .update(schema.segments)
-      .set({ ...parsed.data, updatedAt: new Date() })
+      .set({
+        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+        ...(parsed.data.description !== undefined ? { description: parsed.data.description ?? null } : {}),
+        ...(parsed.data.filters !== undefined ? { filters: parsed.data.filters as unknown } : {}),
+        updatedAt: new Date(),
+      })
       .where(and(eq(schema.segments.id, id), eq(schema.segments.orgId, orgId)))
       .returning();
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedRows[0] });
   });
 }
