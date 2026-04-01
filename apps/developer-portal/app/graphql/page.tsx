@@ -323,7 +323,7 @@ export default function GraphQLPage() {
               <span className="text-gray-300">{'  '}</span>
               <span className="text-sky-400">&quot;query&quot;</span>
               <span className="text-gray-300">: </span>
-              <span className="text-amber-300">&quot;{ products(orgId: \&quot;org_abc\&quot;) { id name } }&quot;</span>{'\n'}
+              <span className="text-amber-300">&quot;&#123; products(orgId: \&quot;org_abc\&quot;) &#123; id name &#125; &#125;&quot;</span>{'\n'}
               <span className="text-gray-300">{'}'}</span>
             </code>
           </pre>

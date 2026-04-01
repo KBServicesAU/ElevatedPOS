@@ -164,7 +164,7 @@ resource "aws_security_group" "rds" {
 resource "aws_db_instance" "elevatedpos" {
   identifier        = "elevatedpos-${var.environment}"
   engine            = "postgres"
-  engine_version    = "16.1"
+  engine_version    = "16.6"
   instance_class    = var.rds_instance_class
   allocated_storage = var.rds_allocated_storage
   storage_encrypted = true
