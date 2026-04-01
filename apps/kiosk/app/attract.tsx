@@ -158,14 +158,14 @@ export default function AttractScreen() {
     resetIdleTimer();
   }
 
-  const currentGradient = GRADIENT_CYCLES[gradientIndex];
+  const currentGradient = GRADIENT_CYCLES[gradientIndex]!;
   const overlayOpacity = gradientAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 0.55],
   });
 
-  const currentPromo = PROMOS[promoIndex];
-  const langConfig = LANG_LABELS[language] ?? LANG_LABELS['en'];
+  const currentPromo = PROMOS[promoIndex]!;
+  const langConfig = (LANG_LABELS[language] ?? LANG_LABELS['en'])!;
 
   return (
     <TouchableOpacity
@@ -201,7 +201,7 @@ export default function AttractScreen() {
             }}
           >
             <Text style={[styles.langBtnText, language === lang && styles.langBtnTextActive]}>
-              {LANG_LABELS[lang].label}
+              {LANG_LABELS[lang]!.label}
             </Text>
           </TouchableOpacity>
         ))}

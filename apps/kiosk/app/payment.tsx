@@ -58,7 +58,7 @@ export default function PaymentScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(orderPayload),
-        signal: AbortSignal.timeout(5000),
+        signal: (AbortSignal as unknown as { timeout(ms: number): AbortSignal }).timeout(5000),
       });
       if (res.ok) {
         const data = await res.json();

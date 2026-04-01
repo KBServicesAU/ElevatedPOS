@@ -112,7 +112,7 @@ export default function LoyaltyScreen() {
       try {
         const res = await fetch(
           `${API_BASE}/api/v1/loyalty/accounts/lookup?phone=${encodeURIComponent(phoneNumber)}`,
-          { signal: AbortSignal.timeout(4000) },
+          { signal: (AbortSignal as unknown as { timeout(ms: number): AbortSignal }).timeout(4000) },
         );
         if (res.ok) {
           const data = await res.json();
@@ -174,8 +174,12 @@ export default function LoyaltyScreen() {
       const phoneNum = '0412345678';
       const found = MOCK_CUSTOMERS[phoneNum];
       setPhone(phoneNum);
-      setLookup(found);
-      setLoyaltyAccount({ phone: phoneNum, ...found });
+      if (found) {
+        setLookup(found);
+        setLoyaltyAccount({ phone: phoneNum, name: found.name, points: found.points, tier: found.tier });
+      } else {
+        setLookup('not_found');
+      }
     }, 3000);
   }
 

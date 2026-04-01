@@ -159,7 +159,7 @@ export default function UpsellModal({ visible, triggerProductId, onDismiss }: Up
     try {
       const res = await fetch(
         `${API_BASE}/api/v1/catalog/products/${triggerProductId}/related?limit=3`,
-        { signal: AbortSignal.timeout(4000) },
+        { signal: (AbortSignal as unknown as { timeout(ms: number): AbortSignal }).timeout(4000) },
       );
       if (res.ok) {
         const data = await res.json();

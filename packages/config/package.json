@@ -6,6 +6,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./typescript": "./typescript/tsconfig.json",
+    "./typescript/tsconfig.json": "./typescript/tsconfig.json",
+    "./typescript/tsconfig.base.json": "./typescript/tsconfig.base.json",
+    "./typescript/tsconfig.nextjs.json": "./typescript/tsconfig.nextjs.json",
+    "./typescript/tsconfig.react-native.json": "./typescript/tsconfig.react-native.json",
     "./eslint": "./eslint/index.js"
   },
   "dependencies": {
