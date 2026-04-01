@@ -19,12 +19,12 @@ export async function appRoutes(app: FastifyInstance) {
       where: eq(schema.installedApps.orgId, orgId),
     });
 
-    const installedIds = new Set(installed.map((i) => i.appId));
+    const installedIds = new Set(installed.map((i: typeof installed[number]) => i.appId));
 
     const apps = MARKETPLACE_APPS.map((app) => ({
       ...app,
       installed: installedIds.has(app.id),
-      installRecord: installed.find((i) => i.appId === app.id) ?? null,
+      installRecord: installed.find((i: typeof installed[number]) => i.appId === app.id) ?? null,
     }));
 
     return reply.status(200).send({ data: apps, meta: { total: apps.length } });

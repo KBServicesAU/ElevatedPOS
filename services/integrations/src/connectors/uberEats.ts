@@ -157,13 +157,13 @@ export class UberEatsConnector extends BaseConnector {
         name: item.title,
         quantity: item.quantity,
         price: item.price?.unit_price?.total_price ?? 0,
-        specialInstructions: item.special_instructions,
+        ...(item.special_instructions !== undefined ? { specialInstructions: item.special_instructions } : {}),
       })),
       subtotal: order.payment?.charges?.sub_total?.total_price ?? 0,
       total: order.payment?.charges?.total?.total_price ?? 0,
       customer: {
         name: [order.eater?.first_name, order.eater?.last_name].filter(Boolean).join(' '),
-        phone: order.eater?.phone,
+        ...(order.eater?.phone !== undefined ? { phone: order.eater.phone } : {}),
       },
       deliveryAddress: order.delivery?.location
         ? { address: order.delivery.location.address, city: order.delivery.location.city }

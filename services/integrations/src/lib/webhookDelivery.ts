@@ -9,7 +9,7 @@
  */
 
 import { createHmac } from 'node:crypto';
-import { and, eq, isNotNull, lt, lte } from 'drizzle-orm';
+import { and, eq, isNotNull, lte } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 // ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ async function _attemptDelivery(
     attemptedAt: new Date(),
   });
 
-  return { success, statusCode, durationMs, response: responseText, error: errorMsg };
+  return { success, statusCode, durationMs, response: responseText, ...(errorMsg !== undefined ? { error: errorMsg } : {}) };
 }
 
 // ---------------------------------------------------------------------------

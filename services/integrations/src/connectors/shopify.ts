@@ -9,9 +9,6 @@ interface ShopifyProductsResponse {
   products?: ShopifyProduct[];
 }
 
-interface ShopifyProductResponse {
-  product?: ShopifyProduct;
-}
 
 interface ShopifyProduct {
   id: number;
@@ -281,7 +278,7 @@ export class ShopifyConnector extends BaseConnector {
         email: order.customer?.email ?? '',
         firstName: order.customer?.first_name ?? '',
         lastName: order.customer?.last_name ?? '',
-        phone: order.customer?.phone,
+        ...(order.customer?.phone !== undefined ? { phone: order.customer.phone } : {}),
       },
       total: parseFloat(order.current_total_price),
       fulfillmentStatus: order.fulfillment_status ?? 'unfulfilled',
