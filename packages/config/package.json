@@ -5,7 +5,7 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./typescript": "./typescript/tsconfig.base.json",
+    "./typescript": "./typescript/tsconfig.json",
     "./eslint": "./eslint/index.js"
   },
   "dependencies": {
