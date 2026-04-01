@@ -40,7 +40,7 @@ async function seed() {
   ];
 
   for (const entry of stockEntries) {
-    await db.insert(schema.stockItems).values({ orgId: ORG_ID, locationId: entry.locationId, productId: entry.productId, onHand: entry.onHand }).onConflictDoNothing();
+    await db.insert(schema.stockItems).values({ locationId: entry.locationId, productId: entry.productId, onHand: entry.onHand }).onConflictDoNothing();
   }
   console.log(`  ✓ Opening stock: ${stockEntries.length} product-location entries`);
 
