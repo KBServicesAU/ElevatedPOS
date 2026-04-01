@@ -339,7 +339,7 @@ export default function MenuScreen() {
               </View>
               {item.tags.filter(Boolean).length > 0 && (
                 <View style={styles.tagRow}>
-                  {item.tags.filter(Boolean).map((tag) => (
+                  {item.tags.filter(Boolean).map((tag: string) => (
                     <View key={tag} style={styles.tag}>
                       <Text style={styles.tagText}>{tag}</Text>
                     </View>
