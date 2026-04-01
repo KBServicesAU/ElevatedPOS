@@ -37,10 +37,6 @@
       "android": {
         "serviceAccountKeyPath": "../credentials/play-store-service-account.json",
         "track": "internal"
-      },
-      "ios": {
-        "appleId": "",
-        "ascAppId": ""
       }
     }
   }
