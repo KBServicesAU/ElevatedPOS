@@ -1,5 +1,6 @@
 import { Worker, NativeConnection } from '@temporalio/worker';
 import * as activities from './activities.js';
+import path from 'node:path';
 
 const TASK_QUEUE = 'elevatedpos-automations';
 
@@ -25,7 +26,7 @@ export async function startWorker(): Promise<void> {
       // Workflow bundle — point to the compiled workflows file.
       // Using workflowsPath so the Temporal worker can sandbox the workflow
       // code in an isolate (required for determinism guarantees).
-      workflowsPath: new URL('./workflows.js', import.meta.url).pathname,
+      workflowsPath: path.resolve(__dirname, './workflows.js'),
       activities,
     });
 

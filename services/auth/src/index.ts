@@ -6,7 +6,6 @@ import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import { getRedisClient } from '@nexus/config';
 import { isBlacklisted } from './lib/tokens';
-import { db } from './db';
 import { authRoutes } from './routes/auth';
 import { employeeRoutes } from './routes/employees';
 import { roleRoutes } from './routes/roles';
@@ -43,12 +42,13 @@ async function start() {
   await app.register(rateLimit, {
     max: 100,
     timeWindow: '15 minutes',
-    redis: redis ?? undefined,
+    ...(redis ? { redis } : {}),
     keyGenerator: (req) => req.ip,
     errorResponseBuilder: () => ({ statusCode: 429, error: 'Too Many Requests', message: 'Rate limit exceeded' }),
   });
   await app.register(sensible);
-  await app.register(jwt, {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await app.register(jwt as any, {
     secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production',
     sign: {
       expiresIn: process.env['JWT_ACCESS_EXPIRY'] ?? '15m',

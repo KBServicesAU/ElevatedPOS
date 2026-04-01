@@ -52,16 +52,17 @@ export async function deviceRoutes(app: FastifyInstance) {
 
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-    const [record] = await db.insert(schema.devicePairingCodes).values({
+    const recordRows = await db.insert(schema.devicePairingCodes).values({
       orgId: user.orgId,
       code,
       role: body.data.role,
       locationId: body.data.locationId,
-      registerId: body.data.registerId,
-      label: body.data.label,
+      registerId: body.data.registerId ?? null,
+      label: body.data.label ?? null,
       createdBy: user.sub,
       expiresAt,
     }).returning();
+    const record = recordRows[0]!;
 
     return reply.status(201).send({
       data: {
@@ -129,18 +130,19 @@ export async function deviceRoutes(app: FastifyInstance) {
     const deviceToken = generateRefreshToken();
     const tokenHash = hashToken(deviceToken);
 
-    const [device] = await db.insert(schema.devices).values({
+    const deviceRows = await db.insert(schema.devices).values({
       orgId: pairingRecord.orgId,
       tokenHash,
       role: pairingRecord.role,
       locationId: pairingRecord.locationId,
-      registerId: pairingRecord.registerId,
-      label: pairingRecord.label,
-      platform: body.data.platform,
-      appVersion: body.data.appVersion,
+      registerId: pairingRecord.registerId ?? null,
+      label: pairingRecord.label ?? null,
+      platform: body.data.platform ?? null,
+      appVersion: body.data.appVersion ?? null,
       lastSeenAt: now,
       status: 'active',
     }).returning();
+    const device = deviceRows[0]!;
 
     // Mark pairing code as used
     await db.update(schema.devicePairingCodes)

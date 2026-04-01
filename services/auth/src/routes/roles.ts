@@ -33,10 +33,17 @@ export async function roleRoutes(app: FastifyInstance) {
       return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422 });
     }
 
-    const [created] = await db
+    const createdRows = await db
       .insert(schema.roles)
-      .values({ ...body.data, orgId, isSystemRole: false })
+      .values({
+        orgId,
+        name: body.data.name,
+        description: body.data.description ?? null,
+        permissions: body.data.permissions,
+        isSystemRole: false,
+      })
       .returning();
+    const created = createdRows[0]!;
 
     return reply.status(201).send({ data: created });
   });
@@ -56,11 +63,16 @@ export async function roleRoutes(app: FastifyInstance) {
 
     if (!existing) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
-    const [updated] = await db
+    const updatedRows = await db
       .update(schema.roles)
-      .set(body.data)
+      .set({
+        ...(body.data.name !== undefined ? { name: body.data.name } : {}),
+        ...(body.data.description !== undefined ? { description: body.data.description } : {}),
+        ...(body.data.permissions !== undefined ? { permissions: body.data.permissions } : {}),
+      })
       .where(and(eq(schema.roles.id, id), eq(schema.roles.orgId, orgId)))
       .returning();
+    const updated = updatedRows[0]!;
 
     return reply.status(200).send({ data: updated });
   });

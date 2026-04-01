@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../db';
 import {
-  hashPassword,
   verifyPassword,
   verifyPin,
   generateRefreshToken,

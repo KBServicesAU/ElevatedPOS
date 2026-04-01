@@ -34,7 +34,7 @@ export async function approvalRoutes(app: FastifyInstance) {
 
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    const [created] = await db
+    const createdRows = await db
       .insert(schema.approvalRequests)
       .values({
         orgId,
@@ -42,13 +42,14 @@ export async function approvalRoutes(app: FastifyInstance) {
         status: 'pending',
         requestedBy: employeeId,
         locationId: body.data.locationId,
-        amount: body.data.amount?.toString(),
-        metadata: body.data.metadata,
+        amount: body.data.amount?.toString() ?? null,
+        metadata: body.data.metadata as Record<string, unknown>,
         reason: body.data.reason,
         requestedAt: new Date(),
         expiresAt,
       })
       .returning();
+    const created = createdRows[0]!;
 
     return reply.status(201).send({ data: created });
   });

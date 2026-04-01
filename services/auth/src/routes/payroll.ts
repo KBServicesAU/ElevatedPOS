@@ -145,8 +145,6 @@ export async function payrollRoutes(app: FastifyInstance) {
       .from(employees)
       .where(and(eq(employees.orgId, orgId), eq(employees.isActive, true)));
 
-    const employeeMap = new Map(employeeRows.map((e) => [e.id, e]));
-
     // Group shifts by employee
     type EmpShiftRow = { totalMinutes: number | null; weekKey: string };
     const byEmployee = new Map<string, EmpShiftRow[]>();

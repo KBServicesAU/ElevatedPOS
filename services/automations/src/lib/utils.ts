@@ -173,6 +173,6 @@ const RETRY_DELAYS_MS: Record<number, number> = {
  * For attempt > 5 returns the maximum delay (24h).
  */
 export function computeRetryDelay(attempt: number): number {
-  if (attempt <= 0) return RETRY_DELAYS_MS[1];
-  return RETRY_DELAYS_MS[attempt] ?? RETRY_DELAYS_MS[5];
+  if (attempt <= 0) return RETRY_DELAYS_MS[1]!;
+  return RETRY_DELAYS_MS[attempt] ?? RETRY_DELAYS_MS[5]!;
 }

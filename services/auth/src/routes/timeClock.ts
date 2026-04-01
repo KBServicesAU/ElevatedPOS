@@ -76,22 +76,23 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     const now = new Date();
 
-    const [clockEvent] = await db
+    const clockEventRows = await db
       .insert(schema.clockEvents)
       .values({
         orgId,
         employeeId,
         locationId: body.data.locationId,
-        registerId: body.data.registerId,
+        registerId: body.data.registerId ?? null,
         type: 'clock_in',
         timestamp: now,
-        latitude: body.data.latitude?.toString(),
-        longitude: body.data.longitude?.toString(),
-        notes: body.data.notes,
+        latitude: body.data.latitude?.toString() ?? null,
+        longitude: body.data.longitude?.toString() ?? null,
+        notes: body.data.notes ?? null,
       })
       .returning();
+    const clockEvent = clockEventRows[0]!;
 
-    const [shift] = await db
+    const shiftRows = await db
       .insert(schema.shifts)
       .values({
         orgId,
@@ -101,6 +102,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
         status: 'open',
       })
       .returning();
+    const shift = shiftRows[0]!;
 
     return reply.status(201).send({ data: { clockEvent, shift } });
   });
@@ -137,20 +139,21 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     const now = new Date();
 
-    const [clockEvent] = await db
+    const clockEventRows2 = await db
       .insert(schema.clockEvents)
       .values({
         orgId,
         employeeId,
         locationId: body.data.locationId,
-        registerId: body.data.registerId,
+        registerId: body.data.registerId ?? null,
         type: 'clock_out',
         timestamp: now,
-        latitude: body.data.latitude?.toString(),
-        longitude: body.data.longitude?.toString(),
-        notes: body.data.notes,
+        latitude: body.data.latitude?.toString() ?? null,
+        longitude: body.data.longitude?.toString() ?? null,
+        notes: body.data.notes ?? null,
       })
       .returning();
+    const clockEvent = clockEventRows2[0]!;
 
     const totalMinutes = Math.floor((now.getTime() - openShift.clockInAt.getTime()) / 60000) - openShift.breakMinutes;
 
@@ -198,7 +201,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
       });
     }
 
-    const [clockEvent] = await db
+    const clockEventRows3 = await db
       .insert(schema.clockEvents)
       .values({
         orgId,
@@ -206,9 +209,10 @@ export async function timeClockRoutes(app: FastifyInstance) {
         locationId: body.data.locationId,
         type: 'break_start',
         timestamp: new Date(),
-        notes: body.data.notes,
+        notes: body.data.notes ?? null,
       })
       .returning();
+    const clockEvent = clockEventRows3[0]!;
 
     return reply.status(201).send({ data: { clockEvent } });
   });
@@ -255,7 +259,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     const now = new Date();
 
-    const [clockEvent] = await db
+    const clockEventRows4 = await db
       .insert(schema.clockEvents)
       .values({
         orgId,
@@ -263,9 +267,10 @@ export async function timeClockRoutes(app: FastifyInstance) {
         locationId: body.data.locationId,
         type: 'break_end',
         timestamp: now,
-        notes: body.data.notes,
+        notes: body.data.notes ?? null,
       })
       .returning();
+    const clockEvent = clockEventRows4[0]!;
 
     // Accrue break minutes into shift
     if (lastBreakStart) {

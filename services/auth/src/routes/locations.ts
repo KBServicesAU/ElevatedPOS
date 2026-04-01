@@ -42,18 +42,19 @@ export async function locationRoutes(app: FastifyInstance) {
       });
     }
 
-    const [created] = await db
+    const createdRows = await db
       .insert(schema.locations)
       .values({
         orgId,
         name: body.data.name,
-        address: body.data.address,
-        phone: body.data.phone,
+        address: body.data.address ?? null,
+        phone: body.data.phone ?? null,
         timezone: body.data.timezone,
         type: body.data.type,
         settings: body.data.settings,
       })
       .returning();
+    const created = createdRows[0]!;
 
     return reply.status(201).send({ data: created });
   });
@@ -130,11 +131,20 @@ export async function locationRoutes(app: FastifyInstance) {
       });
     }
 
-    const [updated] = await db
+    const updatedRows = await db
       .update(schema.locations)
-      .set({ ...body.data, updatedAt: new Date() })
+      .set({
+        ...(body.data.name !== undefined ? { name: body.data.name } : {}),
+        ...(body.data.address !== undefined ? { address: body.data.address } : {}),
+        ...(body.data.phone !== undefined ? { phone: body.data.phone } : {}),
+        ...(body.data.timezone !== undefined ? { timezone: body.data.timezone } : {}),
+        ...(body.data.type !== undefined ? { type: body.data.type } : {}),
+        ...(body.data.settings !== undefined ? { settings: body.data.settings } : {}),
+        updatedAt: new Date(),
+      })
       .where(and(eq(schema.locations.id, id), eq(schema.locations.orgId, orgId)))
       .returning();
+    const updated = updatedRows[0]!;
 
     return reply.status(200).send({ data: updated });
   });

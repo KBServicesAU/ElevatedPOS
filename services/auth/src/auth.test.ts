@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import jwt from '@fastify/jwt';
 
@@ -18,7 +18,7 @@ describe('Auth service — JWT utilities', () => {
 
   it('signs and verifies a valid token', async () => {
     const token = app.jwt.sign({ sub: 'emp_1', orgId: 'org_1', role: 'cashier' });
-    const decoded = app.jwt.verify<{ sub: string; orgId: string; role: string }>(token);
+    const decoded = app.jwt.verify(token) as { sub: string; orgId: string; role: string };
     expect(decoded.sub).toBe('emp_1');
     expect(decoded.orgId).toBe('org_1');
     expect(decoded.role).toBe('cashier');
@@ -26,7 +26,7 @@ describe('Auth service — JWT utilities', () => {
 
   it('rejects a token signed with a different secret', async () => {
     const otherApp = Fastify({ logger: false });
-    await otherApp.register(jwt, { secret: 'different-secret', sign: { issuer: 'elevatedpos-auth' }, verify: { issuer: 'elevatedpos-auth' } });
+    await otherApp.register(jwt, { secret: 'different-secret', sign: { iss: 'elevatedpos-auth' }, verify: { allowedIss: 'elevatedpos-auth' } });
     const badToken = otherApp.jwt.sign({ sub: 'emp_1', orgId: 'org_1' });
     expect(() => app.jwt.verify(badToken)).toThrow();
   });
@@ -35,7 +35,7 @@ describe('Auth service — JWT utilities', () => {
     // Skipped: @fastify/jwt issuer verification behaviour differs between
     // sync/async paths — issuer rejection is covered by integration tests.
     const wrongIssuerApp = Fastify({ logger: false });
-    await wrongIssuerApp.register(jwt, { secret: 'test-secret', sign: { issuer: 'evil-issuer' }, verify: { issuer: 'evil-issuer' } });
+    await wrongIssuerApp.register(jwt, { secret: 'test-secret', sign: { iss: 'evil-issuer' }, verify: { allowedIss: 'evil-issuer' } });
     const token = wrongIssuerApp.jwt.sign({ sub: 'emp_1', orgId: 'org_1' });
     expect(() => app.jwt.verify(token)).toThrow();
   });

@@ -81,16 +81,22 @@ export async function employeeRoutes(app: FastifyInstance) {
 
     const { password, pin, ...rest } = body.data;
 
-    const [created] = await db
+    const createdRows = await db
       .insert(schema.employees)
       .values({
-        ...rest,
         orgId,
+        firstName: rest.firstName,
+        lastName: rest.lastName,
         email: rest.email.toLowerCase(),
+        roleId: rest.roleId ?? null,
+        locationIds: rest.locationIds,
+        employmentType: rest.employmentType,
+        startDate: rest.startDate ? new Date(rest.startDate) : null,
         passwordHash: password ? await hashPassword(password) : null,
         pin: pin ? await hashPin(pin) : null,
       })
       .returning();
+    const created = createdRows[0]!;
 
     return reply.status(201).send({ data: { ...created, passwordHash: undefined, pin: undefined } });
   });
@@ -118,11 +124,21 @@ export async function employeeRoutes(app: FastifyInstance) {
       return reply.status(404).send({ title: 'Not Found', status: 404 });
     }
 
-    const [updated] = await db
+    const updatedRows = await db
       .update(schema.employees)
-      .set({ ...body.data, updatedAt: new Date() })
+      .set({
+        ...(body.data.firstName !== undefined ? { firstName: body.data.firstName } : {}),
+        ...(body.data.lastName !== undefined ? { lastName: body.data.lastName } : {}),
+        ...(body.data.email !== undefined ? { email: body.data.email.toLowerCase() } : {}),
+        ...(body.data.roleId !== undefined ? { roleId: body.data.roleId } : {}),
+        ...(body.data.locationIds !== undefined ? { locationIds: body.data.locationIds } : {}),
+        ...(body.data.employmentType !== undefined ? { employmentType: body.data.employmentType } : {}),
+        ...(body.data.startDate !== undefined ? { startDate: new Date(body.data.startDate) } : {}),
+        updatedAt: new Date(),
+      })
       .where(and(eq(schema.employees.id, id), eq(schema.employees.orgId, orgId)))
       .returning();
+    const updated = updatedRows[0]!;
 
     return reply.status(200).send({ data: { ...updated, passwordHash: undefined, pin: undefined } });
   });

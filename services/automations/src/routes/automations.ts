@@ -82,11 +82,19 @@ export async function automationRoutes(app: FastifyInstance) {
         detail: `Automation rule ${id} not found`,
       });
     }
-    const [updated] = await db
+    const rowArray = await db
       .update(schema.automationRules)
-      .set({ ...parsed.data, updatedAt: new Date() })
+      .set({
+        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+        ...(parsed.data.trigger !== undefined ? { trigger: parsed.data.trigger } : {}),
+        ...(parsed.data.conditions !== undefined ? { conditions: parsed.data.conditions } : {}),
+        ...(parsed.data.actions !== undefined ? { actions: parsed.data.actions } : {}),
+        ...(parsed.data.enabled !== undefined ? { enabled: parsed.data.enabled } : {}),
+        updatedAt: new Date(),
+      })
       .where(and(eq(schema.automationRules.id, id), eq(schema.automationRules.orgId, orgId)))
       .returning();
+    const updated = rowArray[0]!;
     return reply.status(200).send({ data: updated });
   });
 
