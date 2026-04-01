@@ -65,6 +65,16 @@ export const products = pgTable('products', {
   hospitalityCourse: varchar('hospitality_course', { length: 50 }),
   pluCode: varchar('plu_code', { length: 20 }),
   notes: text('notes'),
+  // Channel availability
+  channels: text('channels').array().notNull().default(['pos']),
+  // Values: 'pos', 'web' — product shows on POS, web store, or both
+
+  // Web storefront fields
+  webSlug: varchar('web_slug', { length: 255 }),       // URL slug e.g. "flat-white-coffee"
+  webDescription: text('web_description'),              // Rich text description for web
+  webImages: jsonb('web_images').notNull().default([]), // Additional web images [{url, alt}]
+  webFeatured: boolean('web_featured').notNull().default(false), // Feature on storefront homepage
+  webSortOrder: integer('web_sort_order').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

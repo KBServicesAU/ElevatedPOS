@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import { appRoutes } from './routes/apps';
 import { webhookRoutes } from './routes/webhooks';
 import { connectorRoutes } from './routes/connectors';
+import { connectRoutes } from './routes/connect';
 import { startRetryPoller } from './lib/webhookDelivery';
 
 const app = Fastify({ logger: true, trustProxy: true });
@@ -45,6 +46,7 @@ async function start() {
   await app.register(appRoutes, { prefix: '/api/v1/integrations/apps' });
   await app.register(webhookRoutes, { prefix: '/api/v1/integrations/webhooks' });
   await app.register(connectorRoutes, { prefix: '/api/v1/connectors' });
+  await app.register(connectRoutes, { prefix: '/api/v1' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'integrations' }));
 

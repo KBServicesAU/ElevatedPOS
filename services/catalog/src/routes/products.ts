@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, gte, ilike, or } from 'drizzle-orm';
+import { eq, and, desc, gte, ilike, or, arrayContains } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { searchProducts, indexProduct, deleteProductFromIndex } from '../lib/typesense';
 import { getCached, setCached, invalidateCache } from '../lib/cache';
@@ -70,10 +70,15 @@ export async function productRoutes(app: FastifyInstance) {
 
   app.get('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
-    const q = request.query as { search?: string; q?: string; categoryId?: string; isActive?: string; limit?: string; cursor?: string };
+    const q = request.query as { search?: string; q?: string; categoryId?: string; isActive?: string; limit?: string; cursor?: string; channel?: string };
 
     const limit = Math.min(Number(q.limit ?? 50), 200);
     const query = q.q ?? q.search;
+
+    // Build channel filter: when channel param is present, require that channel in the array
+    const channelFilter = q.channel
+      ? arrayContains(schema.products.channels, [q.channel])
+      : undefined;
 
     // If q/search present, try Typesense first
     if (query) {
@@ -84,7 +89,11 @@ export async function productRoutes(app: FastifyInstance) {
       });
 
       if (tsResults !== null) {
-        return reply.status(200).send({ data: tsResults, meta: { totalCount: tsResults.length, hasMore: tsResults.length === limit, source: 'typesense' } });
+        // Filter by channel in-memory when Typesense returns results
+        const channelFiltered = q.channel
+          ? tsResults.filter((p: { channels?: string[] }) => Array.isArray(p.channels) && p.channels.includes(q.channel!))
+          : tsResults;
+        return reply.status(200).send({ data: channelFiltered, meta: { totalCount: channelFiltered.length, hasMore: channelFiltered.length === limit, source: 'typesense' } });
       }
 
       // Typesense unavailable — fall back to DB with ILIKE
@@ -93,6 +102,7 @@ export async function productRoutes(app: FastifyInstance) {
           eq(schema.products.orgId, orgId),
           q.isActive !== undefined ? eq(schema.products.isActive, q.isActive === 'true') : undefined,
           q.categoryId ? eq(schema.products.categoryId, q.categoryId) : undefined,
+          channelFilter,
         ),
         with: { category: true, taxClass: true, variants: true },
         orderBy: [desc(schema.products.updatedAt)],
@@ -111,7 +121,7 @@ export async function productRoutes(app: FastifyInstance) {
 
     // No search query — standard list (cache only when no filters applied)
     const cacheKey = `products:${orgId}:list`;
-    const useCache = !q.isActive && !q.categoryId && limit === 50;
+    const useCache = !q.isActive && !q.categoryId && !q.channel && limit === 50;
 
     if (useCache) {
       const cached = await getCached<typeof products>(cacheKey);
@@ -125,6 +135,7 @@ export async function productRoutes(app: FastifyInstance) {
         eq(schema.products.orgId, orgId),
         q.isActive !== undefined ? eq(schema.products.isActive, q.isActive === 'true') : undefined,
         q.categoryId ? eq(schema.products.categoryId, q.categoryId) : undefined,
+        channelFilter,
       ),
       with: { category: true, taxClass: true, variants: true },
       orderBy: [desc(schema.products.updatedAt)],

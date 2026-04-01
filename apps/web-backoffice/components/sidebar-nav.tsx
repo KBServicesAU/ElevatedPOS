@@ -5,7 +5,7 @@ import {
   BarChart3, UserCircle, Settings, Zap,
   Star, Megaphone, Plug, ClipboardList, BellRing, Building2,
   Truck, Gift, CalendarCheck, ArrowLeftRight, MapPin, Clock, Webhook, ShoppingCart,
-  FileText, Tag, CreditCard, ChefHat, Tablet, Smartphone,
+  FileText, Tag, CreditCard, ChefHat, Tablet, Smartphone, Receipt, RefreshCw, Globe,
 } from 'lucide-react';
 import { NavLink } from './nav-link';
 
@@ -31,6 +31,10 @@ const nav = [
   { href: '/dashboard/timesheets', icon: Clock, label: 'Timesheets' },
   { href: '/dashboard/loyalty', icon: Star, label: 'Loyalty' },
   { href: '/dashboard/memberships', icon: Users, label: 'Memberships' },
+  { href: '/dashboard/payments', icon: CreditCard, label: 'Payments & Connect' },
+  { href: '/dashboard/subscriptions', icon: RefreshCw, label: 'Subscriptions' },
+  { href: '/dashboard/invoices', icon: Receipt, label: 'Invoices' },
+  { href: '/dashboard/store', icon: Globe, label: 'Web Store' },
   { href: '/dashboard/gift-cards', icon: Gift, label: 'Gift Cards' },
   { href: '/dashboard/laybys', icon: CalendarCheck, label: 'Laybys' },
   { href: '/dashboard/fulfillment', icon: Truck, label: 'Fulfillment' },

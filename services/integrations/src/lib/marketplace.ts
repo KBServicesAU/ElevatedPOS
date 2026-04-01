@@ -117,4 +117,17 @@ export const MARKETPLACE_APPS: MarketplaceApp[] = [
     tags: ['ecommerce', 'omnichannel', 'inventory'],
     docsUrl: 'https://docs.nexus.app/integrations/shopify',
   },
+  {
+    id: 'stripe-connect',
+    name: 'Stripe Payments',
+    category: 'payments',
+    description: 'Accept card payments, manage subscriptions and send invoices directly from ElevatedPOS. Powered by Stripe Connect.',
+    logoUrl: 'https://cdn.elevatedpos.com.au/icons/stripe.svg',
+    developer: 'ElevatedPOS',
+    pricing: '1% platform fee + Stripe fees',
+    rating: 4.9,
+    reviewCount: 0,
+    tags: ['payments', 'subscriptions', 'invoices', 'payouts'],
+    docsUrl: 'https://docs.elevatedpos.com.au/payments',
+  },
 ];

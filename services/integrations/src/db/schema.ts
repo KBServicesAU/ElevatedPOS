@@ -38,3 +38,62 @@ export const webhookDeliveries = pgTable('webhook_deliveries', {
   nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
   attemptedAt: timestamp('attempted_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Stripe Connect accounts - one per org
+export const stripeConnectAccounts = pgTable('stripe_connect_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().unique(),
+  stripeAccountId: varchar('stripe_account_id', { length: 255 }).notNull().unique(),
+  status: varchar('status', { length: 50 }).notNull().default('pending'),
+  // pending | onboarding | active | restricted | disabled
+  chargesEnabled: boolean('charges_enabled').notNull().default(false),
+  payoutsEnabled: boolean('payouts_enabled').notNull().default(false),
+  detailsSubmitted: boolean('details_submitted').notNull().default(false),
+  businessName: varchar('business_name', { length: 255 }),
+  businessType: varchar('business_type', { length: 100 }),
+  country: varchar('country', { length: 2 }).notNull().default('AU'),
+  currency: varchar('currency', { length: 3 }).notNull().default('aud'),
+  platformFeePercent: integer('platform_fee_percent').notNull().default(100), // basis points, 100 = 1%
+  onboardingUrl: text('onboarding_url'),
+  onboardingExpiresAt: timestamp('onboarding_expires_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Stripe subscriptions created for merchant customers
+export const stripeSubscriptions = pgTable('stripe_subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  stripeAccountId: varchar('stripe_account_id', { length: 255 }).notNull(),
+  stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }).notNull().unique(),
+  stripeCustomerId: varchar('stripe_customer_id', { length: 255 }).notNull(),
+  stripePriceId: varchar('stripe_price_id', { length: 255 }).notNull(),
+  customerId: uuid('customer_id'), // internal customer
+  status: varchar('status', { length: 50 }).notNull(), // active | canceled | past_due | trialing
+  currentPeriodStart: timestamp('current_period_start', { withTimezone: true }).notNull(),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }).notNull(),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Stripe invoices sent by merchants to their customers
+export const stripeInvoices = pgTable('stripe_invoices', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  stripeAccountId: varchar('stripe_account_id', { length: 255 }).notNull(),
+  stripeInvoiceId: varchar('stripe_invoice_id', { length: 255 }).notNull().unique(),
+  stripeCustomerId: varchar('stripe_customer_id', { length: 255 }).notNull(),
+  customerId: uuid('customer_id'), // internal customer
+  status: varchar('status', { length: 50 }).notNull(), // draft | open | paid | uncollectible | void
+  amountDue: integer('amount_due').notNull(), // cents
+  amountPaid: integer('amount_paid').notNull().default(0),
+  currency: varchar('currency', { length: 3 }).notNull().default('aud'),
+  dueDate: timestamp('due_date', { withTimezone: true }),
+  invoiceUrl: text('invoice_url'),
+  invoicePdf: text('invoice_pdf'),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
