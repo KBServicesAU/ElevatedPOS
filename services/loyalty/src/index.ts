@@ -45,7 +45,7 @@ async function start() {
       reply: import('fastify').FastifyReply,
     ) => {
       try {
-        await request.jwtVerify({ issuer: 'elevatedpos-auth' });
+        await request.jwtVerify();
       } catch {
         return reply.status(401).send({
           type: 'https://nexus.app/errors/unauthorized',

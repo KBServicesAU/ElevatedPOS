@@ -64,7 +64,7 @@ async function start() {
     reply: import('fastify').FastifyReply,
   ) => {
     try {
-      await request.jwtVerify({ issuer: 'elevatedpos-auth' });
+      await request.jwtVerify();
       const payload = request.user as { jti?: string };
       if (payload.jti && await isBlacklisted(payload.jti)) {
         return reply.status(401).send({

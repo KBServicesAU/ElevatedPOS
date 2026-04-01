@@ -34,7 +34,7 @@ async function start() {
   });
   await app.register(jwt, { secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production', verify: { issuer: 'elevatedpos-auth' } });
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
-    try { await request.jwtVerify({ issuer: 'elevatedpos-auth' }); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
+    try { await request.jwtVerify(); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
   });
   await app.register(customerRoutes, { prefix: '/api/v1/customers' });
   await app.register(rfmRoutes, { prefix: '/api/v1/customers' });

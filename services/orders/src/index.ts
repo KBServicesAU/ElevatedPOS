@@ -54,7 +54,7 @@ async function start() {
   await app.register(websocket);
 
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
-    try { await request.jwtVerify({ issuer: 'elevatedpos-auth' }); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
+    try { await request.jwtVerify(); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
   });
 
   await app.register(orderRoutes, { prefix: '/api/v1/orders' });
