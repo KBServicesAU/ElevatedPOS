@@ -57,18 +57,23 @@ export async function lotTrackingRoutes(app: FastifyInstance) {
       });
     }
 
-    const { quantity, expiresAt, receivedAt, unitCost, ...rest } = body.data;
+    const { locationId, productId, variantId, lotNumber, supplierId, quantity, expiresAt, receivedAt, unitCost, notes } = body.data;
 
     const [created] = await db
       .insert(schema.lotBatches)
       .values({
-        ...rest,
         orgId,
+        locationId,
+        productId,
+        lotNumber,
         quantity: String(quantity),
         remainingQty: String(quantity),
+        ...(variantId !== undefined ? { variantId } : {}),
+        ...(supplierId !== undefined ? { supplierId } : {}),
         expiresAt: expiresAt ? new Date(expiresAt) : null,
         receivedAt: receivedAt ? new Date(receivedAt) : new Date(),
         unitCost: unitCost != null ? String(unitCost) : null,
+        ...(notes !== undefined ? { notes } : {}),
       })
       .returning();
 

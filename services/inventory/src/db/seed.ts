@@ -21,7 +21,7 @@ async function seed() {
   console.log('🌱 Seeding inventory service…');
 
   // Default supplier
-  const [supplier] = await db.insert(schema.suppliers).values({
+  await db.insert(schema.suppliers).values({
     orgId: ORG_ID,
     name: 'Metro Wholesale Foods',
     contactName: 'James White',
@@ -33,14 +33,14 @@ async function seed() {
 
   // Opening stock for dev location
   const stockEntries = [
-    { locationId: LOC_ID, productId: PRODUCTS[0]!, onHand: '200', reorderPoint: '50', reorderQty: '100' },
-    { locationId: LOC_ID, productId: PRODUCTS[1]!, onHand: '200', reorderPoint: '50', reorderQty: '100' },
-    { locationId: LOC_ID, productId: PRODUCTS[2]!, onHand: '24',  reorderPoint: '10', reorderQty: '48'  },
-    { locationId: LOC_ID, productId: PRODUCTS[3]!, onHand: '12',  reorderPoint: '5',  reorderQty: '20'  },
+    { locationId: LOC_ID, productId: PRODUCTS[0]!, onHand: '200' },
+    { locationId: LOC_ID, productId: PRODUCTS[1]!, onHand: '200' },
+    { locationId: LOC_ID, productId: PRODUCTS[2]!, onHand: '24'  },
+    { locationId: LOC_ID, productId: PRODUCTS[3]!, onHand: '12'  },
   ];
 
   for (const entry of stockEntries) {
-    await db.insert(schema.stockItems).values({ orgId: ORG_ID, ...entry }).onConflictDoNothing();
+    await db.insert(schema.stockItems).values({ orgId: ORG_ID, locationId: entry.locationId, productId: entry.productId, onHand: entry.onHand }).onConflictDoNothing();
   }
   console.log(`  ✓ Opening stock: ${stockEntries.length} product-location entries`);
 

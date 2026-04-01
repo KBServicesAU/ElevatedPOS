@@ -51,7 +51,20 @@ export async function supplierRoutes(app: FastifyInstance) {
         detail: body.error.message,
       });
     }
-    const [created] = await db.insert(schema.suppliers).values({ ...body.data, orgId }).returning();
+    const { name, contactName, email, phone, address, abn, paymentTerms, leadTimeDays, preferredCurrency, notes } = body.data;
+    const [created] = await db.insert(schema.suppliers).values({
+      orgId,
+      name,
+      paymentTerms,
+      leadTimeDays,
+      preferredCurrency,
+      contactName: contactName ?? null,
+      email: email ?? null,
+      phone: phone ?? null,
+      address: address ?? null,
+      abn: abn ?? null,
+      notes: notes ?? null,
+    }).returning();
     return reply.status(201).send({ data: created });
   });
 
@@ -88,9 +101,23 @@ export async function supplierRoutes(app: FastifyInstance) {
         detail: body.error.message,
       });
     }
+    const { name, contactName, email, phone, address, abn, paymentTerms, leadTimeDays, preferredCurrency, notes } = body.data;
+    const setData: Record<string, unknown> = { updatedAt: new Date() };
+    if (name !== undefined) setData['name'] = name;
+    if (contactName !== undefined) setData['contactName'] = contactName;
+    if (email !== undefined) setData['email'] = email;
+    if (phone !== undefined) setData['phone'] = phone;
+    if (address !== undefined) setData['address'] = address;
+    if (abn !== undefined) setData['abn'] = abn;
+    if (paymentTerms !== undefined) setData['paymentTerms'] = paymentTerms;
+    if (leadTimeDays !== undefined) setData['leadTimeDays'] = leadTimeDays;
+    if (preferredCurrency !== undefined) setData['preferredCurrency'] = preferredCurrency;
+    if (notes !== undefined) setData['notes'] = notes;
+
     const [updated] = await db
       .update(schema.suppliers)
-      .set({ ...body.data, updatedAt: new Date() })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .set(setData as any)
       .where(and(eq(schema.suppliers.id, id), eq(schema.suppliers.orgId, orgId)))
       .returning();
 
@@ -196,7 +223,8 @@ export async function supplierRoutes(app: FastifyInstance) {
 
     for (const po of purchaseOrders) {
       for (const line of po.lines) {
-        if (!productMap[line.productId] || po.createdAt > new Date(productMap[line.productId].lastOrderedAt)) {
+        const existing = productMap[line.productId];
+        if (!existing || po.createdAt > new Date(existing.lastOrderedAt)) {
           productMap[line.productId] = {
             productId: line.productId,
             productName: line.productName,

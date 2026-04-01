@@ -71,30 +71,33 @@ export async function transferRoutes(app: FastifyInstance) {
       });
     }
 
-    const { lines, ...transferData } = body.data;
+    const { lines, fromLocationId, toLocationId, notes } = body.data;
     const year = new Date().getFullYear();
     const seq = Date.now().toString().slice(-6);
     const transferNumber = `TRF-${year}-${seq}`;
 
-    const [transfer] = await db
+    const transferRows = await db
       .insert(schema.stockTransfers)
       .values({
-        ...transferData,
         orgId,
+        fromLocationId,
+        toLocationId,
         transferNumber,
         requestedByEmployeeId: employeeId,
         status: 'requested',
+        ...(notes !== undefined ? { notes } : {}),
       })
       .returning();
+    const transfer = transferRows[0]!;
 
     await db.insert(schema.stockTransferLines).values(
       lines.map((l) => ({
         transferId: transfer.id,
         productId: l.productId,
-        variantId: l.variantId,
         productName: l.productName,
         sku: l.sku,
         requestedQty: String(l.requestedQty),
+        ...(l.variantId !== undefined ? { variantId: l.variantId } : {}),
       })),
     );
 
@@ -245,8 +248,8 @@ export async function transferRoutes(app: FastifyInstance) {
         await db.insert(schema.stockItems).values({
           locationId: transfer.toLocationId,
           productId: line.productId,
-          variantId: line.variantId,
           onHand: String(qty),
+          ...(line.variantId !== null && line.variantId !== undefined ? { variantId: line.variantId } : {}),
         });
       }
 

@@ -43,11 +43,11 @@ export async function serialTrackingRoutes(app: FastifyInstance) {
       orgId,
       locationId,
       productId,
-      variantId,
       serialNumber,
       status: 'in_stock' as const,
-      purchaseOrderId,
-      notes,
+      ...(variantId !== undefined ? { variantId } : {}),
+      ...(purchaseOrderId !== undefined ? { purchaseOrderId } : {}),
+      ...(notes !== undefined ? { notes } : {}),
     }));
 
     const created = await db

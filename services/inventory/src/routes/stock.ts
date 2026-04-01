@@ -17,7 +17,6 @@ export async function stockRoutes(app: FastifyInstance) {
 
   app.get('/', async (request, reply) => {
     const q = request.query as { locationId?: string; lowStock?: string };
-    const { orgId } = request.user as { orgId: string };
 
     const items = await db.query.stockItems.findMany({
       where: q.locationId ? eq(schema.stockItems.locationId, q.locationId) : undefined,
@@ -58,17 +57,26 @@ export async function stockRoutes(app: FastifyInstance) {
         .set({ onHand: String(newQty), updatedAt: new Date() })
         .where(eq(schema.stockItems.id, existing.id));
     } else {
-      await db.insert(schema.stockItems).values({ locationId, productId, variantId, onHand: String(newQty) });
+      await db.insert(schema.stockItems).values({
+        locationId,
+        productId,
+        onHand: String(newQty),
+        ...(variantId !== undefined ? { variantId } : {}),
+      });
     }
 
-    const [adj] = await db.insert(schema.stockAdjustments).values({
-      orgId, locationId, productId, variantId,
+    const adjRows = await db.insert(schema.stockAdjustments).values({
+      orgId,
+      locationId,
+      productId,
       beforeQty: String(beforeQty),
       afterQty: String(newQty),
       adjustment: String(adjustment),
       reason,
       employeeId,
+      ...(variantId !== undefined ? { variantId } : {}),
     }).returning();
+    const adj = adjRows[0]!;
 
     // Publish stock adjusted event
     await publishEvent('inventory.stock_adjusted', {

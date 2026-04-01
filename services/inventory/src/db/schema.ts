@@ -1,4 +1,5 @@
 import { pgTable, uuid, varchar, boolean, timestamp, jsonb, decimal, integer, text, pgEnum } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
 
 export const poStatusEnum = pgEnum('po_status', ['draft', 'sent', 'partial', 'complete', 'cancelled']);
 export const transferStatusEnum = pgEnum('transfer_status', ['requested', 'approved', 'dispatched', 'received', 'cancelled']);
@@ -182,3 +183,42 @@ export const stocktakeLines = pgTable('stocktake_lines', {
   variance: decimal('variance', { precision: 12, scale: 3 }),
   unitCost: decimal('unit_cost', { precision: 12, scale: 4 }).notNull().default('0'),
 });
+
+// ─── Relations ────────────────────────────────────────────────────────────────
+
+export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many }) => ({
+  supplier: one(suppliers, {
+    fields: [purchaseOrders.supplierId],
+    references: [suppliers.id],
+  }),
+  lines: many(purchaseOrderLines),
+}));
+
+export const purchaseOrderLinesRelations = relations(purchaseOrderLines, ({ one }) => ({
+  purchaseOrder: one(purchaseOrders, {
+    fields: [purchaseOrderLines.purchaseOrderId],
+    references: [purchaseOrders.id],
+  }),
+}));
+
+export const stockTransfersRelations = relations(stockTransfers, ({ many }) => ({
+  lines: many(stockTransferLines),
+}));
+
+export const stockTransferLinesRelations = relations(stockTransferLines, ({ one }) => ({
+  transfer: one(stockTransfers, {
+    fields: [stockTransferLines.transferId],
+    references: [stockTransfers.id],
+  }),
+}));
+
+export const stocktakesRelations = relations(stocktakes, ({ many }) => ({
+  lines: many(stocktakeLines),
+}));
+
+export const stocktakeLinesRelations = relations(stocktakeLines, ({ one }) => ({
+  stocktake: one(stocktakes, {
+    fields: [stocktakeLines.stocktakeId],
+    references: [stocktakes.id],
+  }),
+}));

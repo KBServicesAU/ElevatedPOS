@@ -31,7 +31,7 @@ export async function stocktakeRoutes(app: FastifyInstance) {
 
   // POST / — Start a new stocktake
   app.post('/', async (request, reply) => {
-    const { orgId, sub: employeeId } = request.user as { orgId: string; sub: string };
+    const { orgId } = request.user as { orgId: string; sub: string };
     const body = createStocktakeSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({ title: 'Validation Error', status: 422, detail: body.error.message });
@@ -40,10 +40,17 @@ export async function stocktakeRoutes(app: FastifyInstance) {
     const { locationId, name, notes, countAll, categoryIds } = body.data;
     const number = await generateStocktakeNumber(orgId);
 
-    const [stocktake] = await db
+    const stocktakeRows = await db
       .insert(schema.stocktakes)
-      .values({ orgId, locationId, name, notes, number })
+      .values({
+        orgId,
+        locationId,
+        number,
+        ...(name !== undefined ? { name } : {}),
+        ...(notes !== undefined ? { notes } : {}),
+      })
       .returning();
+    const stocktake = stocktakeRows[0]!;
 
     // Generate count sheet lines
     if (countAll || (categoryIds && categoryIds.length > 0)) {

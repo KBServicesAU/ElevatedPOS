@@ -55,19 +55,36 @@ export async function purchaseOrderRoutes(app: FastifyInstance) {
     const body = createPOSchema.safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422, detail: body.error.message });
 
-    const { lines, ...poData } = body.data;
+    const { lines, locationId, supplierId, currency, paymentTerms, expectedDeliveryAt, notes } = body.data;
     const subtotal = lines.reduce((sum, l) => sum + l.orderedQty * l.unitCost, 0);
     const taxTotal = lines.reduce((sum, l) => sum + l.orderedQty * l.unitCost * (l.taxRate / 100), 0);
 
-    const [po] = await db.insert(schema.purchaseOrders).values({
-      ...poData, orgId, poNumber: generatePoNumber(), createdByEmployeeId: employeeId,
-      subtotal: String(subtotal), taxTotal: String(taxTotal), total: String(subtotal + taxTotal),
+    const rows = await db.insert(schema.purchaseOrders).values({
+      orgId,
+      locationId,
+      supplierId,
+      currency,
+      paymentTerms,
+      poNumber: generatePoNumber(),
+      createdByEmployeeId: employeeId,
+      subtotal: String(subtotal),
+      taxTotal: String(taxTotal),
+      total: String(subtotal + taxTotal),
+      ...(expectedDeliveryAt !== undefined ? { expectedDeliveryAt: new Date(expectedDeliveryAt) } : {}),
+      ...(notes !== undefined ? { notes } : {}),
     }).returning();
+    const po = rows[0]!;
 
     await db.insert(schema.purchaseOrderLines).values(lines.map((l) => ({
-      ...l, purchaseOrderId: po.id,
-      orderedQty: String(l.orderedQty), unitCost: String(l.unitCost), taxRate: String(l.taxRate),
+      purchaseOrderId: po.id,
+      productId: l.productId,
+      productName: l.productName,
+      sku: l.sku,
+      orderedQty: String(l.orderedQty),
+      unitCost: String(l.unitCost),
+      taxRate: String(l.taxRate),
       lineTotal: String(l.orderedQty * l.unitCost),
+      ...(l.variantId !== undefined ? { variantId: l.variantId } : {}),
     })));
 
     const created = await db.query.purchaseOrders.findFirst({ where: eq(schema.purchaseOrders.id, po.id), with: { lines: true, supplier: true } });
@@ -98,10 +115,27 @@ export async function purchaseOrderRoutes(app: FastifyInstance) {
       if (stockItem) {
         await db.update(schema.stockItems).set({ onHand: String(newQty), updatedAt: new Date() }).where(eq(schema.stockItems.id, stockItem.id));
       } else {
-        await db.insert(schema.stockItems).values({ locationId: po.locationId, productId: line.productId, variantId: line.variantId, onHand: String(newQty) });
+        await db.insert(schema.stockItems).values({
+          locationId: po.locationId,
+          productId: line.productId,
+          onHand: String(newQty),
+          ...(line.variantId !== null && line.variantId !== undefined ? { variantId: line.variantId } : {}),
+        });
       }
 
-      await db.insert(schema.stockAdjustments).values({ orgId, locationId: po.locationId, productId: line.productId, variantId: line.variantId, beforeQty: String(currentQty), afterQty: String(newQty), adjustment: String(receipt.receivedQty), reason: `Received against PO ${po.poNumber}`, referenceId: po.id, referenceType: 'purchase_order', employeeId });
+      await db.insert(schema.stockAdjustments).values({
+        orgId,
+        locationId: po.locationId,
+        productId: line.productId,
+        beforeQty: String(currentQty),
+        afterQty: String(newQty),
+        adjustment: String(receipt.receivedQty),
+        reason: `Received against PO ${po.poNumber}`,
+        referenceId: po.id,
+        referenceType: 'purchase_order',
+        employeeId,
+        ...(line.variantId !== null && line.variantId !== undefined ? { variantId: line.variantId } : {}),
+      });
     }
 
     const allLines = await db.query.purchaseOrderLines.findMany({ where: eq(schema.purchaseOrderLines.purchaseOrderId, id) });
