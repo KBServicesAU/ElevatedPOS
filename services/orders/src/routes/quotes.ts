@@ -72,7 +72,7 @@ export async function quoteRoutes(app: FastifyInstance) {
 
     const { subtotal, discountTotal, taxTotal, total } = calcTotals(body.data.items, body.data.discountPercent);
 
-    const [quote] = await db.insert(schema.quotes).values({
+    const quoteRows = await db.insert(schema.quotes).values({
       orgId,
       locationId: body.data.locationId,
       customerId: body.data.customerId ?? null,
@@ -88,6 +88,7 @@ export async function quoteRoutes(app: FastifyInstance) {
       validUntil: new Date(body.data.validUntil),
       createdBy,
     }).returning();
+    const quote = quoteRows[0]!;
 
     await publishEvent('quote.created', {
       id: quote.id,
@@ -175,9 +176,10 @@ export async function quoteRoutes(app: FastifyInstance) {
       updateData['validUntil'] = new Date(body.data.validUntil);
     }
 
-    const [updated] = await db.update(schema.quotes).set(updateData).where(
+    const patchRows = await db.update(schema.quotes).set(updateData).where(
       and(eq(schema.quotes.id, id), eq(schema.quotes.orgId, orgId)),
     ).returning();
+    const updated = patchRows[0]!;
 
     return reply.status(200).send({ data: updated });
   });
@@ -195,11 +197,12 @@ export async function quoteRoutes(app: FastifyInstance) {
       return reply.status(409).send({ title: 'Quote cannot be sent', status: 409, detail: `Quote status is ${quote.status}` });
     }
 
-    const [updated] = await db.update(schema.quotes).set({
+    const sentRows = await db.update(schema.quotes).set({
       status: 'sent',
       sentAt: new Date(),
       updatedAt: new Date(),
     }).where(and(eq(schema.quotes.id, id), eq(schema.quotes.orgId, orgId))).returning();
+    const updated = sentRows[0]!;
 
     await publishEvent('quote.sent', {
       id: updated.id,
@@ -236,7 +239,7 @@ export async function quoteRoutes(app: FastifyInstance) {
       quantity: number; unitPrice: number; taxRate: number; discountAmount: number; lineTotal: number;
     }>;
 
-    const [order] = await db.insert(schema.orders).values({
+    const orderRows = await db.insert(schema.orders).values({
       orgId,
       locationId: body.data.locationId,
       registerId: body.data.registerId,
@@ -244,14 +247,15 @@ export async function quoteRoutes(app: FastifyInstance) {
       channel: body.data.channel,
       orderType: 'quote',
       status: 'open',
-      customerId: quote.customerId ?? undefined,
+      ...(quote.customerId != null && { customerId: quote.customerId }),
       employeeId,
       subtotal: quote.subtotal,
       discountTotal: quote.discountTotal,
       taxTotal: quote.taxTotal,
       total: quote.total,
-      notes: quote.notes ?? undefined,
+      ...(quote.notes != null && { notes: quote.notes }),
     }).returning();
+    const order = orderRows[0]!;
 
     await db.insert(schema.orderLines).values(items.map((l) => {
       const lineBase = l.quantity * l.unitPrice - l.discountAmount;
@@ -260,7 +264,7 @@ export async function quoteRoutes(app: FastifyInstance) {
       return {
         orderId: order.id,
         productId: l.productId,
-        variantId: l.variantId,
+        ...(l.variantId !== undefined && { variantId: l.variantId }),
         name: l.name,
         sku: l.sku,
         quantity: String(l.quantity),
@@ -275,12 +279,13 @@ export async function quoteRoutes(app: FastifyInstance) {
     }));
 
     // Mark quote as accepted with reference to the new order
-    const [updatedQuote] = await db.update(schema.quotes).set({
+    const acceptedRows = await db.update(schema.quotes).set({
       status: 'accepted',
       acceptedAt: new Date(),
       convertedToOrderId: order.id,
       updatedAt: new Date(),
     }).where(and(eq(schema.quotes.id, id), eq(schema.quotes.orgId, orgId))).returning();
+    const updatedQuote = acceptedRows[0]!;
 
     await publishEvent('quote.converted', {
       id: updatedQuote.id,
@@ -308,10 +313,11 @@ export async function quoteRoutes(app: FastifyInstance) {
       return reply.status(409).send({ title: 'Quote cannot be cancelled', status: 409, detail: `Quote status is ${quote.status}` });
     }
 
-    const [updated] = await db.update(schema.quotes).set({
+    const cancelledRows = await db.update(schema.quotes).set({
       status: 'cancelled',
       updatedAt: new Date(),
     }).where(and(eq(schema.quotes.id, id), eq(schema.quotes.orgId, orgId))).returning();
+    const updated = cancelledRows[0]!;
 
     return reply.status(200).send({ data: updated });
   });

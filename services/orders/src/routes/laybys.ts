@@ -81,7 +81,7 @@ export async function laybyRoutes(app: FastifyInstance) {
 
     const balanceOwing = totalAmount - depositAmount;
 
-    const [agreement] = await db.insert(schema.laybyAgreements).values({
+    const agreementRows = await db.insert(schema.laybyAgreements).values({
       orgId,
       locationId: body.data.locationId,
       customerId: body.data.customerId,
@@ -100,12 +100,13 @@ export async function laybyRoutes(app: FastifyInstance) {
       notes: body.data.notes ?? null,
       activatedAt: new Date(),
     }).returning();
+    const agreement = agreementRows[0]!;
 
     // Record initial deposit payment
     await db.insert(schema.laybyPayments).values({
       laybyId: agreement.id,
       amount: String(depositAmount.toFixed(4)),
-      method: body.data.items.length > 0 ? 'cash' : 'cash', // default, caller may specify
+      method: 'cash', // default, caller may specify
       reference: 'Initial deposit',
       paidAt: new Date(),
     });
@@ -192,23 +193,25 @@ export async function laybyRoutes(app: FastifyInstance) {
       });
     }
 
-    const [payment] = await db.insert(schema.laybyPayments).values({
+    const paymentRows = await db.insert(schema.laybyPayments).values({
       laybyId: id,
       amount: String(paymentAmount.toFixed(4)),
       method: body.data.method,
       reference: body.data.reference ?? null,
       paidAt: new Date(),
     }).returning();
+    const payment = paymentRows[0]!;
 
     const newBalance = currentBalance - paymentAmount;
     const isPaid = newBalance <= 0;
 
-    const [updated] = await db.update(schema.laybyAgreements).set({
+    const updatedRows = await db.update(schema.laybyAgreements).set({
       balanceOwing: String(Math.max(0, newBalance).toFixed(4)),
       status: isPaid ? 'paid' : 'active',
       completedAt: isPaid ? new Date() : null,
       updatedAt: new Date(),
     }).where(and(eq(schema.laybyAgreements.id, id), eq(schema.laybyAgreements.orgId, orgId))).returning();
+    const updated = updatedRows[0]!;
 
     if (isPaid) {
       await publishEvent('layby.paid', {
@@ -247,7 +250,7 @@ export async function laybyRoutes(app: FastifyInstance) {
     // Refund balance to customer as store credit (amount paid minus cancellation fee)
     const storeCreditRefund = Math.max(0, totalPaid - cancellationFee);
 
-    const [updated] = await db.update(schema.laybyAgreements).set({
+    const cancelRows = await db.update(schema.laybyAgreements).set({
       status: 'cancelled',
       cancellationFee: String(cancellationFee.toFixed(4)),
       cancelledAt: new Date(),
@@ -256,6 +259,7 @@ export async function laybyRoutes(app: FastifyInstance) {
         : `Cancellation reason: ${body.data.reason}`,
       updatedAt: new Date(),
     }).where(and(eq(schema.laybyAgreements.id, id), eq(schema.laybyAgreements.orgId, orgId))).returning();
+    const updated = cancelRows[0]!;
 
     await publishEvent('layby.cancelled', {
       id: updated.id,

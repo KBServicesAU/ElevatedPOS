@@ -8,6 +8,7 @@ export * from './payments';
 export * from './loyalty';
 export * from './catalog';
 export * from './staff';
+export * from './publisher';
 
 // ─── Generic envelope (event-sourcing / Kafka pattern) ────────────────────────
 

@@ -6,7 +6,6 @@ import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
 import { getRedisClient } from '@nexus/config';
-import type { WebSocket } from 'ws';
 import { orderRoutes } from './routes/orders';
 import { kdsRoutes } from './routes/kds';
 import { laybyRoutes } from './routes/laybys';
@@ -24,8 +23,14 @@ declare module 'fastify' {
 
 const app = Fastify({ logger: true, trustProxy: true });
 
-// In-memory KDS connection registry: locationId -> Set of WebSocket clients
-export const kdsConnections = new Map<string, Set<WebSocket>>();
+// Minimal interface for a raw WebSocket connection
+interface RawWS {
+  readyState: number;
+  send(data: string): void;
+}
+
+// In-memory KDS connection registry: locationId -> Set of raw WebSocket clients
+export const kdsConnections = new Map<string, Set<RawWS>>();
 
 export function broadcastToKDS(locationId: string, payload: Record<string, unknown>): void {
   const clients = kdsConnections.get(locationId);
@@ -50,7 +55,7 @@ async function start() {
     keyGenerator: (req) => req.ip,
     errorResponseBuilder: () => ({ statusCode: 429, error: 'Too Many Requests', message: 'Rate limit exceeded' }),
   });
-  await app.register(jwt, { secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production', verify: { issuer: 'elevatedpos-auth' } });
+  await app.register(jwt, { secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production', verify: { allowedIss: 'elevatedpos-auth' } });
   await app.register(websocket);
 
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {

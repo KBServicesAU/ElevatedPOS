@@ -102,7 +102,7 @@ export async function giftCardRoutes(app: FastifyInstance) {
       attempts++;
     }
 
-    const [card] = await db.insert(schema.giftCards).values({
+    const cardRows = await db.insert(schema.giftCards).values({
       orgId,
       code,
       originalAmount: String(body.data.amount.toFixed(4)),
@@ -113,6 +113,7 @@ export async function giftCardRoutes(app: FastifyInstance) {
       issuedByEmployeeId: employeeId,
       expiresAt: body.data.expiresAt ? new Date(body.data.expiresAt) : null,
     }).returning();
+    const card = cardRows[0]!;
 
     await db.insert(schema.giftCardTransactions).values({
       giftCardId: card.id,

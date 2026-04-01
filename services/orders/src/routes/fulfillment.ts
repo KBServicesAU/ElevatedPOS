@@ -38,18 +38,19 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
     });
     if (!order) return reply.status(404).send({ title: 'Order Not Found', status: 404 });
 
-    const [created] = await db
+    const clickCollectRows = await db
       .insert(schema.fulfillmentRequests)
       .values({
         orgId,
         orderId: body.data.orderId,
         type: 'click_and_collect',
         sourceLocationId: body.data.pickupLocationId,
-        notes: body.data.estimatedPickupAt
-          ? `Estimated pickup: ${body.data.estimatedPickupAt}`
-          : undefined,
+        ...(body.data.estimatedPickupAt !== undefined && {
+          notes: `Estimated pickup: ${body.data.estimatedPickupAt}`,
+        }),
       })
       .returning();
+    const created = clickCollectRows[0]!;
 
     return reply.status(201).send({ data: created });
   });
@@ -91,11 +92,12 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
     });
     if (!existing) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
-    const [updated] = await db
+    const assignRows = await db
       .update(schema.fulfillmentRequests)
       .set({ assignedToEmployeeId: body.data.employeeId, updatedAt: new Date() })
       .where(and(eq(schema.fulfillmentRequests.id, body.data.fulfillmentId), eq(schema.fulfillmentRequests.orgId, orgId)))
       .returning();
+    const updated = assignRows[0]!;
 
     return reply.status(200).send({ data: updated });
   });
@@ -114,10 +116,18 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
     });
     if (!order) return reply.status(404).send({ title: 'Order Not Found', status: 404 });
 
-    const [created] = await db
+    const createRows = await db
       .insert(schema.fulfillmentRequests)
-      .values({ ...body.data, orgId })
+      .values({
+        orgId,
+        orderId: body.data.orderId,
+        type: body.data.type,
+        sourceLocationId: body.data.sourceLocationId,
+        ...(body.data.destinationLocationId !== undefined && { destinationLocationId: body.data.destinationLocationId }),
+        ...(body.data.notes !== undefined && { notes: body.data.notes }),
+      })
       .returning();
+    const created = createRows[0]!;
 
     return reply.status(201).send({ data: created });
   });
@@ -175,13 +185,14 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       return reply.status(409).send({ title: 'Conflict', status: 409, detail: `Cannot pick from status '${existing.status}'` });
     }
 
-    const [updated] = await db
+    const pickRows = await db
       .update(schema.fulfillmentRequests)
       .set({ status: 'picked', pickedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(schema.fulfillmentRequests.id, id), eq(schema.fulfillmentRequests.orgId, orgId)))
       .returning();
+    const updatedPick = pickRows[0]!;
 
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedPick });
   });
 
   // POST /api/v1/fulfillment/:id/pack — mark as packed
@@ -197,13 +208,14 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       return reply.status(409).send({ title: 'Conflict', status: 409, detail: `Cannot pack from status '${existing.status}'` });
     }
 
-    const [updated] = await db
+    const packRows = await db
       .update(schema.fulfillmentRequests)
       .set({ status: 'packed', packedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(schema.fulfillmentRequests.id, id), eq(schema.fulfillmentRequests.orgId, orgId)))
       .returning();
+    const updatedPack = packRows[0]!;
 
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedPack });
   });
 
   // POST /api/v1/fulfillment/:id/ready — mark ready for collection
@@ -220,13 +232,14 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
     }
 
     const now = new Date();
-    const [updated] = await db
+    const readyRows = await db
       .update(schema.fulfillmentRequests)
       .set({ status: 'ready', readyAt: now, customerNotifiedAt: now, updatedAt: now })
       .where(and(eq(schema.fulfillmentRequests.id, id), eq(schema.fulfillmentRequests.orgId, orgId)))
       .returning();
+    const updatedReady = readyRows[0]!;
 
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedReady });
   });
 
   // POST /api/v1/fulfillment/:id/dispatch — mark dispatched
@@ -248,7 +261,7 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       return reply.status(409).send({ title: 'Conflict', status: 409, detail: `Cannot dispatch from status '${existing.status}'` });
     }
 
-    const [updated] = await db
+    const dispatchRows = await db
       .update(schema.fulfillmentRequests)
       .set({
         status: 'dispatched',
@@ -260,8 +273,9 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       })
       .where(and(eq(schema.fulfillmentRequests.id, id), eq(schema.fulfillmentRequests.orgId, orgId)))
       .returning();
+    const updatedDispatch = dispatchRows[0]!;
 
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedDispatch });
   });
 
   // POST /api/v1/fulfillment/:id/collect — mark collected/delivered
@@ -277,13 +291,14 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       return reply.status(409).send({ title: 'Conflict', status: 409, detail: `Cannot collect from status '${existing.status}'` });
     }
 
-    const [updated] = await db
+    const collectRows = await db
       .update(schema.fulfillmentRequests)
       .set({ status: 'collected', collectedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(schema.fulfillmentRequests.id, id), eq(schema.fulfillmentRequests.orgId, orgId)))
       .returning();
+    const updatedCollect = collectRows[0]!;
 
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedCollect });
   });
 
   // POST /api/v1/fulfillment/:id/cancel — cancel
@@ -300,7 +315,7 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       return reply.status(409).send({ title: 'Conflict', status: 409, detail: `Cannot cancel from status '${existing.status}'` });
     }
 
-    const [updated] = await db
+    const cancelRows = await db
       .update(schema.fulfillmentRequests)
       .set({
         status: 'cancelled',
@@ -309,7 +324,8 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       })
       .where(and(eq(schema.fulfillmentRequests.id, id), eq(schema.fulfillmentRequests.orgId, orgId)))
       .returning();
+    const updatedCancel = cancelRows[0]!;
 
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedCancel });
   });
 }

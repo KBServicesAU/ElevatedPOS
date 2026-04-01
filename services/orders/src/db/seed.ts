@@ -17,25 +17,32 @@ async function seed() {
   console.log('🌱 Seeding orders service…');
 
   // Completed order
-  const [order] = await db.insert(schema.orders).values({
+  const registerId = '00000000-0000-0000-0000-000000000401';
+  const employeeId = '00000000-0000-0000-0000-000000000501';
+
+  const rows = await db.insert(schema.orders).values({
     orgId:       ORG_ID,
     locationId:  LOC_ID,
+    registerId,
     customerId:  CUSTOMER_1,
+    employeeId,
     orderNumber: 'ORD-0001',
     orderType:   'dine_in',
     channel:     'pos',
     status:      'completed',
-    subtotal:    '10.50',
-    taxTotal:    '0.95',
-    total:       '11.45',
-    paidTotal:   '11.45',
+    subtotal:    '10.5000',
+    taxTotal:    '0.9500',
+    total:       '11.4500',
+    paidTotal:   '11.4500',
     completedAt: new Date(),
   }).returning().onConflictDoNothing();
 
+  const order = rows[0];
+
   if (order) {
     await db.insert(schema.orderLines).values([
-      { orderId: order.id, productId: PRODUCT_1, productName: 'Flat White',  qty: 1, unitPrice: '5.50', lineTotal: '5.50',  status: 'fulfilled' },
-      { orderId: order.id, productId: PRODUCT_2, productName: 'Croissant',   qty: 1, unitPrice: '5.00', lineTotal: '5.00',  status: 'fulfilled' },
+      { orderId: order.id, productId: PRODUCT_1, name: 'Flat White', sku: 'FW-001', quantity: '1', unitPrice: '5.5000', costPrice: '0', taxRate: '0', taxAmount: '0', discountAmount: '0', lineTotal: '5.5000', modifiers: [], status: 'served' },
+      { orderId: order.id, productId: PRODUCT_2, name: 'Croissant',  sku: 'CR-001', quantity: '1', unitPrice: '5.0000', costPrice: '0', taxRate: '0', taxAmount: '0', discountAmount: '0', lineTotal: '5.0000', modifiers: [], status: 'served' },
     ]).onConflictDoNothing();
     console.log('  ✓ Demo order: ORD-0001 (completed)');
   }

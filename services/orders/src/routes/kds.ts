@@ -9,20 +9,22 @@ export async function kdsRoutes(app: FastifyInstance) {
     const q = request.query as { locationId?: string };
     const locationId = q.locationId ?? 'default';
 
+    const ws = socket.socket;
+
     // Register connection
     if (!kdsConnections.has(locationId)) {
       kdsConnections.set(locationId, new Set());
     }
-    kdsConnections.get(locationId)!.add(socket);
+    kdsConnections.get(locationId)!.add(ws);
     app.log.info(`[KDS] client connected for location=${locationId} (total=${kdsConnections.get(locationId)!.size})`);
 
     // Greet client
-    socket.send(JSON.stringify({ type: 'connected', locationId }));
+    ws.send(JSON.stringify({ type: 'connected', locationId }));
 
     socket.on('close', () => {
       const clients = kdsConnections.get(locationId);
       if (clients) {
-        clients.delete(socket);
+        clients.delete(ws);
         if (clients.size === 0) kdsConnections.delete(locationId);
       }
       app.log.info(`[KDS] client disconnected for location=${locationId}`);
@@ -65,7 +67,7 @@ export async function kdsRoutes(app: FastifyInstance) {
     });
     if (!order) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
-    const [updated] = await db
+    const bumpRows = await db
       .update(schema.orders)
       .set({ status: 'completed', updatedAt: new Date() })
       .where(
@@ -74,6 +76,7 @@ export async function kdsRoutes(app: FastifyInstance) {
           : eq(schema.orders.id, orderId),
       )
       .returning();
+    const updated = bumpRows[0]!;
 
     broadcastToKDS(order.locationId, {
       type: 'order_bumped',

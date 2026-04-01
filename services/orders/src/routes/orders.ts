@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { generateOrderNumber, generateRefundNumber } from '../lib/orderNumber';
 import { publishTypedEvent } from '../lib/kafka';
@@ -98,16 +98,24 @@ export async function orderRoutes(app: FastifyInstance) {
     }, 0);
     const total = subtotal + taxTotal;
 
-    const [order] = await db.insert(schema.orders).values({
-      ...orderData,
+    const orderRows = await db.insert(schema.orders).values({
       orgId,
       employeeId,
+      locationId: orderData.locationId,
+      registerId: orderData.registerId,
       orderNumber: generateOrderNumber(),
+      channel: orderData.channel,
+      orderType: orderData.orderType,
+      ...(orderData.customerId !== undefined && { customerId: orderData.customerId }),
+      ...(orderData.tableId !== undefined && { tableId: orderData.tableId }),
+      ...(orderData.covers !== undefined && { covers: orderData.covers }),
+      ...(orderData.notes !== undefined && { notes: orderData.notes }),
       subtotal: String(subtotal.toFixed(4)),
       discountTotal: String(discountTotal.toFixed(4)),
       taxTotal: String(taxTotal.toFixed(4)),
       total: String(total.toFixed(4)),
     }).returning();
+    const order = orderRows[0]!;
 
     await db.insert(schema.orderLines).values(lines.map((l) => {
       const lineBase = l.quantity * l.unitPrice - l.discountAmount;
@@ -116,7 +124,7 @@ export async function orderRoutes(app: FastifyInstance) {
       return {
         orderId: order.id,
         productId: l.productId,
-        variantId: l.variantId,
+        ...(l.variantId !== undefined && { variantId: l.variantId }),
         name: l.name,
         sku: l.sku,
         quantity: String(l.quantity),
@@ -127,9 +135,9 @@ export async function orderRoutes(app: FastifyInstance) {
         discountAmount: String(l.discountAmount),
         lineTotal: String(lineTotal.toFixed(4)),
         modifiers: l.modifiers,
-        seatNumber: l.seatNumber,
-        course: l.course,
-        notes: l.notes,
+        ...(l.seatNumber !== undefined && { seatNumber: l.seatNumber }),
+        ...(l.course !== undefined && { course: l.course }),
+        ...(l.notes !== undefined && { notes: l.notes }),
       };
     }));
 
@@ -151,7 +159,7 @@ export async function orderRoutes(app: FastifyInstance) {
               orderNumber: created.orderNumber,
               total: Number(created.total),
               customerId: created.customerId ?? undefined,
-              lineCount: (created as typeof created & { lines: unknown[] }).lines?.length ?? 0,
+              lineCount: created.lines.length,
               channel: created.channel,
             },
             { locationId: created.locationId },
@@ -173,14 +181,14 @@ export async function orderRoutes(app: FastifyInstance) {
           channel: created.channel,
           tableId: created.tableId,
           locationId: created.locationId,
-          lines: (created as typeof created & { lines: typeof schema.orderLines.$inferSelect[] }).lines?.map((l) => ({
+          lines: created.lines.map((l) => ({
             name: l.name,
             qty: Number(l.quantity),
-            modifiers: (l.modifiers as { name: string }[])?.map((m) => m.name) ?? [],
+            modifiers: (l.modifiers as { name: string }[]).map((m) => m.name),
             seatNumber: l.seatNumber,
             course: l.course,
-          })) ?? [],
-          createdAt: created.createdAt?.toISOString() ?? new Date().toISOString(),
+          })),
+          createdAt: created.createdAt.toISOString(),
           status: 'new',
         },
       });
@@ -200,14 +208,15 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!order) return reply.status(404).send({ title: 'Not Found', status: 404 });
     if (order.status !== 'open') return reply.status(409).send({ title: 'Order not open', status: 409 });
 
-    const [updated] = await db.update(schema.orders).set({
+    const completeRows = await db.update(schema.orders).set({
       status: 'completed',
       paidTotal: String(body.data.paidTotal),
       changeGiven: String(body.data.changeGiven),
-      receiptChannel: body.data.receiptChannel,
+      ...(body.data.receiptChannel !== undefined && { receiptChannel: body.data.receiptChannel }),
       completedAt: new Date(),
       updatedAt: new Date(),
     }).where(and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId))).returning();
+    const updated = completeRows[0]!;
 
     try {
       await publishTypedEvent(
@@ -265,7 +274,7 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const totalRefundAmount = body.data.lines.reduce((sum, l) => sum + l.amount, 0);
 
-    const [refund] = await db.insert(schema.refunds).values({
+    const refundRows = await db.insert(schema.refunds).values({
       orgId,
       originalOrderId: id,
       refundNumber: generateRefundNumber(),
@@ -275,6 +284,7 @@ export async function orderRoutes(app: FastifyInstance) {
       totalAmount: String(totalRefundAmount.toFixed(4)),
       approvedByEmployeeId,
     }).returning();
+    const refund = refundRows[0]!;
 
     // Update order status
     await db.update(schema.orders).set({ status: 'partially_refunded', updatedAt: new Date() }).where(eq(schema.orders.id, id));
@@ -292,7 +302,8 @@ export async function orderRoutes(app: FastifyInstance) {
     const order = await db.query.orders.findFirst({ where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)) });
     if (!order) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
-    const [updated] = await db.update(schema.orderLines).set({ status: body.data.status }).where(eq(schema.orderLines.id, lineId)).returning();
+    const lineRows = await db.update(schema.orderLines).set({ status: body.data.status }).where(eq(schema.orderLines.id, lineId)).returning();
+    const updated = lineRows[0]!;
     return reply.status(200).send({ data: updated });
   });
 }

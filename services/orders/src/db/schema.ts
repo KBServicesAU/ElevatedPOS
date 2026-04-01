@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, boolean, timestamp, jsonb, decimal, integer, text, pgEnum, numeric } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, jsonb, decimal, integer, text, pgEnum } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
 
 export const orderStatusEnum = pgEnum('order_status', ['open', 'held', 'completed', 'cancelled', 'refunded', 'partially_refunded']);
 export const orderTypeEnum = pgEnum('order_type', ['retail', 'dine_in', 'takeaway', 'delivery', 'pickup', 'layby', 'quote']);
@@ -196,3 +197,18 @@ export const fulfillmentRequests = pgTable('fulfillment_requests', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Relations ─────────────────────────────────────────────────────────────────
+
+export const ordersRelations = relations(orders, ({ many }) => ({
+  lines: many(orderLines),
+  refunds: many(refunds),
+}));
+
+export const orderLinesRelations = relations(orderLines, ({ one }) => ({
+  order: one(orders, { fields: [orderLines.orderId], references: [orders.id] }),
+}));
+
+export const refundsRelations = relations(refunds, ({ one }) => ({
+  order: one(orders, { fields: [refunds.originalOrderId], references: [orders.id] }),
+}));
