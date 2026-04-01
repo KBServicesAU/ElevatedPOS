@@ -57,7 +57,7 @@ jobs:
             --wait --timeout 15m
 
       - name: Notify deployment
-        if: always() && secrets.SLACK_WEBHOOK_URL != ''
+        if: always() && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1
         with:
           payload: |
