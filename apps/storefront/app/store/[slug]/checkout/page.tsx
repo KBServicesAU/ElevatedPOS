@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
 interface CartItem {
@@ -19,7 +19,6 @@ function formatPrice(cents: number): string {
 
 export default function CheckoutPage() {
   const params = useParams<{ slug: string }>();
-  const router = useRouter();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [form, setForm] = useState({ name: '', email: '', phone: '' });
   const [loading, setLoading] = useState(false);

@@ -38,15 +38,21 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/}
           aws eks update-kubeconfig --name elevatedpos-prod --region ${{ env.AWS_REGION }}
 
-          # Ensure namespace exists
-          kubectl create namespace elevatedpos --dry-run=client -o yaml | kubectl apply -f -
-
-          # Apply secrets and configmap first
-          kubectl apply -f infrastructure/k8s/serviceaccount.yaml
-          kubectl apply -f infrastructure/k8s/configmap.yaml
-
-          # Replace ACCOUNT_ID placeholder in k8s manifests used by Helm
           ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com"
+
+          # Annotate/label any pre-existing kubectl-managed resources so Helm
+          # can adopt them without errors on the first helm upgrade.
+          for RESOURCE in configmap/elevatedpos-config serviceaccount/elevatedpos-service; do
+            if kubectl get $RESOURCE -n elevatedpos &>/dev/null; then
+              kubectl annotate $RESOURCE -n elevatedpos \
+                meta.helm.sh/release-name=elevatedpos \
+                meta.helm.sh/release-namespace=elevatedpos \
+                --overwrite
+              kubectl label $RESOURCE -n elevatedpos \
+                app.kubernetes.io/managed-by=Helm \
+                --overwrite
+            fi
+          done
 
           helm upgrade --install elevatedpos ./infrastructure/helm/elevatedpos \
             --namespace elevatedpos \
