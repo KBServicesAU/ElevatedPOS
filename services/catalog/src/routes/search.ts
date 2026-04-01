@@ -37,11 +37,11 @@ export async function searchRoutes(app: FastifyInstance) {
     const tsClient = getTypesenseClient();
     if (tsClient) {
       const tsResult = await tsSearchProducts(orgId, query, {
-        categoryId,
-        minPrice,
-        maxPrice,
         limit,
         page,
+        ...(categoryId !== undefined ? { categoryId } : {}),
+        ...(minPrice !== undefined ? { minPrice } : {}),
+        ...(maxPrice !== undefined ? { maxPrice } : {}),
       });
 
       if (tsResult !== null) {
@@ -112,14 +112,14 @@ export async function searchRoutes(app: FastifyInstance) {
       id: p.id,
       orgId: p.orgId,
       name: p.name,
-      description: p.description ?? undefined,
       sku: p.sku,
       barcodes: (p.barcodes as string[]) ?? [],
-      categoryId: p.categoryId ?? undefined,
-      categoryName: (p as { category?: { name: string } | null }).category?.name ?? undefined,
       basePrice: Number(p.basePrice),
       isActive: p.isActive,
-      tags: (p.tags as string[]) ?? [],
+      ...(p.description != null ? { description: p.description } : {}),
+      ...(p.categoryId != null ? { categoryId: p.categoryId } : {}),
+      ...((p as { category?: { name: string } | null }).category?.name != null ? { categoryName: (p as { category?: { name: string } | null }).category!.name } : {}),
+      ...(Array.isArray(p.tags) && (p.tags as string[]).length > 0 ? { tags: p.tags as string[] } : {}),
     }));
 
     await bulkIndexProducts(docs);

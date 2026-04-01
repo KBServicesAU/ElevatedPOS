@@ -39,29 +39,34 @@ export async function recipeRoutes(app: FastifyInstance) {
     const { ingredients, ...recipeData } = body.data;
 
     const [recipe] = await db.insert(schema.recipes).values({
-      ...recipeData,
       orgId,
+      name: recipeData.name,
       yieldQuantity: String(recipeData.yieldQuantity),
+      yieldUnit: recipeData.yieldUnit,
+      productId: recipeData.productId ?? null,
+      prepTimeMinutes: recipeData.prepTimeMinutes ?? null,
+      cookTimeMinutes: recipeData.cookTimeMinutes ?? null,
+      instructions: recipeData.instructions ?? null,
     }).returning();
 
     if (ingredients.length > 0) {
       await db.insert(schema.recipeIngredients).values(
         ingredients.map((ing) => ({
-          recipeId: recipe.id,
+          recipeId: recipe!.id,
           stockItemRef: ing.stockItemRef,
           ingredientName: ing.ingredientName,
           quantity: String(ing.quantity),
           unit: ing.unit,
           wastagePercent: String(ing.wastagePercent),
-          estimatedCostPerUnit: ing.estimatedCostPerUnit !== undefined ? String(ing.estimatedCostPerUnit) : undefined,
-          notes: ing.notes,
+          estimatedCostPerUnit: ing.estimatedCostPerUnit !== undefined ? String(ing.estimatedCostPerUnit) : null,
+          notes: ing.notes ?? null,
           sortOrder: ing.sortOrder,
         })),
       );
     }
 
     const created = await db.query.recipes.findFirst({
-      where: eq(schema.recipes.id, recipe.id),
+      where: eq(schema.recipes.id, recipe!.id),
       with: { ingredients: { orderBy: (i, { asc }) => [asc(i.sortOrder)] } },
     });
 
@@ -139,11 +144,11 @@ export async function recipeRoutes(app: FastifyInstance) {
     if (recipeData.cookTimeMinutes !== undefined) updateData['cookTimeMinutes'] = recipeData.cookTimeMinutes;
     if (recipeData.instructions !== undefined) updateData['instructions'] = recipeData.instructions;
 
-    const [updated] = await db
+    type RecipeUpdate = typeof schema.recipes.$inferInsert;
+    await db
       .update(schema.recipes)
-      .set(updateData as Parameters<typeof db.update>[0] extends infer T ? T : never)
-      .where(and(eq(schema.recipes.id, id), eq(schema.recipes.orgId, orgId)))
-      .returning();
+      .set(updateData as unknown as RecipeUpdate)
+      .where(and(eq(schema.recipes.id, id), eq(schema.recipes.orgId, orgId)));
 
     // If ingredients provided, replace all
     if (ingredients !== undefined) {
@@ -157,8 +162,8 @@ export async function recipeRoutes(app: FastifyInstance) {
             quantity: String(ing.quantity),
             unit: ing.unit,
             wastagePercent: String(ing.wastagePercent),
-            estimatedCostPerUnit: ing.estimatedCostPerUnit !== undefined ? String(ing.estimatedCostPerUnit) : undefined,
-            notes: ing.notes,
+            estimatedCostPerUnit: ing.estimatedCostPerUnit !== undefined ? String(ing.estimatedCostPerUnit) : null,
+            notes: ing.notes ?? null,
             sortOrder: ing.sortOrder,
           })),
         );
@@ -259,7 +264,7 @@ export async function recipeRoutes(app: FastifyInstance) {
         costPerUnit: String(body.data.costPerUnit),
         currentStock: String(body.data.currentStock),
         reorderPoint: String(body.data.reorderPoint),
-        supplierId: body.data.supplierId,
+        supplierId: body.data.supplierId ?? null,
       })
       .returning();
 
@@ -288,9 +293,10 @@ export async function recipeRoutes(app: FastifyInstance) {
     if (body.data.reorderPoint !== undefined) updateData['reorderPoint'] = String(body.data.reorderPoint);
     if (body.data.supplierId !== undefined) updateData['supplierId'] = body.data.supplierId;
 
+    type IngredientUpdate = typeof schema.ingredients.$inferInsert;
     const [updated] = await db
       .update(schema.ingredients)
-      .set(updateData as Parameters<typeof db.update>[0] extends infer T ? T : never)
+      .set(updateData as unknown as IngredientUpdate)
       .where(and(eq(schema.ingredients.id, id), eq(schema.ingredients.orgId, orgId)))
       .returning();
 

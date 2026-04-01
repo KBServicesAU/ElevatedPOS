@@ -28,7 +28,13 @@ export async function priceListRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const body = createPriceListSchema.safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
-    const [created] = await db.insert(schema.priceLists).values({ ...body.data, orgId }).returning();
+    const { startAt: rawStartAt, endAt: rawEndAt, ...priceListRest } = body.data;
+    const [created] = await db.insert(schema.priceLists).values({
+      ...priceListRest,
+      orgId,
+      startAt: rawStartAt ? new Date(rawStartAt) : null,
+      endAt: rawEndAt ? new Date(rawEndAt) : null,
+    }).returning();
     return reply.status(201).send({ data: created });
   });
 
@@ -41,7 +47,13 @@ export async function priceListRoutes(app: FastifyInstance) {
     const list = await db.query.priceLists.findFirst({ where: and(eq(schema.priceLists.id, id), eq(schema.priceLists.orgId, orgId)) });
     if (!list) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
-    await db.insert(schema.priceListEntries).values(body.data.map((e) => ({ ...e, priceListId: id }))).onConflictDoUpdate({ target: [schema.priceListEntries.priceListId, schema.priceListEntries.productId], set: { price: body.data[0]!.price } });
+    const firstPrice = String(body.data[0]!.price);
+    await db.insert(schema.priceListEntries).values(body.data.map((e) => ({
+      priceListId: id,
+      productId: e.productId,
+      variantId: e.variantId ?? null,
+      price: String(e.price),
+    }))).onConflictDoUpdate({ target: [schema.priceListEntries.priceListId, schema.priceListEntries.productId], set: { price: firstPrice } });
 
     return reply.status(200).send({ data: { updated: body.data.length } });
   });

@@ -27,8 +27,16 @@ export async function categoryRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const body = createCategorySchema.safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
-    const slug = body.data.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const [created] = await db.insert(schema.categories).values({ ...body.data, orgId, slug }).returning();
+    const { parentId: rawParentId, description: rawDescription, imageUrl: rawImageUrl, ...categoryRest } = body.data;
+    const slug = categoryRest.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const [created] = await db.insert(schema.categories).values({
+      ...categoryRest,
+      orgId,
+      slug,
+      parentId: rawParentId ?? null,
+      description: rawDescription ?? null,
+      imageUrl: rawImageUrl ?? null,
+    }).returning();
     return reply.status(201).send({ data: created });
   });
 
@@ -37,7 +45,14 @@ export async function categoryRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = createCategorySchema.partial().safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
-    const [updated] = await db.update(schema.categories).set({ ...body.data, updatedAt: new Date() }).where(and(eq(schema.categories.id, id), eq(schema.categories.orgId, orgId))).returning();
+    const setData: Record<string, unknown> = { updatedAt: new Date() };
+    if (body.data.name !== undefined) setData['name'] = body.data.name;
+    if (body.data.parentId !== undefined) setData['parentId'] = body.data.parentId ?? null;
+    if (body.data.description !== undefined) setData['description'] = body.data.description ?? null;
+    if (body.data.imageUrl !== undefined) setData['imageUrl'] = body.data.imageUrl ?? null;
+    if (body.data.sortOrder !== undefined) setData['sortOrder'] = body.data.sortOrder;
+    type CategoryUpdate = typeof schema.categories.$inferInsert;
+    const [updated] = await db.update(schema.categories).set(setData as unknown as CategoryUpdate).where(and(eq(schema.categories.id, id), eq(schema.categories.orgId, orgId))).returning();
     return reply.status(200).send({ data: updated });
   });
 

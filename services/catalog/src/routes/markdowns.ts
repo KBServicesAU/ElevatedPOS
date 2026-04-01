@@ -53,7 +53,7 @@ export async function markdownRoutes(app: FastifyInstance) {
       });
     }
 
-    const { startsAt, endsAt, discountValue, ...rest } = body.data;
+    const { startsAt, endsAt, discountValue, targetId: rawTargetId, ...rest } = body.data;
 
     const [created] = await db
       .insert(schema.markdowns)
@@ -61,6 +61,7 @@ export async function markdownRoutes(app: FastifyInstance) {
         ...rest,
         orgId,
         createdBy: userId,
+        targetId: rawTargetId ?? null,
         discountValue: String(discountValue),
         startsAt: new Date(startsAt),
         endsAt: endsAt ? new Date(endsAt) : null,
@@ -129,9 +130,10 @@ export async function markdownRoutes(app: FastifyInstance) {
     if (endsAt !== undefined) updateData['endsAt'] = endsAt ? new Date(endsAt) : null;
     if (discountValue !== undefined) updateData['discountValue'] = String(discountValue);
 
+    type MarkdownUpdate = typeof schema.markdowns.$inferInsert;
     const [updated] = await db
       .update(schema.markdowns)
-      .set(updateData)
+      .set(updateData as unknown as MarkdownUpdate)
       .where(and(eq(schema.markdowns.id, id), eq(schema.markdowns.orgId, orgId)))
       .returning();
 

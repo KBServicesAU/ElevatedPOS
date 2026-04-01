@@ -36,10 +36,17 @@ export async function modifierRoutes(app: FastifyInstance) {
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
 
     const { options, ...groupData } = body.data;
-    const [group] = await db.insert(schema.modifierGroups).values({ ...groupData, orgId }).returning();
+    const groupRows = await db.insert(schema.modifierGroups).values({ ...groupData, orgId }).returning();
+    const group = groupRows[0]!;
 
     if (options.length > 0) {
-      await db.insert(schema.modifierOptions).values(options.map((o) => ({ ...o, groupId: group.id })));
+      await db.insert(schema.modifierOptions).values(options.map((o) => ({
+        groupId: group.id,
+        name: o.name,
+        priceAdjustment: String(o.priceAdjustment),
+        isDefault: o.isDefault,
+        sortOrder: o.sortOrder,
+      })));
     }
 
     const created = await db.query.modifierGroups.findFirst({

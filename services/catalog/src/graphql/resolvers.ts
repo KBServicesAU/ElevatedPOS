@@ -49,7 +49,7 @@ export const resolvers = {
       return normalizeProduct(row);
     },
 
-    async categories(_: unknown, args: { orgId: string }, ctx: GqlContext) {
+    async categories(_: unknown, _orgArgs: { orgId: string }, ctx: GqlContext) {
       const orgId = getOrgId(ctx);
 
       const rows = await db.query.categories.findMany({
@@ -139,7 +139,7 @@ export const resolvers = {
         })
         .returning();
 
-      return normalizeProduct(created);
+      return normalizeProduct(created! as ProductRow);
     },
 
     async updateProduct(
@@ -172,13 +172,14 @@ export const resolvers = {
       if (args.input.tags !== undefined) updateData.tags = args.input.tags;
       if (args.input.isActive !== undefined) updateData.isActive = args.input.isActive;
 
+      type ProductUpdate = typeof schema.products.$inferInsert;
       const [updated] = await db
         .update(schema.products)
-        .set(updateData)
+        .set(updateData as unknown as ProductUpdate)
         .where(and(eq(schema.products.id, args.id), eq(schema.products.orgId, orgId)))
         .returning();
 
-      return normalizeProduct(updated);
+      return normalizeProduct(updated! as ProductRow);
     },
 
     async deleteProduct(_: unknown, args: { id: string }, ctx: GqlContext) {
@@ -245,7 +246,34 @@ type ModifierGroupRow = {
   options?: ModifierOptionRow[];
 };
 
-function normalizeProduct(row: ProductRow) {
+interface NormalizedProduct {
+  id: string;
+  orgId: string;
+  name: string;
+  description: string | null;
+  sku: string;
+  barcodes: string[];
+  basePrice: number;
+  isActive: boolean;
+  categoryId: string | null;
+  category: NormalizedCategory | null;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface NormalizedCategory {
+  id: string;
+  orgId: string;
+  name: string;
+  description: string | null;
+  parentId: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  products: NormalizedProduct[];
+}
+
+function normalizeProduct(row: ProductRow): NormalizedProduct {
   return {
     id: row.id,
     orgId: row.orgId,
@@ -265,8 +293,8 @@ function normalizeProduct(row: ProductRow) {
 
 function normalizeCategory(
   row: CategoryRow,
-  products: ReturnType<typeof normalizeProduct>[],
-) {
+  products: NormalizedProduct[],
+): NormalizedCategory {
   return {
     id: row.id,
     orgId: row.orgId,

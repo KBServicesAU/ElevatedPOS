@@ -43,22 +43,24 @@ export async function bundleRoutes(app: FastifyInstance) {
       });
     }
 
-    const { components, ...bundleData } = body.data;
+    const { components, description: bundleDesc, fixedPrice, discountValue, ...bundleRest } = body.data;
 
-    const [bundle] = await db
+    const bundleRows = await db
       .insert(schema.productBundles)
       .values({
-        ...bundleData,
+        ...bundleRest,
         orgId,
-        fixedPrice: bundleData.fixedPrice != null ? String(bundleData.fixedPrice) : null,
-        discountValue: String(bundleData.discountValue),
+        description: bundleDesc ?? null,
+        fixedPrice: fixedPrice != null ? String(fixedPrice) : null,
+        discountValue: String(discountValue),
       })
       .returning();
+    const bundle = bundleRows[0]!;
 
     const componentRows = components.map((c) => ({
       bundleId: bundle.id,
       productId: c.productId,
-      variantId: c.variantId,
+      variantId: c.variantId ?? null,
       quantity: String(c.quantity),
       isRequired: c.isRequired,
       allowSubstitutes: c.allowSubstitutes,
@@ -169,9 +171,10 @@ export async function bundleRoutes(app: FastifyInstance) {
     if (fixedPrice !== undefined) updateData['fixedPrice'] = fixedPrice != null ? String(fixedPrice) : null;
     if (discountValue !== undefined) updateData['discountValue'] = String(discountValue);
 
+    type BundleUpdate = typeof schema.productBundles.$inferInsert;
     const [updated] = await db
       .update(schema.productBundles)
-      .set(updateData)
+      .set(updateData as unknown as BundleUpdate)
       .where(and(eq(schema.productBundles.id, id), eq(schema.productBundles.orgId, orgId)))
       .returning();
 
@@ -181,7 +184,7 @@ export async function bundleRoutes(app: FastifyInstance) {
         components.map((c) => ({
           bundleId: id,
           productId: c.productId,
-          variantId: c.variantId,
+          variantId: c.variantId ?? null,
           quantity: String(c.quantity),
           isRequired: c.isRequired,
           allowSubstitutes: c.allowSubstitutes,

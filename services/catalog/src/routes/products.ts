@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, gte, ilike, or, arrayContains } from 'drizzle-orm';
+import { eq, and, desc, ilike, or, arrayContains } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { searchProducts, indexProduct, deleteProductFromIndex } from '../lib/typesense';
 import { getCached, setCached, invalidateCache } from '../lib/cache';
@@ -41,12 +41,12 @@ export async function productRoutes(app: FastifyInstance) {
     // Try Typesense first
     const tsResults = await searchProducts(orgId, query, {
       limit,
-      categoryId: q.categoryId,
-      isActive: q.isActive !== undefined ? q.isActive === 'true' : undefined,
+      ...(q.categoryId !== undefined ? { categoryId: q.categoryId } : {}),
+      ...(q.isActive !== undefined ? { isActive: q.isActive === 'true' } : {}),
     });
 
     if (tsResults !== null) {
-      return reply.status(200).send({ data: tsResults, meta: { totalCount: tsResults.length, source: 'typesense' } });
+      return reply.status(200).send({ data: tsResults.hits, meta: { totalCount: tsResults.found, source: 'typesense' } });
     }
 
     // Typesense unavailable — fall back to DB
@@ -84,15 +84,15 @@ export async function productRoutes(app: FastifyInstance) {
     if (query) {
       const tsResults = await searchProducts(orgId, query, {
         limit,
-        categoryId: q.categoryId,
-        isActive: q.isActive !== undefined ? q.isActive === 'true' : undefined,
+        ...(q.categoryId !== undefined ? { categoryId: q.categoryId } : {}),
+        ...(q.isActive !== undefined ? { isActive: q.isActive === 'true' } : {}),
       });
 
       if (tsResults !== null) {
         // Filter by channel in-memory when Typesense returns results
         const channelFiltered = q.channel
-          ? tsResults.filter((p: { channels?: string[] }) => Array.isArray(p.channels) && p.channels.includes(q.channel!))
-          : tsResults;
+          ? tsResults.hits.filter((p: Record<string, unknown>) => Array.isArray(p['channels']) && (p['channels'] as string[]).includes(q.channel!))
+          : tsResults.hits;
         return reply.status(200).send({ data: channelFiltered, meta: { totalCount: channelFiltered.length, hasMore: channelFiltered.length === limit, source: 'typesense' } });
       }
 
@@ -151,13 +151,10 @@ export async function productRoutes(app: FastifyInstance) {
 
   // GET /api/v1/products/barcode/:barcode
   app.get('/barcode/:barcode', {
-    onRequest: [app.authenticate],
-    schema: {
-      params: z.object({ barcode: z.string() }),
-    }
+    onRequest: app.authenticate,
   }, async (request, reply) => {
-    const { barcode } = request.params;
-    const { orgId } = request.user;
+    const { barcode } = (request.params as { barcode: string });
+    const { orgId } = request.user as { orgId: string };
 
     // Search in barcodes array (it's stored as jsonb/text array)
     const products = await db
@@ -199,26 +196,49 @@ export async function productRoutes(app: FastifyInstance) {
     const body = createProductSchema.safeParse(request.body);
     if (!body.success) return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
 
-    const [created] = await db.insert(schema.products).values({ ...body.data, orgId }).returning();
+    const {
+      description: rawDescription,
+      categoryId: rawCategoryId,
+      taxClassId: rawTaxClassId,
+      ageRestrictionMinimum: rawAgeMin,
+      pluCode: rawPluCode,
+      notes: rawNotes,
+      basePrice: rawBasePrice,
+      costPrice: rawCostPrice,
+      ...productRest
+    } = body.data;
+    const [created] = await db.insert(schema.products).values({
+      ...productRest,
+      orgId,
+      description: rawDescription ?? null,
+      categoryId: rawCategoryId ?? null,
+      taxClassId: rawTaxClassId ?? null,
+      ageRestrictionMinimum: rawAgeMin ?? null,
+      pluCode: rawPluCode ?? null,
+      notes: rawNotes ?? null,
+      basePrice: String(rawBasePrice),
+      costPrice: String(rawCostPrice),
+    }).returning();
+    const c = created!;
 
     // Index in Typesense — fire-and-forget (non-fatal)
     indexProduct({
-      id: created.id,
-      orgId: created.orgId,
-      name: created.name,
-      description: created.description ?? undefined,
-      sku: created.sku,
-      barcodes: (created.barcodes as string[]) ?? [],
-      categoryId: created.categoryId ?? undefined,
-      basePrice: Number(created.basePrice),
-      isActive: created.isActive,
-      tags: (created.tags as string[]) ?? [],
+      id: c.id,
+      orgId: c.orgId,
+      name: c.name,
+      sku: c.sku,
+      barcodes: (c.barcodes as string[]) ?? [],
+      basePrice: Number(c.basePrice),
+      isActive: c.isActive,
+      ...(c.description != null ? { description: c.description } : {}),
+      ...(c.categoryId != null ? { categoryId: c.categoryId } : {}),
+      ...(Array.isArray(c.tags) && (c.tags as string[]).length > 0 ? { tags: c.tags as string[] } : {}),
     }).catch((err) => console.error('Typesense indexProduct (create) failed:', err));
 
     // Invalidate list cache for this org
     await invalidateCache(`products:${orgId}:*`);
 
-    return reply.status(201).send({ data: created });
+    return reply.status(201).send({ data: c });
   });
 
   app.patch('/:id', async (request, reply) => {
@@ -230,26 +250,51 @@ export async function productRoutes(app: FastifyInstance) {
     const existing = await db.query.products.findFirst({ where: and(eq(schema.products.id, id), eq(schema.products.orgId, orgId)) });
     if (!existing) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
-    const [updated] = await db.update(schema.products).set({ ...body.data, updatedAt: new Date() }).where(and(eq(schema.products.id, id), eq(schema.products.orgId, orgId))).returning();
+    const patchData: Record<string, unknown> = { updatedAt: new Date() };
+    const bd = body.data;
+    if (bd.name !== undefined) patchData['name'] = bd.name;
+    if (bd.description !== undefined) patchData['description'] = bd.description ?? null;
+    if (bd.categoryId !== undefined) patchData['categoryId'] = bd.categoryId ?? null;
+    if (bd.taxClassId !== undefined) patchData['taxClassId'] = bd.taxClassId ?? null;
+    if (bd.productType !== undefined) patchData['productType'] = bd.productType;
+    if (bd.sku !== undefined) patchData['sku'] = bd.sku;
+    if (bd.barcodes !== undefined) patchData['barcodes'] = bd.barcodes;
+    if (bd.basePrice !== undefined) patchData['basePrice'] = String(bd.basePrice);
+    if (bd.costPrice !== undefined) patchData['costPrice'] = String(bd.costPrice);
+    if (bd.isSoldOnline !== undefined) patchData['isSoldOnline'] = bd.isSoldOnline;
+    if (bd.isSoldInstore !== undefined) patchData['isSoldInstore'] = bd.isSoldInstore;
+    if (bd.trackStock !== undefined) patchData['trackStock'] = bd.trackStock;
+    if (bd.reorderPoint !== undefined) patchData['reorderPoint'] = bd.reorderPoint;
+    if (bd.reorderQuantity !== undefined) patchData['reorderQuantity'] = bd.reorderQuantity;
+    if (bd.ageRestricted !== undefined) patchData['ageRestricted'] = bd.ageRestricted;
+    if (bd.ageRestrictionMinimum !== undefined) patchData['ageRestrictionMinimum'] = bd.ageRestrictionMinimum ?? null;
+    if (bd.weightBased !== undefined) patchData['weightBased'] = bd.weightBased;
+    if (bd.pluCode !== undefined) patchData['pluCode'] = bd.pluCode ?? null;
+    if (bd.tags !== undefined) patchData['tags'] = bd.tags;
+    if (bd.notes !== undefined) patchData['notes'] = bd.notes ?? null;
+
+    type ProductUpdate = typeof schema.products.$inferInsert;
+    const [updated] = await db.update(schema.products).set(patchData as unknown as ProductUpdate).where(and(eq(schema.products.id, id), eq(schema.products.orgId, orgId))).returning();
+    const u = updated!;
 
     // Re-index in Typesense — fire-and-forget (non-fatal)
     indexProduct({
-      id: updated.id,
-      orgId: updated.orgId,
-      name: updated.name,
-      description: updated.description ?? undefined,
-      sku: updated.sku,
-      barcodes: (updated.barcodes as string[]) ?? [],
-      categoryId: updated.categoryId ?? undefined,
-      basePrice: Number(updated.basePrice),
-      isActive: updated.isActive,
-      tags: (updated.tags as string[]) ?? [],
+      id: u.id,
+      orgId: u.orgId,
+      name: u.name,
+      sku: u.sku,
+      barcodes: (u.barcodes as string[]) ?? [],
+      basePrice: Number(u.basePrice),
+      isActive: u.isActive,
+      ...(u.description != null ? { description: u.description } : {}),
+      ...(u.categoryId != null ? { categoryId: u.categoryId } : {}),
+      ...(Array.isArray(u.tags) && (u.tags as string[]).length > 0 ? { tags: u.tags as string[] } : {}),
     }).catch((err) => console.error('Typesense indexProduct (update) failed:', err));
 
     // Invalidate list cache for this org
     await invalidateCache(`products:${orgId}:*`);
 
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: u });
   });
 
   app.delete('/:id', async (request, reply) => {
@@ -264,7 +309,7 @@ export async function productRoutes(app: FastifyInstance) {
   });
 
   // POST /api/v1/products/:id/availability — 86 or restore a product
-  app.post('/:id/availability', { onRequest: [app.authenticate] } as Parameters<typeof app.post>[1], async (request, reply) => {
+  app.post('/:id/availability', { onRequest: app.authenticate }, async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
     const bodySchema = z.object({

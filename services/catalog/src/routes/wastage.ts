@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, gte, lte, desc, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, desc } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 const createWastageSchema = z.object({
@@ -43,9 +43,10 @@ export async function wastageRoutes(app: FastifyInstance) {
       if (!grouped[key]) {
         grouped[key] = { productId: e.productId, reason: e.reason, totalQuantity: 0, totalCost: 0, count: 0 };
       }
-      grouped[key].totalQuantity += Number(e.quantity);
-      grouped[key].totalCost += Number(e.estimatedCost ?? 0);
-      grouped[key].count += 1;
+      const groupedBucket = grouped[key]!;
+      groupedBucket.totalQuantity += Number(e.quantity);
+      groupedBucket.totalCost += Number(e.estimatedCost ?? 0);
+      groupedBucket.count += 1;
     }
 
     return reply.status(200).send({
@@ -79,9 +80,10 @@ export async function wastageRoutes(app: FastifyInstance) {
     const byReason: Record<string, { count: number; totalQuantity: number; totalCost: number }> = {};
     for (const e of events) {
       if (!byReason[e.reason]) byReason[e.reason] = { count: 0, totalQuantity: 0, totalCost: 0 };
-      byReason[e.reason].count += 1;
-      byReason[e.reason].totalQuantity += Number(e.quantity);
-      byReason[e.reason].totalCost += Number(e.estimatedCost ?? 0);
+      const reasonBucket = byReason[e.reason]!;
+      reasonBucket.count += 1;
+      reasonBucket.totalQuantity += Number(e.quantity);
+      reasonBucket.totalCost += Number(e.estimatedCost ?? 0);
     }
 
     // Breakdown by product
@@ -89,9 +91,10 @@ export async function wastageRoutes(app: FastifyInstance) {
     for (const e of events) {
       const key = e.productId ?? 'unknown';
       if (!byProduct[key]) byProduct[key] = { productId: e.productId, count: 0, totalQuantity: 0, totalCost: 0 };
-      byProduct[key].count += 1;
-      byProduct[key].totalQuantity += Number(e.quantity);
-      byProduct[key].totalCost += Number(e.estimatedCost ?? 0);
+      const productBucket = byProduct[key]!;
+      productBucket.count += 1;
+      productBucket.totalQuantity += Number(e.quantity);
+      productBucket.totalCost += Number(e.estimatedCost ?? 0);
     }
 
     return reply.status(200).send({
@@ -116,14 +119,14 @@ export async function wastageRoutes(app: FastifyInstance) {
     const [created] = await db.insert(schema.wastageEvents).values({
       orgId,
       locationId: body.data.locationId,
-      productId: body.data.productId,
-      recipeId: body.data.recipeId,
+      productId: body.data.productId ?? null,
+      recipeId: body.data.recipeId ?? null,
       quantity: String(body.data.quantity),
       unit: body.data.unit,
       reason: body.data.reason,
-      estimatedCost: body.data.estimatedCost !== undefined ? String(body.data.estimatedCost) : undefined,
+      estimatedCost: body.data.estimatedCost !== undefined ? String(body.data.estimatedCost) : null,
       recordedBy,
-      notes: body.data.notes,
+      notes: body.data.notes ?? null,
       recordedAt: body.data.recordedAt ? new Date(body.data.recordedAt) : new Date(),
     }).returning();
 

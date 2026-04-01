@@ -1,10 +1,11 @@
 import Typesense from 'typesense';
+import type { Client } from 'typesense';
 
 // ─── Lazy singleton ────────────────────────────────────────────────────────────
 
-let _client: Typesense.Client | null = null;
+let _client: Client | null = null;
 
-export function getTypesenseClient(): Typesense.Client | null {
+export function getTypesenseClient(): Client | null {
   if (!process.env['TYPESENSE_HOST']) return null;
   if (!_client) {
     _client = new Typesense.Client({
@@ -191,13 +192,14 @@ export async function searchProducts(
       facet_by: 'categoryId,categoryName,isActive',
     });
 
+    const facetCounts = result.facet_counts?.map((fc: { field_name: string; counts: { value: string; count: number }[] }) => ({
+      fieldName: String(fc.field_name),
+      counts: fc.counts.map((c: { value: string; count: number }) => ({ value: String(c.value), count: c.count })),
+    }));
     return {
       hits: (result.hits ?? []).map((h) => h.document as Record<string, unknown>),
       found: result.found ?? 0,
-      facetCounts: result.facet_counts?.map((fc) => ({
-        fieldName: fc.field_name,
-        counts: fc.counts.map((c) => ({ value: String(c.value), count: c.count })),
-      })),
+      ...(facetCounts !== undefined ? { facetCounts } : {}),
     };
   } catch {
     return null; // Typesense unavailable — caller falls back to DB
