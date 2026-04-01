@@ -1,12 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
-import { v4 as uuidv4 } from 'uuid';
 import { db, schema } from '../db';
-
-function generateMembershipNumber(): string {
-  return `MBR-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-}
 
 export async function loyaltyRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
@@ -15,8 +10,8 @@ export async function loyaltyRoutes(app: FastifyInstance) {
   app.get('/programs', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const programs = await db.query.loyaltyPrograms.findMany({
-      where: and(eq(schema.loyaltyPrograms.orgId, orgId), eq(schema.loyaltyPrograms.isActive, true)),
-      with: { tiers: { orderBy: [schema.loyaltyTiers.sortOrder] } },
+      where: and(eq(schema.loyaltyPrograms.orgId, orgId), eq(schema.loyaltyPrograms.active, true)),
+      with: { tiers: { orderBy: [schema.loyaltyTiers.minPoints] } },
     });
     return reply.status(200).send({ data: programs });
   });
@@ -25,14 +20,10 @@ export async function loyaltyRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const body = z.object({
       name: z.string().min(1),
-      type: z.enum(['points', 'stamp', 'tier', 'cashback', 'paid']).default('points'),
-      earnRate: z.number().positive().default(1),
-      redeemRate: z.number().positive().default(0.01),
-      stampsRequired: z.number().int().optional(),
-      pointsName: z.string().default('Points'),
+      earnRate: z.number().int().positive().default(10),
     }).safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
-    const [created] = await db.insert(schema.loyaltyPrograms).values({ ...body.data, orgId }).returning();
+    const [created] = await db.insert(schema.loyaltyPrograms).values({ name: body.data.name, earnRate: body.data.earnRate, orgId }).returning();
     return reply.status(201).send({ data: created });
   });
 
@@ -56,7 +47,7 @@ export async function loyaltyRoutes(app: FastifyInstance) {
     const existing = await db.query.loyaltyAccounts.findFirst({ where: and(eq(schema.loyaltyAccounts.customerId, body.data.customerId), eq(schema.loyaltyAccounts.orgId, orgId)) });
     if (existing) return reply.status(409).send({ title: 'Account already exists', status: 409, detail: `Customer already has a loyalty account.` });
 
-    const [account] = await db.insert(schema.loyaltyAccounts).values({ ...body.data, orgId, membershipNumber: generateMembershipNumber() }).returning();
+    const [account] = await db.insert(schema.loyaltyAccounts).values({ ...body.data, orgId }).returning();
     return reply.status(201).send({ data: account });
   });
 
@@ -68,7 +59,6 @@ export async function loyaltyRoutes(app: FastifyInstance) {
       orderId: z.string().uuid(),
       orderTotal: z.number().positive(),
       idempotencyKey: z.string().min(1),
-      rule: z.string().default('purchase'),
     }).safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
 
@@ -82,14 +72,14 @@ export async function loyaltyRoutes(app: FastifyInstance) {
     });
     if (!account) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
-    const multiplier = Number(account.tier?.earnMultiplier ?? 1);
+    const multiplier = Number(account.tier?.multiplier ?? 1);
     const earnRate = Number(account.program.earnRate);
     const pointsEarned = Math.floor(body.data.orderTotal * earnRate * multiplier);
-    const newBalance = account.pointsBalance + pointsEarned;
+    const newBalance = account.points + pointsEarned;
 
     await db.update(schema.loyaltyAccounts).set({
-      pointsBalance: newBalance,
-      lifetimePointsEarned: account.lifetimePointsEarned + pointsEarned,
+      points: newBalance,
+      lifetimePoints: account.lifetimePoints + pointsEarned,
       updatedAt: new Date(),
     }).where(eq(schema.loyaltyAccounts.id, id));
 
@@ -98,14 +88,11 @@ export async function loyaltyRoutes(app: FastifyInstance) {
       orgId,
       type: 'earn',
       points: pointsEarned,
-      balanceBefore: account.pointsBalance,
-      balanceAfter: newBalance,
       orderId: body.data.orderId,
-      rule: body.data.rule,
       idempotencyKey: body.data.idempotencyKey,
     }).returning();
 
-    return reply.status(200).send({ data: { transaction: tx, newBalance, pointsEarned } });
+    return reply.status(200).send({ data: { transaction: tx, newPoints: newBalance, pointsEarned } });
   });
 
   // --- Redeem points ---
@@ -127,14 +114,12 @@ export async function loyaltyRoutes(app: FastifyInstance) {
       with: { program: true },
     });
     if (!account) return reply.status(404).send({ title: 'Not Found', status: 404 });
-    if (account.pointsBalance < body.data.points) return reply.status(422).send({ title: 'Insufficient points', status: 422 });
+    if (account.points < body.data.points) return reply.status(422).send({ title: 'Insufficient points', status: 422 });
 
-    const dollarValue = body.data.points * Number(account.program.redeemRate);
-    const newBalance = account.pointsBalance - body.data.points;
+    const newBalance = account.points - body.data.points;
 
     await db.update(schema.loyaltyAccounts).set({
-      pointsBalance: newBalance,
-      lifetimePointsRedeemed: account.lifetimePointsRedeemed + body.data.points,
+      points: newBalance,
       updatedAt: new Date(),
     }).where(eq(schema.loyaltyAccounts.id, id));
 
@@ -143,13 +128,11 @@ export async function loyaltyRoutes(app: FastifyInstance) {
       orgId,
       type: 'redeem',
       points: -body.data.points,
-      balanceBefore: account.pointsBalance,
-      balanceAfter: newBalance,
       orderId: body.data.orderId,
       idempotencyKey: body.data.idempotencyKey,
     }).returning();
 
-    return reply.status(200).send({ data: { transaction: tx, newBalance, dollarValue } });
+    return reply.status(200).send({ data: { transaction: tx, newPoints: newBalance } });
   });
 
   // --- Transaction history ---

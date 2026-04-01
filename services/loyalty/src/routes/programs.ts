@@ -82,9 +82,13 @@ export async function programRoutes(app: FastifyInstance) {
         detail: `Loyalty program ${id} not found`,
       });
     }
+    const updateData: Record<string, unknown> = {};
+    if (parsed.data.name !== undefined) updateData['name'] = parsed.data.name;
+    if (parsed.data.earnRate !== undefined) updateData['earnRate'] = parsed.data.earnRate;
+    if (parsed.data.active !== undefined) updateData['active'] = parsed.data.active;
     const [updated] = await db
       .update(schema.loyaltyPrograms)
-      .set(parsed.data)
+      .set(updateData)
       .where(and(eq(schema.loyaltyPrograms.id, id), eq(schema.loyaltyPrograms.orgId, orgId)))
       .returning();
     return reply.status(200).send({ data: updated });

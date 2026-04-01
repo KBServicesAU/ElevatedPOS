@@ -189,7 +189,37 @@ export const stampEvents = pgTable('stamp_events', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// ─── Relations ────────────────────────────────────────────────────────────────
+// ─── Loyalty Relations ────────────────────────────────────────────────────────
+
+export const loyaltyProgramsRelations = relations(loyaltyPrograms, ({ many }) => ({
+  tiers: many(loyaltyTiers),
+  accounts: many(loyaltyAccounts),
+}));
+
+export const loyaltyTiersRelations = relations(loyaltyTiers, ({ one }) => ({
+  program: one(loyaltyPrograms, {
+    fields: [loyaltyTiers.programId],
+    references: [loyaltyPrograms.id],
+  }),
+}));
+
+export const loyaltyAccountsRelations = relations(loyaltyAccounts, ({ one }) => ({
+  program: one(loyaltyPrograms, {
+    fields: [loyaltyAccounts.programId],
+    references: [loyaltyPrograms.id],
+  }),
+  tier: one(loyaltyTiers, {
+    fields: [loyaltyAccounts.tierId],
+    references: [loyaltyTiers.id],
+  }),
+}));
+
+export const loyaltyTransactionsRelations = relations(loyaltyTransactions, ({ one }) => ({
+  account: one(loyaltyAccounts, {
+    fields: [loyaltyTransactions.accountId],
+    references: [loyaltyAccounts.id],
+  }),
+}));
 
 export const stampProgramsRelations = relations(stampPrograms, ({ many }) => ({
   cards: many(customerStampCards),

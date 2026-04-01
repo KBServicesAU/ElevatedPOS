@@ -30,10 +30,16 @@ export async function stampRoutes(app: FastifyInstance) {
         detail: parsed.error.message,
       });
     }
-    const { rewardValue, ...rest } = parsed.data;
+    const { rewardValue, description, expiryDays, ...rest } = parsed.data;
     const [created] = await db
       .insert(schema.stampPrograms)
-      .values({ orgId, ...rest, rewardValue: String(rewardValue) })
+      .values({
+        orgId,
+        ...rest,
+        rewardValue: String(rewardValue),
+        description: description ?? null,
+        ...(expiryDays !== undefined ? { expiryDays } : {}),
+      })
       .returning();
     return reply.status(201).send({ data: created });
   });
@@ -152,6 +158,10 @@ export async function stampRoutes(app: FastifyInstance) {
         })
         .returning();
       card = newCard;
+    }
+
+    if (!card) {
+      return reply.status(500).send({ title: 'Internal Server Error', status: 500, detail: 'Failed to create stamp card' });
     }
 
     // Add the stamp

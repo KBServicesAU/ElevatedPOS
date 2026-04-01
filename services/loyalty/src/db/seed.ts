@@ -8,8 +8,6 @@ const pool = new Pool({
 const db = drizzle(pool, { schema });
 
 const ORG_ID = '00000000-0000-0000-0000-000000000001';
-// Must match customer IDs from customers seed
-const CUSTOMER_ID_1 = '00000000-0000-0000-0000-000000000101';
 
 async function seed() {
   console.log('🌱 Seeding loyalty service…');

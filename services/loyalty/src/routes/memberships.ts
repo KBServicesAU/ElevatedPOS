@@ -1,6 +1,6 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 
 // ─── Zod schemas ────────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ function addBillingPeriod(from: Date, cycle: 'monthly' | 'annual' | 'one_time'):
   return d;
 }
 
-function sendValidationError(reply: Parameters<FastifyInstance['get']>[1], detail: string) {
+function sendValidationError(reply: FastifyReply, detail: string) {
   return reply.status(422).send({
     type: 'https://nexus.app/errors/validation',
     title: 'Validation Error',
@@ -62,7 +62,7 @@ function sendValidationError(reply: Parameters<FastifyInstance['get']>[1], detai
   });
 }
 
-function sendNotFound(reply: Parameters<FastifyInstance['get']>[1], detail: string) {
+function sendNotFound(reply: FastifyReply, detail: string) {
   return reply.status(404).send({
     type: 'https://nexus.app/errors/not-found',
     title: 'Not Found',
@@ -97,12 +97,14 @@ export async function membershipRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return sendValidationError(reply, parsed.error.message);
     }
-    const { billingCycle, pointsMultiplier, tierOverride, ...rest } = parsed.data;
+    const { billingCycle, pointsMultiplier, tierOverride, price, description, ...rest } = parsed.data;
     const [plan] = await db
       .insert(schema.membershipPlans)
       .values({
         orgId,
         ...rest,
+        price: String(price),
+        description: description ?? null,
         billingCycle,
         pointsMultiplier: String(pointsMultiplier),
         tierOverride: tierOverride ?? null,

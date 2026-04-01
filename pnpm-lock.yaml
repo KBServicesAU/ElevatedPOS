@@ -1161,6 +1161,9 @@ importers:
       ioredis:
         specifier: ^5.3.2
         version: 5.10.0
+      kafkajs:
+        specifier: ^2.2.4
+        version: 2.2.4
       pg:
         specifier: ^8.12.0
         version: 8.20.0
@@ -1189,6 +1192,9 @@ importers:
       typescript:
         specifier: ^5.5.2
         version: 5.9.3
+      vitest:
+        specifier: ^1.6.1
+        version: 1.6.1(@types/node@20.19.37)(terser@5.46.1)
 
   services/notifications:
     dependencies:
