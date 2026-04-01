@@ -28,18 +28,36 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+
       - name: Deploy to Production EKS
         run: |
           TAG=${GITHUB_REF#refs/tags/}
-          aws eks update-kubeconfig --name elevatedpos-production --region ${{ env.AWS_REGION }}
+          aws eks update-kubeconfig --name elevatedpos-prod --region ${{ env.AWS_REGION }}
+
+          # Ensure namespace exists
+          kubectl create namespace elevatedpos --dry-run=client -o yaml | kubectl apply -f -
+
+          # Apply secrets and configmap first
+          kubectl apply -f infrastructure/k8s/serviceaccount.yaml
+          kubectl apply -f infrastructure/k8s/configmap.yaml
+
+          # Replace ACCOUNT_ID placeholder in k8s manifests used by Helm
+          ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com"
+
           helm upgrade --install elevatedpos ./infrastructure/helm/elevatedpos \
-            --namespace elevatedpos-production \
+            --namespace elevatedpos \
+            --create-namespace \
             --set global.image.tag=$TAG \
+            --set global.imageRegistry=$ECR_REGISTRY \
             --set global.environment=production \
             --wait --timeout 15m
 
       - name: Notify deployment
-        if: always()
+        if: always() && secrets.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1
         with:
           payload: |

@@ -40,16 +40,19 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Build ${{ matrix.role }} APK
+      - name: Build ${{ matrix.role }} APK (Android)
         working-directory: apps/mobile
         run: eas build --profile production-${{ matrix.role }} --platform android --non-interactive --no-wait
         env:
-          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || 'https://app.elevatedpos.com.au' }}
           EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
 
-      - name: Build ${{ matrix.role }} IPA (iPad)
+      - name: Build ${{ matrix.role }} IPA (iOS)
         working-directory: apps/mobile
+        # iOS builds require Apple Developer credentials configured in EAS.
+        # continue-on-error so a missing provisioning profile doesn't block Android delivery.
+        continue-on-error: true
         run: eas build --profile production-${{ matrix.role }} --platform ios --non-interactive --no-wait
         env:
-          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || 'https://app.elevatedpos.com.au' }}
           EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
