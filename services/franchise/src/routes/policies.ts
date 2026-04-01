@@ -58,19 +58,19 @@ export async function policyRoutes(app: FastifyInstance) {
         detail: parsed.error.message,
       });
     }
-    const [created] = await db
+    const policyRows = await db
       .insert(schema.fieldLockPolicies)
       .values({
         groupId,
         fieldPath: parsed.data.fieldPath,
         lockType: parsed.data.lockType,
-        lockedValue: parsed.data.lockedValue ?? null,
+        lockedValue: (parsed.data.lockedValue ?? null) as unknown,
         description: parsed.data.description,
         updatedBy: userId,
         updatedAt: new Date(),
       })
       .returning();
-    return reply.status(201).send({ data: created });
+    return reply.status(201).send({ data: policyRows[0] });
   });
 
   // DELETE /groups/:groupId/policies/:id — remove policy

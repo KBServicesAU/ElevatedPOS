@@ -65,7 +65,7 @@ export async function sendSms(opts: SendSmsOptions): Promise<SendSmsResult> {
       throw new Error(json.message ?? `Twilio HTTP ${res.status}`);
     }
 
-    return { success: true, messageId: json.sid };
+    return { success: true, ...(json.sid !== undefined ? { messageId: json.sid } : {}) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[notifications/sms] send failed', { to: opts.to, error: message });

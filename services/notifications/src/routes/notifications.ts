@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { sendEmail } from '../lib/channels/email.js';
 import { sendSms } from '../lib/channels/sms.js';
@@ -44,7 +44,7 @@ export async function notificationRoutes(app: FastifyInstance) {
 
     // Create log entry in 'queued' state before dispatching
     const now = new Date();
-    const [log] = await db
+    const logRows = await db
       .insert(schema.notificationLogs)
       .values({
         orgId,
@@ -55,6 +55,7 @@ export async function notificationRoutes(app: FastifyInstance) {
         status: 'queued',
       })
       .returning();
+    const log = logRows[0]!;
 
     // Dispatch via the appropriate channel
     let dispatchSuccess = false;
@@ -153,10 +154,17 @@ export async function notificationRoutes(app: FastifyInstance) {
         detail: parsed.error.message,
       });
     }
-    const [created] = await db
+    const createdRows = await db
       .insert(schema.notificationTemplates)
-      .values({ orgId, ...parsed.data })
+      .values({
+        orgId,
+        name: parsed.data.name,
+        channel: parsed.data.channel,
+        subject: parsed.data.subject ?? null,
+        body: parsed.data.body,
+        variables: parsed.data.variables as unknown,
+      })
       .returning();
-    return reply.status(201).send({ data: created });
+    return reply.status(201).send({ data: createdRows[0] });
   });
 }

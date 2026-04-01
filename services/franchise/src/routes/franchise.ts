@@ -46,15 +46,21 @@ export async function franchiseRoutes(app: FastifyInstance) {
         detail: parsed.error.message,
       });
     }
-    const [created] = await db
+    const createdRows = await db
       .insert(schema.franchiseGroups)
       .values({
         orgId,
-        ...parsed.data,
+        name: parsed.data.name,
+        description: parsed.data.description,
+        logoUrl: parsed.data.logoUrl,
         royaltyRate: String(parsed.data.royaltyRate),
+        royaltyCalculation: parsed.data.royaltyCalculation,
+        billingCycle: parsed.data.billingCycle,
+        royaltyStartDate: parsed.data.royaltyStartDate,
+        isActive: parsed.data.isActive,
       })
       .returning();
-    return reply.status(201).send({ data: created });
+    return reply.status(201).send({ data: createdRows[0] });
   });
 
   // GET /groups/:id — get group with locations
@@ -109,12 +115,12 @@ export async function franchiseRoutes(app: FastifyInstance) {
     if (parsed.data.royaltyRate !== undefined) {
       updateData['royaltyRate'] = String(parsed.data.royaltyRate);
     }
-    const [updated] = await db
+    const updatedRows = await db
       .update(schema.franchiseGroups)
       .set(updateData)
       .where(and(eq(schema.franchiseGroups.id, id), eq(schema.franchiseGroups.orgId, orgId)))
       .returning();
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedRows[0] });
   });
 
   // GET /groups/:id/locations — list all franchise locations
@@ -162,11 +168,18 @@ export async function franchiseRoutes(app: FastifyInstance) {
         detail: parsed.error.message,
       });
     }
-    const [created] = await db
+    const locationRows = await db
       .insert(schema.franchiseLocations)
-      .values({ groupId: id, ...parsed.data })
+      .values({
+        groupId: id,
+        locationId: parsed.data.locationId,
+        franchiseeOrgId: parsed.data.franchiseeOrgId,
+        franchiseeContactName: parsed.data.franchiseeContactName ?? null,
+        franchiseeEmail: parsed.data.franchiseeEmail ?? null,
+        status: parsed.data.status,
+      })
       .returning();
-    return reply.status(201).send({ data: created });
+    return reply.status(201).send({ data: locationRows[0] });
   });
 
   // GET /groups/:id/network — network overview

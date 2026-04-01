@@ -19,7 +19,6 @@ async function seed() {
       channel: 'email',
       subject: 'Your order #{{orderNumber}} is confirmed',
       body:    'Hi {{customerName}}, your order for ${{total}} is confirmed and being prepared.',
-      isActive: true,
     },
     {
       orgId:   ORG_ID,
@@ -27,7 +26,6 @@ async function seed() {
       channel: 'push',
       subject: 'Your order is ready! 🎉',
       body:    'Order #{{orderNumber}} is ready for pickup.',
-      isActive: true,
     },
     {
       orgId:   ORG_ID,
@@ -35,7 +33,6 @@ async function seed() {
       channel: 'email',
       subject: 'Low stock alert: {{productName}}',
       body:    '{{productName}} is running low at {{locationName}} — only {{qty}} units remaining.',
-      isActive: true,
     },
   ]).onConflictDoNothing();
   console.log('  ✓ Notification templates: Order Confirmation, Order Ready, Low Stock Alert');
