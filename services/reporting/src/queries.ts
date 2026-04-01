@@ -38,18 +38,6 @@ export interface RevenueByDay {
   avgOrderValue: number;
 }
 
-// ─── Query helpers ────────────────────────────────────────────────────────────
-
-async function runQuery<T>(query: string): Promise<T[]> {
-  try {
-    const result = await clickhouse.query({ query, format: 'JSONEachRow' });
-    return (await result.json()) as T[];
-  } catch (e) {
-    console.warn('[reporting] ClickHouse query failed (non-critical):', e);
-    return [];
-  }
-}
-
 // ─── querySalesSummary ────────────────────────────────────────────────────────
 
 export async function querySalesSummary(
@@ -80,7 +68,7 @@ export async function querySalesSummary(
     if (!rows.length) {
       return { totalRevenue: 0, totalOrders: 0, totalDiscounts: 0, totalTax: 0, avgOrderValue: 0 };
     }
-    const row = rows[0];
+    const row = rows[0]!;
     return {
       totalRevenue: Number(row['totalRevenue'] ?? 0),
       totalOrders: Number(row['totalOrders'] ?? 0),

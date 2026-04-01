@@ -13,6 +13,14 @@ import { deviceRoutes } from './routes/devices.js';
 import { stopConsumer } from './lib/kafka.js';
 import { startConsumers } from './consumers/index.js';
 
+// Type augmentation — allows app.authenticate to be used as a preHandler
+declare module 'fastify' {
+  interface FastifyInstance {
+    authenticate: (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => Promise<void>;
+  }
+}
+
+
 const app = Fastify({ logger: true, trustProxy: true });
 
 
@@ -23,17 +31,16 @@ async function start() {
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   await app.register(jwt, {
     secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production',
-    verify: { issuer: 'elevatedpos-auth' },
   });
 
   app.decorate(
     'authenticate',
     async (
-      request: Parameters<typeof app.authenticate>[0],
-      reply: Parameters<typeof app.authenticate>[1],
+      request: import('fastify').FastifyRequest,
+      reply: import('fastify').FastifyReply,
     ) => {
       try {
-        await request.jwtVerify();
+        await request.jwtVerify({ issuer: 'elevatedpos-auth' });
       } catch {
         return reply.status(401).send({
           type: 'https://nexus.app/errors/unauthorized',

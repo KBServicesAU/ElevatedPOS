@@ -17,6 +17,14 @@ import { locationRoutes } from './routes/locations';
 import { payrollRoutes } from './routes/payroll';
 import { deviceRoutes } from './routes/devices';
 
+// Type augmentation — allows app.authenticate to be used as a preHandler
+declare module 'fastify' {
+  interface FastifyInstance {
+    authenticate: (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => Promise<void>;
+  }
+}
+
+
 const app = Fastify({
   logger: {
     level: process.env['NODE_ENV'] === 'production' ? 'info' : 'debug',
@@ -52,11 +60,11 @@ async function start() {
   });
 
   app.decorate('authenticate', async (
-    request: Parameters<typeof app.authenticate>[0],
-    reply: Parameters<typeof app.authenticate>[1],
+    request: import('fastify').FastifyRequest,
+    reply: import('fastify').FastifyReply,
   ) => {
     try {
-      await request.jwtVerify();
+      await request.jwtVerify({ issuer: 'elevatedpos-auth' });
       const payload = request.user as { jti?: string };
       if (payload.jti && await isBlacklisted(payload.jti)) {
         return reply.status(401).send({

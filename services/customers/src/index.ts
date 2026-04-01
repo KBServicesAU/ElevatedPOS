@@ -10,6 +10,14 @@ import { rfmRoutes } from './routes/rfm';
 import { crmRoutes } from './routes/crm';
 import { gdprRoutes } from './routes/gdpr';
 
+// Type augmentation — allows app.authenticate to be used as a preHandler
+declare module 'fastify' {
+  interface FastifyInstance {
+    authenticate: (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => Promise<void>;
+  }
+}
+
+
 const app = Fastify({ logger: true, trustProxy: true });
 
 async function start() {
@@ -25,8 +33,8 @@ async function start() {
     errorResponseBuilder: () => ({ statusCode: 429, error: 'Too Many Requests', message: 'Rate limit exceeded' }),
   });
   await app.register(jwt, { secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production', verify: { issuer: 'elevatedpos-auth' } });
-  app.decorate('authenticate', async (request: Parameters<typeof app.authenticate>[0], reply: Parameters<typeof app.authenticate>[1]) => {
-    try { await request.jwtVerify(); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
+  app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
+    try { await request.jwtVerify({ issuer: 'elevatedpos-auth' }); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
   });
   await app.register(customerRoutes, { prefix: '/api/v1/customers' });
   await app.register(rfmRoutes, { prefix: '/api/v1/customers' });
