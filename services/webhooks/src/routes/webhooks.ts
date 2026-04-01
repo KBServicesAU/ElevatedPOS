@@ -29,12 +29,12 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     const secret = randomBytes(32).toString('hex');
 
-    const [endpoint] = await db
+    const endpointRows = await db
       .insert(schema.webhookEndpoints)
       .values({ orgId, url: body.data.url, events: body.data.events, secret })
       .returning();
 
-    return reply.status(201).send({ data: endpoint });
+    return reply.status(201).send({ data: endpointRows[0] });
   });
 
   // GET / — list org endpoints with last delivery status
@@ -92,9 +92,9 @@ export async function webhookRoutes(app: FastifyInstance) {
         ...endpoint,
         stats: {
           last7Days: {
-            total: Number(stats.total),
-            success: Number(stats.success),
-            failed: Number(stats.failed),
+            total: Number(stats?.total ?? 0),
+            success: Number(stats?.success ?? 0),
+            failed: Number(stats?.failed ?? 0),
           },
         },
       },
@@ -115,18 +115,23 @@ export async function webhookRoutes(app: FastifyInstance) {
     });
     if (!existing) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
-    const updateData: Record<string, unknown> = { updatedAt: new Date() };
-    if (body.data.url !== undefined) updateData['url'] = body.data.url;
-    if (body.data.events !== undefined) updateData['events'] = body.data.events;
-    if (body.data.status !== undefined) updateData['status'] = body.data.status;
+    const updatePayload: {
+      updatedAt: Date;
+      url?: string;
+      events?: string[];
+      status?: 'active' | 'inactive' | 'suspended';
+    } = { updatedAt: new Date() };
+    if (body.data.url !== undefined) updatePayload.url = body.data.url;
+    if (body.data.events !== undefined) updatePayload.events = body.data.events;
+    if (body.data.status !== undefined) updatePayload.status = body.data.status;
 
-    const [updated] = await db
+    const updatedRows = await db
       .update(schema.webhookEndpoints)
-      .set(updateData as Parameters<typeof db.update>[0] extends infer T ? T : never)
+      .set(updatePayload)
       .where(and(eq(schema.webhookEndpoints.id, id), eq(schema.webhookEndpoints.orgId, orgId)))
       .returning();
 
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedRows[0] });
   });
 
   // DELETE /:id — delete endpoint and delivery history
@@ -160,7 +165,7 @@ export async function webhookRoutes(app: FastifyInstance) {
     const testPayload = { event: 'test.ping', data: { timestamp: new Date().toISOString() } };
 
     // Create a delivery record for the test ping
-    const [delivery] = await db
+    const deliveryRows = await db
       .insert(schema.webhookDeliveries)
       .values({
         endpointId: id,
@@ -170,6 +175,8 @@ export async function webhookRoutes(app: FastifyInstance) {
         nextRetryAt: new Date(),
       })
       .returning();
+
+    const delivery = deliveryRows[0]!;
 
     // Attempt delivery immediately
     const result = await deliverWebhook(delivery, endpoint);
