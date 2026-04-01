@@ -38,7 +38,7 @@ const ELEVATEDPOS_SUPPORT_PROMPT =
 function extractJSON(text: string): unknown {
   const match = text.match(/```json\n?([\s\S]*?)\n?```/) || text.match(/(\{[\s\S]*\})/);
   if (!match) throw new Error('No JSON found in response');
-  return JSON.parse(match[1]);
+  return JSON.parse(match[1]!);
 }
 
 // ─── API key guard helper ─────────────────────────────────────────────────────
@@ -278,7 +278,7 @@ async function start() {
     try {
       const rawText = textContent?.text ?? '[]';
       const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-      suggestions = jsonMatch ? (JSON.parse(jsonMatch[0]) as string[]) : [];
+      suggestions = jsonMatch ? (JSON.parse(jsonMatch[0]!) as string[]) : [];
     } catch {
       suggestions = [];
     }

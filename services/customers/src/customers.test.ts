@@ -7,7 +7,9 @@ function buildFullName(firstName: string, lastName: string): string {
 }
 
 function maskEmail(email: string): string {
-  const [local, domain] = email.split('@');
+  const parts = email.split('@');
+  const local = parts[0] ?? '';
+  const domain = parts[1];
   if (!domain) return email;
   const visible = local.slice(0, 2);
   return `${visible}${'*'.repeat(Math.max(0, local.length - 2))}@${domain}`;
