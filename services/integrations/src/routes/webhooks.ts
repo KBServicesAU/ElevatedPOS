@@ -96,12 +96,19 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     if (!existing) return reply.status(404).send({ title: 'Webhook not found', status: 404 });
 
-    const [updated] = await db
+    const updatedRows = await db
       .update(schema.webhooks)
-      .set({ ...body.data, updatedAt: new Date() })
+      .set({
+        ...(body.data.label !== undefined ? { label: body.data.label } : {}),
+        ...(body.data.url !== undefined ? { url: body.data.url } : {}),
+        ...(body.data.events !== undefined ? { events: body.data.events as string[] } : {}),
+        ...(body.data.enabled !== undefined ? { enabled: body.data.enabled } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(schema.webhooks.id, id))
       .returning();
 
+    const updated = updatedRows[0]!;
     const { secret: _secret, ...safeHook } = updated;
     return reply.status(200).send({ data: safeHook });
   });
@@ -122,12 +129,19 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     if (!existing) return reply.status(404).send({ title: 'Webhook not found', status: 404 });
 
-    const [updated] = await db
+    const updatedRows = await db
       .update(schema.webhooks)
-      .set({ ...body.data, updatedAt: new Date() })
+      .set({
+        ...(body.data.label !== undefined ? { label: body.data.label } : {}),
+        ...(body.data.url !== undefined ? { url: body.data.url } : {}),
+        ...(body.data.events !== undefined ? { events: body.data.events as string[] } : {}),
+        ...(body.data.enabled !== undefined ? { enabled: body.data.enabled } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(schema.webhooks.id, id))
       .returning();
 
+    const updated = updatedRows[0]!;
     const { secret: _secret, ...safeHook } = updated;
     return reply.status(200).send({ data: safeHook });
   });

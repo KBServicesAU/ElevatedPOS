@@ -165,9 +165,9 @@ export class UberEatsConnector extends BaseConnector {
         name: [order.eater?.first_name, order.eater?.last_name].filter(Boolean).join(' '),
         ...(order.eater?.phone !== undefined ? { phone: order.eater.phone } : {}),
       },
-      deliveryAddress: order.delivery?.location
-        ? { address: order.delivery.location.address, city: order.delivery.location.city }
-        : undefined,
+      ...(order.delivery?.location
+        ? { deliveryAddress: { address: order.delivery.location.address, city: order.delivery.location.city } }
+        : {}),
     }));
   }
 
