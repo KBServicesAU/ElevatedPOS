@@ -51,12 +51,12 @@ export async function franchiseRoutes(app: FastifyInstance) {
       .values({
         orgId,
         name: parsed.data.name,
-        description: parsed.data.description,
-        logoUrl: parsed.data.logoUrl,
+        description: parsed.data.description ?? null,
+        logoUrl: parsed.data.logoUrl ?? null,
         royaltyRate: String(parsed.data.royaltyRate),
         royaltyCalculation: parsed.data.royaltyCalculation,
         billingCycle: parsed.data.billingCycle,
-        royaltyStartDate: parsed.data.royaltyStartDate,
+        royaltyStartDate: parsed.data.royaltyStartDate ?? null,
         isActive: parsed.data.isActive,
       })
       .returning();

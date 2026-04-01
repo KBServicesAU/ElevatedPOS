@@ -64,8 +64,8 @@ export async function policyRoutes(app: FastifyInstance) {
         groupId,
         fieldPath: parsed.data.fieldPath,
         lockType: parsed.data.lockType,
-        lockedValue: (parsed.data.lockedValue ?? null) as unknown,
-        description: parsed.data.description,
+        lockedValue: (parsed.data.lockedValue ?? null) as string | number | boolean | Record<string, unknown> | unknown[] | null,
+        description: parsed.data.description ?? null,
         updatedBy: userId,
         updatedAt: new Date(),
       })
