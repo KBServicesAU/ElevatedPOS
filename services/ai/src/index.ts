@@ -17,7 +17,7 @@ declare module 'fastify' {
 
 
 const app = Fastify({ logger: true, trustProxy: true });
-const anthropic = new Anthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] });
+const anthropic = new Anthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] ?? '' });
 
 const SYSTEM_PROMPT =
   'You are ElevatedPOS AI, a business intelligence assistant for a Point of Sale system. ' +

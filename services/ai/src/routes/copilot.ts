@@ -88,7 +88,7 @@ function requireApiKey(reply: FastifyReply): boolean {
 function extractJSON(text: string): unknown {
   const match = text.match(/```json\n?([\s\S]*?)\n?```/) || text.match(/(\{[\s\S]*\})/);
   if (!match) throw new Error('No JSON found in response');
-  return JSON.parse(match[1]);
+  return JSON.parse(match[1]!);
 }
 
 // ── Route registration ─────────────────────────────────────────────────────────
