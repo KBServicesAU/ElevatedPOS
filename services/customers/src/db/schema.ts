@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, boolean, timestamp, jsonb, decimal, integer, text, date, relations } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, boolean, timestamp, jsonb, decimal, integer, text, date } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
 
 export const customers = pgTable('customers', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -119,7 +120,7 @@ export const gdprRequests = pgTable('gdpr_requests', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const gdprRequestsRelations = relations(gdprRequests, ({ one }) => ({
+export const gdprRequestsRelations = relations(gdprRequests, ({ one }: { one: any; many: any }) => ({
   customer: one(customers, { fields: [gdprRequests.customerId], references: [customers.id] }),
 }));
 
@@ -139,7 +140,7 @@ export const customerMergeLog = pgTable('customer_merge_log', {
 
 // ─── Relations ────────────────────────────────────────────────────────────────
 
-export const customersRelations = relations(customers, ({ one, many }) => ({
+export const customersRelations = relations(customers, ({ one, many }: { one: any; many: any }) => ({
   storeCreditAccount: one(storeCreditAccounts, {
     fields: [customers.id],
     references: [storeCreditAccounts.customerId],
@@ -148,28 +149,28 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
   groupMemberships: many(customerGroupMembers),
 }));
 
-export const customerGroupsRelations = relations(customerGroups, ({ many }) => ({
+export const customerGroupsRelations = relations(customerGroups, ({ many }: { one: any; many: any }) => ({
   members: many(customerGroupMembers),
 }));
 
-export const customerGroupMembersRelations = relations(customerGroupMembers, ({ one }) => ({
+export const customerGroupMembersRelations = relations(customerGroupMembers, ({ one }: { one: any; many: any }) => ({
   group: one(customerGroups, { fields: [customerGroupMembers.groupId], references: [customerGroups.id] }),
   customer: one(customers, { fields: [customerGroupMembers.customerId], references: [customers.id] }),
 }));
 
-export const customerNotesRelations = relations(customerNotes, ({ one }) => ({
+export const customerNotesRelations = relations(customerNotes, ({ one }: { one: any; many: any }) => ({
   customer: one(customers, { fields: [customerNotes.customerId], references: [customers.id] }),
 }));
 
-export const storeCreditAccountsRelations = relations(storeCreditAccounts, ({ one, many }) => ({
+export const storeCreditAccountsRelations = relations(storeCreditAccounts, ({ one, many }: { one: any; many: any }) => ({
   customer: one(customers, { fields: [storeCreditAccounts.customerId], references: [customers.id] }),
   transactions: many(storeCreditTransactions),
 }));
 
-export const storeCreditTransactionsRelations = relations(storeCreditTransactions, ({ one }) => ({
+export const storeCreditTransactionsRelations = relations(storeCreditTransactions, ({ one }: { one: any; many: any }) => ({
   account: one(storeCreditAccounts, { fields: [storeCreditTransactions.accountId], references: [storeCreditAccounts.id] }),
 }));
 
-export const customerMergeLogRelations = relations(customerMergeLog, ({ one }) => ({
+export const customerMergeLogRelations = relations(customerMergeLog, ({ one }: { one: any; many: any }) => ({
   keepCustomer: one(customers, { fields: [customerMergeLog.keepId], references: [customers.id] }),
 }));

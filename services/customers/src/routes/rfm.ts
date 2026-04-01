@@ -25,7 +25,6 @@ function recencyScore(daysSinceLastPurchase: number): number {
 }
 
 function segmentName(r: number, f: number, m: number): string {
-  const score = `${r}${f}${m}`;
   if (r >= 4 && f >= 4 && m >= 4) return 'champions';
   if (r >= 3 && f >= 3) return 'loyal_customers';
   if (r >= 4 && f <= 2) return 'promising';

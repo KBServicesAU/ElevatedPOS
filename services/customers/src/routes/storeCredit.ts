@@ -1,7 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
+import type { InferSelectModel } from 'drizzle-orm';
 import { db, schema } from '../db';
+
+type StoreCreditAccount = InferSelectModel<typeof schema.storeCreditAccounts>;
 
 export async function storeCreditRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
@@ -70,7 +73,7 @@ export async function storeCreditRoutes(app: FastifyInstance) {
         .insert(schema.storeCreditAccounts)
         .values({ customerId, orgId, balance: '0' })
         .returning();
-      account = a;
+      account = a!;
     }
 
     const newBalance = (Number(account.balance) + body.data.amount).toFixed(4);
@@ -87,9 +90,9 @@ export async function storeCreditRoutes(app: FastifyInstance) {
         type: 'issue',
         amount: String(body.data.amount),
         reason: body.data.reason,
-        notes: body.data.notes,
+        ...(body.data.notes !== undefined ? { notes: body.data.notes } : {}),
         issuedBy: body.data.issuedBy ?? userId,
-        expiresAt: body.data.expiresAt ? new Date(body.data.expiresAt) : undefined,
+        ...(body.data.expiresAt !== undefined ? { expiresAt: new Date(body.data.expiresAt) } : {}),
       })
       .returning();
 
@@ -146,8 +149,8 @@ export async function storeCreditRoutes(app: FastifyInstance) {
         orgId,
         type: 'redeem',
         amount: String(body.data.amount),
-        orderId: body.data.orderId,
-        notes: body.data.notes,
+        ...(body.data.orderId !== undefined ? { orderId: body.data.orderId } : {}),
+        ...(body.data.notes !== undefined ? { notes: body.data.notes } : {}),
         employeeId: userId,
       })
       .returning();
@@ -181,7 +184,8 @@ export async function storeCreditRoutes(app: FastifyInstance) {
     });
 
     if (!tx) return reply.status(404).send({ title: 'Transaction not found', status: 404 });
-    if (tx.account.customerId !== customerId) {
+    const account = tx.account as unknown as StoreCreditAccount;
+    if (account.customerId !== customerId) {
       return reply.status(404).send({ title: 'Transaction not found', status: 404 });
     }
     if (tx.voidedAt) {
@@ -192,7 +196,6 @@ export async function storeCreditRoutes(app: FastifyInstance) {
     }
 
     // Reverse balance
-    const account = tx.account;
     const reverseAmount = Number(tx.amount);
     const currentBalance = Number(account.balance);
     if (currentBalance < reverseAmount) {

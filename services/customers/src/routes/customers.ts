@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ilike, desc } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 const createCustomerSchema = z.object({
@@ -61,7 +61,24 @@ export async function customerRoutes(app: FastifyInstance) {
     const body = createCustomerSchema.safeParse(request.body);
     if (!body.success) return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
 
-    const data = { ...body.data, orgId, marketingOptInAt: body.data.marketingOptIn ? new Date() : undefined };
+    const { firstName, lastName, email, phone, dob, company, abn, tags, marketingOptIn, notes: bodyNotes, source, dietaryPreferences, allergenAlerts } = body.data;
+    const data = {
+      orgId,
+      firstName,
+      lastName,
+      tags,
+      marketingOptIn,
+      source,
+      dietaryPreferences,
+      allergenAlerts,
+      ...(email !== undefined ? { email } : {}),
+      ...(phone !== undefined ? { phone } : {}),
+      ...(dob !== undefined ? { dob } : {}),
+      ...(company !== undefined ? { company } : {}),
+      ...(abn !== undefined ? { abn } : {}),
+      ...(bodyNotes !== undefined ? { notes: bodyNotes } : {}),
+      ...(marketingOptIn ? { marketingOptInAt: new Date() } : {}),
+    };
     const [created] = await db.insert(schema.customers).values(data).returning();
     return reply.status(201).send({ data: created });
   });
@@ -75,7 +92,24 @@ export async function customerRoutes(app: FastifyInstance) {
     const existing = await db.query.customers.findFirst({ where: and(eq(schema.customers.id, id), eq(schema.customers.orgId, orgId)) });
     if (!existing) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
-    const updates = { ...body.data, updatedAt: new Date(), ...(body.data.marketingOptIn && !existing.marketingOptIn ? { marketingOptInAt: new Date() } : {}) };
+    const { firstName, lastName, email, phone, dob, company, abn, tags, marketingOptIn, notes, source, dietaryPreferences, allergenAlerts } = body.data;
+    const updates = {
+      ...(firstName !== undefined ? { firstName } : {}),
+      ...(lastName !== undefined ? { lastName } : {}),
+      ...(email !== undefined ? { email } : {}),
+      ...(phone !== undefined ? { phone } : {}),
+      ...(dob !== undefined ? { dob } : {}),
+      ...(company !== undefined ? { company } : {}),
+      ...(abn !== undefined ? { abn } : {}),
+      ...(tags !== undefined ? { tags } : {}),
+      ...(marketingOptIn !== undefined ? { marketingOptIn } : {}),
+      ...(notes !== undefined ? { notes } : {}),
+      ...(source !== undefined ? { source } : {}),
+      ...(dietaryPreferences !== undefined ? { dietaryPreferences } : {}),
+      ...(allergenAlerts !== undefined ? { allergenAlerts } : {}),
+      updatedAt: new Date(),
+      ...(body.data.marketingOptIn && !existing.marketingOptIn ? { marketingOptInAt: new Date() } : {}),
+    };
     const [updated] = await db.update(schema.customers).set(updates).where(and(eq(schema.customers.id, id), eq(schema.customers.orgId, orgId))).returning();
     return reply.status(200).send({ data: updated });
   });
@@ -108,7 +142,7 @@ export async function customerRoutes(app: FastifyInstance) {
     let account = await db.query.storeCreditAccounts.findFirst({ where: and(eq(schema.storeCreditAccounts.customerId, id), eq(schema.storeCreditAccounts.orgId, orgId)) });
     if (!account) {
       const [a] = await db.insert(schema.storeCreditAccounts).values({ customerId: id, orgId, balance: '0' }).returning();
-      account = a;
+      account = a!;
     }
 
     const delta = body.data.type === 'redeem' ? -Math.abs(body.data.amount) : Math.abs(body.data.amount);
@@ -116,7 +150,15 @@ export async function customerRoutes(app: FastifyInstance) {
     if (newBalance < 0) return reply.status(422).send({ title: 'Insufficient store credit', status: 422 });
 
     await db.update(schema.storeCreditAccounts).set({ balance: String(newBalance.toFixed(4)), updatedAt: new Date() }).where(eq(schema.storeCreditAccounts.id, account.id));
-    await db.insert(schema.storeCreditTransactions).values({ accountId: account.id, orgId, type: body.data.type, amount: String(body.data.amount), orderId: body.data.orderId, notes: body.data.notes, employeeId });
+    await db.insert(schema.storeCreditTransactions).values({
+      accountId: account.id,
+      orgId,
+      type: body.data.type,
+      amount: String(body.data.amount),
+      ...(body.data.orderId !== undefined ? { orderId: body.data.orderId } : {}),
+      ...(body.data.notes !== undefined ? { notes: body.data.notes } : {}),
+      employeeId,
+    });
 
     return reply.status(200).send({ data: { balance: newBalance.toFixed(4), delta } });
   });

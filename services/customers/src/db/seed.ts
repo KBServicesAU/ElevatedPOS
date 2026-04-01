@@ -36,7 +36,7 @@ async function seed() {
         accountId: account.id,
         amount: '50.00',
         type: 'credit',
-        note: 'Initial credit — seed data',
+        notes: 'Initial credit — seed data',
       }).onConflictDoNothing();
       console.log('  ✓ Store credit: $50.00 for Sarah Chen');
     }

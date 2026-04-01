@@ -8,15 +8,7 @@ import { createServiceToken } from '@nexus/config';
 const ORDERS_SERVICE = process.env['ORDERS_API_URL'] ?? 'http://localhost:4004';
 const LOYALTY_SERVICE = process.env['LOYALTY_API_URL'] ?? 'http://localhost:4007';
 
-async function fetchWithToken(url: string, token: string) {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-  });
-  if (!res.ok) return null;
-  return res.json();
-}
-
-async function fetchServiceToService(url: string, targetService: string) {
+async function fetchServiceToService(url: string, targetService: string): Promise<Record<string, unknown> | null> {
   const serviceToken = createServiceToken('customers', targetService);
   const res = await fetch(url, {
     headers: {
@@ -26,7 +18,7 @@ async function fetchServiceToService(url: string, targetService: string) {
     },
   });
   if (!res.ok) return null;
-  return res.json();
+  return res.json() as Promise<Record<string, unknown>>;
 }
 
 export async function crmRoutes(app: FastifyInstance) {
@@ -36,7 +28,7 @@ export async function crmRoutes(app: FastifyInstance) {
 
   // POST /customers/:id/notes — add note to customer profile
   app.post('/customers/:id/notes', async (request, reply) => {
-    const { orgId, sub: authorId, role } = request.user as { orgId: string; sub: string; role?: string };
+    const { orgId, sub: authorId, role: _role } = request.user as { orgId: string; sub: string; role?: string };
     const { id } = request.params as { id: string };
 
     const parsed = z
@@ -76,7 +68,7 @@ export async function crmRoutes(app: FastifyInstance) {
         type: parsed.data.type,
         authorId,
         isInternal: parsed.data.isInternal,
-        employeeId: authorId as unknown as string | undefined,
+        employeeId: authorId,
       })
       .returning();
     return reply.status(201).send({ data: note });
@@ -180,10 +172,6 @@ export async function crmRoutes(app: FastifyInstance) {
       });
     }
 
-    // Extract JWT token from authorization header to forward to downstream services
-    const authHeader = request.headers.authorization ?? '';
-    const token = authHeader.replace('Bearer ', '');
-
     const events: Array<{
       type: string;
       date: string;
@@ -197,8 +185,8 @@ export async function crmRoutes(app: FastifyInstance) {
         `${ORDERS_SERVICE}/api/v1/orders?customerId=${id}&limit=20`,
         'orders',
       );
-      if (ordersData?.data) {
-        for (const order of ordersData.data) {
+      if (ordersData?.['data']) {
+        for (const order of (ordersData['data'] as any[])) {
           events.push({
             type: 'order',
             date: order.createdAt ?? order.created_at,
@@ -222,14 +210,15 @@ export async function crmRoutes(app: FastifyInstance) {
         `${LOYALTY_SERVICE}/api/v1/loyalty/accounts/customer/${id}`,
         'loyalty',
       );
-      if (accountsData?.data?.length > 0) {
-        const accountId = accountsData.data[0].id;
+      const accountsDataArr = accountsData?.['data'] as any[] | undefined;
+      if (accountsDataArr && accountsDataArr.length > 0) {
+        const accountId = (accountsDataArr[0] as any).id;
         const txData = await fetchServiceToService(
           `${LOYALTY_SERVICE}/api/v1/loyalty/accounts/${accountId}/transactions`,
           'loyalty',
         );
-        if (txData?.data) {
-          for (const tx of txData.data) {
+        if (txData?.['data']) {
+          for (const tx of (txData['data'] as any[])) {
             const isEarn = tx.type === 'earn';
             events.push({
               type: 'loyalty',

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 const ruleSchema = z.object({
@@ -52,7 +52,7 @@ export async function groupRoutes(app: FastifyInstance) {
       .values({
         orgId,
         name: body.data.name,
-        description: body.data.description,
+        ...(body.data.description !== undefined ? { description: body.data.description } : {}),
         isAutomatic: body.data.isAutomatic,
         rules: body.data.rules,
       })
@@ -124,10 +124,11 @@ export async function groupRoutes(app: FastifyInstance) {
     await db.insert(schema.customerGroupMembers).values(rows).onConflictDoNothing();
 
     // Update member count
-    const [{ count }] = await db
+    const countResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(schema.customerGroupMembers)
       .where(eq(schema.customerGroupMembers.groupId, id));
+    const count = countResult[0]?.count ?? 0;
 
     await db
       .update(schema.customerGroups)
@@ -160,10 +161,11 @@ export async function groupRoutes(app: FastifyInstance) {
         ),
       );
 
-    const [{ count }] = await db
+    const deleteCountResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(schema.customerGroupMembers)
       .where(eq(schema.customerGroupMembers.groupId, id));
+    const count = deleteCountResult[0]?.count ?? 0;
 
     await db
       .update(schema.customerGroups)
