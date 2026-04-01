@@ -442,6 +442,9 @@ importers:
 
   packages/api-client:
     devDependencies:
+      '@nexus/config':
+        specifier: workspace:*
+        version: link:../config
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(@swc/core@1.15.21)(jiti@1.21.7)(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)

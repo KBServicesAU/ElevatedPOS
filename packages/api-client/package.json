@@ -19,6 +19,7 @@
   "keywords": ["elevatedpos", "pos", "api", "client"],
   "dependencies": {},
   "devDependencies": {
+    "@nexus/config": "workspace:*",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0"
   }
