@@ -70,7 +70,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   experiments: { typedRoutes: true },
   extra: {
-    eas: { projectId: process.env['EAS_PROJECT_ID'] ?? '' },
+    eas: { projectId: process.env['EAS_PROJECT_ID'] ?? '5f03d9c6-0120-4047-aa27-f71a823afa7b' },
     roleLock: ROLE_LOCK ?? null,
   },
 });
