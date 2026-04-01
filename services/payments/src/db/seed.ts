@@ -19,10 +19,10 @@ async function seed() {
     locationId: LOC_ID,
     orderId:   ORDER_1,
     method:    'card',
-    status:    'captured',
+    status:    'approved',
     amount:    '11.45',
     currency:  'AUD',
-    capturedAt: new Date(),
+    processedAt: new Date(),
   }).onConflictDoNothing();
   console.log('  ✓ Demo payment: $11.45 card — captured');
 

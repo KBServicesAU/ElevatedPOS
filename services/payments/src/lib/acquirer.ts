@@ -26,7 +26,7 @@ export interface PaymentResult {
 }
 
 // Stub acquirer adapters — real SDK integration per acquirer goes here
-export async function processPayment(req: PaymentRequest): Promise<PaymentResult> {
+export async function processPayment(_req: PaymentRequest): Promise<PaymentResult> {
   // In production: route to Tyro SDK / Stripe Terminal SDK / etc.
   // For now, simulate approval
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -39,7 +39,7 @@ export async function processPayment(req: PaymentRequest): Promise<PaymentResult
   };
 }
 
-export async function processRefund(originalTransactionId: string, amount: number, acquirer: AcquirerName): Promise<PaymentResult> {
+export async function processRefund(_originalTransactionId: string, _amount: number, _acquirer: AcquirerName): Promise<PaymentResult> {
   await new Promise((resolve) => setTimeout(resolve, 100));
   return {
     success: true,

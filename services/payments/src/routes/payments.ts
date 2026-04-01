@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../db';
-import { processPayment, processRefund } from '../lib/acquirer';
+import { processPayment } from '../lib/acquirer';
 
 const initiateSchema = z.object({
   orderId: z.string().uuid(),
@@ -75,16 +75,22 @@ export async function paymentRoutes(app: FastifyInstance) {
     }
 
     // Create pending payment record
-    const [payment] = await db.insert(schema.payments).values({
-      ...paymentData,
+    const paymentRows = await db.insert(schema.payments).values({
       orgId,
+      orderId: paymentData.orderId,
+      locationId: paymentData.locationId,
+      method: paymentData.method,
       amount: String(effectiveAmount),
+      currency: paymentData.currency,
       tipAmount: String(paymentData.tipAmount),
       surchargeAmount: String(paymentData.surchargeAmount),
       roundingAmount: String(roundingAmount),
+      isOffline: paymentData.isOffline,
+      ...(paymentData.terminalId !== undefined ? { terminalId: paymentData.terminalId } : {}),
       acquirer: acquirer ?? 'tyro',
       status: 'pending',
     }).returning();
+    const payment = paymentRows[0]!;
 
     if (paymentData.method === 'card' && !paymentData.isOffline && acquirer) {
       const result = await processPayment({
@@ -92,18 +98,19 @@ export async function paymentRoutes(app: FastifyInstance) {
         currency: paymentData.currency,
         tipAmount: paymentData.tipAmount,
         referenceId: payment.id,
-        terminalId: paymentData.terminalId,
+        ...(paymentData.terminalId !== undefined ? { terminalId: paymentData.terminalId } : {}),
         acquirer,
       });
 
-      const [updated] = await db.update(schema.payments).set({
+      const updatedRows = await db.update(schema.payments).set({
         status: result.success ? 'approved' : 'declined',
-        acquirerTransactionId: result.acquirerTransactionId,
-        cardScheme: result.cardScheme,
-        cardLast4: result.cardLast4,
-        authCode: result.authCode,
+        ...(result.acquirerTransactionId !== undefined ? { acquirerTransactionId: result.acquirerTransactionId } : {}),
+        ...(result.cardScheme !== undefined ? { cardScheme: result.cardScheme } : {}),
+        ...(result.cardLast4 !== undefined ? { cardLast4: result.cardLast4 } : {}),
+        ...(result.authCode !== undefined ? { authCode: result.authCode } : {}),
         processedAt: new Date(),
       }).where(eq(schema.payments.id, payment.id)).returning();
+      const updated = updatedRows[0]!;
 
       if (!result.success) {
         return reply.status(402).send({
@@ -119,10 +126,11 @@ export async function paymentRoutes(app: FastifyInstance) {
     }
 
     // Cash/store credit/etc — immediately approve
-    const [approved] = await db.update(schema.payments).set({
+    const approvedRows = await db.update(schema.payments).set({
       status: 'approved',
       processedAt: new Date(),
     }).where(eq(schema.payments.id, payment.id)).returning();
+    const approved = approvedRows[0]!;
 
     return reply.status(200).send({ data: approved });
   });
@@ -135,8 +143,8 @@ export async function paymentRoutes(app: FastifyInstance) {
     if (!payment) return reply.status(404).send({ title: 'Not Found', status: 404 });
     if (payment.status !== 'approved') return reply.status(409).send({ title: 'Cannot void', status: 409 });
 
-    const [updated] = await db.update(schema.payments).set({ status: 'void' }).where(eq(schema.payments.id, id)).returning();
-    return reply.status(200).send({ data: updated });
+    const voidedRows = await db.update(schema.payments).set({ status: 'void' }).where(eq(schema.payments.id, id)).returning();
+    return reply.status(200).send({ data: voidedRows[0]! });
   });
 
   app.get('/settlements', async (request, reply) => {

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, asc } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 const ruleSchema = z.object({
@@ -26,7 +26,7 @@ export async function surchargeRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const rules = await db.query.surchargeRules.findMany({
       where: eq(schema.surchargeRules.orgId, orgId),
-      orderBy: (r, { asc }) => [asc(r.paymentMethod), asc(r.cardType)],
+      orderBy: [asc(schema.surchargeRules.paymentMethod), asc(schema.surchargeRules.cardType)],
     });
     return reply.status(200).send({ data: rules });
   });
@@ -43,15 +43,17 @@ export async function surchargeRoutes(app: FastifyInstance) {
         detail: body.error.message,
       });
     }
-    const { minAmount, maxAmount, ...rest } = body.data;
-    const [rule] = await db.insert(schema.surchargeRules).values({
-      ...rest,
+    const { minAmount, maxAmount, cardType, ...rest } = body.data;
+    const ruleRows = await db.insert(schema.surchargeRules).values({
       orgId,
+      paymentMethod: rest.paymentMethod,
+      isActive: rest.isActive,
       surchargePercent: String(rest.surchargePercent),
+      ...(cardType !== undefined ? { cardType } : {}),
       ...(minAmount !== undefined ? { minAmount: String(minAmount) } : {}),
       ...(maxAmount !== undefined ? { maxAmount: String(maxAmount) } : {}),
     }).returning();
-    return reply.status(201).send({ data: rule });
+    return reply.status(201).send({ data: ruleRows[0]! });
   });
 
   // PATCH /rules/:id — update surcharge rule
@@ -72,15 +74,17 @@ export async function surchargeRoutes(app: FastifyInstance) {
         detail: body.error.message,
       });
     }
-    const { minAmount, maxAmount, surchargePercent, ...rest } = body.data;
-    const [updated] = await db.update(schema.surchargeRules).set({
-      ...rest,
+    const { minAmount, maxAmount, surchargePercent, cardType, paymentMethod, isActive } = body.data;
+    const updatedRows = await db.update(schema.surchargeRules).set({
+      ...(paymentMethod !== undefined ? { paymentMethod } : {}),
+      ...(isActive !== undefined ? { isActive } : {}),
+      ...(cardType !== undefined ? { cardType } : {}),
       ...(surchargePercent !== undefined ? { surchargePercent: String(surchargePercent) } : {}),
       ...(minAmount !== undefined ? { minAmount: String(minAmount) } : {}),
       ...(maxAmount !== undefined ? { maxAmount: String(maxAmount) } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.surchargeRules.id, id)).returning();
-    return reply.status(200).send({ data: updated });
+    return reply.status(200).send({ data: updatedRows[0]! });
   });
 
   // DELETE /rules/:id — delete surcharge rule

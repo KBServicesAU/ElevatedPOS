@@ -176,7 +176,7 @@ export async function bnplRoutes(app: FastifyInstance) {
       });
     }
 
-    const { bnplTransactionId, amount, reason } = body.data;
+    const { bnplTransactionId, amount } = body.data;
 
     const tx = await db.query.bnplTransactions.findFirst({
       where: and(

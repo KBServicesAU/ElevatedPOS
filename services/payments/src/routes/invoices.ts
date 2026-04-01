@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, or, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 const invoiceLineSchema = z.object({
@@ -72,20 +72,21 @@ export async function invoiceRoutes(app: FastifyInstance) {
 
     const invoiceNumber = await generateInvoiceNumber(orgId);
 
-    const [invoice] = await db.insert(schema.invoices).values({
+    const invoiceRows = await db.insert(schema.invoices).values({
       orgId,
       invoiceNumber,
-      customerId,
-      orderId,
+      customerId: customerId ?? null,
+      orderId: orderId ?? null,
       subtotal: String(subtotal),
       taxAmount: String(taxAmount),
       total: String(total),
       currency,
       dueDate: new Date(dueDate),
-      notes,
-      paymentTerms,
+      notes: notes ?? null,
+      paymentTerms: paymentTerms ?? null,
       status: 'draft',
     }).returning();
+    const invoice = invoiceRows[0]!;
 
     // Insert lines
     await db.insert(schema.invoiceLines).values(
@@ -102,7 +103,7 @@ export async function invoiceRoutes(app: FastifyInstance) {
 
     const invoiceWithLines = await db.query.invoices.findFirst({
       where: eq(schema.invoices.id, invoice.id),
-      with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
+      with: { lines: { orderBy: asc(schema.invoiceLines.sortOrder) } },
     });
 
     return reply.status(201).send({ data: invoiceWithLines });
@@ -133,7 +134,7 @@ export async function invoiceRoutes(app: FastifyInstance) {
     const invoiceList = await db.query.invoices.findMany({
       where: and(...conditions),
       orderBy: [desc(schema.invoices.createdAt)],
-      with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
+      with: { lines: { orderBy: asc(schema.invoiceLines.sortOrder) } },
     });
 
     return reply.status(200).send({ data: invoiceList });
@@ -145,7 +146,7 @@ export async function invoiceRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const invoice = await db.query.invoices.findFirst({
       where: and(eq(schema.invoices.id, id), eq(schema.invoices.orgId, orgId)),
-      with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
+      with: { lines: { orderBy: asc(schema.invoiceLines.sortOrder) } },
     });
     if (!invoice) return reply.status(404).send({ title: 'Not Found', status: 404 });
     return reply.status(200).send({ data: invoice });
@@ -185,10 +186,11 @@ export async function invoiceRoutes(app: FastifyInstance) {
     if (['cancelled', 'void'].includes(invoice.status)) {
       return reply.status(409).send({ title: 'Cannot pay a cancelled invoice', status: 409 });
     }
+    const paymentId = body.success ? body.data.paymentId : undefined;
     const [updated] = await db.update(schema.invoices).set({
       status: 'paid',
       paidAt: new Date(),
-      paymentId: body.success ? body.data.paymentId : undefined,
+      ...(paymentId !== undefined ? { paymentId } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.invoices.id, id)).returning();
     return reply.status(200).send({ data: updated });
@@ -218,7 +220,7 @@ export async function invoiceRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const invoice = await db.query.invoices.findFirst({
       where: and(eq(schema.invoices.id, id), eq(schema.invoices.orgId, orgId)),
-      with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
+      with: { lines: { orderBy: asc(schema.invoiceLines.sortOrder) } },
     });
     if (!invoice) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
