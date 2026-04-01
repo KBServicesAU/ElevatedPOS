@@ -17,8 +17,8 @@ interface Product {
 
 async function getProduct(slugOrId: string): Promise<Product | null> {
   try {
-    const catalogUrl = process.env['CATALOG_SERVICE_URL'] ?? 'http://localhost:3004';
-    const res = await fetch(`${catalogUrl}/api/v1/products/${slugOrId}`, {
+    const catalogUrl = process.env['CATALOG_SERVICE_URL'] ?? 'http://localhost:4002';
+    const res = await fetch(`${catalogUrl}/api/v1/products/storefront/${encodeURIComponent(slugOrId)}`, {
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;

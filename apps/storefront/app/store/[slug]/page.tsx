@@ -40,8 +40,8 @@ async function getStorefront(slug: string): Promise<StorefrontConfig | null> {
 
 async function getProducts(orgId: string): Promise<Product[]> {
   try {
-    const catalogUrl = process.env['CATALOG_SERVICE_URL'] ?? 'http://localhost:3004';
-    const res = await fetch(`${catalogUrl}/api/v1/products?channel=web&orgId=${orgId}`, {
+    const catalogUrl = process.env['CATALOG_SERVICE_URL'] ?? 'http://localhost:4002';
+    const res = await fetch(`${catalogUrl}/api/v1/products/storefront?orgId=${encodeURIComponent(orgId)}`, {
       next: { revalidate: 60 },
     });
     if (!res.ok) return [];

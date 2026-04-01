@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storefront
+  namespace: elevatedpos
+  labels:
+    app: storefront
+    app.kubernetes.io/part-of: elevatedpos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: storefront
+  template:
+    metadata:
+      labels:
+        app: storefront
+    spec:
+      serviceAccountName: elevatedpos-service
+      containers:
+        - name: storefront
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/storefront:latest
+          ports:
+            - containerPort: 3002
+          envFrom:
+            - configMapRef:
+                name: elevatedpos-config
+            - secretRef:
+                name: elevatedpos-secrets
+          env:
+            - name: PORT
+              value: "3002"
+            - name: NEXT_TELEMETRY_DISABLED
+              value: "1"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3002
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3002
+            initialDelaySeconds: 20
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storefront
+  namespace: elevatedpos
+spec:
+  selector:
+    app: storefront
+  ports:
+    - port: 3002
+      targetPort: 3002
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: storefront
+  namespace: elevatedpos
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: storefront
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

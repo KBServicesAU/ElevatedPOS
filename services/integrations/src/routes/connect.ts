@@ -341,6 +341,77 @@ export async function connectRoutes(app: FastifyInstance) {
     return reply.send({ sent: true });
   });
 
+  // ── Storefront checkout session (Stripe Hosted Checkout) ─────────────────────
+  app.post('/connect/checkout-session', {
+    schema: {
+      body: z.object({
+        slug: z.string(),
+        items: z.array(z.object({
+          id: z.string(),
+          name: z.string(),
+          price: z.number().int().positive(), // unit amount in cents
+          quantity: z.number().int().min(1),
+        })),
+        customer: z.object({
+          name: z.string(),
+          email: z.string().email(),
+          phone: z.string().optional(),
+        }),
+        successUrl: z.string().url(),
+        cancelUrl: z.string().url(),
+      }),
+    },
+  }, async (request, reply) => {
+    const body = request.body as {
+      slug: string;
+      items: { id: string; name: string; price: number; quantity: number }[];
+      customer: { name: string; email: string; phone?: string };
+      successUrl: string;
+      cancelUrl: string;
+    };
+
+    // TODO: Replace with DB lookup via a storefronts table once multi-tenant config exists.
+    // For now, a static mapping covers the demo environment.
+    const SLUG_TO_ORG: Record<string, string> = {
+      demo: '00000000-0000-0000-0000-000000000001',
+    };
+    const orgId = SLUG_TO_ORG[body.slug] ?? process.env['DEFAULT_ORG_ID'];
+    if (!orgId) return reply.status(404).send({ error: 'Store not found' });
+
+    const account = await db.select()
+      .from(stripeConnectAccounts)
+      .where(eq(stripeConnectAccounts.orgId, orgId))
+      .limit(1);
+    if (account.length === 0) {
+      return reply.status(404).send({ error: 'This store has not configured payments yet.' });
+    }
+
+    const { stripeAccountId, platformFeePercent } = account[0]!;
+    const totalAmount = body.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    const applicationFeeAmount = Math.round(totalAmount * (platformFeePercent / 10000));
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer_email: body.customer.email,
+      line_items: body.items.map((item) => ({
+        price_data: {
+          currency: 'aud',
+          product_data: { name: item.name },
+          unit_amount: item.price,
+        },
+        quantity: item.quantity,
+      })),
+      payment_intent_data: {
+        application_fee_amount: applicationFeeAmount,
+        ...(body.customer.name ? { receipt_email: body.customer.email } : {}),
+      },
+      success_url: body.successUrl,
+      cancel_url: body.cancelUrl,
+    }, { stripeAccount: stripeAccountId });
+
+    return reply.send({ url: session.url, sessionId: session.id });
+  });
+
   // ── Create payment intent via connected account (with 1% fee) ───────────────
   app.post('/connect/payment-intent', {
     schema: {

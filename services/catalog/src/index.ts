@@ -69,6 +69,45 @@ async function start() {
     });
   });
 
+  // Public storefront endpoints — no auth required.
+  // Registered BEFORE productRoutes so static paths win over the /:id catch-all.
+
+  // Single product lookup by webSlug or UUID — used by product detail pages
+  app.get('/api/v1/products/storefront/:slugOrId', async (request, reply) => {
+    const { slugOrId } = request.params as { slugOrId: string };
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slugOrId);
+    const row = await db.query.products.findFirst({
+      where: isUuid
+        ? eq(schema.products.id, slugOrId)
+        : eq(schema.products.webSlug, slugOrId),
+      with: { category: { columns: { id: true, name: true } } },
+    });
+    if (!row || !row.isActive) return reply.status(404).send({ title: 'Not Found', status: 404 });
+    return reply.status(200).send(row);
+  });
+
+  // Product list for a given org filtered to web-active products
+  app.get('/api/v1/products/storefront', async (request, reply) => {
+    const q = request.query as { orgId?: string };
+    if (!q.orgId) {
+      return reply.status(400).send({ title: 'Bad Request', status: 400, detail: 'orgId query param is required' });
+    }
+    const rows = await db.query.products.findMany({
+      where: and(
+        eq(schema.products.orgId, q.orgId),
+        eq(schema.products.isActive, true),
+      ),
+      with: { category: { columns: { id: true, name: true } } },
+      orderBy: [desc(schema.products.webSortOrder), desc(schema.products.createdAt)],
+      limit: 200,
+    });
+    // Filter to web-enabled products in application code (array-contains is DB-specific)
+    const webProducts = rows.filter((p) =>
+      Array.isArray(p.channels) && (p.channels.includes('web') || p.channels.includes('both'))
+    );
+    return reply.status(200).send({ products: webProducts });
+  });
+
   await app.register(productRoutes, { prefix: '/api/v1/products' });
   await app.register(categoryRoutes, { prefix: '/api/v1/categories' });
   await app.register(modifierRoutes, { prefix: '/api/v1/modifiers' });
