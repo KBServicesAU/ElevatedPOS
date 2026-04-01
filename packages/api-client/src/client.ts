@@ -82,7 +82,7 @@ export class NexusClient {
           'X-Nexus-Api-Key': this.apiKey,
           'X-Nexus-Version': '1',
         },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
         signal: controller.signal,
       });
     } catch (err) {
