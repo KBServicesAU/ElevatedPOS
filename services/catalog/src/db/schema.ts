@@ -275,9 +275,9 @@ export const productRecipes = pgTable(
 export const productsRelations = relations(products, ({ one, many }) => ({
   category:  one(categories,  { fields: [products.categoryId],  references: [categories.id]  }),
   taxClass:  one(taxClasses,  { fields: [products.taxClassId],  references: [taxClasses.id]  }),
-  variants:  many(productVariants),
-  modifiers: many(productModifierGroups),
-  bundles:   many(productBundles),
+  variants:       many(productVariants),
+  modifierGroups: many(productModifierGroups),
+  bundles:        many(productBundles),
 }));
 
 export const categoriesRelations = relations(categories, ({ many }) => ({
