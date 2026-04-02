@@ -30,6 +30,7 @@ const resolved = ROLE_LOCK ? roleConfig[ROLE_LOCK] : null;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
+  owner: 'kbservicesau',
   name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
   slug: resolved?.slug ?? 'elevatedpos-mobile',
   version: '1.0.0',
