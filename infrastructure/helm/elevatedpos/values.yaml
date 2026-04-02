@@ -189,17 +189,20 @@ ingress:
   className: nginx
   host: api.elevatedpos.com.au
   tlsSecretName: elevatedpos-tls
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 
 postgres:
-  host: postgres
+  host: elevatedpos-prod.c1ga8c4uww8a.ap-southeast-2.rds.amazonaws.com
   port: 5432
   database: elevatedpos
 
 redis:
-  url: redis://redis:6379
+  url: redis://master.elevatedpos-prod.ug1fbe.apse2.cache.amazonaws.com:6379
 
 kafka:
-  brokers: kafka:9092
+  brokers: b-1.elevatedposprod.ulrbw6.c3.kafka.ap-southeast-2.amazonaws.com:9094,b-2.elevatedposprod.ulrbw6.c3.kafka.ap-southeast-2.amazonaws.com:9094,b-3.elevatedposprod.ulrbw6.c3.kafka.ap-southeast-2.amazonaws.com:9094
 
 typesense:
   host: typesense
