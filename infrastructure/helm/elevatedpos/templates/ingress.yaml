@@ -1,3 +1,38 @@
+{{- /* ─── Single-host portal ingress helper template ─── */}}
+{{- define "elevatedpos.portalIngress" -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: elevatedpos-{{ .name }}-ingress
+  namespace: {{ .namespace }}
+  labels:
+    app.kubernetes.io/name: elevatedpos
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    kubernetes.io/ingress.class: {{ .className | quote }}
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: {{ .className }}
+  tls:
+    - hosts:
+        - {{ .host }}
+      secretName: {{ .tlsSecretName }}
+  rules:
+    - host: {{ .host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .service }}
+                port:
+                  number: {{ .port }}
+{{- end }}
+
 {{- if .Values.ingress.enabled }}
 
 {{- /* ─── Main API ingress: services with keepPathPrefix=true (path is forwarded as-is, no rewrite) ─── */}}
@@ -153,41 +188,6 @@ spec:
                 port:
                   number: {{ $.Values.marketingSite.port }}
     {{- end }}
-{{- end }}
-
-{{- /* ─── Single-host portal ingress helper template ─── */}}
-{{- define "elevatedpos.portalIngress" -}}
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: elevatedpos-{{ .name }}-ingress
-  namespace: {{ .namespace }}
-  labels:
-    app.kubernetes.io/name: elevatedpos
-    app.kubernetes.io/managed-by: Helm
-  annotations:
-    kubernetes.io/ingress.class: {{ .className | quote }}
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-spec:
-  ingressClassName: {{ .className }}
-  tls:
-    - hosts:
-        - {{ .host }}
-      secretName: {{ .tlsSecretName }}
-  rules:
-    - host: {{ .host }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ .service }}
-                port:
-                  number: {{ .port }}
 {{- end }}
 
 {{- if .Values.godmodePortal.enabled }}
