@@ -18,7 +18,7 @@ RUN pnpm install --frozen-lockfile
 FROM installer AS builder
 WORKDIR /app
 COPY --from=pruner /app/out/full/ .
-RUN pnpm --filter @nexus/notifications build
+RUN turbo build --filter=@nexus/notifications
 
 # ── Stage 4: Production runner ────────────────────────────────────────────
 FROM node:20-alpine AS runner

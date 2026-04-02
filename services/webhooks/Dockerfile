@@ -15,7 +15,7 @@ RUN pnpm install --frozen-lockfile
 FROM installer AS builder
 WORKDIR /app
 COPY --from=pruner /app/out/full/ .
-RUN pnpm --filter @nexus/webhooks build
+RUN turbo build --filter=@nexus/webhooks
 
 FROM node:20-alpine AS runner
 WORKDIR /app

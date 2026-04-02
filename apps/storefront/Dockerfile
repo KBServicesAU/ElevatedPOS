@@ -19,7 +19,7 @@ FROM installer AS builder
 WORKDIR /app
 COPY --from=pruner /app/out/full/ .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm --filter @nexus/storefront build
+RUN turbo build --filter=@nexus/storefront
 
 # ── Stage 4: Production runner ────────────────────────────────────────────
 FROM node:20-alpine AS runner

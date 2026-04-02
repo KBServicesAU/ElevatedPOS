@@ -2,15 +2,23 @@
   "name": "@nexus/config",
   "version": "0.1.0",
   "private": true,
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
     "./typescript": "./typescript/tsconfig.json",
     "./typescript/tsconfig.json": "./typescript/tsconfig.json",
     "./typescript/tsconfig.base.json": "./typescript/tsconfig.base.json",
     "./typescript/tsconfig.nextjs.json": "./typescript/tsconfig.nextjs.json",
     "./typescript/tsconfig.react-native.json": "./typescript/tsconfig.react-native.json",
     "./eslint": "./eslint/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "ioredis": "^5.3.2",

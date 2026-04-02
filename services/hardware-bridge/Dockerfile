@@ -18,7 +18,7 @@ RUN pnpm install --frozen-lockfile
 FROM installer AS builder
 WORKDIR /app
 COPY --from=pruner /app/out/full/ .
-RUN pnpm --filter @nexus/hardware-bridge build
+RUN turbo build --filter=@nexus/hardware-bridge
 
 # ── Stage 4: Production runner ────────────────────────────────────────────
 # NOTE: hardware-bridge runs on-premise alongside POS hardware.
