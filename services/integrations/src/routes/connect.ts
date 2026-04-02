@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
 import Stripe from 'stripe';
 import { db } from '../db/index.js';
 import { stripeConnectAccounts, stripeSubscriptions, stripeInvoices } from '../db/schema.js';

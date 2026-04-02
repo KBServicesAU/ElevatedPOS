@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { sendEmail } from '../lib/channels/email.js';
 import { sendSms } from '../lib/channels/sms.js';
