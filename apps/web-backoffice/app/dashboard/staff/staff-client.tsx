@@ -7,6 +7,7 @@ import {
   Calendar, Users, Edit2, ToggleLeft, ToggleRight, X, Check, FileDown,
 } from 'lucide-react';
 import { useEmployees } from '@/lib/hooks';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Employee } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 import { getErrorMessage } from '@/lib/formatting';
@@ -120,6 +121,7 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
   });
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,6 +144,7 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
         throw new Error(data.message ?? `HTTP ${res.status}`);
       }
       toast({ title: 'Employee added', description: `${form.firstName} ${form.lastName} has been added to the team.`, variant: 'success' });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
       onClose();
     } catch (err) {
       const msg = getErrorMessage(err, 'Failed to add employee');
@@ -237,6 +240,40 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
 function EmployeeSidePanel({ employee, onClose }: { employee: Employee; onClose: () => void }) {
   const router = useRouter();
   const [active, setActive] = useState(employee.status !== 'inactive');
+  const [togglingStatus, setTogglingStatus] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  async function handleToggleStatus() {
+    const nextActive = !active;
+    setTogglingStatus(true);
+    try {
+      const res = await fetch(`/api/proxy/employees/${employee.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextActive ? 'active' : 'inactive' }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message ?? `HTTP ${res.status}`);
+      }
+      setActive(nextActive);
+      toast({
+        title: nextActive ? 'Employee activated' : 'Employee deactivated',
+        description: `${employee.firstName} ${employee.lastName} is now ${nextActive ? 'active' : 'inactive'}.`,
+        variant: nextActive ? 'success' : 'default',
+      });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+    } catch (err) {
+      toast({
+        title: 'Failed to update status',
+        description: getErrorMessage(err, 'Could not update employee status.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setTogglingStatus(false);
+    }
+  }
 
   return (
     <div className="fixed inset-y-0 right-0 z-40 flex w-96 flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
@@ -266,11 +303,12 @@ function EmployeeSidePanel({ employee, onClose }: { employee: Employee; onClose:
         <div className="mt-4 flex items-center justify-between">
           <span className="text-sm text-gray-600 dark:text-gray-400">Status: {active ? 'Active' : 'Inactive'}</span>
           <button
-            onClick={() => setActive((v) => !v)}
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${active ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'}`}
+            onClick={handleToggleStatus}
+            disabled={togglingStatus}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${active ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'}`}
           >
             {active ? <ToggleRight className="h-3.5 w-3.5" /> : <ToggleLeft className="h-3.5 w-3.5" />}
-            {active ? 'Active' : 'Inactive'}
+            {togglingStatus ? 'Updating…' : active ? 'Active' : 'Inactive'}
           </button>
         </div>
       </div>
