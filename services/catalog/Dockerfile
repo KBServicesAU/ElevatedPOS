@@ -28,6 +28,8 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs  && adduser  --system --uid 1001 nexus
 
 COPY --from=builder --chown=nexus:nodejs /app/services/catalog/dist ./dist
+COPY --from=builder --chown=nexus:nodejs /app/services/catalog/src/db/migrations ./src/db/migrations
+COPY --from=builder --chown=nexus:nodejs /app/services/catalog/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nexus:nodejs /app/services/catalog/package.json ./package.json
 COPY --from=builder --chown=nexus:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nexus:nodejs /app/packages ./packages

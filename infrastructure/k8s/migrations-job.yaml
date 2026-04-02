@@ -29,7 +29,7 @@ spec:
       initContainers:
         # Run each service's migration sequentially to avoid lock contention
         - name: migrate-auth
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/auth:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/auth:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -37,7 +37,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-catalog
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/catalog:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/catalog:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -45,7 +45,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-inventory
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/inventory:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/inventory:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -53,7 +53,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-orders
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/orders:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/orders:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -61,7 +61,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-payments
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/payments:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/payments:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -69,7 +69,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-customers
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/customers:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/customers:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -77,7 +77,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-loyalty
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/loyalty:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/loyalty:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -85,7 +85,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-campaigns
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/campaigns:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/campaigns:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -93,7 +93,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-notifications
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/notifications:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/notifications:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -101,7 +101,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-integrations
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/integrations:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/integrations:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -109,7 +109,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-automations
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/automations:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/automations:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -117,7 +117,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-franchise
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/franchise:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/franchise:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
@@ -125,7 +125,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-webhooks
-          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/webhooks:latest
+          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/webhooks:v1.0.5
           command: ["npx", "drizzle-kit", "migrate"]
           envFrom:
             - secretRef:
