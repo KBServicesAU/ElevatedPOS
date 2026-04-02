@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:20-slim AS base
 RUN npm install -g pnpm@9.4.0 turbo@2
 
 # ── Stage 1: Prune workspace ───────────────────────────────────────────────
@@ -21,7 +21,7 @@ COPY --from=pruner /app/out/full/ .
 RUN turbo build --filter=@nexus/automations
 
 # ── Stage 4: Production runner ────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 

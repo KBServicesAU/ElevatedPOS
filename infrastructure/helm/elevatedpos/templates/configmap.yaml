@@ -18,6 +18,7 @@ data:
   KAFKA_BROKERS: {{ .Values.kafka.brokers | quote }}
   CLICKHOUSE_HOST: {{ .Values.clickhouse.host | quote }}
   CLICKHOUSE_PORT: {{ .Values.clickhouse.port | quote }}
+  CLICKHOUSE_URL: {{ printf "http://%s:%d" .Values.clickhouse.host (int .Values.clickhouse.port) | quote }}
   {{- range $name, $svc := .Values.services }}
   {{- if $svc.enabled }}
   {{ $name | upper | replace "-" "_" }}_SERVICE_URL: {{ printf "http://%s:%d" $name (int $svc.port) | quote }}

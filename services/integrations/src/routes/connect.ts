@@ -15,14 +15,6 @@ export async function connectRoutes(app: FastifyInstance) {
 
   // ── Create / get onboarding link ────────────────────────────────────────────
   app.post('/connect/onboard', {
-    schema: {
-      body: z.object({
-        orgId: z.string().uuid(),
-        businessName: z.string().optional(),
-        returnUrl: z.string().url().optional(),
-        refreshUrl: z.string().url().optional(),
-      }),
-    },
   }, async (request, reply) => {
     const { orgId, businessName, returnUrl, refreshUrl } = request.body as {
       orgId: string; businessName?: string; returnUrl?: string; refreshUrl?: string;
@@ -138,18 +130,6 @@ export async function connectRoutes(app: FastifyInstance) {
 
   // ── Create subscription for merchant's customer ──────────────────────────────
   app.post('/connect/subscriptions', {
-    schema: {
-      body: z.object({
-        orgId: z.string().uuid(),
-        customerId: z.string().optional(),
-        stripeCustomerId: z.string().optional(),
-        customerEmail: z.string().email().optional(),
-        customerName: z.string().optional(),
-        priceId: z.string(), // Stripe Price ID on the connected account
-        trialDays: z.number().int().min(0).optional(),
-        metadata: z.record(z.string()).optional(),
-      }),
-    },
   }, async (request, reply) => {
     const body = request.body as {
       orgId: string; customerId?: string; stripeCustomerId?: string;
@@ -227,23 +207,6 @@ export async function connectRoutes(app: FastifyInstance) {
 
   // ── Create invoice for merchant's customer ───────────────────────────────────
   app.post('/connect/invoices', {
-    schema: {
-      body: z.object({
-        orgId: z.string().uuid(),
-        stripeCustomerId: z.string().optional(),
-        customerEmail: z.string().email().optional(),
-        customerName: z.string().optional(),
-        customerId: z.string().optional(),
-        items: z.array(z.object({
-          description: z.string(),
-          amount: z.number().int().positive(), // cents
-          quantity: z.number().int().min(1).default(1),
-        })),
-        dueDate: z.string().datetime().optional(),
-        memo: z.string().optional(),
-        autoSend: z.boolean().default(false),
-      }),
-    },
   }, async (request, reply) => {
     const body = request.body as {
       orgId: string; stripeCustomerId?: string; customerEmail?: string;
@@ -343,24 +306,6 @@ export async function connectRoutes(app: FastifyInstance) {
 
   // ── Storefront checkout session (Stripe Hosted Checkout) ─────────────────────
   app.post('/connect/checkout-session', {
-    schema: {
-      body: z.object({
-        slug: z.string(),
-        items: z.array(z.object({
-          id: z.string(),
-          name: z.string(),
-          price: z.number().int().positive(), // unit amount in cents
-          quantity: z.number().int().min(1),
-        })),
-        customer: z.object({
-          name: z.string(),
-          email: z.string().email(),
-          phone: z.string().optional(),
-        }),
-        successUrl: z.string().url(),
-        cancelUrl: z.string().url(),
-      }),
-    },
   }, async (request, reply) => {
     const body = request.body as {
       slug: string;
@@ -414,15 +359,6 @@ export async function connectRoutes(app: FastifyInstance) {
 
   // ── Create payment intent via connected account (with 1% fee) ───────────────
   app.post('/connect/payment-intent', {
-    schema: {
-      body: z.object({
-        orgId: z.string().uuid(),
-        amount: z.number().int().positive(), // cents
-        currency: z.string().default('aud'),
-        description: z.string().optional(),
-        metadata: z.record(z.string()).optional(),
-      }),
-    },
   }, async (request, reply) => {
     const body = request.body as {
       orgId: string; amount: number; currency: string; description?: string; metadata?: Record<string, string>;

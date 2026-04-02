@@ -1,7 +1,13 @@
 import { createClient } from '@clickhouse/client';
 
+// Build ClickHouse URL from CLICKHOUSE_URL (preferred) or CLICKHOUSE_HOST + CLICKHOUSE_PORT
+const clickhouseUrl = process.env['CLICKHOUSE_URL']
+  ?? (process.env['CLICKHOUSE_HOST']
+    ? `http://${process.env['CLICKHOUSE_HOST']}:${process.env['CLICKHOUSE_PORT'] ?? '8123'}`
+    : 'http://localhost:8123');
+
 export const clickhouse = createClient({
-  host: process.env['CLICKHOUSE_HOST'] ?? 'http://localhost:8123',
+  url: clickhouseUrl,
   username: process.env['CLICKHOUSE_USER'] ?? 'default',
   password: process.env['CLICKHOUSE_PASSWORD'] ?? '',
   database: process.env['CLICKHOUSE_DB'] ?? 'nexus_analytics',

@@ -53,20 +53,22 @@ async function start() {
 
   app.get('/health', async () => ({ status: 'ok', service: 'webhooks', timestamp: new Date().toISOString() }));
 
+  // Register onClose hook BEFORE listen() — Fastify disallows hooks after server starts
+  let pollerInterval: ReturnType<typeof setInterval> | null = null;
+  app.addHook('onClose', async () => {
+    if (pollerInterval) clearInterval(pollerInterval);
+  });
+
   const port = Number(process.env['PORT'] ?? 4015);
   await app.listen({ port, host: '0.0.0.0' });
   app.log.info(`Webhooks service listening on port ${port}`);
 
   // Poll every 30 seconds for pending/retrying deliveries
-  const pollerInterval = setInterval(() => {
+  pollerInterval = setInterval(() => {
     processDeliveries().catch((err) => {
       app.log.error({ err }, '[webhooks] delivery poller error');
     });
   }, 30_000);
-
-  app.addHook('onClose', async () => {
-    clearInterval(pollerInterval);
-  });
 }
 
 start().catch((err) => {

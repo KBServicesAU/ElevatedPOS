@@ -100,6 +100,6 @@ wss.on('connection', (ws) => {
 });
 
 const PORT = Number(process.env['PORT'] ?? 9999);
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[HardwareBridge] Listening on http://127.0.0.1:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[HardwareBridge] Listening on http://0.0.0.0:${PORT}`);
 });

@@ -117,22 +117,6 @@ export async function notificationRoutes(app: FastifyInstance) {
     });
   });
 
-  // GET /notifications/logs — list notification logs with pagination
-  app.get('/logs', async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
-    const q = request.query as { limit?: string; offset?: string };
-    const limit = Math.min(Number(q.limit ?? 50), 200);
-    const offset = Number(q.offset ?? 0);
-
-    const logs = await db.query.notificationLogs.findMany({
-      where: eq(schema.notificationLogs.orgId, orgId),
-      orderBy: [desc(schema.notificationLogs.createdAt)],
-      limit,
-      offset,
-    });
-    return reply.status(200).send({ data: logs, meta: { limit, offset } });
-  });
-
   // GET /notifications/templates — list templates
   app.get('/templates', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
