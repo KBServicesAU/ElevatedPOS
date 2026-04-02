@@ -197,6 +197,19 @@ services:
       limits:
         cpu: "500m"
         memory: "512Mi"
+  storefront:
+    enabled: true
+    replicas: 2
+    port: 3002
+    healthPath: /
+    isWebApp: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
 
 ingress:
   enabled: true
@@ -212,6 +225,15 @@ webApp:
   host: app.elevatedpos.com.au
   service: web-backoffice
   tlsSecretName: elevatedpos-app-tls
+
+marketingSite:
+  enabled: true
+  hosts:
+    - elevatedpos.com.au
+    - www.elevatedpos.com.au
+  service: storefront
+  port: 3002
+  tlsSecretName: elevatedpos-marketing-tls
 
 postgres:
   host: elevatedpos-prod.c1ga8c4uww8a.ap-southeast-2.rds.amazonaws.com

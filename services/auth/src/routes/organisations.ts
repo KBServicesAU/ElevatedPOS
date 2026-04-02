@@ -24,7 +24,7 @@ export async function organisationRoutes(app: FastifyInstance) {
       },
     },
   }, async (request, reply) => {
-    const { businessName, email, password, firstName, lastName, phone, abn, plan = 'starter' } = request.body as {
+    const { businessName, email, password, firstName, lastName, abn, plan = 'starter' } = request.body as {
       businessName: string; email: string; password: string;
       firstName: string; lastName: string; phone?: string; abn?: string; plan?: string;
     };
@@ -59,7 +59,6 @@ export async function organisationRoutes(app: FastifyInstance) {
           passwordHash,
           firstName,
           lastName,
-          phone: phone ?? null,
           isActive: true,
         }).returning();
 

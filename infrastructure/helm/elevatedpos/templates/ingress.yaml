@@ -116,4 +116,43 @@ spec:
                   number: {{ (index .Values.services .Values.webApp.service).port }}
 {{- end }}
 
+{{- /* ─── Marketing site ingress (elevatedpos.com.au + www) ─── */}}
+{{- if .Values.marketingSite.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: elevatedpos-marketing-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: elevatedpos
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | quote }}
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts:
+        {{- range .Values.marketingSite.hosts }}
+        - {{ . }}
+        {{- end }}
+      secretName: {{ .Values.marketingSite.tlsSecretName }}
+  rules:
+    {{- range .Values.marketingSite.hosts }}
+    - host: {{ . }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $.Values.marketingSite.service }}
+                port:
+                  number: {{ $.Values.marketingSite.port }}
+    {{- end }}
+{{- end }}
+
 {{- end }}

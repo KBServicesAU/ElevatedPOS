@@ -45,10 +45,11 @@ export async function deviceRoutes(app: FastifyInstance) {
       columns: { maxDevices: true },
     });
     if (org) {
-      const [{ value: deviceCount }] = await db
+      const countRows = await db
         .select({ value: count() })
         .from(schema.devices)
         .where(and(eq(schema.devices.orgId, user.orgId), eq(schema.devices.status, 'active')));
+      const deviceCount = countRows[0]?.value ?? 0;
       if (deviceCount >= org.maxDevices) {
         return reply.status(403).send({ error: 'Device limit reached', limit: org.maxDevices, current: deviceCount });
       }
@@ -143,10 +144,11 @@ export async function deviceRoutes(app: FastifyInstance) {
 
     // Enforce device limit
     if (pairOrg) {
-      const [{ value: deviceCount }] = await db
+      const countRows2 = await db
         .select({ value: count() })
         .from(schema.devices)
         .where(and(eq(schema.devices.orgId, pairingRecord.orgId), eq(schema.devices.status, 'active')));
+      const deviceCount = countRows2[0]?.value ?? 0;
       if (deviceCount >= pairOrg.maxDevices) {
         return reply.status(403).send({ error: 'Device limit reached', limit: pairOrg.maxDevices, current: deviceCount });
       }
