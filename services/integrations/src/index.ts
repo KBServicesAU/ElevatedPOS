@@ -57,13 +57,18 @@ async function start() {
 
   app.get('/health', async () => ({ status: 'ok', service: 'integrations' }));
 
+  // Register onClose hook BEFORE listen() — Fastify throws if hooks added after server starts
+  let stopRetryPoller: (() => void) | null = null;
+  app.addHook('onClose', async () => {
+    if (stopRetryPoller) stopRetryPoller();
+  });
+
   const port = Number(process.env['PORT'] ?? 4010);
   await app.listen({ port, host: '0.0.0.0' });
   app.log.info(`Integrations service listening on port ${port}`);
 
   // Start webhook retry poller (exponential backoff for failed deliveries)
-  const stopRetryPoller = startRetryPoller();
-  app.addHook('onClose', async () => stopRetryPoller());
+  stopRetryPoller = startRetryPoller();
 }
 
 start().catch((err) => {
