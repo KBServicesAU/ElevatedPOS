@@ -16,7 +16,7 @@ export const webhookEndpoints = pgTable('webhook_endpoints', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const webhookDeliveries = pgTable('webhook_deliveries', {
+export const webhookDeliveries = pgTable('webhook_endpoint_deliveries', {
   id: uuid('id').primaryKey().defaultRandom(),
   endpointId: uuid('endpoint_id').notNull().references(() => webhookEndpoints.id, { onDelete: 'cascade' }),
   event: text('event').notNull(),

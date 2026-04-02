@@ -1,5 +1,7 @@
 -- Migration: 0001_webhooks.sql
--- Creates webhook_endpoints and webhook_deliveries tables
+-- Creates webhook_endpoints and webhook_endpoint_deliveries tables
+-- NOTE: we use webhook_endpoint_deliveries (not webhook_deliveries) because the
+-- integrations service owns a separate webhook_deliveries table with a different schema.
 
 DO $$ BEGIN
   CREATE TYPE webhook_endpoint_status AS ENUM ('active', 'inactive', 'suspended');
@@ -25,7 +27,7 @@ CREATE TABLE IF NOT EXISTS webhook_endpoints (
 CREATE INDEX IF NOT EXISTS idx_webhook_endpoints_org_id ON webhook_endpoints (org_id);
 CREATE INDEX IF NOT EXISTS idx_webhook_endpoints_status  ON webhook_endpoints (status);
 
-CREATE TABLE IF NOT EXISTS webhook_deliveries (
+CREATE TABLE IF NOT EXISTS webhook_endpoint_deliveries (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   endpoint_id    UUID NOT NULL REFERENCES webhook_endpoints(id) ON DELETE CASCADE,
   event          TEXT NOT NULL,
@@ -39,7 +41,7 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_endpoint_id  ON webhook_deliveries (endpoint_id);
-CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status        ON webhook_deliveries (status);
-CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_next_retry_at ON webhook_deliveries (next_retry_at)
+CREATE INDEX IF NOT EXISTS idx_webhook_ep_deliveries_endpoint_id  ON webhook_endpoint_deliveries (endpoint_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_ep_deliveries_status        ON webhook_endpoint_deliveries (status);
+CREATE INDEX IF NOT EXISTS idx_webhook_ep_deliveries_next_retry_at ON webhook_endpoint_deliveries (next_retry_at)
   WHERE next_retry_at IS NOT NULL;
