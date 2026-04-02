@@ -292,7 +292,7 @@ export const productVariantsRelations = relations(productVariants, ({ one }) => 
   product: one(products, { fields: [productVariants.productId], references: [products.id] }),
 }));
 
-export const productModifierGroupsRelations = relations(productModifierGroups, ({ one, many }) => ({
+export const productModifierGroupsRelations = relations(productModifierGroups, ({ one }) => ({
   product: one(products, { fields: [productModifierGroups.productId], references: [products.id] }),
   group:   one(modifierGroups, { fields: [productModifierGroups.groupId], references: [modifierGroups.id] }),
 }));
