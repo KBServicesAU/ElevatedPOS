@@ -8,6 +8,7 @@ import { appRoutes } from './routes/apps';
 import { webhookRoutes } from './routes/webhooks';
 import { connectorRoutes } from './routes/connectors';
 import { connectRoutes } from './routes/connect';
+import { stripeWebhookRoutes } from './routes/stripe-webhook';
 import { startRetryPoller } from './lib/webhookDelivery';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
@@ -54,6 +55,7 @@ async function start() {
   await app.register(webhookRoutes, { prefix: '/api/v1/integrations/webhooks' });
   await app.register(connectorRoutes, { prefix: '/api/v1/connectors' });
   await app.register(connectRoutes, { prefix: '/api/v1' });
+  await app.register(stripeWebhookRoutes, { prefix: '/api/v1' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'integrations' }));
 

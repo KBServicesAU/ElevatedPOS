@@ -404,9 +404,8 @@ export default function HomePage() {
               </ul>
               <h4 className="text-white font-semibold text-sm mb-4 mt-6">Legal</h4>
               <ul className="space-y-2">
-                {['Privacy Policy', 'Terms of Service'].map((l) => (
-                  <li key={l}><a href="#" className="text-gray-400 hover:text-white text-sm transition-colors">{l}</a></li>
-                ))}
+                <li><a href="/privacy" className="text-gray-400 hover:text-white text-sm transition-colors">Privacy Policy</a></li>
+                <li><a href="/terms" className="text-gray-400 hover:text-white text-sm transition-colors">Terms of Service</a></li>
               </ul>
             </div>
           </div>
