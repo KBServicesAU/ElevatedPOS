@@ -13,28 +13,28 @@
       "idx": 1,
       "version": "7",
       "when": 1710950400000,
-      "tag": "0002_approvals",
+      "tag": "0002_bundles_lots_markdowns",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1710953600000,
-      "tag": "0003_oauth",
+      "when": 1711036800000,
+      "tag": "0003_recipes_wastage",
       "breakpoints": true
     },
     {
       "idx": 3,
       "version": "7",
-      "when": 1711152000000,
-      "tag": "0004_locations",
+      "when": 1711123200000,
+      "tag": "0004_ingredients_product_recipes",
       "breakpoints": true
     },
     {
       "idx": 4,
       "version": "7",
-      "when": 1711238400000,
-      "tag": "0005_devices",
+      "when": 1711209600000,
+      "tag": "0005_web_storefront_channels",
       "breakpoints": true
     }
   ]

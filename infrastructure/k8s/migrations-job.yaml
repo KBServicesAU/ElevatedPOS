@@ -31,6 +31,9 @@ spec:
         - name: migrate-auth
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/auth:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -39,6 +42,9 @@ spec:
         - name: migrate-catalog
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/catalog:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -47,6 +53,9 @@ spec:
         - name: migrate-inventory
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/inventory:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -55,6 +64,9 @@ spec:
         - name: migrate-orders
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/orders:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -63,6 +75,9 @@ spec:
         - name: migrate-payments
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/payments:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -71,6 +86,9 @@ spec:
         - name: migrate-customers
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/customers:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -79,6 +97,9 @@ spec:
         - name: migrate-loyalty
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/loyalty:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -87,6 +108,9 @@ spec:
         - name: migrate-campaigns
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/campaigns:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -95,6 +119,9 @@ spec:
         - name: migrate-notifications
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/notifications:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -103,6 +130,9 @@ spec:
         - name: migrate-integrations
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/integrations:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -111,6 +141,9 @@ spec:
         - name: migrate-automations
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/automations:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -119,6 +152,9 @@ spec:
         - name: migrate-franchise
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/franchise:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets
@@ -127,6 +163,9 @@ spec:
         - name: migrate-webhooks
           image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/webhooks:v1.0.9
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
           envFrom:
             - secretRef:
                 name: elevatedpos-secrets

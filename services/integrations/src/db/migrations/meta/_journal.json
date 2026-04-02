@@ -13,28 +13,14 @@
       "idx": 1,
       "version": "7",
       "when": 1710950400000,
-      "tag": "0002_approvals",
+      "tag": "0002_webhook_delivery_retries",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1710953600000,
-      "tag": "0003_oauth",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1711152000000,
-      "tag": "0004_locations",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1711238400000,
-      "tag": "0005_devices",
+      "when": 1711036800000,
+      "tag": "0003_stripe_connect",
       "breakpoints": true
     }
   ]
