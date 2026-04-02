@@ -53,7 +53,7 @@ async function start() {
     timeWindow: '1 minute',
     redis: redis ?? undefined,
     keyGenerator: (req) => req.ip,
-    skip: (req: import('fastify').FastifyRequest) => req.url === '/health',
+    allowList: (req: import('fastify').FastifyRequest) => req.url === '/health',
     errorResponseBuilder: () => ({ statusCode: 429, error: 'Too Many Requests', message: 'Rate limit exceeded' }),
   });
   await app.register(jwt, { secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production', verify: { allowedIss: 'elevatedpos-auth' } });

@@ -44,7 +44,7 @@ async function start() {
     timeWindow: '15 minutes',
     ...(redis ? { redis } : {}),
     keyGenerator: (req) => req.ip,
-    skip: (req: import('fastify').FastifyRequest) => req.url === '/health',
+    allowList: (req: import('fastify').FastifyRequest) => req.url === '/health',
     errorResponseBuilder: () => ({ statusCode: 429, error: 'Too Many Requests', message: 'Rate limit exceeded' }),
   });
   await app.register(sensible);
