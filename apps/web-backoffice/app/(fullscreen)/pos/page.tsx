@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  LayoutDashboard, Monitor, CreditCard, ShoppingCart, Building2, Code2,
+  LayoutDashboard, CreditCard, ShoppingCart,
   Search, X, Minus, Plus, Trash2, ChefHat, Tablet,
 } from 'lucide-react';
+import DevicePairingScreen from '@/components/device-pairing-screen';
+import { getDeviceToken, getDeviceInfo, type DeviceInfo } from '@/lib/device-auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,7 +51,7 @@ const APPS = [
   { id: 'kiosk',     label: 'Kiosk',     icon: Tablet,          href: '/kiosk',     color: 'bg-yellow-500' },
 ] as const;
 
-function AppBar({ current }: { current: string }) {
+function AppBar({ current, deviceLabel }: { current: string; deviceLabel?: string }) {
   return (
     <div className="flex h-10 items-center justify-between border-b border-[#2a2a3a] bg-[#1a1a2a] px-4">
       <div className="flex items-center gap-1">
@@ -72,14 +74,21 @@ function AppBar({ current }: { current: string }) {
           );
         })}
       </div>
-      <span className="text-[10px] text-gray-600">ElevatedPOS</span>
+      <div className="flex items-center gap-3">
+        {deviceLabel && (
+          <span className="rounded-md bg-[#2a2a3a] px-2 py-0.5 font-mono text-[10px] text-indigo-300">
+            Device: {deviceLabel}
+          </span>
+        )}
+        <span className="text-[10px] text-gray-600">ElevatedPOS</span>
+      </div>
     </div>
   );
 }
 
-// ─── Main POS screen ─────────────────────────────────────────────────────────
+// ─── POS terminal (rendered after pairing) ────────────────────────────────────
 
-export default function POSPage() {
+function POSTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
   const router = useRouter();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [category, setCategory] = useState('All');
@@ -125,7 +134,7 @@ export default function POSPage() {
 
   return (
     <div className="flex h-full flex-col bg-[#1e1e2e]">
-      <AppBar current="pos" />
+      <AppBar current="pos" deviceLabel={deviceInfo?.label ?? deviceInfo?.deviceId?.slice(0, 8)} />
 
       <div className="flex flex-1 overflow-hidden">
         {/* ── Product panel ── */}
@@ -277,4 +286,37 @@ export default function POSPage() {
       </div>
     </div>
   );
+}
+
+// ─── Page — device pairing gate ───────────────────────────────────────────────
+
+export default function POSPage() {
+  const [mounted, setMounted] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
+  const [paired, setPaired] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const token = getDeviceToken();
+    if (token) {
+      setDeviceInfo(getDeviceInfo());
+      setPaired(true);
+    }
+  }, []);
+
+  if (!mounted) return null; // avoid SSR/client mismatch
+
+  if (!paired) {
+    return (
+      <DevicePairingScreen
+        role="pos"
+        onPaired={(info) => {
+          setDeviceInfo(info);
+          setPaired(true);
+        }}
+      />
+    );
+  }
+
+  return <POSTerminal deviceInfo={deviceInfo} />;
 }

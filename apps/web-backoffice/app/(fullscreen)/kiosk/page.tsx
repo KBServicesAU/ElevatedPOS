@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { LayoutDashboard, CreditCard, ChefHat, Tablet, ShoppingCart, X, Plus } from 'lucide-react';
+import DevicePairingScreen from '@/components/device-pairing-screen';
+import { getDeviceToken, getDeviceInfo, type DeviceInfo } from '@/lib/device-auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,7 +56,7 @@ const APPS = [
   { id: 'kiosk',     label: 'Kiosk',     icon: Tablet,          href: '/kiosk' },
 ] as const;
 
-function AppBar({ current }: { current: string }) {
+function AppBar({ current, deviceLabel }: { current: string; deviceLabel?: string }) {
   return (
     <div className="flex h-10 items-center justify-between border-b border-[#333] bg-[#111] px-4">
       <div className="flex items-center gap-1">
@@ -75,7 +77,14 @@ function AppBar({ current }: { current: string }) {
           );
         })}
       </div>
-      <span className="text-[10px] text-gray-700">ElevatedPOS Kiosk</span>
+      <div className="flex items-center gap-3">
+        {deviceLabel && (
+          <span className="rounded-md bg-[#2a2a2a] px-2 py-0.5 font-mono text-[10px] text-amber-400">
+            Device: {deviceLabel}
+          </span>
+        )}
+        <span className="text-[10px] text-gray-700">ElevatedPOS Kiosk</span>
+      </div>
     </div>
   );
 }
@@ -200,15 +209,17 @@ function CheckoutSuccess({ onNew }: { onNew: () => void }) {
   );
 }
 
-// ─── Main kiosk page ──────────────────────────────────────────────────────────
+// ─── Kiosk terminal (rendered after pairing) ─────────────────────────────────
 
-export default function KioskPage() {
+function KioskTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
   const [started, setStarted] = useState(false);
   const [category, setCategory] = useState('All');
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [checkedOut, setCheckedOut] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
+
+  const locationId = deviceInfo?.locationId ?? '00000000-0000-0000-0000-000000000001';
 
   const filtered = useMemo(
     () =>
@@ -248,7 +259,6 @@ export default function KioskPage() {
     try {
       const orderNumber = String(Math.floor(1000 + Math.random() * 9000));
       const orderId = `kiosk-${Date.now()}`;
-      const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
 
       await fetch('/api/kds', {
         method: 'POST',
@@ -261,7 +271,7 @@ export default function KioskPage() {
             orderNumber,
             orderType: 'dine_in',
             channel: 'kiosk',
-            locationId: '00000000-0000-0000-0000-000000000001',
+            locationId,
             lines: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price, modifiers: [] })),
             createdAt: new Date().toISOString(),
             status: 'new',
@@ -284,7 +294,7 @@ export default function KioskPage() {
 
   return (
     <div className="flex h-full flex-col bg-black">
-      <AppBar current="kiosk" />
+      <AppBar current="kiosk" deviceLabel={deviceInfo?.label ?? deviceInfo?.deviceId?.slice(0, 8)} />
 
       {!started ? (
         <AttractScreen onStart={() => setStarted(true)} />
@@ -383,4 +393,37 @@ export default function KioskPage() {
       )}
     </div>
   );
+}
+
+// ─── Page — device pairing gate ───────────────────────────────────────────────
+
+export default function KioskPage() {
+  const [mounted, setMounted] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
+  const [paired, setPaired] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const token = getDeviceToken();
+    if (token) {
+      setDeviceInfo(getDeviceInfo());
+      setPaired(true);
+    }
+  }, []);
+
+  if (!mounted) return null;
+
+  if (!paired) {
+    return (
+      <DevicePairingScreen
+        role="kiosk"
+        onPaired={(info) => {
+          setDeviceInfo(info);
+          setPaired(true);
+        }}
+      />
+    );
+  }
+
+  return <KioskTerminal deviceInfo={deviceInfo} />;
 }

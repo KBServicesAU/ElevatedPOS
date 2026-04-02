@@ -6,6 +6,8 @@ import {
   ChefHat, CheckCircle, Wifi, WifiOff, Clock,
   LayoutDashboard, CreditCard, Tablet,
 } from 'lucide-react';
+import DevicePairingScreen from '@/components/device-pairing-screen';
+import { getDeviceToken, getDeviceInfo, type DeviceInfo } from '@/lib/device-auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -79,7 +81,7 @@ const APPS = [
   { id: 'kiosk',     label: 'Kiosk',     icon: Tablet,          href: '/kiosk' },
 ] as const;
 
-function AppBar({ current }: { current: string }) {
+function AppBar({ current, deviceLabel }: { current: string; deviceLabel?: string }) {
   return (
     <div className="flex h-10 items-center justify-between border-b border-[#2a2a2a] bg-[#111] px-4">
       <div className="flex items-center gap-1">
@@ -100,7 +102,14 @@ function AppBar({ current }: { current: string }) {
           );
         })}
       </div>
-      <span className="text-[10px] text-gray-700">ElevatedPOS KDS</span>
+      <div className="flex items-center gap-3">
+        {deviceLabel && (
+          <span className="rounded-md bg-[#2a2a2a] px-2 py-0.5 font-mono text-[10px] text-yellow-400">
+            Device: {deviceLabel}
+          </span>
+        )}
+        <span className="text-[10px] text-gray-700">ElevatedPOS KDS</span>
+      </div>
     </div>
   );
 }
@@ -180,50 +189,20 @@ function TicketCard({ ticket, onBump }: { ticket: KdsTicket; onBump: (orderId: s
   );
 }
 
-// ─── Connect screen ───────────────────────────────────────────────────────────
+// ─── KDS terminal (rendered after pairing) ────────────────────────────────────
 
-const DEMO_LOCATION_ID = '00000000-0000-0000-0000-000000000001';
-
-function ConnectScreen({ onConnect }: { onConnect: (locationId: string) => void }) {
-  const [value, setValue] = useState(DEMO_LOCATION_ID);
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center bg-[#0f0f0f] text-white">
-      <ChefHat className="mb-4 h-16 w-16 text-yellow-400" />
-      <h1 className="mb-2 text-3xl font-extrabold tracking-wide">ElevatedPOS KDS</h1>
-      <p className="mb-6 text-gray-400">Enter your Location ID to connect</p>
-      <div className="flex w-full max-w-sm flex-col gap-3">
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && value.trim() && onConnect(value.trim())}
-          placeholder="Location ID (UUID)"
-          className="rounded-lg border border-gray-600 bg-[#1a1a1a] px-4 py-3 text-center font-mono text-sm text-white placeholder-gray-600 focus:border-yellow-400 focus:outline-none"
-        />
-        <button
-          disabled={!value.trim()}
-          onClick={() => onConnect(value.trim())}
-          className="rounded-lg bg-yellow-400 py-3 font-bold text-black transition-colors hover:bg-yellow-300 disabled:opacity-40"
-        >
-          Connect
-        </button>
-        <p className="text-center text-xs text-gray-600">
-          Pre-filled with the demo location ID — just click Connect
-        </p>
-      </div>
-    </div>
+function KDSTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
+  // After pairing, use the stored locationId. Fall back to URL param for backwards compat.
+  const [locationId, setLocationId] = useState<string | null>(
+    deviceInfo?.locationId ?? null,
   );
-}
-
-// ─── Main KDS page ────────────────────────────────────────────────────────────
-
-export default function KDSPage() {
-  const [locationId, setLocationId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (locationId) return;
     const params = new URLSearchParams(window.location.search);
     const id = params.get('locationId');
     if (id) setLocationId(id);
-  }, []);
+  }, [locationId]);
 
   const [tickets, setTickets] = useState<KdsTicket[]>([]);
   const [connected, setConnected] = useState(false);
@@ -288,48 +267,78 @@ export default function KDSPage() {
 
   return (
     <div className="flex h-full flex-col bg-[#0f0f0f] text-white">
-      <AppBar current="kds" />
-      {!locationId ? (
-        <ConnectScreen onConnect={setLocationId} />
-      ) : (
-        <>
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-[#2a2a2a] px-6 py-3">
-            <div className="flex items-center gap-3">
-              <ChefHat className="h-6 w-6 text-yellow-400" />
-              <span className="text-lg font-bold tracking-wide">ElevatedPOS KDS</span>
-              <span className="rounded-full bg-[#2a2a2a] px-3 py-0.5 font-mono text-sm text-gray-400">
-                {locationId.slice(0, 8)}…
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              {connected ? (
-                <><Wifi className="h-4 w-4 text-green-400" /><span className="text-green-400">Live</span></>
-              ) : (
-                <><WifiOff className="h-4 w-4 animate-pulse text-red-400" /><span className="text-red-400">Reconnecting…</span></>
-              )}
-            </div>
-          </div>
+      <AppBar current="kds" deviceLabel={deviceInfo?.label ?? deviceInfo?.deviceId?.slice(0, 8)} />
 
-          <StatsBar tickets={tickets} />
-
-          {tickets.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-              <CheckCircle className="h-24 w-24 text-green-500 opacity-60" />
-              <p className="text-3xl font-extrabold tracking-widest text-green-400">Kitchen Clear</p>
-              <p className="text-gray-600">No pending tickets</p>
-            </div>
-          ) : (
-            <div className="flex-1 overflow-y-auto p-4">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {tickets.map((ticket) => (
-                  <TicketCard key={ticket.orderId} ticket={ticket} onBump={handleBump} />
-                ))}
-              </div>
-            </div>
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-[#2a2a2a] px-6 py-3">
+        <div className="flex items-center gap-3">
+          <ChefHat className="h-6 w-6 text-yellow-400" />
+          <span className="text-lg font-bold tracking-wide">ElevatedPOS KDS</span>
+          {locationId && (
+            <span className="rounded-full bg-[#2a2a2a] px-3 py-0.5 font-mono text-sm text-gray-400">
+              {locationId.slice(0, 8)}…
+            </span>
           )}
-        </>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          {connected ? (
+            <><Wifi className="h-4 w-4 text-green-400" /><span className="text-green-400">Live</span></>
+          ) : (
+            <><WifiOff className="h-4 w-4 animate-pulse text-red-400" /><span className="text-red-400">Reconnecting…</span></>
+          )}
+        </div>
+      </div>
+
+      <StatsBar tickets={tickets} />
+
+      {tickets.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+          <CheckCircle className="h-24 w-24 text-green-500 opacity-60" />
+          <p className="text-3xl font-extrabold tracking-widest text-green-400">Kitchen Clear</p>
+          <p className="text-gray-600">No pending tickets</p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {tickets.map((ticket) => (
+              <TicketCard key={ticket.orderId} ticket={ticket} onBump={handleBump} />
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
+}
+
+// ─── Page — device pairing gate ───────────────────────────────────────────────
+
+export default function KDSPage() {
+  const [mounted, setMounted] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
+  const [paired, setPaired] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const token = getDeviceToken();
+    if (token) {
+      setDeviceInfo(getDeviceInfo());
+      setPaired(true);
+    }
+  }, []);
+
+  if (!mounted) return null;
+
+  if (!paired) {
+    return (
+      <DevicePairingScreen
+        role="kds"
+        onPaired={(info) => {
+          setDeviceInfo(info);
+          setPaired(true);
+        }}
+      />
+    );
+  }
+
+  return <KDSTerminal deviceInfo={deviceInfo} />;
 }
