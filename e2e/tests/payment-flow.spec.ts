@@ -88,10 +88,17 @@ test.describe('Payment page', () => {
       page.getByText(/initialising|connecting|simulated|tap.*insert|processing/i),
     ).toBeVisible({ timeout: 10_000 });
 
-    // Demo mode auto-completes after ~4 seconds of delays
+    // Demo mode auto-completes after ~4 seconds — wait for dialog to close
+    // (the "Add Payment" heading disappears when onApproved fires and dialog unmounts)
+    await expect(page.getByText('Add Payment')).toBeHidden({ timeout: 20_000 });
+
+    // Card tender is now applied — click Complete Sale
+    await page.getByRole('button', { name: /complete sale/i }).click();
+
+    // Should show receipt modal
     await expect(
-      page.getByText(/approved|payment complete|receipt|sale complete/i),
-    ).toBeVisible({ timeout: 15_000 });
+      page.getByText(/sale complete/i),
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test('"New Sale" button returns to POS after completion', async ({ page }) => {
