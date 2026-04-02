@@ -39,16 +39,13 @@ export default defineConfig({
     video: 'on-first-retry',
   },
 
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-  ],
+  // In CI only chromium is installed; run webkit locally for broader coverage
+  projects: process.env['CI']
+    ? [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]
+    : [
+        { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+        { name: 'webkit',   use: { ...devices['Desktop Safari'] } },
+      ],
 
   // Automatically start dev servers when not in CI (or when E2E_SKIP_WEBSERVER is not set)
   webServer: skipServer

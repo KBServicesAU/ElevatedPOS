@@ -78,8 +78,8 @@ test.describe('POS screen', () => {
     await expect(page.getByRole('button', { name: /iced latte/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /flat white/i })).not.toBeVisible();
 
-    // Clear search restores full list
-    await page.getByRole('button').filter({ has: page.locator('svg') }).last().click(); // X button
+    // Clear search restores full list — X button is the first button-with-SVG in the DOM
+    await page.getByRole('button').filter({ has: page.locator('svg') }).first().click(); // X button
     await expect(page.getByRole('button', { name: /flat white/i })).toBeVisible();
   });
 
@@ -98,9 +98,9 @@ test.describe('POS screen', () => {
     await addItem(page, /croissant/i);
     await addItem(page, /croissant/i);
 
-    // Cart shows the items
-    await expect(page.getByText('Flat White')).toBeVisible();
-    await expect(page.getByText('Croissant')).toBeVisible();
+    // Cart shows the items (use first() since product name also appears in the product grid)
+    await expect(page.getByText('Flat White').first()).toBeVisible();
+    await expect(page.getByText('Croissant').first()).toBeVisible();
 
     // Subtotal = $5.50 + ($4.00 × 2) = $13.50
     await expect(page.getByText('$13.50')).toBeVisible();
@@ -119,12 +119,12 @@ test.describe('POS screen', () => {
     await addItem(page, /flat white/i);
     await addItem(page, /flat white/i); // qty = 2
 
-    // qty badge on the product card
-    await expect(page.locator('.bg-indigo-500').filter({ hasText: '2' })).toBeVisible();
+    // qty badge on the product card (round badge with bg-indigo-500 and rounded-full)
+    await expect(page.locator('.rounded-full.bg-indigo-500').filter({ hasText: '2' })).toBeVisible();
 
-    // Click minus once → qty = 1
+    // Click minus once → qty = 1 (Minus button is first cart-action button with SVG)
     await page.locator('button').filter({ has: page.locator('svg') }).nth(0).click(); // Minus
-    await expect(page.locator('.bg-indigo-500').filter({ hasText: '1' })).toBeVisible();
+    await expect(page.locator('.rounded-full.bg-indigo-500').filter({ hasText: '1' })).toBeVisible();
 
     // Click minus again → item removed from cart
     // (re-query after state update)

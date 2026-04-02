@@ -29,7 +29,7 @@ function buildPaymentUrl(overrides: Record<string, string> = {}): string {
 async function goToPayment(page: Page, overrides: Record<string, string> = {}) {
   await page.goto(buildPaymentUrl(overrides));
   // Wait for the payment total to appear
-  await expect(page.getByText(/\$6\.05/)).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByText(/\$6\.05/).first()).toBeVisible({ timeout: 8_000 });
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
