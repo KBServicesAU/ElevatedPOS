@@ -8,19 +8,19 @@ const roleConfig: Record<
 > = {
   pos: {
     name: 'ElevatedPOS',
-    slug: 'elevatedpos-pos',
+    slug: 'elevatedpos',
     bundleIdentifier: 'com.au.elevatedpos.pos',
     package: 'com.au.elevatedpos.pos',
   },
   kds: {
     name: 'ElevatedPOS KDS',
-    slug: 'elevatedpos-kds',
+    slug: 'elevatedpos',
     bundleIdentifier: 'com.au.elevatedpos.kds',
     package: 'com.au.elevatedpos.kds',
   },
   kiosk: {
     name: 'ElevatedPOS Kiosk',
-    slug: 'elevatedpos-kiosk',
+    slug: 'elevatedpos',
     bundleIdentifier: 'com.au.elevatedpos.kiosk',
     package: 'com.au.elevatedpos.kiosk',
   },
@@ -32,7 +32,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   owner: 'kbservicesau',
   name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
-  slug: resolved?.slug ?? 'elevatedpos-mobile',
+  slug: resolved?.slug ?? 'elevatedpos',
   version: '1.0.0',
   scheme: 'elevatedpos',
   orientation: 'default',
