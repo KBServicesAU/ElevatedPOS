@@ -109,13 +109,28 @@ jobs:
             fi
           done
 
+          # Roll back any stuck pending release so the upgrade can proceed.
+          # A previous run may have timed out and left the release in
+          # pending-upgrade / pending-install / pending-rollback state.
+          HELM_STATUS=$(helm status elevatedpos -n elevatedpos -o json 2>/dev/null \
+            | jq -r '.info.status' 2>/dev/null || echo "not-found")
+          echo "Current Helm release status: $HELM_STATUS"
+          if [[ "$HELM_STATUS" == "pending-upgrade" || \
+                "$HELM_STATUS" == "pending-install" || \
+                "$HELM_STATUS" == "pending-rollback" ]]; then
+            echo "Rolling back stuck Helm release..."
+            helm rollback elevatedpos -n elevatedpos || true
+          fi
+
+          # --atomic implies --wait and auto-rolls back on failure,
+          # so the release never gets stuck in a pending state again.
           helm upgrade --install elevatedpos ./infrastructure/helm/elevatedpos \
             --namespace elevatedpos \
             --create-namespace \
             --set global.image.tag=$TAG \
             --set global.imageRegistry=$ECR_REGISTRY \
             --set global.environment=production \
-            --wait --timeout 15m
+            --atomic --timeout 15m
 
       - name: Notify deployment
         if: always() && env.SLACK_WEBHOOK_URL != ''
