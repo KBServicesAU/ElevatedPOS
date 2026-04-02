@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { Search } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -19,7 +19,7 @@ interface ApiResponse {
   data?: Organisation[];
 }
 
-export default function MerchantsPage() {
+function MerchantsContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [query, setQuery] = useState(searchParams.get('search') ?? '');
@@ -149,5 +149,13 @@ export default function MerchantsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function MerchantsPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-gray-400 p-6">Loading…</div>}>
+      <MerchantsContent />
+    </Suspense>
   );
 }
