@@ -32,7 +32,7 @@ RUN addgroup --system --gid 1001 nodejs \
 
 COPY --from=builder --chown=nextjs:nodejs /app/apps/kds-display/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/kds-display/.next/static ./apps/kds-display/.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/apps/kds-display/public ./apps/kds-display/public 2>/dev/null || true
+COPY --from=builder --chown=nextjs:nodejs /app/apps/kds-display/public ./apps/kds-display/public
 
 USER nextjs
 EXPOSE 3001
