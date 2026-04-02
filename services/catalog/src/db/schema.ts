@@ -271,6 +271,60 @@ export const productRecipes = pgTable(
 
 // ── Drizzle ORM Relations ──────────────────────────────────────────────────────
 
+// Product ↔ Category / TaxClass / Variants / Modifiers
+export const productsRelations = relations(products, ({ one, many }) => ({
+  category:  one(categories,  { fields: [products.categoryId],  references: [categories.id]  }),
+  taxClass:  one(taxClasses,  { fields: [products.taxClassId],  references: [taxClasses.id]  }),
+  variants:  many(productVariants),
+  modifiers: many(productModifierGroups),
+  bundles:   many(productBundles),
+}));
+
+export const categoriesRelations = relations(categories, ({ many }) => ({
+  products: many(products),
+}));
+
+export const taxClassesRelations = relations(taxClasses, ({ many }) => ({
+  products: many(products),
+}));
+
+export const productVariantsRelations = relations(productVariants, ({ one }) => ({
+  product: one(products, { fields: [productVariants.productId], references: [products.id] }),
+}));
+
+export const productModifierGroupsRelations = relations(productModifierGroups, ({ one, many }) => ({
+  product: one(products, { fields: [productModifierGroups.productId], references: [products.id] }),
+  group:   one(modifierGroups, { fields: [productModifierGroups.groupId], references: [modifierGroups.id] }),
+}));
+
+export const modifierGroupsRelations = relations(modifierGroups, ({ many }) => ({
+  options:   many(modifierOptions),
+  products:  many(productModifierGroups),
+}));
+
+export const modifierOptionsRelations = relations(modifierOptions, ({ one }) => ({
+  group: one(modifierGroups, { fields: [modifierOptions.groupId], references: [modifierGroups.id] }),
+}));
+
+export const productBundlesRelations = relations(productBundles, ({ one, many }) => ({
+  product:    one(products, { fields: [productBundles.productId], references: [products.id] }),
+  components: many(bundleComponents),
+}));
+
+export const bundleComponentsRelations = relations(bundleComponents, ({ one }) => ({
+  bundle:  one(productBundles, { fields: [bundleComponents.bundleId], references: [productBundles.id] }),
+  product: one(products, { fields: [bundleComponents.productId], references: [products.id] }),
+}));
+
+export const priceListsRelations = relations(priceLists, ({ many }) => ({
+  entries: many(priceListEntries),
+}));
+
+export const priceListEntriesRelations = relations(priceListEntries, ({ one }) => ({
+  priceList: one(priceLists, { fields: [priceListEntries.priceListId], references: [priceLists.id] }),
+  product:   one(products, { fields: [priceListEntries.productId], references: [products.id] }),
+}));
+
 export const recipesRelations = relations(recipes, ({ many }) => ({
   ingredients: many(recipeIngredients),
 }));
