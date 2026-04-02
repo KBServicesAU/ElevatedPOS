@@ -12,12 +12,31 @@ metadata:
     nginx.ingress.kubernetes.io/use-regex: "true"
 spec:
   rules:
-    # ── Storefront (shop.elevatedpos.com.au) ─────────────────────────────────
+    # ── Marketing site & onboarding (elevatedpos.com.au + www) ──────────────
+    - host: elevatedpos.com.au
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: storefront
+                port:
+                  number: 3002
+    - host: www.elevatedpos.com.au
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: storefront
+                port:
+                  number: 3002
+    # ── Online ordering storefront (shop.elevatedpos.com.au) ─────────────────
     - host: shop.elevatedpos.com.au
       http:
         paths:
-          # Connect/payments API proxied directly from the storefront Next.js
-          # app via rewrites — no direct ingress rule needed here.
           - path: /
             pathType: Prefix
             backend:
