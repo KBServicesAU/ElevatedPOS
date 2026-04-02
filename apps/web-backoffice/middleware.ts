@@ -20,6 +20,7 @@ function isPublicAsset(pathname: string): boolean {
   return (
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/api/auth/') || // login / logout endpoints
+    pathname === '/api/health' ||         // Kubernetes liveness/readiness probes
     pathname.startsWith('/api/kds') ||   // KDS SSE stream (no session available on kitchen display)
     pathname.startsWith('/api/stripe/') || // Stripe Terminal routes called from POS
     pathname.startsWith('/api/orders') || // Orders store
