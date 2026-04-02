@@ -12,6 +12,84 @@ const PLATFORM_FEE_BASIS_POINTS = 100; // 1%
 
 export async function connectRoutes(app: FastifyInstance) {
 
+  // ── POST /connect/platform-account ──────────────────────────────────────────
+  // Storefront onboarding: creates (or retrieves) a Stripe Connect Express
+  // account for the org and returns an onboarding URL.
+  // Body: { orgId, email?, businessName?, returnUrl, refreshUrl }
+  app.post('/connect/platform-account', async (request, reply) => {
+    const { orgId, email, businessName, returnUrl, refreshUrl } = request.body as {
+      orgId: string;
+      email?: string;
+      businessName?: string;
+      returnUrl: string;
+      refreshUrl: string;
+    };
+
+    if (!orgId) {
+      return reply.status(400).send({ error: 'orgId is required' });
+    }
+
+    // Graceful fallback when Stripe is not configured (dev / CI environments)
+    if (!process.env['STRIPE_SECRET_KEY']) {
+      return reply.send({ url: returnUrl });
+    }
+
+    const baseUrl = process.env['APP_URL'] ?? 'https://app.elevatedpos.com.au';
+
+    // Check for an existing Connect account
+    const existing = await db
+      .select()
+      .from(stripeConnectAccounts)
+      .where(eq(stripeConnectAccounts.orgId, orgId))
+      .limit(1);
+
+    let accountId: string;
+
+    if (existing.length > 0) {
+      accountId = existing[0]!.stripeAccountId;
+    } else {
+      const account = await stripe.accounts.create({
+        type: 'express',
+        country: 'AU',
+        ...(email ? { email } : {}),
+        ...(businessName ? { business_profile: { name: businessName } } : {}),
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+        metadata: { orgId },
+      });
+      accountId = account.id;
+
+      await db.insert(stripeConnectAccounts).values({
+        orgId,
+        stripeAccountId: accountId,
+        status: 'onboarding',
+        businessName: businessName ?? null,
+        platformFeePercent: PLATFORM_FEE_BASIS_POINTS,
+      });
+    }
+
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: refreshUrl ?? `${baseUrl}/onboard/payment-account`,
+      return_url: returnUrl ?? `${baseUrl}/onboard/subscription`,
+      type: 'account_onboarding',
+    });
+
+    // Persist the link so it can be referenced later
+    await db
+      .update(stripeConnectAccounts)
+      .set({
+        onboardingUrl: accountLink.url,
+        onboardingExpiresAt: new Date(accountLink.expires_at * 1000),
+        updatedAt: new Date(),
+      })
+      .where(eq(stripeConnectAccounts.orgId, orgId));
+
+    return reply.send({ url: accountLink.url });
+  });
+
   // ── Create / get onboarding link ────────────────────────────────────────────
   app.post('/connect/onboard', {
   }, async (request, reply) => {

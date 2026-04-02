@@ -8,7 +8,7 @@ import {
   Search, X, Minus, Plus, Trash2, ChefHat, Tablet,
 } from 'lucide-react';
 import DevicePairingScreen from '@/components/device-pairing-screen';
-import { getDeviceToken, getDeviceInfo, type DeviceInfo } from '@/lib/device-auth';
+import { getDeviceToken, getDeviceInfo, fetchWithDeviceAuth, type DeviceInfo } from '@/lib/device-auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,11 +25,25 @@ interface CartItem extends Product {
   cartKey: string;
 }
 
-// ─── Static catalogue ────────────────────────────────────────────────────────
+// API shape returned by the catalog service
+interface ApiProduct {
+  id: string;
+  name: string;
+  price: number; // stored in cents
+  categoryId?: string;
+  categoryName?: string;
+  status?: string;
+  imageUrl?: string;
+}
 
-// Deterministic placeholder UUIDs for the static demo catalogue.
-// In production these would be real catalog service IDs.
-const PRODUCTS: Product[] = [
+interface ApiCategory {
+  id: string;
+  name: string;
+}
+
+// ─── Static mock catalogue (used as fallback when API is unavailable) ─────────
+
+const MOCK_PRODUCTS: Product[] = [
   { id: '00000000-0000-0000-0000-000000000001', name: 'Flat White',    price: 5.50,  category: 'Coffee',   emoji: '☕' },
   { id: '00000000-0000-0000-0000-000000000002', name: 'Iced Latte',    price: 6.00,  category: 'Coffee',   emoji: '🥤' },
   { id: '00000000-0000-0000-0000-000000000003', name: 'Cold Brew',     price: 5.00,  category: 'Coffee',   emoji: '🧊' },
@@ -40,7 +54,7 @@ const PRODUCTS: Product[] = [
   { id: '00000000-0000-0000-0000-000000000008', name: 'Eggs Benedict', price: 18.00, category: 'Food',     emoji: '🍳' },
 ];
 
-const CATEGORIES = ['All', 'Coffee', 'Pastries', 'Food'];
+const MOCK_CATEGORIES = ['All', 'Coffee', 'Pastries', 'Food'];
 
 // ─── App switcher bar ────────────────────────────────────────────────────────
 
@@ -93,8 +107,55 @@ function POSTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [category, setCategory] = useState('All');
   const [search, setSearch] = useState('');
+  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
+  const [categories, setCategories] = useState<string[]>(MOCK_CATEGORIES);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
 
-  const filtered = PRODUCTS.filter(
+  // Fetch real catalog data once the device is paired
+  useEffect(() => {
+    if (!deviceInfo) return;
+
+    async function loadCatalog() {
+      setLoadingCatalog(true);
+      try {
+        const [productsRes, categoriesRes] = await Promise.all([
+          fetchWithDeviceAuth('/api/proxy/catalog/products?limit=100'),
+          fetchWithDeviceAuth('/api/proxy/catalog/categories'),
+        ]);
+
+        if (productsRes.ok) {
+          const productsData = await productsRes.json() as { data?: ApiProduct[] };
+          const apiProducts = productsData.data ?? [];
+          // Build category name map from categories response if available
+          let categoryMap: Record<string, string> = {};
+          if (categoriesRes.ok) {
+            const categoriesData = await categoriesRes.json() as { data?: ApiCategory[] };
+            const apiCategories = categoriesData.data ?? [];
+            categoryMap = Object.fromEntries(apiCategories.map((c) => [c.id, c.name]));
+            const catNames = ['All', ...apiCategories.map((c) => c.name)];
+            setCategories(catNames);
+          }
+
+          const mapped: Product[] = apiProducts.map((p) => ({
+            id: p.id,
+            name: p.name,
+            price: p.price / 100,
+            category: (p.categoryId && categoryMap[p.categoryId]) ?? p.categoryName ?? 'Other',
+            emoji: '🛒',
+          }));
+          setProducts(mapped);
+        }
+      } catch {
+        // Network error — keep mock data
+      } finally {
+        setLoadingCatalog(false);
+      }
+    }
+
+    loadCatalog();
+  }, [deviceInfo]);
+
+  const filtered = products.filter(
     (p) =>
       (category === 'All' || p.category === category) &&
       p.name.toLowerCase().includes(search.toLowerCase()),
@@ -133,8 +194,17 @@ function POSTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
   };
 
   return (
-    <div className="flex h-full flex-col bg-[#1e1e2e]">
+    <div className="relative flex h-full flex-col bg-[#1e1e2e]">
       <AppBar current="pos" deviceLabel={deviceInfo?.label ?? deviceInfo?.deviceId?.slice(0, 8)} />
+
+      {loadingCatalog && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/40">
+          <div className="flex items-center gap-3 rounded-xl bg-[#2a2a3a] px-5 py-3 text-sm text-white shadow-xl">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
+            Loading catalogue…
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* ── Product panel ── */}
@@ -157,7 +227,7 @@ function POSTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
 
           {/* Categories */}
           <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-            {CATEGORIES.map((cat) => (
+            {categories.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setCategory(cat)}

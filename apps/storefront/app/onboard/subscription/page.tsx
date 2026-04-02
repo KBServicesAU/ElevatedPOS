@@ -30,6 +30,7 @@ function SubscriptionContent() {
   const orgId = searchParams.get('orgId') || '';
   const plan = searchParams.get('plan') || 'starter';
   const token = searchParams.get('token') || '';
+  const connected = searchParams.get('connected') === 'true';
 
   const selectedPlan = planDetails[plan] ?? planDetails['starter']!;
   const continueHref = `/onboard/complete?orgId=${orgId}&plan=${plan}${token ? `&token=${token}` : ''}`;
@@ -37,6 +38,15 @@ function SubscriptionContent() {
   return (
     <div className="flex-1 flex items-start justify-center px-4 py-12">
       <div className="w-full max-w-lg">
+        {connected && (
+          <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <svg className="h-5 w-5 flex-shrink-0 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-sm font-medium text-emerald-800">Payment account connected successfully!</span>
+          </div>
+        )}
+
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Activate your subscription</h1>
           <p className="text-gray-500 text-sm">Review your plan and start your free trial.</p>

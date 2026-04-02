@@ -293,6 +293,13 @@ async function proxyRequest(request: NextRequest, segments: string[]): Promise<N
   };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    // Device-authenticated terminals (POS, kiosk, KDS) don't have a session
+    // cookie — they carry their own JWT as a Bearer token in the request.
+    const incoming = request.headers.get('Authorization');
+    if (incoming) {
+      headers['Authorization'] = incoming;
+    }
   }
 
   let body: string | undefined;

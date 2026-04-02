@@ -34,9 +34,12 @@ jobs:
           - { name: franchise,       context: services/franchise }
           - { name: reporting,       context: services/reporting }
           - { name: webhooks,        context: services/webhooks }
-          - { name: web-backoffice,  context: apps/web-backoffice }
-          - { name: kds-display,     context: apps/kds-display }
-          - { name: storefront,      context: apps/storefront }
+          - { name: web-backoffice,   context: apps/web-backoffice }
+          - { name: kds-display,      context: apps/kds-display }
+          - { name: storefront,       context: apps/storefront }
+          - { name: godmode,          context: apps/godmode }
+          - { name: org-portal,       context: apps/org-portal }
+          - { name: reseller-portal,  context: apps/reseller-portal }
     steps:
       - uses: actions/checkout@v4
 

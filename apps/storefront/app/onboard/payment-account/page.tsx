@@ -50,10 +50,24 @@ function PaymentAccountContent() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch(`/api/onboard/connect-payments?orgId=${orgId}`);
-      const data = await res.json();
+      const returnUrl = encodeURIComponent(
+        `${window.location.origin}/onboard/subscription?orgId=${orgId}&plan=${plan}&connected=true`,
+      );
+      const refreshUrl = encodeURIComponent(
+        `${window.location.origin}/onboard/payment-account?orgId=${orgId}&plan=${plan}&refresh=true`,
+      );
+      const res = await fetch('/api/onboard/connect-payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgId,
+          returnUrl: decodeURIComponent(returnUrl),
+          refreshUrl: decodeURIComponent(refreshUrl),
+        }),
+      });
+      const data = await res.json() as { url?: string; error?: string };
       if (!res.ok) {
-        setError(data.error || 'Failed to start payment setup. Please try again.');
+        setError(data.error ?? 'Failed to start payment setup. Please try again.');
         return;
       }
       if (data.url) {

@@ -210,6 +210,45 @@ services:
       limits:
         cpu: "500m"
         memory: "512Mi"
+  godmode:
+    enabled: true
+    replicas: 1
+    port: 3010
+    healthPath: /
+    isWebApp: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  org-portal:
+    enabled: true
+    replicas: 1
+    port: 3011
+    healthPath: /
+    isWebApp: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  reseller-portal:
+    enabled: true
+    replicas: 1
+    port: 3012
+    healthPath: /
+    isWebApp: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
 
 ingress:
   enabled: true
@@ -234,6 +273,27 @@ marketingSite:
   service: storefront
   port: 3002
   tlsSecretName: elevatedpos-marketing-tls
+
+godmodePortal:
+  enabled: true
+  host: godmode.elevatedpos.com.au
+  service: godmode
+  port: 3010
+  tlsSecretName: elevatedpos-godmode-tls
+
+orgPortal:
+  enabled: true
+  host: organisation.elevatedpos.com.au
+  service: org-portal
+  port: 3011
+  tlsSecretName: elevatedpos-org-tls
+
+resellerPortal:
+  enabled: true
+  host: reseller.elevatedpos.com.au
+  service: reseller-portal
+  port: 3012
+  tlsSecretName: elevatedpos-reseller-tls
 
 postgres:
   host: elevatedpos-prod.c1ga8c4uww8a.ap-southeast-2.rds.amazonaws.com

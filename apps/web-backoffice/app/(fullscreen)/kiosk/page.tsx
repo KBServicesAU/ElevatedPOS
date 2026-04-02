@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { LayoutDashboard, CreditCard, ChefHat, Tablet, ShoppingCart, X, Plus } from 'lucide-react';
 import DevicePairingScreen from '@/components/device-pairing-screen';
-import { getDeviceToken, getDeviceInfo, type DeviceInfo } from '@/lib/device-auth';
+import { getDeviceToken, getDeviceInfo, fetchWithDeviceAuth, type DeviceInfo } from '@/lib/device-auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,9 +26,26 @@ interface CartItem {
   qty: number;
 }
 
-// ─── Mock catalogue ───────────────────────────────────────────────────────────
+// API shape returned by the catalog service
+interface ApiProduct {
+  id: string;
+  name: string;
+  price: number; // stored in cents
+  categoryId?: string;
+  categoryName?: string;
+  status?: string;
+  imageUrl?: string;
+  description?: string;
+}
 
-const PRODUCTS: Product[] = [
+interface ApiCategory {
+  id: string;
+  name: string;
+}
+
+// ─── Mock catalogue (fallback when API is unavailable) ────────────────────────
+
+const MOCK_PRODUCTS: Product[] = [
   { id: '1',    name: 'Classic Burger',      price: 18.5,  category: 'Food',     tags: [],         emoji: '🍔', description: 'Beef patty, lettuce, tomato, special sauce',        ageRestricted: false },
   { id: '2',    name: 'Veggie Wrap',         price: 15.0,  category: 'Food',     tags: ['V','GF'], emoji: '🌯', description: 'Grilled vegetables, hummus, rocket',                ageRestricted: false },
   { id: '3',    name: 'Grilled Chicken',     price: 22.0,  category: 'Food',     tags: ['GF'],     emoji: '🍗', description: 'Free-range chicken, seasonal greens, aioli',         ageRestricted: false },
@@ -45,7 +62,7 @@ const PRODUCTS: Product[] = [
   { id: '12',   name: 'Sweet Potato Fries',  price: 9.0,   category: 'Extras',   tags: ['V','GF'], emoji: '🍟', description: 'With smoky chipotle mayo',                          ageRestricted: false },
 ];
 
-const CATEGORIES = ['All', 'Food', 'Drinks', 'Desserts', 'Extras'];
+const MOCK_CATEGORIES = ['All', 'Food', 'Drinks', 'Desserts', 'Extras'];
 
 // ─── App switcher bar ────────────────────────────────────────────────────────
 
@@ -218,17 +235,66 @@ function KioskTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [checkedOut, setCheckedOut] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
+  const [categories, setCategories] = useState<string[]>(MOCK_CATEGORIES);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
 
   const locationId = deviceInfo?.locationId ?? '00000000-0000-0000-0000-000000000001';
 
+  // Fetch real catalog data once device is paired
+  useEffect(() => {
+    if (!deviceInfo) return;
+
+    async function loadCatalog() {
+      setLoadingCatalog(true);
+      try {
+        const [productsRes, categoriesRes] = await Promise.all([
+          fetchWithDeviceAuth('/api/proxy/catalog/products?limit=100'),
+          fetchWithDeviceAuth('/api/proxy/catalog/categories'),
+        ]);
+
+        if (productsRes.ok) {
+          const productsData = await productsRes.json() as { data?: ApiProduct[] };
+          const apiProducts = productsData.data ?? [];
+          let categoryMap: Record<string, string> = {};
+          if (categoriesRes.ok) {
+            const categoriesData = await categoriesRes.json() as { data?: ApiCategory[] };
+            const apiCategories = categoriesData.data ?? [];
+            categoryMap = Object.fromEntries(apiCategories.map((c) => [c.id, c.name]));
+            setCategories(['All', ...apiCategories.map((c) => c.name)]);
+          }
+
+          const mapped: Product[] = apiProducts.map((p) => ({
+            id: p.id,
+            name: p.name,
+            price: p.price / 100,
+            category: (p.categoryId && categoryMap[p.categoryId]) ?? p.categoryName ?? 'Other',
+            // API products have no dietary tag data — show no tags
+            tags: [],
+            emoji: '🛒',
+            description: p.description ?? '',
+            ageRestricted: false,
+          }));
+          setProducts(mapped);
+        }
+      } catch {
+        // Network error — keep mock data
+      } finally {
+        setLoadingCatalog(false);
+      }
+    }
+
+    loadCatalog();
+  }, [deviceInfo]);
+
   const filtered = useMemo(
     () =>
-      PRODUCTS.filter(
+      products.filter(
         (p) =>
           (category === 'All' || p.category === category) &&
           p.name.toLowerCase().includes(search.toLowerCase()),
       ),
-    [category, search],
+    [products, category, search],
   );
 
   const addToCart = (product: Product) => {
@@ -240,7 +306,7 @@ function KioskTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
   };
 
   const increaseQty = (id: string) => {
-    const product = PRODUCTS.find((p) => p.id === id);
+    const product = products.find((p) => p.id === id);
     if (product) addToCart(product);
   };
 
@@ -293,8 +359,17 @@ function KioskTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
   };
 
   return (
-    <div className="flex h-full flex-col bg-black">
+    <div className="relative flex h-full flex-col bg-black">
       <AppBar current="kiosk" deviceLabel={deviceInfo?.label ?? deviceInfo?.deviceId?.slice(0, 8)} />
+
+      {loadingCatalog && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/50">
+          <div className="flex items-center gap-3 rounded-xl bg-[#1a1a1a] px-5 py-3 text-sm text-white shadow-xl">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
+            Loading menu…
+          </div>
+        </div>
+      )}
 
       {!started ? (
         <AttractScreen onStart={() => setStarted(true)} />
@@ -316,7 +391,7 @@ function KioskTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
 
             {/* Categories */}
             <div className="flex gap-2 overflow-x-auto border-b border-[#1a1a1a] px-4 py-2.5">
-              {CATEGORIES.map((cat) => (
+              {categories.map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setCategory(cat)}

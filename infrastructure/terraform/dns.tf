@@ -115,6 +115,45 @@ resource "aws_route53_record" "www" {
   }
 }
 
+# A record: godmode subdomain → ALB (platform super-admin)
+resource "aws_route53_record" "godmode" {
+  zone_id = local.zone_id
+  name    = "godmode.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.elevatedpos.dns_name
+    zone_id                = aws_lb.elevatedpos.zone_id
+    evaluate_target_health = true
+  }
+}
+
+# A record: organisation subdomain → ALB (support staff portal)
+resource "aws_route53_record" "organisation" {
+  zone_id = local.zone_id
+  name    = "organisation.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.elevatedpos.dns_name
+    zone_id                = aws_lb.elevatedpos.zone_id
+    evaluate_target_health = true
+  }
+}
+
+# A record: reseller subdomain → ALB (reseller portal)
+resource "aws_route53_record" "reseller" {
+  zone_id = local.zone_id
+  name    = "reseller.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.elevatedpos.dns_name
+    zone_id                = aws_lb.elevatedpos.zone_id
+    evaluate_target_health = true
+  }
+}
+
 # A record: api subdomain → ALB
 resource "aws_route53_record" "api" {
   zone_id = local.zone_id

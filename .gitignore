@@ -83,3 +83,4 @@ tool-results/
 # Local secrets file — never commit
 .secrets.production
 .secrets.*
+.claude/settings.local.json

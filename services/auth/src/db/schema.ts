@@ -280,6 +280,23 @@ export const oauthTokensRelations = relations(oauthTokens, ({ one }) => ({
   }),
 }));
 
+// ── Platform Staff ────────────────────────────────────────────────────────────
+
+export const platformRoleEnum = pgEnum('platform_role', ['superadmin', 'support', 'reseller']);
+
+export const platformStaff = pgTable('platform_staff', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  passwordHash: varchar('password_hash', { length: 255 }).notNull(),
+  firstName: varchar('first_name', { length: 100 }).notNull(),
+  lastName: varchar('last_name', { length: 100 }).notNull(),
+  role: platformRoleEnum('role').notNull().default('support'),
+  resellerOrgId: uuid('reseller_org_id'), // null for superadmin/support
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+});
+
 // ── Device Pairing ────────────────────────────────────────────────────────────
 
 export const deviceRoleEnum = pgEnum('device_role', ['pos', 'kds', 'kiosk']);

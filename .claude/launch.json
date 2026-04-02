@@ -111,6 +111,13 @@
       "port": 4015
     },
     {
+      "name": "storefront",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": ["./node_modules/next/dist/bin/next", "dev", "-p", "3005"],
+      "cwd": "apps/storefront",
+      "port": 3005
+    },
+    {
       "name": "kds-display",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
       "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/kds-display", "dev"],

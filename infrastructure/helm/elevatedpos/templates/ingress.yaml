@@ -155,4 +155,51 @@ spec:
     {{- end }}
 {{- end }}
 
+{{- /* ─── Single-host portal ingress helper template ─── */}}
+{{- define "elevatedpos.portalIngress" -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: elevatedpos-{{ .name }}-ingress
+  namespace: {{ .namespace }}
+  labels:
+    app.kubernetes.io/name: elevatedpos
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    kubernetes.io/ingress.class: {{ .className | quote }}
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: {{ .className }}
+  tls:
+    - hosts:
+        - {{ .host }}
+      secretName: {{ .tlsSecretName }}
+  rules:
+    - host: {{ .host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .service }}
+                port:
+                  number: {{ .port }}
+{{- end }}
+
+{{- if .Values.godmodePortal.enabled }}
+{{ include "elevatedpos.portalIngress" (dict "name" "godmode" "namespace" .Values.global.namespace "className" .Values.ingress.className "host" .Values.godmodePortal.host "tlsSecretName" .Values.godmodePortal.tlsSecretName "service" .Values.godmodePortal.service "port" .Values.godmodePortal.port) }}
+{{- end }}
+
+{{- if .Values.orgPortal.enabled }}
+{{ include "elevatedpos.portalIngress" (dict "name" "org-portal" "namespace" .Values.global.namespace "className" .Values.ingress.className "host" .Values.orgPortal.host "tlsSecretName" .Values.orgPortal.tlsSecretName "service" .Values.orgPortal.service "port" .Values.orgPortal.port) }}
+{{- end }}
+
+{{- if .Values.resellerPortal.enabled }}
+{{ include "elevatedpos.portalIngress" (dict "name" "reseller-portal" "namespace" .Values.global.namespace "className" .Values.ingress.className "host" .Values.resellerPortal.host "tlsSecretName" .Values.resellerPortal.tlsSecretName "service" .Values.resellerPortal.service "port" .Values.resellerPortal.port) }}
+{{- end }}
+
 {{- end }}
