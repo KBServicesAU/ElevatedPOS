@@ -215,7 +215,12 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
   },
   shifts: {
     base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
-    prefix: '/api/v1/shifts',
+    prefix: '/api/v1/time-clock',
+  },
+  // Scheduling / roster — routed to time-clock service (same shift records)
+  schedules: {
+    base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
+    prefix: '/api/v1/time-clock',
   },
   refunds: {
     base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',

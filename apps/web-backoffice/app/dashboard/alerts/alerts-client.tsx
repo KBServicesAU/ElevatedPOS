@@ -120,7 +120,7 @@ export function AlertsClient() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch<{ data: Alert[] }>('alerts?limit=50&sort=createdAt:desc');
+      const res = await fetch('/api/alerts?limit=50&sort=createdAt:desc').then(r => r.json()) as { data: Alert[] };
       const list = Array.isArray(res.data) ? res.data : Array.isArray(res) ? (res as unknown as Alert[]) : null;
       setAlerts(list ?? MOCK_ALERTS);
     } catch {
@@ -139,12 +139,12 @@ export function AlertsClient() {
 
   function markRead(id: string) {
     setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, isRead: true } : a)));
-    apiFetch(`alerts/${id}/read`, { method: 'PATCH' }).catch(() => { /* optimistic */ });
+    fetch(`/api/alerts/${id}/read`, { method: 'PATCH' }).catch(() => { /* optimistic */ });
   }
 
   function markAllRead() {
     setAlerts((prev) => prev.map((a) => ({ ...a, isRead: true })));
-    apiFetch('alerts/mark-all-read', { method: 'POST' }).catch(() => { /* optimistic */ });
+    fetch('/api/alerts/mark-all-read', { method: 'POST' }).catch(() => { /* optimistic */ });
   }
 
   const tabs: { key: FilterTab; label: string }[] = [
