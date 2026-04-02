@@ -26,7 +26,7 @@ spec:
       serviceAccountName: elevatedpos-app
       containers:
         - name: {{ $name }}
-          image: "{{ $.Values.global.imageRegistry }}/elevatedpos/{{ $name }}:{{ $.Values.image.tag }}"
+          image: "{{ $.Values.global.imageRegistry }}/elevatedpos/{{ $name }}:{{ $.Values.global.image.tag | default $.Values.image.tag }}"
           imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
           ports:
             - containerPort: {{ $svc.port }}
