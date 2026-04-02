@@ -55,18 +55,18 @@ export default defineConfig({
     ? undefined
     : [
         {
-          command: 'pnpm --filter web-backoffice dev',
+          command: 'pnpm --filter web-backoffice start',
           url: backofficeUrl,
           reuseExistingServer: true,
-          timeout: 120_000,
+          timeout: 60_000,
           stdout: 'pipe',
           stderr: 'pipe',
         },
         {
-          command: 'pnpm --filter kds-display dev',
+          command: 'pnpm --filter kds-display start',
           url: kdsUrl,
           reuseExistingServer: true,
-          timeout: 120_000,
+          timeout: 60_000,
           stdout: 'pipe',
           stderr: 'pipe',
         },
