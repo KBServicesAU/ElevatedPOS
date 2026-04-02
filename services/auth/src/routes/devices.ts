@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { eq, and, gt, isNull } from 'drizzle-orm';
+import { eq, and, gt, isNull, count } from 'drizzle-orm';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { db, schema } from '../db';
@@ -38,6 +38,21 @@ export async function deviceRoutes(app: FastifyInstance) {
       where: and(eq(schema.locations.id, body.data.locationId), eq(schema.locations.orgId, user.orgId)),
     });
     if (!location) return reply.status(404).send({ title: 'Location not found', status: 404 });
+
+    // Enforce device limit
+    const org = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, user.orgId),
+      columns: { maxDevices: true },
+    });
+    if (org) {
+      const [{ value: deviceCount }] = await db
+        .select({ value: count() })
+        .from(schema.devices)
+        .where(and(eq(schema.devices.orgId, user.orgId), eq(schema.devices.status, 'active')));
+      if (deviceCount >= org.maxDevices) {
+        return reply.status(403).send({ error: 'Device limit reached', limit: org.maxDevices, current: deviceCount });
+      }
+    }
 
     // Generate unique code (retry on collision, max 5 attempts)
     let code = '';
@@ -112,17 +127,28 @@ export async function deviceRoutes(app: FastifyInstance) {
     }
 
     // Plan gating: KDS and Kiosk are paid addons
+    const pairOrg = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, pairingRecord.orgId),
+      columns: { plan: true, planStatus: true, maxDevices: true },
+    });
     if (pairingRecord.role === 'kds' || pairingRecord.role === 'kiosk') {
-      const org = await db.query.organisations.findFirst({
-        where: eq(schema.organisations.id, pairingRecord.orgId),
-        columns: { plan: true, planStatus: true },
-      });
-      if (!org || org.planStatus !== 'active' || org.plan === 'starter') {
+      if (!pairOrg || pairOrg.planStatus !== 'active' || pairOrg.plan === 'starter') {
         return reply.status(403).send({
           title: 'Plan upgrade required',
           status: 403,
           detail: `The ${pairingRecord.role.toUpperCase()} addon requires a Professional or Enterprise plan. Please upgrade at your account settings.`,
         });
+      }
+    }
+
+    // Enforce device limit
+    if (pairOrg) {
+      const [{ value: deviceCount }] = await db
+        .select({ value: count() })
+        .from(schema.devices)
+        .where(and(eq(schema.devices.orgId, pairingRecord.orgId), eq(schema.devices.status, 'active')));
+      if (deviceCount >= pairOrg.maxDevices) {
+        return reply.status(403).send({ error: 'Device limit reached', limit: pairOrg.maxDevices, current: deviceCount });
       }
     }
 

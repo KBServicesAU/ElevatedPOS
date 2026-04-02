@@ -15,6 +15,7 @@ import { oauthRoutes } from './routes/oauth';
 import { locationRoutes } from './routes/locations';
 import { payrollRoutes } from './routes/payroll';
 import { deviceRoutes } from './routes/devices';
+import { organisationRoutes } from './routes/organisations';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -94,6 +95,7 @@ async function start() {
   await app.register(locationRoutes, { prefix: '/api/v1/locations' });
   await app.register(payrollRoutes, { prefix: '/api/v1/payroll' });
   await app.register(deviceRoutes, { prefix: '/api/v1/devices' });
+  await app.register(organisationRoutes, { prefix: '/api/v1/organisations' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'auth', timestamp: new Date().toISOString() }));
 
