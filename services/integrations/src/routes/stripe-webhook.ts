@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import Stripe from 'stripe';
 import { db } from '../db/index.js';
-import { stripeConnectAccounts } from '../db/schema.js';
+import { stripeConnectAccounts, stripeSubscriptions, stripeInvoices } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 
 const stripe = new Stripe(process.env['STRIPE_SECRET_KEY'] ?? '', {
@@ -43,7 +43,7 @@ export async function stripeWebhookRoutes(app: FastifyInstance) {
       await handleEvent(event);
     } catch (err) {
       app.log.error({ type: event.type, err }, '[stripe-webhook] handler error');
-      // Return 200 so Stripe doesn't retry — log the error and investigate
+      // Return 200 so Stripe doesn't retry — log the error for investigation
     }
 
     return reply.send({ received: true });
@@ -52,6 +52,8 @@ export async function stripeWebhookRoutes(app: FastifyInstance) {
 
 async function handleEvent(event: Stripe.Event) {
   switch (event.type) {
+
+    // ── Connect: account status changed ──────────────────────────────────────
     case 'account.updated': {
       const account = event.account
         ? await stripe.accounts.retrieve(event.account)
@@ -77,26 +79,78 @@ async function handleEvent(event: Stripe.Event) {
       break;
     }
 
-    case 'payment_intent.succeeded': {
-      // Future: update order status via orders service
+    // ── Connect: merchant deauthorised the platform ───────────────────────────
+    case 'account.application.deauthorized': {
+      const account = event.account;
+      if (!account) break;
+      await db
+        .update(stripeConnectAccounts)
+        .set({ status: 'deauthorized', chargesEnabled: false, updatedAt: new Date() })
+        .where(eq(stripeConnectAccounts.stripeAccountId, account));
       break;
     }
 
-    case 'payment_intent.payment_failed': {
-      // Future: notify merchant of failed payment
+    // ── Subscriptions ─────────────────────────────────────────────────────────
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated': {
+      const sub = event.data.object as Stripe.Subscription;
+      const period = sub as unknown as {
+        current_period_start: number;
+        current_period_end: number;
+      };
+      await db
+        .update(stripeSubscriptions)
+        .set({
+          status: sub.status,
+          cancelAtPeriodEnd: sub.cancel_at_period_end,
+          currentPeriodStart: new Date(period.current_period_start * 1000),
+          currentPeriodEnd: new Date(period.current_period_end * 1000),
+          updatedAt: new Date(),
+        })
+        .where(eq(stripeSubscriptions.stripeSubscriptionId, sub.id));
       break;
     }
 
-    case 'invoice.payment_succeeded': {
-      // Future: update subscription invoice status
-      break;
-    }
-
-    case 'customer.subscription.updated':
     case 'customer.subscription.deleted': {
-      // Future: sync subscription status changes
+      const sub = event.data.object as Stripe.Subscription;
+      await db
+        .update(stripeSubscriptions)
+        .set({ status: 'canceled', cancelAtPeriodEnd: false, updatedAt: new Date() })
+        .where(eq(stripeSubscriptions.stripeSubscriptionId, sub.id));
       break;
     }
+
+    // ── Invoices ──────────────────────────────────────────────────────────────
+    case 'invoice.payment_succeeded': {
+      const inv = event.data.object as Stripe.Invoice;
+      const invoiceId = (inv as { id?: string }).id;
+      if (!invoiceId) break;
+      await db
+        .update(stripeInvoices)
+        .set({ status: 'paid', amountPaid: inv.amount_paid, updatedAt: new Date() })
+        .where(eq(stripeInvoices.stripeInvoiceId, invoiceId));
+      break;
+    }
+
+    case 'invoice.payment_failed': {
+      const inv = event.data.object as Stripe.Invoice;
+      const invoiceId = (inv as { id?: string }).id;
+      if (!invoiceId) break;
+      await db
+        .update(stripeInvoices)
+        .set({ status: 'open', updatedAt: new Date() })
+        .where(eq(stripeInvoices.stripeInvoiceId, invoiceId));
+      break;
+    }
+
+    // ── Payments ──────────────────────────────────────────────────────────────
+    case 'payment_intent.succeeded':
+    case 'payment_intent.payment_failed':
+    case 'payment_intent.canceled':
+    case 'charge.refunded':
+    case 'charge.dispute.created':
+      // Logged above — future: forward to orders service or notify merchant
+      break;
 
     default:
       break;
