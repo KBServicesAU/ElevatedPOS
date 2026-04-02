@@ -15,6 +15,7 @@ jobs:
     name: Build & Push Images
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         target:
           - { name: auth,            context: services/auth }
@@ -35,7 +36,6 @@ jobs:
           - { name: webhooks,        context: services/webhooks }
           - { name: web-backoffice,  context: apps/web-backoffice }
           - { name: kds-display,     context: apps/kds-display }
-          - { name: storefront,      context: apps/storefront }
     steps:
       - uses: actions/checkout@v4
 
