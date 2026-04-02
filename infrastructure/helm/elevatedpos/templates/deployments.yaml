@@ -42,7 +42,7 @@ spec:
             {{- toYaml $svc.resources | nindent 12 }}
           livenessProbe:
             httpGet:
-              path: /health
+              path: {{ default "/health" $svc.healthPath }}
               port: {{ $svc.port }}
             initialDelaySeconds: 30
             periodSeconds: 30
@@ -50,7 +50,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /health
+              path: {{ default "/health" $svc.healthPath }}
               port: {{ $svc.port }}
             initialDelaySeconds: 10
             periodSeconds: 10

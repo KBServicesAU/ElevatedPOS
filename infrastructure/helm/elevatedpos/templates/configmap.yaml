@@ -22,5 +22,6 @@ data:
   {{- range $name, $svc := .Values.services }}
   {{- if $svc.enabled }}
   {{ $name | upper | replace "-" "_" }}_SERVICE_URL: {{ printf "http://%s:%d" $name (int $svc.port) | quote }}
+  {{ $name | upper | replace "-" "_" }}_API_URL: {{ printf "http://%s:%d" $name (int $svc.port) | quote }}
   {{- end }}
   {{- end }}

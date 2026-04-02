@@ -1,4 +1,7 @@
 {{- if .Values.ingress.enabled }}
+
+{{- /* ─── Main API ingress: services with keepPathPrefix=true (path is forwarded as-is, no rewrite) ─── */}}
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -13,7 +16,6 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
-    nginx.ingress.kubernetes.io/use-regex: "true"
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -28,7 +30,7 @@ spec:
       http:
         paths:
           {{- range $name, $svc := .Values.services }}
-          {{- if $svc.enabled }}
+          {{- if and $svc.enabled $svc.keepPathPrefix (not $svc.isWebApp) }}
           - path: /api/v1/{{ $name }}
             pathType: Prefix
             backend:
@@ -38,4 +40,80 @@ spec:
                   number: {{ $svc.port }}
           {{- end }}
           {{- end }}
+
+{{- /* ─── Per-service ingresses: services where the URL prefix must be stripped ─── */}}
+{{- range $name, $svc := .Values.services }}
+{{- if and $svc.enabled (not $svc.keepPathPrefix) (not $svc.isWebApp) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: elevatedpos-ingress-{{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: elevatedpos
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+  annotations:
+    kubernetes.io/ingress.class: {{ $.Values.ingress.className | quote }}
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /api/v1/$2
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: {{ $.Values.ingress.className }}
+  tls:
+    - hosts:
+        - {{ $.Values.ingress.host }}
+      secretName: {{ $.Values.ingress.tlsSecretName }}
+  rules:
+    - host: {{ $.Values.ingress.host }}
+      http:
+        paths:
+          - path: /api/v1/{{ $name }}(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  number: {{ $svc.port }}
+{{- end }}
+{{- end }}
+
+{{- /* ─── Web app ingress (separate host, no path rewrite needed) ─── */}}
+{{- if .Values.webApp.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: elevatedpos-web-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: elevatedpos
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | quote }}
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts:
+        - {{ .Values.webApp.host }}
+      secretName: {{ .Values.webApp.tlsSecretName }}
+  rules:
+    - host: {{ .Values.webApp.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.webApp.service }}
+                port:
+                  number: {{ (index .Values.services .Values.webApp.service).port }}
+{{- end }}
+
 {{- end }}
