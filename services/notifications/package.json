@@ -31,6 +31,7 @@
     "@types/node": "^20.14.0",
     "@types/nodemailer": "^6.4.15",
     "@types/pg": "^8.11.6",
+    "drizzle-kit": "^0.22.7",
     "tsx": "^4.15.7",
     "typescript": "^5.5.2",
     "vitest": "^1.6.0"

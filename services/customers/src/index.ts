@@ -26,10 +26,11 @@ async function start() {
   await app.register(sensible);
   const redis = getRedisClient();
   await app.register(rateLimit, {
-    max: 100,
+    max: 500,
     timeWindow: '1 minute',
     ...(redis ? { redis } : {}),
     keyGenerator: (req) => req.ip,
+    skip: (req: import('fastify').FastifyRequest) => req.url === '/health',
     errorResponseBuilder: () => ({ statusCode: 429, error: 'Too Many Requests', message: 'Rate limit exceeded' }),
   });
   await app.register(jwt, { secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production', verify: { allowedIss: 'elevatedpos-auth' } });
