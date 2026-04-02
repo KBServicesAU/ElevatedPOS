@@ -126,9 +126,8 @@ test.describe('POS screen', () => {
     await page.locator('button').filter({ has: page.locator('svg') }).nth(0).click(); // Minus
     await expect(page.locator('.rounded-full.bg-indigo-500').filter({ hasText: '1' })).toBeVisible();
 
-    // Click minus again → item removed from cart
-    // (re-query after state update)
-    await page.getByText('Flat White').waitFor({ state: 'visible' });
+    // Flat White is still visible (in product grid and/or cart) — use first() to avoid strict mode
+    await page.getByText('Flat White').first().waitFor({ state: 'visible' });
   });
 
   test('clear order button empties the cart', async ({ page }) => {

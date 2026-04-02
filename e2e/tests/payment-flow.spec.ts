@@ -32,6 +32,15 @@ async function goToPayment(page: Page, overrides: Record<string, string> = {}) {
   await expect(page.getByText(/\$6\.05/).first()).toBeVisible({ timeout: 8_000 });
 }
 
+// Open the Add Tender dialog and fill a cash payment, then apply it.
+async function applyCashTender(page: Page, amount = '10.00') {
+  await page.getByRole('button', { name: /add tender/i }).click();
+  await expect(page.getByText('Add Payment')).toBeVisible();
+  // Cash is the default method; fill the "Cash Tendered" input (placeholder = exact amount due)
+  await page.getByPlaceholder('$6.05', { exact: true }).fill(amount);
+  await page.getByRole('button', { name: /apply/i }).click();
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 test.describe('Payment page', () => {
@@ -39,28 +48,23 @@ test.describe('Payment page', () => {
     await goToPayment(page);
 
     await expect(page.getByText('Flat White')).toBeVisible();
-    // Subtotal, tax and total values
-    await expect(page.getByText('$5.50')).toBeVisible();
-    await expect(page.getByText('$0.55')).toBeVisible();
-    // Total appears at least once (summary + charge button)
+    // Subtotal and tax appear inside "Subtotal $5.50 · GST $0.55" — use first() to avoid strict-mode
+    await expect(page.getByText(/\$5\.50/).first()).toBeVisible();
+    await expect(page.getByText(/\$0\.55/).first()).toBeVisible();
+    // Total appears at least once (amount card)
     await expect(page.getByText('$6.05').first()).toBeVisible();
   });
 
   test('cash payment flow completes immediately and shows receipt', async ({ page }) => {
     await goToPayment(page);
 
-    // Select the Cash tender
-    await page.getByRole('button', { name: /^cash$/i }).click();
+    // Open tender dialog and apply cash
+    await applyCashTender(page);
 
-    // Cash amount input should default to the total
-    const cashInput = page.getByLabel(/cash tendered/i).or(page.getByPlaceholder(/cash/i));
-    if (await cashInput.isVisible()) {
-      await cashInput.fill('6.05');
-    }
+    // Complete the sale
+    await page.getByRole('button', { name: /complete sale/i }).click();
 
-    await page.getByRole('button', { name: /confirm cash|record cash|charge/i }).click();
-
-    // Should show receipt / approved state
+    // Should show receipt modal
     await expect(
       page.getByText(/approved|payment complete|receipt|sale complete/i),
     ).toBeVisible({ timeout: 10_000 });
@@ -69,8 +73,15 @@ test.describe('Payment page', () => {
   test('card (demo) payment flow completes and shows receipt', async ({ page }) => {
     await goToPayment(page);
 
-    // Card is typically the default — click it explicitly to be safe
-    await page.getByRole('button', { name: /^card$/i }).click();
+    // Open the Add Tender dialog
+    await page.getByRole('button', { name: /add tender/i }).click();
+    await expect(page.getByText('Add Payment')).toBeVisible();
+
+    // Select Card / EFTPOS method
+    await page.getByRole('button', { name: /card.*eftpos/i }).click();
+
+    // Trigger the Stripe Terminal flow
+    await page.getByRole('button', { name: /charge.*terminal/i }).click();
 
     // The terminal overlay should appear (demo mode shows status messages)
     await expect(
@@ -87,10 +98,8 @@ test.describe('Payment page', () => {
     await goToPayment(page);
 
     // Complete a quick cash payment
-    await page.getByRole('button', { name: /^cash$/i }).click();
-    const cashInput = page.getByLabel(/cash tendered/i).or(page.getByPlaceholder(/cash/i));
-    if (await cashInput.isVisible()) await cashInput.fill('10.00');
-    await page.getByRole('button', { name: /confirm cash|record cash|charge/i }).click();
+    await applyCashTender(page);
+    await page.getByRole('button', { name: /complete sale/i }).click();
 
     // Wait for receipt
     await expect(
@@ -104,7 +113,12 @@ test.describe('Payment page', () => {
   });
 
   test('cancel navigates back to POS without completing payment', async ({ page }) => {
-    await goToPayment(page);
+    // Navigate to POS first so router.back() has somewhere to go
+    await page.goto('/pos');
+    await expect(page.getByRole('button', { name: /flat white/i })).toBeVisible();
+    await page.getByRole('button', { name: /flat white/i }).first().click();
+    await page.getByRole('button', { name: /charge/i }).click();
+    await page.waitForURL(/\/pos\/payment/);
 
     await page.getByRole('button', { name: /cancel|back/i }).first().click();
     await page.waitForURL(/\/pos(?!\/payment)/);
