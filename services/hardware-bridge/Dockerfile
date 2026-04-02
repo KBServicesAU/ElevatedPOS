@@ -33,7 +33,6 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=builder --chown=nexus:nodejs /app/services/hardware-bridge/dist ./dist
 COPY --from=builder --chown=nexus:nodejs /app/services/hardware-bridge/package.json ./package.json
 COPY --from=builder --chown=nexus:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nexus:nodejs /app/packages ./packages
 
 USER nexus
 EXPOSE 9999
