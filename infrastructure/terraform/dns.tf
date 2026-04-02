@@ -76,93 +76,98 @@ resource "aws_acm_certificate_validation" "wildcard" {
   }
 }
 
-# A record: apex domain → ALB
+# Data source: look up the nginx ingress NLB created by the k8s ingress controller
+data "aws_lb" "nginx_nlb" {
+  name = "a4b8e8594643a4a40b931c4d76d5f397"
+}
+
+# A record: apex domain → nginx NLB
 resource "aws_route53_record" "apex" {
   zone_id = local.zone_id
   name    = var.domain_name
   type    = "A"
 
   alias {
-    name                   = aws_lb.elevatedpos.dns_name
-    zone_id                = aws_lb.elevatedpos.zone_id
+    name                   = data.aws_lb.nginx_nlb.dns_name
+    zone_id                = data.aws_lb.nginx_nlb.zone_id
     evaluate_target_health = true
   }
 }
 
-# A record: app subdomain → ALB (backoffice)
-resource "aws_route53_record" "app" {
-  zone_id = local.zone_id
-  name    = "app.${var.domain_name}"
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.elevatedpos.dns_name
-    zone_id                = aws_lb.elevatedpos.zone_id
-    evaluate_target_health = true
-  }
-}
-
-# A record: www subdomain → ALB (marketing site)
+# A record: www subdomain → nginx NLB
 resource "aws_route53_record" "www" {
   zone_id = local.zone_id
   name    = "www.${var.domain_name}"
   type    = "A"
 
   alias {
-    name                   = aws_lb.elevatedpos.dns_name
-    zone_id                = aws_lb.elevatedpos.zone_id
+    name                   = data.aws_lb.nginx_nlb.dns_name
+    zone_id                = data.aws_lb.nginx_nlb.zone_id
     evaluate_target_health = true
   }
 }
 
-# A record: godmode subdomain → ALB (platform super-admin)
-resource "aws_route53_record" "godmode" {
+# A record: app subdomain → nginx NLB (backoffice)
+resource "aws_route53_record" "app" {
   zone_id = local.zone_id
-  name    = "godmode.${var.domain_name}"
+  name    = "app.${var.domain_name}"
   type    = "A"
 
   alias {
-    name                   = aws_lb.elevatedpos.dns_name
-    zone_id                = aws_lb.elevatedpos.zone_id
+    name                   = data.aws_lb.nginx_nlb.dns_name
+    zone_id                = data.aws_lb.nginx_nlb.zone_id
     evaluate_target_health = true
   }
 }
 
-# A record: organisation subdomain → ALB (support staff portal)
-resource "aws_route53_record" "organisation" {
-  zone_id = local.zone_id
-  name    = "organisation.${var.domain_name}"
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.elevatedpos.dns_name
-    zone_id                = aws_lb.elevatedpos.zone_id
-    evaluate_target_health = true
-  }
-}
-
-# A record: reseller subdomain → ALB (reseller portal)
-resource "aws_route53_record" "reseller" {
-  zone_id = local.zone_id
-  name    = "reseller.${var.domain_name}"
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.elevatedpos.dns_name
-    zone_id                = aws_lb.elevatedpos.zone_id
-    evaluate_target_health = true
-  }
-}
-
-# A record: api subdomain → ALB
+# A record: api subdomain → nginx NLB
 resource "aws_route53_record" "api" {
   zone_id = local.zone_id
   name    = "api.${var.domain_name}"
   type    = "A"
 
   alias {
-    name                   = aws_lb.elevatedpos.dns_name
-    zone_id                = aws_lb.elevatedpos.zone_id
+    name                   = data.aws_lb.nginx_nlb.dns_name
+    zone_id                = data.aws_lb.nginx_nlb.zone_id
+    evaluate_target_health = true
+  }
+}
+
+# A record: godmode subdomain → nginx NLB (platform super-admin)
+resource "aws_route53_record" "godmode" {
+  zone_id = local.zone_id
+  name    = "godmode.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = data.aws_lb.nginx_nlb.dns_name
+    zone_id                = data.aws_lb.nginx_nlb.zone_id
+    evaluate_target_health = true
+  }
+}
+
+# A record: organisation subdomain → nginx NLB (support staff portal)
+resource "aws_route53_record" "organisation" {
+  zone_id = local.zone_id
+  name    = "organisation.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = data.aws_lb.nginx_nlb.dns_name
+    zone_id                = data.aws_lb.nginx_nlb.zone_id
+    evaluate_target_health = true
+  }
+}
+
+# A record: reseller subdomain → nginx NLB (reseller portal)
+resource "aws_route53_record" "reseller" {
+  zone_id = local.zone_id
+  name    = "reseller.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = data.aws_lb.nginx_nlb.dns_name
+    zone_id                = data.aws_lb.nginx_nlb.zone_id
     evaluate_target_health = true
   }
 }
