@@ -1,13 +1,12 @@
-import { NextRequest } from 'next/server';
+import { type NextRequest } from 'next/server';
 import { ordersStore, kdsOrderToStored } from '@/lib/store';
 
 // ─── SSE subscriber registry ──────────────────────────────────────────────────
-// Module-level — persists for the lifetime of the Node.js process.
 
 const encoder = new TextEncoder();
 const subscribers = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
 
-// Pending KDS tickets (not-yet-bumped orders shown on kitchen screens)
+// Pending KDS tickets (not-yet-bumped)
 interface KdsOrderPayload {
   orderId: string;
   orderNumber: string;
@@ -15,17 +14,27 @@ interface KdsOrderPayload {
   channel: string;
   tableId?: string;
   locationId: string;
-  lines: { name: string; qty: number; price?: number; modifiers?: string[]; seatNumber?: number; course?: string }[];
+  lines: { name: string; qty: number; price?: number; modifiers?: string[]; note?: string; seatNumber?: number; course?: string }[];
   createdAt: string;
   status: string;
 }
 const pendingOrders = new Map<string, KdsOrderPayload>();
 
+// Recently bumped orders — kept for 60 min for recall
+const recentlyBumped = new Map<string, { order: KdsOrderPayload; bumpedAt: number }>();
+
+function pruneRecalled() {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [id, entry] of recentlyBumped) {
+    if (entry.bumpedAt < cutoff) recentlyBumped.delete(id);
+  }
+}
+
 function send(ctrl: ReadableStreamDefaultController<Uint8Array>, payload: object) {
   try {
     ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
   } catch {
-    // controller already closed — will be cleaned up on next broadcast
+    // controller closed — cleaned up on next broadcast
   }
 }
 
@@ -39,17 +48,24 @@ function broadcast(payload: object) {
   }
 }
 
-// ─── GET — open SSE stream ─────────────────────────────────────────────────────
+// ─── GET — SSE stream OR recalled orders list ─────────────────────────────────
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+
+  // ?recalled=true → return JSON of recently bumped orders
+  if (url.searchParams.get('recalled') === 'true') {
+    pruneRecalled();
+    const list = Array.from(recentlyBumped.values()).sort((a, b) => b.bumpedAt - a.bumpedAt);
+    return Response.json({ orders: list });
+  }
+
   const id = crypto.randomUUID();
-
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       subscribers.set(id, controller);
-      // Acknowledge connection
       send(controller, { type: 'connected' });
-      // Replay all pending (un-bumped) tickets so reconnecting screens catch up
+      // Replay all pending tickets on reconnect
       for (const order of pendingOrders.values()) {
         send(controller, { type: 'new_order', order });
       }
@@ -69,7 +85,7 @@ export async function GET() {
   });
 }
 
-// ─── POST — publish event to all KDS screens ──────────────────────────────────
+// ─── POST — publish event ─────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const body = await req.json() as {
@@ -84,8 +100,6 @@ export async function POST(req: NextRequest) {
 
   if (body.type === 'new_order' && body.order) {
     pendingOrders.set(body.order.orderId, body.order);
-
-    // Persist to orders store for dashboard
     ordersStore.add(
       kdsOrderToStored(body.order, {
         paymentMethod: body.paymentMethod,
@@ -95,8 +109,21 @@ export async function POST(req: NextRequest) {
       }),
     );
   } else if (body.type === 'order_bumped' && body.orderId) {
-    pendingOrders.delete(body.orderId);
+    const order = pendingOrders.get(body.orderId);
+    if (order) {
+      recentlyBumped.set(body.orderId, { order, bumpedAt: Date.now() });
+      pendingOrders.delete(body.orderId);
+    }
     ordersStore.updateStatus(body.orderId, 'completed');
+  } else if (body.type === 'order_unbumped' && body.orderId) {
+    // Move order back from recall to pending and re-broadcast
+    const recalled = recentlyBumped.get(body.orderId);
+    if (recalled) {
+      pendingOrders.set(body.orderId, recalled.order);
+      recentlyBumped.delete(body.orderId);
+      broadcast({ type: 'new_order', order: recalled.order });
+      return Response.json({ ok: true, listeners: subscribers.size, pending: pendingOrders.size });
+    }
   }
 
   broadcast(body);

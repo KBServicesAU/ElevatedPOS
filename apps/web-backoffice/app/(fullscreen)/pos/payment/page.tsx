@@ -3,6 +3,9 @@
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, X, Wifi, CreditCard, CheckCircle, AlertCircle } from 'lucide-react';
+import { usePrinter } from '../printer-context';
+import { printReceipt, type ReceiptData } from '../receipt-printer';
+import { getDeviceInfo } from '@/lib/device-auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -13,6 +16,8 @@ interface CartItem {
   name: string;
   price: number;
   qty: number;
+  note?: string;
+  discount?: string; // serialised JSON: { type: 'pct' | 'flat'; value: number }
 }
 
 interface Tender {
@@ -638,14 +643,19 @@ function PaymentContent() {
   const items: CartItem[] = (() => {
     try { return JSON.parse(params.get('items') ?? '[]'); } catch { return []; }
   })();
-  const subtotal = Number(params.get('subtotal') ?? 0);
-  const tax = Number(params.get('tax') ?? 0);
+  const exGst = Number(params.get('exGst') ?? 0);
+  const gst = Number(params.get('gst') ?? 0);
   const total = Number(params.get('total') ?? 0);
+  const customerId = params.get('customerId') ?? '';
+  const customerName = params.get('customerName') ?? '';
+  const staffId = params.get('staffId') ?? '';
+  const staffName = params.get('staffName') ?? '';
 
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [showAddTender, setShowAddTender] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<string | null>(null);
+  const { receiptPort } = usePrinter();
 
   // Stable orderId for this transaction
   const orderIdRef = useRef(`pos-${Date.now()}`);
@@ -668,8 +678,27 @@ function PaymentContent() {
       const orderId = orderIdRef.current;
       const cardTender = tenders.find((t) => t.method === 'card');
       const primaryMethod = tenders[0]?.method ?? 'cash';
+      const createdAt = new Date().toISOString();
+      const deviceInfo = getDeviceInfo();
+      const locationId = deviceInfo?.locationId ?? '00000000-0000-0000-0000-000000000001';
 
-      // 1. Push to KDS (SSE broadcast + in-memory store for dashboard)
+      // Parse item notes/discounts
+      const kdsLines = items.map((i) => {
+        let discountAmt: number | undefined;
+        if (i.discount) {
+          try {
+            const d = JSON.parse(i.discount) as { type: 'pct' | 'flat'; value: number };
+            if (d.type === 'pct') {
+              discountAmt = Math.round(i.price * i.qty * (d.value / 100) * 100) / 100;
+            } else {
+              discountAmt = d.value;
+            }
+          } catch { /* ignore */ }
+        }
+        return { name: i.name, qty: i.qty, price: i.price, modifiers: [], note: i.note, discount: discountAmt };
+      });
+
+      // 1. Push to KDS
       await fetch('/api/kds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -684,38 +713,87 @@ function PaymentContent() {
             orderNumber,
             orderType: 'takeaway',
             channel: 'pos',
-            locationId: '00000000-0000-0000-0000-000000000001',
-            lines: items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, modifiers: [] })),
-            createdAt: new Date().toISOString(),
+            locationId,
+            lines: kdsLines,
+            createdAt,
             status: 'new',
+            ...(staffId ? { staffId, staffName } : {}),
+            ...(customerId ? { customerId, customerName } : {}),
           },
         }),
       });
 
-      // 2. Best-effort: persist to orders microservice for DB durability.
-      // Non-blocking — a failure here does not cancel the completed sale.
+      // 2. Best-effort: persist to orders microservice
       fetch('/api/proxy/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          locationId: '00000000-0000-0000-0000-000000000001',
-          registerId: '00000000-0000-0000-0000-000000000002',
+          locationId,
+          registerId: deviceInfo?.deviceId ?? '00000000-0000-0000-0000-000000000002',
           channel: 'pos',
           orderType: 'takeaway',
-          lines: items.map((i) => ({
-            productId: i.id,
-            name: i.name,
-            sku: i.id,           // use product ID as fallback SKU for demo products
-            quantity: i.qty,
-            unitPrice: i.price,
-            costPrice: 0,
-            taxRate: 0.1,
-            discountAmount: 0,
-          })),
+          ...(customerId ? { customerId } : {}),
+          ...(staffId ? { staffId } : {}),
+          lines: items.map((i) => {
+            let discountAmount = 0;
+            if (i.discount) {
+              try {
+                const d = JSON.parse(i.discount) as { type: 'pct' | 'flat'; value: number };
+                if (d.type === 'pct') {
+                  discountAmount = Math.round(i.price * i.qty * (d.value / 100) * 100) / 100;
+                } else {
+                  discountAmount = d.value;
+                }
+              } catch { /* ignore */ }
+            }
+            return {
+              productId: i.id,
+              name: i.name,
+              sku: i.id,
+              quantity: i.qty,
+              unitPrice: i.price,
+              costPrice: 0,
+              taxRate: 0.1,
+              discountAmount,
+              ...(i.note ? { note: i.note } : {}),
+            };
+          }),
         }),
-      }).catch(() => {
-        // Silently ignore — orders service may be unavailable in dev
-      });
+      }).catch(() => {});
+
+      // 3. Print receipt if printer is connected
+      if (receiptPort) {
+        const receiptData: ReceiptData = {
+          storeName: deviceInfo?.label ?? 'NEXUS POS',
+          orderNumber,
+          createdAt,
+          staffName: staffName || undefined,
+          customerName: customerName || undefined,
+          lines: items.map((i) => {
+            let discountAmt: number | undefined;
+            if (i.discount) {
+              try {
+                const d = JSON.parse(i.discount) as { type: 'pct' | 'flat'; value: number };
+                if (d.type === 'pct') {
+                  discountAmt = Math.round(i.price * i.qty * (d.value / 100) * 100) / 100;
+                } else {
+                  discountAmt = d.value;
+                }
+              } catch { /* ignore */ }
+            }
+            return { name: i.name, qty: i.qty, price: i.price, discount: discountAmt, note: i.note };
+          }),
+          subtotalExGst: exGst,
+          gst,
+          total,
+          tenders: tenders.map((t) => ({
+            method: METHOD_META[t.method].label,
+            amount: t.amount,
+            change: t.change,
+          })),
+        };
+        await printReceipt(receiptPort, receiptData).catch(() => {});
+      }
 
       setCompletedOrder(orderNumber);
     } finally {
@@ -753,7 +831,7 @@ function PaymentContent() {
           <p className="mb-1 text-xs uppercase tracking-widest text-gray-400">Total Due</p>
           <p className="text-5xl font-extrabold text-white">${total.toFixed(2)}</p>
           <p className="mt-2 text-sm text-gray-500">
-            Subtotal ${subtotal.toFixed(2)} · GST ${tax.toFixed(2)}
+            ex-GST ${exGst.toFixed(2)} + GST ${gst.toFixed(2)}
           </p>
         </div>
 

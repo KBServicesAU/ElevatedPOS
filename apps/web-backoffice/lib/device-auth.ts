@@ -48,6 +48,20 @@ export function clearDeviceSession(): void {
   localStorage.removeItem(DEVICE_INFO_KEY);
 }
 
+// ─── Admin PIN (stored separately so re-pairing doesn't clear it) ─────────────
+
+const ADMIN_PIN_KEY = 'nexus_device_admin_pin';
+
+export function getAdminPin(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(ADMIN_PIN_KEY);
+}
+
+export function setAdminPin(pin: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(ADMIN_PIN_KEY, pin);
+}
+
 /**
  * fetch() wrapper that automatically adds the stored device token as a Bearer
  * Authorization header. Falls back to an unauthenticated request when no token
