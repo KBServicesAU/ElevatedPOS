@@ -29,8 +29,19 @@ spec:
       initContainers:
         # Run each service's migration sequentially to avoid lock contention
         - name: migrate-auth
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/auth:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/auth:latest
           command: ["npx", "drizzle-kit", "migrate"]
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+          envFrom:
+            - secretRef:
+                name: elevatedpos-secrets
+            - configMapRef:
+                name: elevatedpos-config
+        - name: seed-auth
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/auth:latest
+          command: ["node", "dist/db/seed.js"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
               value: "0"
