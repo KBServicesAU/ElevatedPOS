@@ -20,48 +20,6 @@ interface Location {
   revenueToday: number;
 }
 
-const MOCK_LOCATIONS: Location[] = [
-  {
-    id: '1',
-    name: 'Main Store',
-    address: '123 George Street',
-    suburb: 'Sydney',
-    state: 'NSW',
-    postcode: '2000',
-    phone: '02 9000 0001',
-    managerName: 'Jane Doe',
-    managerEmail: 'jane@example.com',
-    status: 'active',
-    revenueToday: 845200,
-  },
-  {
-    id: '2',
-    name: 'City Branch',
-    address: '456 Collins Street',
-    suburb: 'Melbourne',
-    state: 'VIC',
-    postcode: '3000',
-    phone: '03 9000 0002',
-    managerName: 'Bob Smith',
-    managerEmail: 'bob@example.com',
-    status: 'active',
-    revenueToday: 612100,
-  },
-  {
-    id: '3',
-    name: 'Airport Kiosk',
-    address: 'Terminal 1, Sydney Airport',
-    suburb: 'Mascot',
-    state: 'NSW',
-    postcode: '2020',
-    phone: '02 9000 0003',
-    managerName: 'Alice Lee',
-    managerEmail: 'alice@example.com',
-    status: 'inactive',
-    revenueToday: 0,
-  },
-];
-
 
 interface AddLocationForm {
   name: string;
@@ -172,26 +130,45 @@ export function LocationsClient() {
           ),
         );
         toast({ title: 'Location updated', description: `"${form.name}" has been updated.`, variant: 'success' });
+        setShowModal(false);
       } else {
-        const created: Location = await apiFetch<Location>('locations', {
+        const created = await apiFetch<Location>('locations', {
           method: 'POST',
           body: JSON.stringify(form),
-        }).catch(() => ({
-          id: String(Date.now()),
-          ...form,
-          managerName: form.managerEmail.split('@')[0],
-          status: 'active' as const,
-          revenueToday: 0,
-        }));
-        setLocations((prev) => [...prev, created]);
+        });
+        // Normalise response — API may return address as nested object
+        const addr = (created as unknown as Record<string, unknown>)['address'];
+        const normalisedLocation: Location = {
+          id: String((created as unknown as Record<string, unknown>)['id'] ?? Date.now()),
+          name: created.name ?? form.name,
+          address: typeof addr === 'object' && addr !== null
+            ? String((addr as Record<string, unknown>)['street'] ?? form.address)
+            : String(addr ?? form.address),
+          suburb: typeof addr === 'object' && addr !== null
+            ? String((addr as Record<string, unknown>)['suburb'] ?? form.suburb)
+            : (created.suburb ?? form.suburb),
+          state: typeof addr === 'object' && addr !== null
+            ? String((addr as Record<string, unknown>)['state'] ?? form.state)
+            : (created.state ?? form.state),
+          postcode: typeof addr === 'object' && addr !== null
+            ? String((addr as Record<string, unknown>)['postcode'] ?? form.postcode)
+            : (created.postcode ?? form.postcode),
+          phone: created.phone ?? form.phone,
+          managerName: created.managerName ?? form.managerEmail.split('@')[0],
+          managerEmail: created.managerEmail ?? form.managerEmail,
+          status: created.status ?? 'active',
+          revenueToday: created.revenueToday ?? 0,
+        };
+        setLocations((prev) => [...prev, normalisedLocation]);
         toast({ title: 'Location added', description: `"${form.name}" has been added.`, variant: 'success' });
+        setShowModal(false);
       }
     } catch (err) {
       const msg = getErrorMessage(err);
       toast({ title: editTarget ? 'Failed to update location' : 'Failed to add location', description: msg, variant: 'destructive' });
+      // Keep modal open so the merchant can correct and retry
     } finally {
       setSaving(false);
-      setShowModal(false);
     }
   }
 
