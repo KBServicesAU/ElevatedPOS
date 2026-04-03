@@ -44,6 +44,22 @@ async function applyCashTender(page: Page, amount = '10.00') {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 test.describe('Payment page', () => {
+  test.beforeEach(async ({ page }) => {
+    // Pre-seed a fake device session so that navigating back to /pos after
+    // payment completes shows the product terminal instead of the pairing gate.
+    await page.goto('/pos');
+    await page.evaluate(() => {
+      localStorage.setItem('nexus_device_token', 'e2e-fake-device-token');
+      localStorage.setItem('nexus_device_info', JSON.stringify({
+        deviceId: '00000000-0000-0000-0000-e2e000000001',
+        role: 'pos',
+        locationId: '00000000-0000-0000-0000-000000000099',
+        orgId: '00000000-0000-0000-0000-000000000001',
+        label: 'E2E Test POS',
+      }));
+    });
+  });
+
   test('renders order summary with correct totals', async ({ page }) => {
     await goToPayment(page);
 

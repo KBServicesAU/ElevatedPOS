@@ -35,9 +35,35 @@ async function getCartTotal(page: Page): Promise<string> {
   return page.locator('text=Total').last().locator('+ *').textContent() ?? '';
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Inject a fake device session into localStorage so the POS page skips the
+ * device-pairing gate and goes straight to the product terminal.
+ * Must be called before any navigation to /pos.
+ */
+async function seedDeviceSession(page: Page) {
+  // Navigate to the app origin first so localStorage is scoped correctly
+  await page.goto('/pos');
+  await page.evaluate(() => {
+    localStorage.setItem('nexus_device_token', 'e2e-fake-device-token');
+    localStorage.setItem('nexus_device_info', JSON.stringify({
+      deviceId: '00000000-0000-0000-0000-e2e000000001',
+      role: 'pos',
+      locationId: '00000000-0000-0000-0000-000000000099',
+      orgId: '00000000-0000-0000-0000-000000000001',
+      label: 'E2E Test POS',
+    }));
+  });
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 test.describe('POS screen', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedDeviceSession(page);
+  });
+
   test('renders the product catalogue', async ({ page }) => {
     await goToPOS(page);
 

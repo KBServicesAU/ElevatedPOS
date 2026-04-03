@@ -13,7 +13,7 @@ concurrency:
 
 env:
   PNPM_VERSION: '9'
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
 
 jobs:
   lint-and-typecheck:
@@ -62,7 +62,7 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/elevatedpos_test
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         if: always()
         continue-on-error: true
         with:
