@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import { Monitor, ChefHat, Tablet, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { type DeviceInfo, setDeviceSession } from '@/lib/device-auth';
 
@@ -26,8 +27,8 @@ const ROLE_META: Record<
   kds: {
     label: 'Kitchen Display',
     Icon: ChefHat,
-    accent: 'border-yellow-500',
-    iconColor: 'text-yellow-400',
+    accent: 'border-orange-500',
+    iconColor: 'text-orange-400',
   },
   kiosk: {
     label: 'Self-Serve Kiosk',
@@ -122,7 +123,7 @@ function CodeInput({
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" role="group" aria-label="Pairing code">
       {Array.from({ length: CODE_LENGTH }).map((_, idx) => (
         <input
           key={idx}
@@ -130,6 +131,8 @@ function CodeInput({
           type="text"
           inputMode="text"
           maxLength={1}
+          autoComplete={idx === 0 ? 'one-time-code' : 'off'}
+          aria-label={`Pairing code digit ${idx + 1} of ${CODE_LENGTH}`}
           value={value[idx] ?? ''}
           disabled={disabled}
           onChange={(e) => handleInput(e, idx)}
@@ -295,7 +298,14 @@ export default function DevicePairingScreen({ role, onPaired }: DevicePairingScr
         {/* Footer hint */}
         <p className="mt-5 text-center text-xs text-gray-600">
           Generate a pairing code in{' '}
-          <span className="text-gray-400">Settings &rsaquo; Devices</span>
+          <Link
+            href="/dashboard/devices"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-indigo-400 underline hover:text-indigo-300"
+          >
+            Backoffice &rsaquo; Devices
+          </Link>
         </p>
       </div>
     </div>

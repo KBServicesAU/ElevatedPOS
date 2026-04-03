@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronDown, Menu, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { SidebarNav } from './sidebar-nav';
 import { UserNav } from './user-nav';
 import { PageTitle } from './page-title';
@@ -9,6 +9,7 @@ import { NotificationBell } from './notification-bell';
 import { ThemeToggle } from './theme-toggle';
 import AICopilot from './AICopilot';
 import { AppSwitcher } from './app-switcher';
+import { LocationPicker } from './location-picker';
 
 interface DashboardShellProps {
   children: React.ReactNode;
@@ -75,13 +76,7 @@ export function DashboardShell({ children, firstName, lastName, role }: Dashboar
         </div>
 
         {/* Location picker */}
-        <button className="mx-3 mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-left text-sm dark:border-gray-700 dark:bg-gray-800">
-          <div>
-            <p className="font-medium text-gray-700 dark:text-gray-200">Main Location</p>
-            <p className="text-xs text-gray-400">Sydney CBD</p>
-          </div>
-          <ChevronDown className="h-4 w-4 text-gray-400" />
-        </button>
+        <LocationPicker />
 
         {/* Nav links */}
         <SidebarNav onNavigate={() => setSidebarOpen(false)} />
