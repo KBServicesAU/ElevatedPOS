@@ -2,6 +2,10 @@ import { type FastifyInstance } from 'fastify';
 import { db, schema } from '../db/index.js';
 import { hashPassword } from '../lib/tokens.js';
 
+const NOTIFICATIONS_API_URL = process.env['NOTIFICATIONS_API_URL'] ?? 'http://localhost:4009';
+const INTEGRATIONS_API_URL = process.env['INTEGRATIONS_API_URL'] ?? 'http://localhost:4010';
+const APP_URL = process.env['APP_URL'] ?? 'https://app.elevatedpos.com.au';
+
 export async function organisationRoutes(app: FastifyInstance) {
   // POST /api/v1/organisations/register — public, no auth required
   // Creates a new org + owner employee account in one transaction
@@ -63,6 +67,52 @@ export async function organisationRoutes(app: FastifyInstance) {
         }).returning();
 
         return { org: org!, employee: employee! };
+      });
+
+      // Fire-and-forget: send welcome email via notifications service
+      // We sign a short-lived internal token so the notifications service accepts the call
+      const internalToken = app.jwt.sign(
+        { sub: result.employee.id, orgId: result.org.id, role: 'system' },
+        { expiresIn: '5m' },
+      );
+
+      fetch(`${NOTIFICATIONS_API_URL}/api/v1/notifications/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${internalToken}` },
+        body: JSON.stringify({
+          to: result.employee.email,
+          subject: `Welcome to ElevatedPOS, ${firstName}!`,
+          template: 'custom',
+          data: {
+            body: `
+              <h2>Welcome to ElevatedPOS, ${firstName}!</h2>
+              <p>Your account for <strong>${businessName}</strong> has been created successfully.</p>
+              <p><strong>Plan:</strong> ${result.org.plan}</p>
+              <p>You can now log in and start setting up your store:</p>
+              <p><a href="${APP_URL}/login" style="background:#4f46e5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">Log in to ElevatedPOS</a></p>
+              <p>If you have any questions, reply to this email or contact our support team.</p>
+              <p>— The ElevatedPOS Team</p>
+            `,
+          },
+          orgId: result.org.id,
+        }),
+      }).catch((err: unknown) => {
+        console.error('[organisations/register] failed to send welcome email', err instanceof Error ? err.message : String(err));
+      });
+
+      // Fire-and-forget: create Stripe Connect Express account for the merchant
+      fetch(`${INTEGRATIONS_API_URL}/api/v1/connect/platform-account`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgId: result.org.id,
+          email: result.employee.email,
+          businessName,
+          returnUrl: `${APP_URL}/onboard/subscription`,
+          refreshUrl: `${APP_URL}/onboard/payment-account`,
+        }),
+      }).catch((err: unknown) => {
+        console.error('[organisations/register] failed to create Stripe Connect account', err instanceof Error ? err.message : String(err));
       });
 
       return reply.status(201).send({

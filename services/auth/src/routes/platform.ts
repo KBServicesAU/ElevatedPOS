@@ -169,7 +169,14 @@ export async function platformRoutes(app: FastifyInstance) {
       db.select({ value: count() }).from(schema.organisations).where(where),
     ]);
 
-    return reply.send({ data: rows, total: totalRows[0]?.value ?? 0, limit, offset });
+    // Alias fields to match the portal UI expectations
+    const mapped = rows.map((r) => ({
+      ...r,
+      businessName: r.name,
+      deviceLimit: r.maxDevices,
+    }));
+
+    return reply.send({ data: mapped, total: totalRows[0]?.value ?? 0, limit, offset });
   });
 
   // GET /api/v1/platform/organisations/:id
@@ -196,6 +203,9 @@ export async function platformRoutes(app: FastifyInstance) {
     return reply.send({
       data: {
         ...org,
+        // Alias fields to match the portal UI expectations
+        businessName: org.name,
+        deviceLimit: org.maxDevices,
         _counts: {
           activeEmployees: employeeCount[0]?.value ?? 0,
           activeDevices: deviceCount[0]?.value ?? 0,
