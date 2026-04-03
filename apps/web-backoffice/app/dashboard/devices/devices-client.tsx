@@ -105,7 +105,7 @@ export default function DevicesClient() {
   useEffect(() => {
     setLoading(true);
     Promise.all([loadDevices(), loadCodes(), loadLocations()]).finally(() => setLoading(false));
-  }, [loadDevices, loadCodes, loadLocations]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRevoke(id: string) {
     if (!confirm('Revoke this device? It will need to be re-paired.')) return;
