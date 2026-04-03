@@ -136,6 +136,23 @@ export const invoiceLines = pgTable('invoice_lines', {
 });
 
 // ---------------------------------------------------------------------------
+// Device payment configuration  (per-device payment method overrides)
+// ---------------------------------------------------------------------------
+
+export const devicePaymentConfigs = pgTable('device_payment_configs', {
+  id:                   uuid('id').primaryKey().defaultRandom(),
+  orgId:                uuid('org_id').notNull(),
+  /** Device ID as issued by the auth/devices service */
+  deviceId:             uuid('device_id').notNull(),
+  /** Array of enabled payment method IDs e.g. ['cash','card','giftcard'] */
+  enabledMethods:       text('enabled_methods').array().notNull().default([]),
+  /** Which ANZ Worldline terminal credential this device uses for card payments */
+  terminalCredentialId: uuid('terminal_credential_id'),
+  createdAt:            timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:            timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
 // Terminal credentials  (per-org, per-provider)
 // ---------------------------------------------------------------------------
 

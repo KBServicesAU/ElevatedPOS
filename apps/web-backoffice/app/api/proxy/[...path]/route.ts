@@ -206,6 +206,11 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',
     prefix: '/api/v1/payment-methods',
   },
+  // EFTPOS terminal credentials + per-device payment config
+  terminal: {
+    base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',
+    prefix: '/api/v1/terminal',
+  },
   transfers: {
     base: process.env.INVENTORY_API_URL ?? 'http://localhost:4003',
     prefix: '/api/v1/transfers',

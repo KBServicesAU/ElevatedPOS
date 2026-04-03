@@ -30,6 +30,12 @@ const refundSchema = z.object({
   currency: z.string().length(3).default('AUD'),
 });
 
+const devicePaymentConfigSchema = z.object({
+  enabledMethods:       z.array(z.enum(['cash', 'card', 'giftcard', 'account', 'layby', 'bnpl'])),
+  /** UUID of the terminal credential to use, or null for org default */
+  terminalCredentialId: z.string().uuid().nullable().optional(),
+});
+
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
 async function getTIMClient(orgId: string): Promise<AnzWorldlineTIMClient | null> {
@@ -133,6 +139,82 @@ export async function terminalRoutes(app: FastifyInstance) {
       .where(eq(schema.terminalCredentials.id, id));
 
     return reply.status(204).send();
+  });
+
+  // ── Device payment config ──────────────────────────────────────────────
+
+  /**
+   * GET /api/v1/terminal/device-config
+   * List all per-device payment configs for this org.
+   */
+  app.get('/device-config', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const rows = await db.query.devicePaymentConfigs.findMany({
+      where: eq(schema.devicePaymentConfigs.orgId, orgId),
+    });
+    return reply.status(200).send({ data: rows });
+  });
+
+  /**
+   * GET /api/v1/terminal/device-config/:deviceId
+   * Get the payment config for a specific device (null if none saved yet).
+   */
+  app.get('/device-config/:deviceId', async (request, reply) => {
+    const { orgId }    = request.user as { orgId: string };
+    const { deviceId } = request.params as { deviceId: string };
+    const config = await db.query.devicePaymentConfigs.findFirst({
+      where: and(
+        eq(schema.devicePaymentConfigs.orgId,    orgId),
+        eq(schema.devicePaymentConfigs.deviceId, deviceId),
+      ),
+    });
+    return reply.status(200).send({ data: config ?? null });
+  });
+
+  /**
+   * PUT /api/v1/terminal/device-config/:deviceId
+   * Upsert the payment method config for a device.
+   * Body: { enabledMethods: string[], terminalCredentialId?: string | null }
+   */
+  app.put('/device-config/:deviceId', async (request, reply) => {
+    const { orgId }    = request.user as { orgId: string };
+    const { deviceId } = request.params as { deviceId: string };
+    const body = devicePaymentConfigSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.status(422).send({
+        type:   'https://nexus.app/errors/validation',
+        title:  'Validation Error',
+        status: 422,
+        detail: body.error.message,
+      });
+    }
+
+    const terminalCredentialId = body.data.terminalCredentialId ?? null;
+
+    const existing = await db.query.devicePaymentConfigs.findFirst({
+      where: and(
+        eq(schema.devicePaymentConfigs.orgId,    orgId),
+        eq(schema.devicePaymentConfigs.deviceId, deviceId),
+      ),
+    });
+
+    let saved;
+    if (existing) {
+      const rows = await db
+        .update(schema.devicePaymentConfigs)
+        .set({ enabledMethods: body.data.enabledMethods, terminalCredentialId, updatedAt: new Date() })
+        .where(eq(schema.devicePaymentConfigs.id, existing.id))
+        .returning();
+      saved = rows[0]!;
+    } else {
+      const rows = await db
+        .insert(schema.devicePaymentConfigs)
+        .values({ orgId, deviceId, enabledMethods: body.data.enabledMethods, terminalCredentialId })
+        .returning();
+      saved = rows[0]!;
+    }
+
+    return reply.status(200).send({ data: saved });
   });
 
   // ── ANZ Worldline TIM — Connection ─────────────────────────────────────
