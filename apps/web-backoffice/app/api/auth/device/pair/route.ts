@@ -40,7 +40,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: errorMsg }, { status: upstream.status });
     }
 
-    return NextResponse.json(data, { status: 200 });
+    // Auth service wraps the payload in { data: { ... } } — unwrap it
+    const payload = (data.data && typeof data.data === 'object') ? data.data : data;
+    return NextResponse.json(payload, { status: 200 });
   } catch (err) {
     console.error('[auth/device/pair] error:', err);
     return NextResponse.json({ error: 'Service unavailable' }, { status: 503 });
