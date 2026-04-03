@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Plus, Clock, CheckCircle, XCircle, Shield, Download, ChevronLeft, ChevronRight,
-  Calendar, Users, Edit2, ToggleLeft, ToggleRight, X, Check, FileDown,
+  Calendar, Users, Edit2, ToggleLeft, ToggleRight, X, Check, FileDown, KeyRound,
 } from 'lucide-react';
 import { useEmployees } from '@/lib/hooks';
 import { useQueryClient } from '@tanstack/react-query';
@@ -362,6 +362,112 @@ function EmployeeSidePanel({ employee, onClose }: { employee: Employee; onClose:
   );
 }
 
+// ─── Change PIN Modal ─────────────────────────────────────────────────────────
+
+function ChangePinModal({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+  const [pin, setPin] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const { toast } = useToast();
+
+  const handleSave = async () => {
+    if (pin.length < 4 || pin.length > 6) {
+      setError('PIN must be 4–6 digits.');
+      return;
+    }
+    if (!/^\d+$/.test(pin)) {
+      setError('PIN must contain digits only.');
+      return;
+    }
+    if (pin !== confirm) {
+      setError('PINs do not match.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/proxy/employees/${employee.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(body.message ?? 'Failed to update PIN');
+      }
+      toast({ title: 'PIN updated', description: `New PIN saved for ${employee.firstName}.` });
+      onClose();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not update PIN. Try again.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-5 w-5 text-indigo-500" />
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+              Change PIN — {employee.firstName} {employee.lastName}
+            </h2>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
+          Staff use this PIN to log into the POS terminal. Must be 4–6 digits.
+        </p>
+
+        <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">New PIN</label>
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={6}
+          value={pin}
+          onChange={(e) => { setPin(e.target.value.replace(/\D/g, '')); setError(''); }}
+          placeholder="••••"
+          className="mb-3 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+        />
+
+        <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Confirm PIN</label>
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={6}
+          value={confirm}
+          onChange={(e) => { setConfirm(e.target.value.replace(/\D/g, '')); setError(''); }}
+          placeholder="••••"
+          className="mb-4 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+        />
+
+        {error && <p className="mb-3 text-xs text-red-500">{error}</p>}
+
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-lg border border-gray-200 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || pin.length < 4}
+            className="flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save PIN'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Employees Tab ────────────────────────────────────────────────────────────
 
 function EmployeesTab() {
@@ -369,10 +475,12 @@ function EmployeesTab() {
   const employees = data?.data ?? [];
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<Employee | null>(null);
+  const [pinEmployee, setPinEmployee] = useState<Employee | null>(null);
 
   return (
     <div className="relative">
       {showAdd && <AddEmployeeModal onClose={() => setShowAdd(false)} />}
+      {pinEmployee && <ChangePinModal employee={pinEmployee} onClose={() => setPinEmployee(null)} />}
       {selected && <EmployeeSidePanel employee={selected} onClose={() => setSelected(null)} />}
 
       <div className="flex items-center justify-between mb-4">
@@ -456,6 +564,13 @@ function EmployeesTab() {
                             className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400"
                           >
                             View
+                          </button>
+                          <button
+                            onClick={() => setPinEmployee(emp)}
+                            title="Change POS PIN"
+                            className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-gray-700 dark:text-indigo-400 dark:hover:bg-indigo-900/20"
+                          >
+                            <KeyRound className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </td>
