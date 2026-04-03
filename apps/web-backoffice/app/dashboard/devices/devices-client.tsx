@@ -98,9 +98,9 @@ export default function DevicesClient() {
   const [genError, setGenError] = useState<string | null>(null);
   const [latestCode, setLatestCode] = useState<PairingCode | null>(null);
 
-  const loadDevices   = useCallback(async () => { try { const r = await apiFetch<{ data: Device[] }>('/api/v1/devices'); setDevices(r.data ?? []); } catch { /**/ } }, []);
-  const loadCodes     = useCallback(async () => { try { const r = await apiFetch<{ data: PairingCode[] }>('/api/v1/devices/pairing-codes'); setCodes(r.data ?? []); } catch { /**/ } }, []);
-  const loadLocations = useCallback(async () => { try { const r = await apiFetch<{ data: Location[] }>('/api/v1/locations'); setLocations(r.data ?? []); } catch { /**/ } }, []);
+  const loadDevices   = useCallback(async () => { try { const r = await apiFetch<{ data: Device[] }>('devices'); setDevices(r.data ?? []); } catch { /**/ } }, []);
+  const loadCodes     = useCallback(async () => { try { const r = await apiFetch<{ data: PairingCode[] }>('devices/pairing-codes'); setCodes(r.data ?? []); } catch { /**/ } }, []);
+  const loadLocations = useCallback(async () => { try { const r = await apiFetch<{ data?: Location[] } | Location[]>('locations'); setLocations(Array.isArray(r) ? r : (r.data ?? [])); } catch { /**/ } }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -111,7 +111,7 @@ export default function DevicesClient() {
     if (!confirm('Revoke this device? It will need to be re-paired.')) return;
     setRevoking(id);
     try {
-      await apiFetch(`/api/v1/devices/${id}`, { method: 'DELETE' });
+      await apiFetch(`devices/${id}`, { method: 'DELETE' });
       setDevices((prev) => prev.map((d) => d.id === id ? { ...d, status: 'revoked' as DeviceStatus } : d));
     } catch { /**/ } finally { setRevoking(null); }
   }
@@ -121,7 +121,7 @@ export default function DevicesClient() {
     if (!genLocationId) return;
     setGenerating(true); setGenError(null);
     try {
-      const res = await apiFetch<{ data: PairingCode }>('/api/v1/devices/pairing-codes', {
+      const res = await apiFetch<{ data: PairingCode }>('devices/pairing-codes', {
         method: 'POST',
         body: JSON.stringify({ role: genRole, locationId: genLocationId, label: genLabel || undefined }),
       });
