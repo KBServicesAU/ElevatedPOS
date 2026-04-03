@@ -50,7 +50,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
     }
 
     const smtpPort = Number(process.env['SMTP_PORT'] ?? 587);
-    const emailFrom = process.env['EMAIL_FROM'] ?? 'noreply@nexus.app';
+    const emailFrom = process.env['EMAIL_FROM'] ?? 'noreply@elevatedpos.com.au';
 
     const transporter = nodemailer.createTransport({
       host: smtpHost,

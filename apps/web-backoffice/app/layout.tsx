@@ -6,6 +6,7 @@ import { CommandPalette } from '../components/CommandPalette';
 export const metadata: Metadata = {
   title: { default: 'ElevatedPOS', template: '%s | ElevatedPOS' },
   description: 'Unified Commerce & Operations Platform',
+  icons: { icon: '/favicon.svg', shortcut: '/favicon.svg', apple: '/favicon.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

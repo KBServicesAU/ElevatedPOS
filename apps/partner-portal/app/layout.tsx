@@ -5,6 +5,7 @@ import { ElevatedPOSAppBar } from '@/app/components/ElevatedPOSAppBar';
 export const metadata: Metadata = {
   title: 'ElevatedPOS Partner Portal',
   description: 'Reseller and partner management for ElevatedPOS',
+  icons: { icon: '/favicon.svg', shortcut: '/favicon.svg', apple: '/favicon.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

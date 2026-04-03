@@ -4,6 +4,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: { default: 'ElevatedPOS Support Portal', template: '%s | Support Portal' },
   description: 'ElevatedPOS Organisation Support Portal',
+  icons: { icon: '/favicon.svg', shortcut: '/favicon.svg', apple: '/favicon.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

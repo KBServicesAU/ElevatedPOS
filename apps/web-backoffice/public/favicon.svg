@@ -1,4 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="8" fill="#6366f1"/>
-  <text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="system-ui">N</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Rounded square background -->
+  <rect width="512" height="512" rx="96" fill="#ffffff"/>
+  <!-- Rounded square border -->
+  <rect x="14" y="14" width="484" height="484" rx="84" fill="none" stroke="#1a1a1a" stroke-width="28"/>
+  <!-- Mountain / roofline graphic -->
+  <!-- Left sweep line -->
+  <line x1="62" y1="148" x2="256" y2="108" stroke="#1a1a1a" stroke-width="22" stroke-linecap="round"/>
+  <!-- Right sweep line -->
+  <line x1="256" y1="108" x2="450" y2="168" stroke="#1a1a1a" stroke-width="22" stroke-linecap="round"/>
+  <!-- Second inner line left -->
+  <line x1="62" y1="175" x2="256" y2="135" stroke="#1a1a1a" stroke-width="14" stroke-linecap="round"/>
+  <!-- Second inner line right -->
+  <line x1="256" y1="135" x2="450" y2="195" stroke="#1a1a1a" stroke-width="14" stroke-linecap="round"/>
+  <!-- Bold "E" letter -->
+  <text x="256" y="410" dominant-baseline="central" text-anchor="middle" fill="#1a1a1a"
+        font-size="270" font-weight="900" font-family="Georgia, 'Times New Roman', serif">E</text>
 </svg>
