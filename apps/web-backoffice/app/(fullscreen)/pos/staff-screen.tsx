@@ -117,12 +117,17 @@ export function StaffScreen({
               id: string;
               firstName: string;
               lastName: string;
-              role?: string;
+              role?: string | { name?: string; [key: string]: unknown };
               clockedIn?: boolean;
             }>;
           };
           if (data.data && data.data.length > 0) {
-            setEmployees(data.data);
+            setEmployees(data.data.map((e) => ({
+              ...e,
+              role: typeof e.role === 'object' && e.role !== null
+                ? (e.role.name ?? 'Staff')
+                : e.role,
+            })));
             return;
           }
         }
