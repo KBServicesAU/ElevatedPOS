@@ -132,9 +132,9 @@ export default function QuotesClient() {
     setLoading(true);
     try {
       const res = await apiFetch<QuotesResponse>('quotes');
-      setItems(res.data ?? MOCK_DATA);
+      setItems(res.data ?? []);
     } catch {
-      setItems(MOCK_DATA);
+      setItems([]);
     } finally {
       setLoading(false);
     }

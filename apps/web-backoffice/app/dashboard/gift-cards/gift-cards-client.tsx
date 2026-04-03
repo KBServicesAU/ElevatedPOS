@@ -57,9 +57,9 @@ export default function GiftCardsClient() {
     setError(null);
     try {
       const res = await apiFetch<GiftCardsResponse>('gift-cards');
-      setItems(res.data ?? MOCK_DATA);
+      setItems(res.data ?? []);
     } catch {
-      setItems(MOCK_DATA);
+      setItems([]);
     } finally {
       setLoading(false);
     }

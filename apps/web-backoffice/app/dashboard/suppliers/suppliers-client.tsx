@@ -531,12 +531,12 @@ export function SuppliersClient() {
         const res = await fetch('/api/proxy/suppliers');
         if (res.ok) {
           const json = await res.json();
-          setSuppliers(json.data ?? MOCK_SUPPLIERS);
+          setSuppliers(json.data ?? []);
         } else {
-          setSuppliers(MOCK_SUPPLIERS);
+          setSuppliers([]);
         }
       } catch {
-        setSuppliers(MOCK_SUPPLIERS);
+        setSuppliers([]);
       } finally {
         setIsLoading(false);
       }

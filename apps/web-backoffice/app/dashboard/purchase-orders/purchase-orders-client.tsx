@@ -137,12 +137,20 @@ function NewPOModal({ onClose, onSave }: NewPOModalProps) {
   const [step, setStep] = useState(1);
   const [supplierId, setSupplierId] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
-  const [shippingAddress, setShippingAddress] = useState('123 Main St, Sydney NSW 2000');
+  const [shippingAddress, setShippingAddress] = useState('');
   const [lineItems, setLineItems] = useState<NewLineItem[]>([
     { productName: '', sku: '', qty: '', unitCost: '' },
   ]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
-  const selectedSupplier = MOCK_SUPPLIERS.find((s) => s.id === supplierId);
+  useEffect(() => {
+    fetch('/api/proxy/suppliers')
+      .then((r) => r.ok ? r.json() : { data: [] })
+      .then((json) => setSuppliers(Array.isArray(json) ? json : (json.data ?? [])))
+      .catch(() => setSuppliers([]));
+  }, []);
+
+  const selectedSupplier = suppliers.find((s) => s.id === supplierId);
 
   function addLine() {
     setLineItems((prev) => [...prev, { productName: '', sku: '', qty: '', unitCost: '' }]);
@@ -240,7 +248,7 @@ function NewPOModal({ onClose, onSave }: NewPOModalProps) {
                   className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                 >
                   <option value="">Select a supplier…</option>
-                  {MOCK_SUPPLIERS.map((s) => (
+                  {suppliers.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
@@ -532,12 +540,12 @@ export function PurchaseOrdersClient() {
         const res = await fetch('/api/proxy/purchase-orders');
         if (res.ok) {
           const json = await res.json();
-          setOrders(json.data ?? MOCK_POS);
+          setOrders(json.data ?? []);
         } else {
-          setOrders(MOCK_POS);
+          setOrders([]);
         }
       } catch {
-        setOrders(MOCK_POS);
+        setOrders([]);
       } finally {
         setIsLoading(false);
       }

@@ -89,9 +89,9 @@ export function WebhooksClient() {
       .then((r) => r.json())
       .then((json) => {
         const data: Webhook[] = Array.isArray(json) ? json : json.data ?? [];
-        setWebhooks(data.length > 0 ? data : MOCK_WEBHOOKS);
+        setWebhooks(data);
       })
-      .catch(() => setWebhooks(MOCK_WEBHOOKS))
+      .catch(() => setWebhooks([]))
       .finally(() => setIsLoading(false));
   }, []);
 

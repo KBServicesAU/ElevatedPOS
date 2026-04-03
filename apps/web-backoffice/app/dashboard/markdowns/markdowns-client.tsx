@@ -112,9 +112,9 @@ export default function MarkdownsClient() {
     setLoading(true);
     try {
       const res = await apiFetch<MarkdownsResponse>('markdowns');
-      setItems(res.data ?? MOCK_DATA);
+      setItems(res.data ?? []);
     } catch {
-      setItems(MOCK_DATA);
+      setItems([]);
     } finally {
       setLoading(false);
     }

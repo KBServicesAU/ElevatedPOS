@@ -63,9 +63,9 @@ export default function LaybysClient() {
     setError(null);
     try {
       const res = await apiFetch<LaybysResponse>('laybys');
-      setItems(res.data ?? MOCK_DATA);
+      setItems(res.data ?? []);
     } catch {
-      setItems(MOCK_DATA);
+      setItems([]);
     } finally {
       setLoading(false);
     }

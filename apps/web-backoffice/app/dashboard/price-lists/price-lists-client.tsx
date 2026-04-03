@@ -423,12 +423,12 @@ export function PriceListsClient() {
         const res = await fetch('/api/proxy/price-lists');
         if (res.ok) {
           const json = await res.json();
-          setPriceLists(json.data ?? MOCK_PRICE_LISTS);
+          setPriceLists(json.data ?? []);
         } else {
-          setPriceLists(MOCK_PRICE_LISTS);
+          setPriceLists([]);
         }
       } catch {
-        setPriceLists(MOCK_PRICE_LISTS);
+        setPriceLists([]);
       } finally {
         setLoading(false);
       }

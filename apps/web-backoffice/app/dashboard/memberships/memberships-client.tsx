@@ -129,11 +129,11 @@ export default function MembershipsClient() {
         apiFetch<{ data: MembershipPlan[] }>('membership-plans'),
         apiFetch<{ data: MembershipSubscription[] }>('membership-subscriptions'),
       ]);
-      setPlans(plansRes.data ?? MOCK_PLANS);
-      setSubs(subsRes.data ?? MOCK_SUBS);
+      setPlans(plansRes.data ?? []);
+      setSubs(subsRes.data ?? []);
     } catch {
-      setPlans(MOCK_PLANS);
-      setSubs(MOCK_SUBS);
+      setPlans([]);
+      setSubs([]);
     } finally {
       setLoading(false);
     }

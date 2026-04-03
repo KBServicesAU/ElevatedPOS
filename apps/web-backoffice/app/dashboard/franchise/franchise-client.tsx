@@ -138,10 +138,10 @@ export function FranchiseClient() {
         apiFetch<unknown>('franchise/policies').catch(() => null),
         apiFetch<unknown>('franchise/compliance-checks').catch(() => null),
       ]);
-      setLocations(extractList(locsRes, MOCK_LOCATIONS));
-      setStatements(extractList(stmtsRes, MOCK_STATEMENTS));
-      setPolicies(extractList(polsRes, MOCK_POLICIES));
-      setCompliance(extractList(compRes, MOCK_COMPLIANCE));
+      setLocations(extractList(locsRes, []));
+      setStatements(extractList(stmtsRes, []));
+      setPolicies(extractList(polsRes, []));
+      setCompliance(extractList(compRes, []));
     } finally {
       setLoading(false);
     }
