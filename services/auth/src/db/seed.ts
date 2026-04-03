@@ -85,7 +85,10 @@ async function seed() {
     firstName: 'Platform',
     lastName: 'Admin',
     role: 'superadmin',
-  }).onConflictDoNothing();
+  }).onConflictDoUpdate({
+    target: schema.platformStaff.email,
+    set: { passwordHash: adminHash, firstName: 'Platform', lastName: 'Admin', role: 'superadmin', isActive: true },
+  });
   console.log('  ✓ Platform superadmin: admin@elevatedpos.com.au  |  password: Admin2024!');
 
   await db.insert(schema.platformStaff).values({
@@ -94,7 +97,10 @@ async function seed() {
     firstName: 'Support',
     lastName: 'Team',
     role: 'support',
-  }).onConflictDoNothing();
+  }).onConflictDoUpdate({
+    target: schema.platformStaff.email,
+    set: { passwordHash: supportHash, firstName: 'Support', lastName: 'Team', role: 'support', isActive: true },
+  });
   console.log('  ✓ Platform support: support@elevatedpos.com.au  |  password: Support2024!');
 
   await db.insert(schema.platformStaff).values({
@@ -103,7 +109,10 @@ async function seed() {
     firstName: 'Demo',
     lastName: 'Reseller',
     role: 'reseller',
-  }).onConflictDoNothing();
+  }).onConflictDoUpdate({
+    target: schema.platformStaff.email,
+    set: { passwordHash: resellerHash, firstName: 'Demo', lastName: 'Reseller', role: 'reseller', isActive: true },
+  });
   console.log('  ✓ Platform reseller: reseller@elevatedpos.com.au  |  password: Reseller2024!');
 
   console.log('\n✅ Auth seed complete');
