@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 
 const ROUTE_LABELS: Record<string, string> = {
   '/dashboard': 'Dashboard',
+  '/dashboard/devices': 'Devices',
   '/dashboard/orders': 'Orders',
   '/dashboard/quotes': 'Quotes',
   '/dashboard/catalog': 'Catalog',
@@ -20,6 +21,10 @@ const ROUTE_LABELS: Record<string, string> = {
   '/dashboard/timesheets': 'Timesheets',
   '/dashboard/loyalty': 'Loyalty',
   '/dashboard/memberships': 'Memberships',
+  '/dashboard/payments': 'Payments & Connect',
+  '/dashboard/subscriptions': 'Subscriptions',
+  '/dashboard/invoices': 'Invoices',
+  '/dashboard/store': 'Web Store',
   '/dashboard/gift-cards': 'Gift Cards',
   '/dashboard/laybys': 'Laybys',
   '/dashboard/fulfillment': 'Fulfillment',
