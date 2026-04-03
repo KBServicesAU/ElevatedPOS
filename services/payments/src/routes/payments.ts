@@ -100,6 +100,7 @@ export async function paymentRoutes(app: FastifyInstance) {
         referenceId: payment.id,
         ...(paymentData.terminalId !== undefined ? { terminalId: paymentData.terminalId } : {}),
         acquirer,
+        orgId,
       });
 
       const updatedRows = await db.update(schema.payments).set({

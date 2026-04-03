@@ -6,6 +6,7 @@ import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { getRedisClient } from '@nexus/config';
 import { paymentRoutes } from './routes/payments';
+import { terminalRoutes } from './routes/terminal';
 import { paymentLinkRoutes } from './routes/paymentLinks';
 import { bnplRoutes } from './routes/bnpl';
 import { currencyRoutes } from './routes/currencies';
@@ -41,6 +42,7 @@ async function start() {
   await app.register(paymentLinkRoutes, { prefix: '/api/v1/payment-links' });
   await app.register(bnplRoutes, { prefix: '/api/v1/bnpl' });
   // Currency routes are public (no auth) — registered last to avoid conflicting with auth decorator
+  await app.register(terminalRoutes, { prefix: '/api/v1/terminal' });
   await app.register(currencyRoutes, { prefix: '/api/v1/currencies' });
   app.get('/health', async () => ({ status: 'ok', service: 'payments' }));
   const port = Number(process.env['PORT'] ?? 4005);
