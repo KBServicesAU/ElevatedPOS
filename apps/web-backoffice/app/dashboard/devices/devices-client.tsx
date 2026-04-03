@@ -100,7 +100,7 @@ export default function DevicesClient() {
 
   const loadDevices   = useCallback(async () => { try { const r = await apiFetch<{ data: Device[] }>('devices'); setDevices(r.data ?? []); } catch { /**/ } }, []);
   const loadCodes     = useCallback(async () => { try { const r = await apiFetch<{ data: PairingCode[] }>('devices/pairing-codes'); setCodes(r.data ?? []); } catch { /**/ } }, []);
-  const loadLocations = useCallback(async () => { try { const r = await apiFetch<{ data?: Location[] } | Location[]>('locations'); setLocations(Array.isArray(r) ? r : (r.data ?? [])); } catch { /**/ } }, []);
+  const loadLocations = useCallback(async () => { try { const r = await apiFetch<{ data?: Location[] } | Location[]>('locations'); setLocations(Array.isArray(r) ? r : (r.data ?? [])); } catch (err) { console.error('[devices] failed to load locations', err); } }, []);
 
   useEffect(() => {
     setLoading(true);

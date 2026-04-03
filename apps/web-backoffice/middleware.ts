@@ -4,6 +4,25 @@ import { type NextRequest, NextResponse } from 'next/server';
 const PUBLIC_PATHS = new Set(['/login', '/forgot-password', '/reset-password']);
 
 /**
+ * Decode JWT exp claim without signature verification.
+ * Returns true if the token is expired or unreadable.
+ * Uses atob (available on Edge runtime) not Buffer.
+ */
+function isTokenExpired(token: string): boolean {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(padded)) as Record<string, unknown>;
+    const exp = payload['exp'];
+    if (typeof exp !== 'number') return false; // no expiry = treat as valid
+    return exp * 1000 < Date.now();
+  } catch {
+    return true; // malformed token = treat as expired
+  }
+}
+
+/**
  * Fullscreen app routes — POS terminal, KDS, Kiosk.
  * These run on dedicated hardware without a staff login session.
  */
@@ -43,18 +62,20 @@ export function middleware(request: NextRequest) {
 
   // Redirect already-authenticated users away from login page
   if (PUBLIC_PATHS.has(pathname)) {
-    if (token && pathname === '/login') {
+    if (token && pathname === '/login' && !isTokenExpired(token)) {
       const next = request.nextUrl.searchParams.get('next') ?? '/dashboard';
       return NextResponse.redirect(new URL(next, request.url));
     }
     return NextResponse.next();
   }
 
-  if (!token) {
-    // Redirect to login with return URL
+  if (!token || isTokenExpired(token)) {
+    // Redirect to login with return URL; delete stale cookie to prevent redirect loops
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('next', pathname);
-    return NextResponse.redirect(loginUrl);
+    const response = NextResponse.redirect(loginUrl);
+    if (token) response.cookies.delete('elevatedpos_token');
+    return response;
   }
 
   return NextResponse.next();
