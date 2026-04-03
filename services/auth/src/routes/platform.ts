@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, ilike, and, count, or, SQL } from 'drizzle-orm';
+import { eq, ilike, and, count, or, SQL, asc } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db';
 import { verifyPassword, hashPassword } from '../lib/tokens';
@@ -13,6 +13,7 @@ const loginSchema = z.object({
 
 const patchOrgSchema = z.object({
   plan: z.string().optional(),
+  planStatus: z.enum(['active', 'suspended', 'cancelled']).optional(),
   maxLocations: z.number().int().min(1).optional(),
   maxDevices: z.number().int().min(1).optional(),
   onboardingStep: z.string().optional(),
@@ -225,6 +226,7 @@ export async function platformRoutes(app: FastifyInstance) {
 
     const updates: Partial<typeof schema.organisations.$inferInsert> = {};
     if (body.data.plan !== undefined) updates.plan = body.data.plan;
+    if (body.data.planStatus !== undefined) updates.planStatus = body.data.planStatus;
     if (body.data.maxLocations !== undefined) updates.maxLocations = body.data.maxLocations;
     if (body.data.maxDevices !== undefined) updates.maxDevices = body.data.maxDevices;
     if (body.data.onboardingStep !== undefined) updates.onboardingStep = body.data.onboardingStep;
@@ -305,6 +307,70 @@ export async function platformRoutes(app: FastifyInstance) {
       });
 
     return reply.status(201).send({ data: created });
+  });
+
+  // POST /api/v1/platform/organisations/:id/impersonate
+  // Superadmin/support only — generates a short-lived access token for the org's
+  // owner employee so platform staff can log in as that merchant to assist them.
+  app.post('/organisations/:id/impersonate', { onRequest: [authenticatePlatform] }, async (request, reply) => {
+    const { id: orgId } = request.params as { id: string };
+    const platformUser = request.user as PlatformPayload;
+
+    // Find the org
+    const org = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, orgId),
+    });
+    if (!org) return reply.status(404).send({ title: 'Not Found', status: 404 });
+
+    // Find the first active employee (owner) of the org
+    const employee = await db.query.employees.findFirst({
+      where: and(
+        eq(schema.employees.orgId, orgId),
+        eq(schema.employees.isActive, true),
+      ),
+      with: { role: true },
+      orderBy: asc(schema.employees.createdAt),
+    });
+    if (!employee) return reply.status(404).send({ title: 'No active employees found', status: 404 });
+
+    // Issue a short-lived (30 min) impersonation token
+    const impersonationToken = app.jwt.sign(
+      {
+        sub: employee.id,
+        orgId: employee.orgId,
+        roleId: employee.roleId,
+        permissions: (employee.role?.permissions ?? {}) as Record<string, boolean>,
+        locationIds: (employee.locationIds ?? []) as string[],
+        name: `${employee.firstName} ${employee.lastName}`,
+        email: employee.email,
+        impersonatedBy: platformUser.email,
+      },
+      { expiresIn: '30m' },
+    );
+
+    // Audit log
+    app.log.info({
+      event: 'impersonation',
+      platformUser: platformUser.email,
+      orgId,
+      orgName: org.name,
+      employeeId: employee.id,
+      employeeEmail: employee.email,
+    });
+
+    return reply.send({
+      accessToken: impersonationToken,
+      expiresIn: 1800,
+      employee: {
+        id: employee.id,
+        orgId: employee.orgId,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        email: employee.email,
+      },
+      org: { id: org.id, name: org.name },
+      loginUrl: `${process.env['APP_URL'] ?? 'https://app.elevatedpos.com.au'}/dashboard?impersonation=1`,
+    });
   });
 
   // DELETE /api/v1/platform/staff/:id (soft-delete)

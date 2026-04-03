@@ -14,6 +14,18 @@ function LoginContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Handle impersonation token from Godmode — auto-login support staff as a merchant
+  const impersonateToken = searchParams.get('impersonate');
+  if (impersonateToken && typeof window !== 'undefined') {
+    fetch('/api/auth/impersonate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: impersonateToken }),
+    }).then((res) => {
+      if (res.ok) router.replace('/dashboard?impersonation=1');
+    }).catch(() => null);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');

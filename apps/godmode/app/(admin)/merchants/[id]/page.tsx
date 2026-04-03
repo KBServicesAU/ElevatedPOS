@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use } from 'react';
 import { platformFetch } from '@/lib/api';
-import { ArrowLeft, Edit2, X } from 'lucide-react';
+import { ArrowLeft, Edit2, X, LogIn, CreditCard, ExternalLink, Copy, Check } from 'lucide-react';
 import Link from 'next/link';
 
 interface OrgDetail {
@@ -48,12 +48,18 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
   const { id } = use(params);
   const [org, setOrg] = useState<OrgDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'devices' | 'staff' | 'notes'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'devices' | 'staff' | 'billing' | 'notes'>('overview');
   const [devices, setDevices] = useState<Device[]>([]);
   const [notes, setNotes] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({ plan: '', maxLocations: 1, maxDevices: 2 });
   const [saving, setSaving] = useState(false);
+
+  // Impersonation state
+  const [impersonating, setImpersonating] = useState(false);
+  const [impersonationToken, setImpersonationToken] = useState<string | null>(null);
+  const [impersonationLoginUrl, setImpersonationLoginUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     async function loadOrg() {
@@ -130,7 +136,31 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
     );
   }
 
-  const tabs = ['overview', 'devices', 'staff', 'notes'] as const;
+  async function handleImpersonate() {
+    setImpersonating(true);
+    try {
+      const data = (await platformFetch(`platform/organisations/${id}/impersonate`, {
+        method: 'POST',
+      })) as { accessToken: string; loginUrl: string };
+      setImpersonationToken(data.accessToken);
+      // Build direct login URL with token embedded in hash so it's not logged server-side
+      const loginUrl = `https://app.elevatedpos.com.au/login?impersonate=${encodeURIComponent(data.accessToken)}`;
+      setImpersonationLoginUrl(loginUrl);
+    } catch {
+      alert('Failed to generate impersonation token. Check auth service logs.');
+    } finally {
+      setImpersonating(false);
+    }
+  }
+
+  function copyToken() {
+    if (!impersonationToken) return;
+    navigator.clipboard.writeText(impersonationToken);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  const tabs = ['overview', 'devices', 'staff', 'billing', 'notes'] as const;
 
   return (
     <div className="p-8">
@@ -154,14 +184,54 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
           </div>
           <p className="text-gray-500 text-sm mt-1">/{org.slug}</p>
         </div>
-        <button
-          onClick={() => setShowEditModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded transition-colors"
-        >
-          <Edit2 className="w-4 h-4" />
-          Edit Plan
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleImpersonate}
+            disabled={impersonating}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white text-sm rounded transition-colors"
+          >
+            <LogIn className="w-4 h-4" />
+            {impersonating ? 'Generating…' : 'Login As'}
+          </button>
+          <button
+            onClick={() => setShowEditModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded transition-colors"
+          >
+            <Edit2 className="w-4 h-4" />
+            Edit Plan
+          </button>
+        </div>
       </div>
+
+      {/* Impersonation result banner */}
+      {impersonationToken && (
+        <div className="mb-6 bg-emerald-900/30 border border-emerald-700 rounded-lg p-4">
+          <p className="text-emerald-400 text-sm font-semibold mb-2">✓ Impersonation token generated — expires in 30 minutes</p>
+          <div className="flex items-center gap-2 mb-3">
+            <code className="flex-1 bg-[#0a0a0f] text-emerald-300 text-xs px-3 py-2 rounded font-mono truncate">
+              {impersonationToken}
+            </code>
+            <button
+              onClick={copyToken}
+              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-800 hover:bg-emerald-700 text-emerald-200 text-xs rounded transition-colors whitespace-nowrap"
+            >
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied!' : 'Copy Token'}
+            </button>
+          </div>
+          {impersonationLoginUrl && (
+            <a
+              href={impersonationLoginUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-sm rounded transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Open Merchant Dashboard
+            </a>
+          )}
+        </div>
+      )}
 
       {/* Info Cards */}
       <div className="grid grid-cols-3 gap-4 mb-6">
@@ -312,6 +382,108 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
           <p className="text-gray-500 text-sm">
             {org._counts.activeEmployees} active staff members. Full staff list requires direct DB query.
           </p>
+        </div>
+      )}
+
+      {activeTab === 'billing' && (
+        <div className="space-y-4">
+          {/* Current Plan */}
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-5">
+            <h3 className="text-gray-400 text-xs uppercase tracking-wider mb-3 flex items-center gap-2">
+              <CreditCard className="w-4 h-4" /> Current Plan
+            </h3>
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <p className="text-gray-500 text-xs">Plan</p>
+                <p className="text-white capitalize font-semibold mt-1">{org.plan}</p>
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs">Status</p>
+                <p className={`font-semibold mt-1 ${org.planStatus === 'active' ? 'text-green-400' : 'text-red-400'}`}>
+                  {org.planStatus}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs">Billing Email</p>
+                <p className="text-white mt-1">{org.billingEmail ?? '—'}</p>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-[#1e1e2e]">
+              <button
+                onClick={() => setShowEditModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded transition-colors"
+              >
+                <Edit2 className="w-4 h-4" />
+                Change Plan / Limits
+              </button>
+            </div>
+          </div>
+
+          {/* Stripe Actions */}
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-5">
+            <h3 className="text-gray-400 text-xs uppercase tracking-wider mb-4">Stripe Billing</h3>
+            <div className="space-y-3 text-sm">
+              <a
+                href={`https://dashboard.stripe.com/connect/accounts`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#0a0a0f] border border-[#1e1e2e] hover:border-indigo-500 text-gray-300 hover:text-white rounded transition-colors"
+              >
+                <ExternalLink className="w-4 h-4" />
+                View in Stripe Connect Dashboard
+              </a>
+              <a
+                href={`https://dashboard.stripe.com/customers`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#0a0a0f] border border-[#1e1e2e] hover:border-indigo-500 text-gray-300 hover:text-white rounded transition-colors"
+              >
+                <ExternalLink className="w-4 h-4" />
+                View Stripe Customers
+              </a>
+            </div>
+            <p className="text-gray-600 text-xs mt-4">
+              Search by billing email: <span className="text-gray-400 font-mono">{org.billingEmail ?? '—'}</span>
+            </p>
+          </div>
+
+          {/* Suspend / Reactivate */}
+          <div className="bg-[#111118] border border-red-900/40 rounded-lg p-5">
+            <h3 className="text-red-400 text-xs uppercase tracking-wider mb-3">Danger Zone</h3>
+            <p className="text-gray-500 text-sm mb-4">
+              Suspending an org blocks all logins for that merchant immediately.
+              Setting planStatus to <code className="text-red-400">suspended</code> triggers the auth service to reject tokens.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  if (!confirm(`Suspend ${org.name}? All logins will be blocked immediately.`)) return;
+                  await platformFetch(`platform/organisations/${id}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ planStatus: 'suspended' }),
+                  }).catch(() => null);
+                  window.location.reload();
+                }}
+                disabled={org.planStatus === 'suspended'}
+                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded transition-colors"
+              >
+                Suspend Account
+              </button>
+              <button
+                onClick={async () => {
+                  await platformFetch(`platform/organisations/${id}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ planStatus: 'active' }),
+                  }).catch(() => null);
+                  window.location.reload();
+                }}
+                disabled={org.planStatus === 'active'}
+                className="px-4 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded transition-colors"
+              >
+                Reactivate Account
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
