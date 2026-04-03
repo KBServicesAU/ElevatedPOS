@@ -4,13 +4,13 @@ metadata:
   name: elevatedpos-api-ingress
   namespace: elevatedpos
   annotations:
-    kubernetes.io/ingress.class: "nginx"
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
     nginx.ingress.kubernetes.io/use-regex: "true"
 spec:
+  ingressClassName: nginx
   rules:
     # ── Marketing site & onboarding (elevatedpos.com.au + www) ──────────────
     - host: elevatedpos.com.au
