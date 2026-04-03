@@ -12,7 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../db';
-import { AnzWorldlineTIMClient, isApproved, mapCardType } from '../lib/anzworldline';
+import { AnzWorldlineTIMClient, isApproved } from '../lib/anzworldline';
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 

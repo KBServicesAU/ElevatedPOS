@@ -94,11 +94,11 @@ async function processAnzTIMPayment(req: PaymentRequest): Promise<PaymentResult>
 
     if (isApproved(data)) {
       return {
-        success:               true,
-        acquirerTransactionId: data.transactionId,
-        cardScheme:            mapCardType(data.cardType),
-        cardLast4:             data.maskedPan?.slice(-4),
-        authCode:              data.authorizationCode,
+        success: true,
+        ...(data.transactionId     ? { acquirerTransactionId: data.transactionId }            : {}),
+        ...(data.cardType          ? { cardScheme: mapCardType(data.cardType) }                : {}),
+        ...(data.maskedPan         ? { cardLast4: data.maskedPan.slice(-4) }                  : {}),
+        ...(data.authorizationCode ? { authCode: data.authorizationCode }                     : {}),
       };
     }
 
@@ -131,9 +131,9 @@ async function processAnzTIMRefund(
     const { data }    = await client.refund(amountCents, transactionId);
 
     if (isApproved(data)) {
-      return { success: true, acquirerTransactionId: data.transactionId };
+      return { success: true, ...(data.transactionId ? { acquirerTransactionId: data.transactionId } : {}) };
     }
-    return { success: false, errorCode: data.responseCode, errorMessage: data.responseText };
+    return { success: false, ...(data.responseCode ? { errorCode: data.responseCode } : {}), ...(data.responseText ? { errorMessage: data.responseText } : {}) };
   } catch (e) {
     return { success: false, errorMessage: e instanceof Error ? e.message : 'Unknown ANZ error' };
   }
