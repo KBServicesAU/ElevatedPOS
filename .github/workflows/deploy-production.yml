@@ -135,6 +135,14 @@ jobs:
             --set global.imageRegistry=$ECR_REGISTRY \
             --set global.environment=production
 
+          # Run migrations + seed after Helm deploy
+          find infrastructure/k8s -name "*.yaml" -exec \
+            sed -i "s/ACCOUNT_ID/${{ secrets.AWS_ACCOUNT_ID }}/g" {} +
+          kubectl delete job elevatedpos-migrations -n elevatedpos --ignore-not-found
+          kubectl apply -f infrastructure/k8s/migrations-job.yaml
+          kubectl wait --for=condition=complete job/elevatedpos-migrations \
+            -n elevatedpos --timeout=10m
+
       - name: Notify deployment
         if: always() && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1
