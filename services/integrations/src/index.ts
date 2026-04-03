@@ -8,6 +8,7 @@ import { appRoutes } from './routes/apps';
 import { webhookRoutes } from './routes/webhooks';
 import { connectorRoutes } from './routes/connectors';
 import { connectRoutes } from './routes/connect';
+import { connectExtendedRoutes } from './routes/connect-extended';
 import { stripeWebhookRoutes } from './routes/stripe-webhook';
 import { startRetryPoller } from './lib/webhookDelivery';
 
@@ -55,6 +56,7 @@ async function start() {
   await app.register(webhookRoutes, { prefix: '/api/v1/integrations/webhooks' });
   await app.register(connectorRoutes, { prefix: '/api/v1/connectors' });
   await app.register(connectRoutes, { prefix: '/api/v1' });
+  await app.register(connectExtendedRoutes, { prefix: '/api/v1' });
   await app.register(stripeWebhookRoutes, { prefix: '/api/v1' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'integrations' }));

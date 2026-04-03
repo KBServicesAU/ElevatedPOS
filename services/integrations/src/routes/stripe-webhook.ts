@@ -152,6 +152,16 @@ async function handleEvent(event: Stripe.Event) {
       // Logged above — future: forward to orders service or notify merchant
       break;
 
+    // ── Payouts ───────────────────────────────────────────────────────────────
+    case 'payout.created':
+    case 'payout.paid':
+    case 'payout.failed':
+    case 'payout.canceled':
+    // ── Charges ───────────────────────────────────────────────────────────────
+    case 'charge.succeeded':
+      // Logged by the outer handler — future: forward to notifications/orders
+      break;
+
     default:
       break;
   }

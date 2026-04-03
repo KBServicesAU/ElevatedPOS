@@ -1,10 +1,16 @@
 /**
- * Email channel dispatcher.
+ * Email channel dispatcher — Google Workspace SMTP via nodemailer.
  *
- * In production, set SMTP_HOST / SMTP_PORT / EMAIL_FROM to route through a
- * real SMTP relay (e.g. SendGrid, Mailgun, SES).  In development (or when
- * SMTP_HOST is absent) the call is a no-op that logs to the console and
- * returns a mock result so the rest of the system can be exercised locally.
+ * Required env vars:
+ *   SMTP_HOST     smtp.gmail.com
+ *   SMTP_PORT     587  (TLS/STARTTLS — recommended)
+ *   SMTP_USER     info@elevatedpos.com.au
+ *   SMTP_PASS     Google App Password (16 chars, no spaces)
+ *   EMAIL_FROM    "ElevatedPOS <info@elevatedpos.com.au>"
+ *
+ * In development, if SMTP_HOST is absent the call is a no-op that logs to
+ * the console so the rest of the system can be exercised locally without
+ * real credentials.
  */
 
 export interface SendEmailOptions {
@@ -25,23 +31,17 @@ export interface SendEmailResult {
 export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
   const smtpHost = process.env['SMTP_HOST'];
 
-  if (!smtpHost) {
-    // Dev / no-op path — log and return a deterministic mock result
-    console.log('[notifications/email] SMTP_HOST not configured — mock send', {
+  // ── Dev / mock path ──────────────────────────────────────────────────────
+  if (!smtpHost || process.env['EMAIL_MOCK'] === 'true') {
+    console.log('[notifications/email] No SMTP_HOST — mock send', {
       to: opts.to,
       subject: opts.subject,
       orgId: opts.orgId,
     });
-    return {
-      success: true,
-      messageId: `mock-email-${Date.now()}`,
-      mock: true,
-    };
+    return { success: true, messageId: `mock-${Date.now()}`, mock: true };
   }
 
-  // Production path — use a nodemailer-style SMTP connection.
-  // We import dynamically so tests / dev environments without nodemailer
-  // installed still start up cleanly when SMTP_HOST is absent.
+  // ── Production path — Google Workspace SMTP ──────────────────────────────
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const nodemailer = await import('nodemailer').catch(() => null);
@@ -49,30 +49,46 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
       throw new Error('nodemailer is not installed — run: pnpm add nodemailer');
     }
 
-    const smtpPort = Number(process.env['SMTP_PORT'] ?? 587);
-    const emailFrom = process.env['EMAIL_FROM'] ?? 'noreply@elevatedpos.com.au';
+    const smtpPort  = Number(process.env['SMTP_PORT']  ?? 587);
+    const smtpUser  = process.env['SMTP_USER']  ?? '';
+    const smtpPass  = process.env['SMTP_PASS']  ?? '';
+    const emailFrom = process.env['EMAIL_FROM'] ?? 'ElevatedPOS <info@elevatedpos.com.au>';
 
     const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpPort === 465,
-      auth: process.env['SMTP_USER']
-        ? { user: process.env['SMTP_USER'], pass: process.env['SMTP_PASS'] }
-        : undefined,
+      host:   smtpHost,   // smtp.gmail.com
+      port:   smtpPort,   // 587
+      secure: smtpPort === 465,  // true for 465/SSL, false for 587/TLS
+      auth: {
+        user: smtpUser,  // info@elevatedpos.com.au
+        pass: smtpPass,  // Google App Password
+      },
     });
 
     const info = await transporter.sendMail({
-      from: emailFrom,
-      to: opts.to,
+      from:    emailFrom,
+      to:      opts.to,
       subject: opts.subject,
-      text: opts.textBody,
-      html: opts.htmlBody,
+      ...(opts.htmlBody ? { html: opts.htmlBody } : {}),
+      ...(opts.textBody ? { text: opts.textBody } : {}),
+    });
+
+    console.log('[notifications/email] Sent via Google Workspace SMTP', {
+      to:        opts.to,
+      subject:   opts.subject,
+      messageId: info.messageId,
+      orgId:     opts.orgId,
     });
 
     return { success: true, messageId: info.messageId };
+
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[notifications/email] send failed', { to: opts.to, error: message });
+    console.error('[notifications/email] SMTP send failed', {
+      to:      opts.to,
+      subject: opts.subject,
+      orgId:   opts.orgId,
+      error:   message,
+    });
     return { success: false, error: message };
   }
 }
