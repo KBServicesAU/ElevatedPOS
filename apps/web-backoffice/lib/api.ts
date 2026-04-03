@@ -55,11 +55,13 @@ export interface Order {
   customerId?: string;
   customerName?: string;
   locationId: string;
-  subtotal: number;
-  taxTotal: number;
-  discountTotal: number;
-  total: number;
-  itemCount: number;
+  subtotal: number | string;
+  taxTotal: number | string;
+  discountTotal: number | string;
+  total: number | string;
+  itemCount?: number;
+  /** Embedded line items returned by the orders service */
+  lines?: { id: string; qty: number; unitPrice?: number | string }[];
   paymentMethod?: string;
   createdAt: string;
   completedAt?: string;

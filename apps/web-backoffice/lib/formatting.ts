@@ -4,7 +4,20 @@
 
 /** Convert a cent-denominated integer to a dollar string. e.g. 1050 → "$10.50" */
 export function formatCurrency(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  const n = Number(cents);
+  if (isNaN(n)) return '$0.00';
+  return `$${(n / 100).toFixed(2)}`;
+}
+
+/**
+ * Format a dollar-denominated amount (number or decimal string) to a currency string.
+ * Used for values from the orders/payments services which return NUMERIC as decimal strings.
+ * e.g. "11.5115" → "$11.51"
+ */
+export function formatDollars(dollars: number | string | null | undefined): string {
+  const n = Number(dollars ?? 0);
+  if (isNaN(n)) return '$0.00';
+  return `$${n.toFixed(2)}`;
 }
 
 /** Human-readable relative time from an ISO date string. e.g. "5m ago", "2h ago", "3d ago" */

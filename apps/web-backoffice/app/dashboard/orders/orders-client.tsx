@@ -6,9 +6,10 @@ import { useOrders, useInvalidateOrders } from '@/lib/hooks';
 import { apiFetch } from '@/lib/api';
 import type { Order, OrderLineItem } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
-import { formatCurrency, timeAgo, getErrorMessage } from '@/lib/formatting';
+import { formatDollars, timeAgo, getErrorMessage } from '@/lib/formatting';
 
 const statusColors: Record<string, string> = {
+  open: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   preparing: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
   processing: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
@@ -28,6 +29,7 @@ const channelColors: Record<string, string> = {
 
 const STATUS_TABS = [
   { key: '', label: 'All' },
+  { key: 'open', label: 'Open' },
   { key: 'pending', label: 'Pending' },
   { key: 'processing', label: 'Processing' },
   { key: 'completed', label: 'Completed' },
@@ -83,7 +85,7 @@ export function OrdersClient() {
 
   const orders = data?.data ?? [];
   const total = data?.pagination?.total ?? orders.length;
-  const revenue = orders.reduce((sum, o) => sum + (o.total ?? 0), 0);
+  const revenue = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
 
   // Shared line items state — fetched once per order, reused by both detail and refund modals
   const [loadedOrderId, setLoadedOrderId] = useState<string | null>(null);
@@ -148,7 +150,7 @@ export function OrdersClient() {
           qty: 1,
           maxQty: 1,
           name: `Item ${i + 1}`,
-          unitPrice: Math.round((order.total ?? 0) / (order.itemCount ?? 1)),
+          unitPrice: (Number(order.total) || 0) / (order.itemCount ?? 1),
         })),
       );
     }
@@ -198,7 +200,7 @@ export function OrdersClient() {
             <p className="text-sm text-gray-400">Loading…</p>
           ) : (
             <p className="text-sm text-gray-500">
-              {total} orders · {formatCurrency(revenue)} revenue
+              {total} orders · {formatDollars(revenue)} revenue
             </p>
           )}
         </div>
@@ -355,9 +357,9 @@ export function OrdersClient() {
                           {order.channel === 'pos' ? 'In-Store' : order.channel}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 text-sm text-gray-600 dark:text-gray-400">{order.itemCount}</td>
+                      <td className="px-5 py-3.5 text-sm text-gray-600 dark:text-gray-400">{order.itemCount ?? order.lines?.length ?? '—'}</td>
                       <td className="px-5 py-3.5 text-sm font-semibold text-gray-900 dark:text-white">
-                        {formatCurrency(order.total)}
+                        {formatDollars(order.total)}
                       </td>
                       <td className="px-5 py-3.5">
                         <span
@@ -465,8 +467,8 @@ export function OrdersClient() {
                               {item.sku && <span className="ml-1.5 text-xs text-gray-400">{item.sku}</span>}
                             </td>
                             <td className="px-4 py-2.5 text-right text-sm text-gray-600 dark:text-gray-400">{item.qty}</td>
-                            <td className="px-4 py-2.5 text-right text-sm text-gray-600 dark:text-gray-400">{formatCurrency(item.unitPrice)}</td>
-                            <td className="px-4 py-2.5 text-right text-sm font-medium text-gray-900 dark:text-white">{formatCurrency(item.lineTotal ?? item.qty * item.unitPrice)}</td>
+                            <td className="px-4 py-2.5 text-right text-sm text-gray-600 dark:text-gray-400">{formatDollars(item.unitPrice)}</td>
+                            <td className="px-4 py-2.5 text-right text-sm font-medium text-gray-900 dark:text-white">{formatDollars(item.lineTotal ?? item.qty * item.unitPrice)}</td>
                           </tr>
                         )) : (
                           <tr><td colSpan={4} className="px-4 py-4 text-center text-sm text-gray-400">Line items unavailable</td></tr>
@@ -475,7 +477,7 @@ export function OrdersClient() {
                       <tfoot>
                         <tr className="border-t border-gray-200 dark:border-gray-700">
                           <td colSpan={3} className="px-4 py-2.5 text-right text-sm font-semibold text-gray-900 dark:text-white">Total</td>
-                          <td className="px-4 py-2.5 text-right text-sm font-bold text-gray-900 dark:text-white">{formatCurrency(detailOrder.total)}</td>
+                          <td className="px-4 py-2.5 text-right text-sm font-bold text-gray-900 dark:text-white">{formatDollars(detailOrder.total)}</td>
                         </tr>
                       </tfoot>
                     </table>
@@ -578,7 +580,7 @@ export function OrdersClient() {
                     />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900 dark:text-white">{item.name}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{formatCurrency(item.unitPrice)} each</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{formatDollars(item.unitPrice)} each</p>
                     </div>
                     <input
                       type="number"
@@ -631,7 +633,7 @@ export function OrdersClient() {
                   <p className="text-sm text-red-600 dark:text-red-400">
                     Refund total:{' '}
                     <strong>
-                      {formatCurrency(
+                      {formatDollars(
                         refundItems
                           .filter((i) => i.selected)
                           .reduce((s, i) => s + i.qty * i.unitPrice, 0),
