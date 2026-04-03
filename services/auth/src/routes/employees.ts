@@ -16,7 +16,7 @@ const createEmployeeSchema = z.object({
   startDate: z.string().datetime().optional(),
 });
 
-const updateEmployeeSchema = createEmployeeSchema.partial().omit({ password: true, pin: true });
+const updateEmployeeSchema = createEmployeeSchema.partial().omit({ password: true });
 
 export async function employeeRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
@@ -134,6 +134,7 @@ export async function employeeRoutes(app: FastifyInstance) {
         ...(body.data.locationIds !== undefined ? { locationIds: body.data.locationIds } : {}),
         ...(body.data.employmentType !== undefined ? { employmentType: body.data.employmentType } : {}),
         ...(body.data.startDate !== undefined ? { startDate: new Date(body.data.startDate) } : {}),
+        ...(body.data.pin !== undefined ? { pin: await hashPin(body.data.pin) } : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(schema.employees.id, id), eq(schema.employees.orgId, orgId)))
