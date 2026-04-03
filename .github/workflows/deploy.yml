@@ -49,6 +49,7 @@ jobs:
           - { name: web-backoffice,  context: apps/web-backoffice }
           - { name: kds-display,     context: apps/kds-display }
           - { name: storefront,      context: apps/storefront }
+          - { name: pay,             context: apps/pay }
     steps:
       - uses: actions/checkout@v4
 
@@ -111,6 +112,7 @@ jobs:
           kubectl apply -f infrastructure/k8s/services/
           kubectl apply -f infrastructure/k8s/apps/
           kubectl apply -f infrastructure/k8s/ingress.yaml
+          kubectl apply -f infrastructure/k8s/ingress/
 
       - name: Run database migrations
         run: |
@@ -129,6 +131,7 @@ jobs:
           kubectl set image deployment/web-backoffice web-backoffice=${{ env.ECR_REGISTRY }}/elevatedpos/web-backoffice:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/kds-display kds-display=${{ env.ECR_REGISTRY }}/elevatedpos/kds-display:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/storefront storefront=${{ env.ECR_REGISTRY }}/elevatedpos/storefront:${{ github.sha }} -n elevatedpos
+          kubectl set image deployment/pay pay=${{ env.ECR_REGISTRY }}/elevatedpos/pay:${{ github.sha }} -n elevatedpos
 
       - name: Wait for rollout
         run: |
@@ -169,6 +172,7 @@ jobs:
           kubectl apply -f infrastructure/k8s/services/
           kubectl apply -f infrastructure/k8s/apps/
           kubectl apply -f infrastructure/k8s/ingress.yaml
+          kubectl apply -f infrastructure/k8s/ingress/
 
       - name: Run database migrations
         run: |
@@ -186,6 +190,7 @@ jobs:
           kubectl set image deployment/web-backoffice web-backoffice=${{ env.ECR_REGISTRY }}/elevatedpos/web-backoffice:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/kds-display kds-display=${{ env.ECR_REGISTRY }}/elevatedpos/kds-display:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/storefront storefront=${{ env.ECR_REGISTRY }}/elevatedpos/storefront:${{ github.sha }} -n elevatedpos
+          kubectl set image deployment/pay pay=${{ env.ECR_REGISTRY }}/elevatedpos/pay:${{ github.sha }} -n elevatedpos
 
       - name: Wait for production rollout
         run: |

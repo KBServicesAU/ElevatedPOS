@@ -12,6 +12,7 @@ export interface SessionUser {
   lastName: string;
   email: string;
   role: string | null;
+  orgId: string;
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -56,5 +57,6 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     lastName,
     email: (payload.email as string) ?? '',
     role,
+    orgId: (payload.orgId as string) ?? '',
   };
 }

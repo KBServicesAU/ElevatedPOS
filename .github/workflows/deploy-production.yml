@@ -40,6 +40,7 @@ jobs:
           - { name: godmode,          context: apps/godmode }
           - { name: org-portal,       context: apps/org-portal }
           - { name: reseller-portal,  context: apps/reseller-portal }
+          - { name: pay,              context: apps/pay }
     steps:
       - uses: actions/checkout@v4
 
@@ -141,6 +142,10 @@ jobs:
           kubectl delete job elevatedpos-migrations -n elevatedpos --ignore-not-found
           kubectl apply -f infrastructure/k8s/migrations-job.yaml
           echo "Migrations job submitted — running asynchronously in cluster."
+
+          # Apply pay app manifest and ingress (standalone, not managed by Helm)
+          kubectl apply -f infrastructure/k8s/apps/pay.yaml
+          kubectl apply -f infrastructure/k8s/ingress/pay-ingress.yaml
 
           # Wait for auth rollout then exec seed directly to upsert platform staff
           kubectl rollout status deployment/elevatedpos-auth \

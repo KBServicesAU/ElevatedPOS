@@ -54,15 +54,23 @@ export default function InvoicesPage() {
   const [error, setError] = useState('');
   const [sending, setSending] = useState<string | null>(null);
 
-  const orgId = '00000000-0000-0000-0000-000000000001';
+  const [orgId, setOrgId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/proxy/integrations/api/v1/connect/invoices/${orgId}`)
-      .then((r) => r.json())
-      .then((data: { invoices: Invoice[] }) => setInvoices(data.invoices ?? []))
-      .catch(() => setInvoices([]))
-      .finally(() => setLoading(false));
-  }, [orgId]);
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me: { orgId?: string } | null) => {
+        const id = me?.orgId ?? null;
+        setOrgId(id);
+        if (!id) { setLoading(false); return; }
+        return fetch(`/api/proxy/integrations/api/v1/connect/invoices/${id}`)
+          .then((r) => r.json())
+          .then((data: { invoices: Invoice[] }) => setInvoices(data.invoices ?? []))
+          .catch(() => setInvoices([]))
+          .finally(() => setLoading(false));
+      })
+      .catch(() => { setOrgId(null); setLoading(false); });
+  }, []);
 
   function addItem() {
     setItems((prev) => [...prev, { description: '', amount: '', quantity: '1' }]);

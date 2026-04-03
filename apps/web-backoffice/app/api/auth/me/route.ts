@@ -40,6 +40,7 @@ export async function GET() {
         lastName: payload.lastName ?? payload.family_name ?? '',
         email: payload.email ?? '',
         role: payload.role ?? null,
+        orgId: payload.orgId ?? '',
       });
     } catch {
       return NextResponse.json({ error: 'Service unavailable' }, { status: 503 });

@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: elevatedpos-pay-ingress
+  namespace: elevatedpos
+  labels:
+    app.kubernetes.io/name: elevatedpos
+    app.kubernetes.io/part-of: elevatedpos
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - pay.elevatedpos.com.au
+      secretName: elevatedpos-pay-tls
+  rules:
+    - host: pay.elevatedpos.com.au
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pay
+                port:
+                  number: 80

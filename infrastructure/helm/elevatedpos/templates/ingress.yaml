@@ -202,4 +202,8 @@ spec:
 {{ include "elevatedpos.portalIngress" (dict "name" "reseller-portal" "namespace" .Values.global.namespace "className" .Values.ingress.className "host" .Values.resellerPortal.host "tlsSecretName" .Values.resellerPortal.tlsSecretName "service" .Values.resellerPortal.service "port" .Values.resellerPortal.port) }}
 {{- end }}
 
+{{- if .Values.payPortal.enabled }}
+{{ include "elevatedpos.portalIngress" (dict "name" "pay" "namespace" .Values.global.namespace "className" .Values.ingress.className "host" .Values.payPortal.host "tlsSecretName" .Values.payPortal.tlsSecretName "service" .Values.payPortal.service "port" .Values.payPortal.port) }}
+{{- end }}
+
 {{- end }}

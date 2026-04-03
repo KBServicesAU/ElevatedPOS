@@ -24,17 +24,23 @@ export default function PaymentsPage() {
   const [account, setAccount] = useState<ConnectAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [onboarding, setOnboarding] = useState(false);
-
-  // Demo orgId - in production this comes from session/auth
-  const orgId = '00000000-0000-0000-0000-000000000001';
+  const [orgId, setOrgId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/proxy/integrations/api/v1/connect/account/${orgId}`)
+    fetch('/api/auth/me')
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: ConnectAccount | null) => setAccount(data))
-      .catch(() => setAccount(null))
-      .finally(() => setLoading(false));
-  }, [orgId]);
+      .then((me: { orgId?: string } | null) => {
+        const id = me?.orgId ?? null;
+        setOrgId(id);
+        if (!id) { setLoading(false); return; }
+        return fetch(`/api/proxy/integrations/api/v1/connect/account/${id}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data: ConnectAccount | null) => setAccount(data))
+          .catch(() => setAccount(null))
+          .finally(() => setLoading(false));
+      })
+      .catch(() => { setOrgId(null); setLoading(false); });
+  }, []);
 
   async function handleConnect() {
     setOnboarding(true);
