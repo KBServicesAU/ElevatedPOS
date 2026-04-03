@@ -115,9 +115,9 @@ export function TransfersClient() {
       .then((r) => r.json())
       .then((json) => {
         const data: Transfer[] = Array.isArray(json) ? json : json.data ?? [];
-        setTransfers(data.length > 0 ? data : MOCK_TRANSFERS);
+        setTransfers(data);
       })
-      .catch(() => setTransfers(MOCK_TRANSFERS))
+      .catch(() => setTransfers([]))
       .finally(() => setIsLoading(false));
   }, []);
 

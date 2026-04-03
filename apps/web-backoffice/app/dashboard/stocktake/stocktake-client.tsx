@@ -308,12 +308,12 @@ export function StocktakeClient() {
         const res = await fetch('/api/proxy/stocktakes');
         if (res.ok) {
           const json = await res.json();
-          setStocktakes(json.data ?? MOCK_STOCKTAKES);
+          setStocktakes(json.data ?? []);
         } else {
-          setStocktakes(MOCK_STOCKTAKES);
+          setStocktakes([]);
         }
       } catch {
-        setStocktakes(MOCK_STOCKTAKES);
+        setStocktakes([]);
       } finally {
         setIsLoading(false);
       }

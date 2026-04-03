@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Plus, AlertTriangle, TrendingDown, ArrowUpDown, ClipboardList, History, Download, Search, Edit2, X, Loader2, Minus } from 'lucide-react';
 import { useStock, usePurchaseOrders } from '@/lib/hooks';
 import { useQueryClient } from '@tanstack/react-query';
@@ -221,20 +221,30 @@ function StockAdjustModal({ item, onClose, onSaved }: { item: StockItem; onClose
 // ─── Stock Movements Tab ──────────────────────────────────────────────────────
 
 function StockMovementsTab() {
+  const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [loadingMovements, setLoadingMovements] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<MovementType | 'all'>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
+  useEffect(() => {
+    apiFetch<{ data: StockMovement[] }>('stock/movements?limit=100')
+      .then((r) => setMovements(r.data ?? []))
+      .catch(() => setMovements([]))
+      .finally(() => setLoadingMovements(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const filtered = useMemo(() => {
-    return MOCK_MOVEMENTS.filter((m) => {
+    return movements.filter((m) => {
       if (search && !m.productName.toLowerCase().includes(search.toLowerCase()) && !m.sku.toLowerCase().includes(search.toLowerCase())) return false;
       if (typeFilter !== 'all' && m.type !== typeFilter) return false;
       if (dateFrom && m.date < dateFrom) return false;
       if (dateTo && m.date > dateTo + 'T23:59:59Z') return false;
       return true;
     });
-  }, [search, typeFilter, dateFrom, dateTo]);
+  }, [movements, search, typeFilter, dateFrom, dateTo]);
 
   function exportCSV() {
     const header = 'Date,Product,SKU,Type,Qty Change,Location,Reference,User';
@@ -358,10 +368,15 @@ function StockMovementsTab() {
                 <td className="px-5 py-3.5 text-sm text-gray-600 dark:text-gray-400">{m.user}</td>
               </tr>
             ))}
-            {filtered.length === 0 && (
+            {loadingMovements && (
+              <tr>
+                <td colSpan={7} className="px-5 py-10 text-center text-sm text-gray-400">Loading movements…</td>
+              </tr>
+            )}
+            {!loadingMovements && filtered.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-5 py-10 text-center text-sm text-gray-400">
-                  No movements match the current filters.
+                  {movements.length === 0 ? 'No stock movements recorded yet.' : 'No movements match the current filters.'}
                 </td>
               </tr>
             )}

@@ -135,7 +135,7 @@ export default async function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">{greeting(firstName)}</h2>
-          <p className="text-sm text-gray-500">{today} · Main Location</p>
+          <p className="text-sm text-gray-500">{today}</p>
         </div>
         <div className="flex gap-2">
           <select className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white">
@@ -149,24 +149,18 @@ export default async function DashboardPage() {
         <StatCard
           label="Revenue Today"
           value={revenue > 0 ? formatCurrency(revenue) : '$0.00'}
-          change="+12.4%"
-          trend="up"
           icon={DollarSign}
           color="bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
         />
         <StatCard
           label="Transactions"
           value={txns > 0 ? txns.toString() : '0'}
-          change="+8.1%"
-          trend="up"
           icon={ShoppingCart}
           color="bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
         />
         <StatCard
           label="Avg Order Value"
           value={aov > 0 ? formatCurrency(aov) : '$0.00'}
-          change="-3.2%"
-          trend="down"
           icon={TrendingUp}
           color="bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400"
         />

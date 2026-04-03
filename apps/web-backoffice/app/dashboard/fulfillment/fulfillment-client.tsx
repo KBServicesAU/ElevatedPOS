@@ -67,10 +67,9 @@ export default function FulfillmentClient() {
       const res = await apiFetch<FulfillmentResponse>(
         'fulfillment?type=click_and_collect&status=ready',
       );
-      setItems(res.data ?? MOCK_DATA);
+      setItems(res.data ?? []);
     } catch {
-      // Fall back to mock data when the service is unavailable
-      setItems(MOCK_DATA);
+      setItems([]);
     } finally {
       setLoading(false);
     }

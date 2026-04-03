@@ -38,6 +38,10 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.INVENTORY_API_URL ?? 'http://localhost:4003',
     prefix: '/api/v1/stock',
   },
+  'stock/movements': {
+    base: process.env.INVENTORY_API_URL ?? 'http://localhost:4003',
+    prefix: '/api/v1/stock/movements',
+  },
   'purchase-orders': {
     base: process.env.INVENTORY_API_URL ?? 'http://localhost:4003',
     prefix: '/api/v1/purchase-orders',
@@ -205,6 +209,11 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
   'payment-methods': {
     base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',
     prefix: '/api/v1/payment-methods',
+  },
+  // Alerts — routed to notifications service
+  alerts: {
+    base: process.env.NOTIFICATIONS_API_URL ?? 'http://localhost:4009',
+    prefix: '/api/v1/alerts',
   },
   // EFTPOS terminal credentials + per-device payment config
   terminal: {

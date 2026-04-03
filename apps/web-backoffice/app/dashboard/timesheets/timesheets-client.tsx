@@ -78,9 +78,9 @@ export function TimesheetsClient() {
       .then((r) => r.json())
       .then((json) => {
         const data: Shift[] = Array.isArray(json) ? json : json.data ?? [];
-        setShifts(data.length > 0 ? data : MOCK_SHIFTS);
+        setShifts(data);
       })
-      .catch(() => setShifts(MOCK_SHIFTS))
+      .catch(() => setShifts([]))
       .finally(() => setIsLoading(false));
   }
 

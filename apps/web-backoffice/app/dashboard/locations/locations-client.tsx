@@ -127,9 +127,9 @@ export function LocationsClient() {
             revenueToday: Number(r['revenueToday'] ?? r['revenue_today'] ?? 0),
           };
         });
-        setLocations(data.length > 0 ? data : MOCK_LOCATIONS);
+        setLocations(data);
       })
-      .catch(() => setLocations(MOCK_LOCATIONS))
+      .catch(() => setLocations([]))
       .finally(() => setIsLoading(false));
   }, []);
 
