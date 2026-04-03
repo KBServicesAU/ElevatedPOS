@@ -96,7 +96,7 @@ async function processAnzTIMPayment(req: PaymentRequest): Promise<PaymentResult>
       return {
         success: true,
         ...(data.transactionId     ? { acquirerTransactionId: data.transactionId }            : {}),
-        ...(data.cardType          ? { cardScheme: mapCardType(data.cardType) }                : {}),
+        ...(data.cardType          ? { cardScheme: mapCardType(data.cardType)! }               : {}),
         ...(data.maskedPan         ? { cardLast4: data.maskedPan.slice(-4) }                  : {}),
         ...(data.authorizationCode ? { authCode: data.authorizationCode }                     : {}),
       };
