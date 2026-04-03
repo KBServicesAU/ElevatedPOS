@@ -3,6 +3,7 @@ import {
   TrendingUp, TrendingDown, ShoppingCart, Users,
   DollarSign, Package, AlertTriangle, ArrowUpRight, Sparkles, UserCircle,
 } from 'lucide-react';
+import { cookies } from 'next/headers';
 import { getSessionUser } from '@/lib/session';
 import { formatCurrency, timeAgo } from '@/lib/formatting';
 
@@ -26,6 +27,15 @@ async function safeFetch<T>(url: string, headers?: Record<string, string>): Prom
     if (!res.ok) return null;
     return res.json() as Promise<T>;
   } catch { return null; }
+}
+
+function getAuthHeaders(): Record<string, string> {
+  try {
+    const cookieStore = cookies();
+    const token = cookieStore.get('elevatedpos_token')?.value;
+    if (token) return { Authorization: `Bearer ${token}` };
+  } catch { /* cookies() may throw outside request context */ }
+  return {};
 }
 
 async function fetchAISuggestions(): Promise<string[]> {
@@ -89,21 +99,27 @@ export default async function DashboardPage() {
   const todayStr = now.toISOString().slice(0, 10);
   const orgId = process.env.DEFAULT_ORG_ID ?? 'default';
 
+  const authHeaders = getAuthHeaders();
+
   const [ordersResult, stockResult, aiSuggestions, salesResult, customersResult, employeesResult, productsResult, user] = await Promise.all([
-    safeFetch<{ data: Order[] }>(ordersBase + '/api/v1/orders?limit=5'),
-    safeFetch<{ data: StockItem[] }>(invBase + '/api/v1/stock/low-stock'),
+    safeFetch<{ data: Order[] }>(ordersBase + '/api/v1/orders?limit=5', authHeaders),
+    safeFetch<{ data: StockItem[] }>(invBase + '/api/v1/stock/low-stock', authHeaders),
     fetchAISuggestions(),
     safeFetch<{ data: SalesSummary }>(
       `${reportsBase}/api/v1/reports/sales?orgId=${orgId}&from=${todayStr}&to=${todayStr}`,
+      authHeaders,
     ),
     safeFetch<{ pagination?: { total: number } }>(
       customersBase + '/api/v1/customers?limit=1',
+      authHeaders,
     ),
     safeFetch<{ data: { clockedIn?: boolean }[] }>(
       employeesBase + '/api/v1/employees?limit=100',
+      authHeaders,
     ),
     safeFetch<{ pagination?: { total: number } }>(
       catalogBase + '/api/v1/products?status=active&limit=1',
+      authHeaders,
     ),
     getSessionUser(),
   ]);
