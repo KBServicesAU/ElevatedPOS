@@ -17,11 +17,20 @@ const loginSchema = z.object({
   deviceName: z.string().optional(),
 });
 
-const pinLoginSchema = z.object({
-  orgId: z.string().uuid(),
-  pin: z.string().min(4).max(8),
-  registerId: z.string().uuid(),
-});
+const pinLoginSchema = z.union([
+  // Employee-ID-based verification (POS card-select flow)
+  z.object({
+    employeeId: z.string().uuid(),
+    pin: z.string().min(4).max(8),
+    locationId: z.string().uuid().optional(),
+  }),
+  // Org-scan verification (legacy / kiosk flow)
+  z.object({
+    orgId: z.string().uuid(),
+    pin: z.string().min(4).max(8),
+    registerId: z.string().uuid(),
+  }),
+]);
 
 const refreshSchema = z.object({
   refreshToken: z.string().min(1),
@@ -165,11 +174,59 @@ export async function authRoutes(app: FastifyInstance) {
       });
     }
 
-    const { orgId, pin } = body.data;
+    const { pin } = body.data;
 
+    type EmployeeWithRole = Awaited<ReturnType<typeof db.query.employees.findFirst<{ with: { role: true } }>>>;
+    // Helper to build the success response for a matched employee
+    const buildSuccess = (employee: NonNullable<EmployeeWithRole>) => {
+      const accessToken = app.jwt.sign({
+        sub: employee.id,
+        orgId: employee.orgId,
+        roleId: employee.roleId,
+        permissions: (employee.role?.permissions ?? {}) as Record<string, boolean>,
+        locationIds: (employee.locationIds ?? []) as string[],
+        name: `${employee.firstName} ${employee.lastName}`,
+        email: employee.email,
+      });
+      return reply.status(200).send({
+        accessToken,
+        expiresIn: 900,
+        employee: {
+          id: employee.id,
+          orgId: employee.orgId,
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          email: employee.email,
+          roleId: employee.roleId,
+          locationIds: employee.locationIds,
+        },
+      });
+    };
+
+    // Employee-ID-based flow: verify PIN against a specific employee
+    if ('employeeId' in body.data) {
+      const employee = await db.query.employees.findFirst({
+        where: and(
+          eq(schema.employees.id, body.data.employeeId),
+          eq(schema.employees.isActive, true),
+        ),
+        with: { role: true },
+      });
+      if (!employee?.pin || !(await verifyPin(pin, employee.pin))) {
+        return reply.status(401).send({
+          type: 'https://nexus.app/errors/invalid-pin',
+          title: 'Invalid PIN',
+          status: 401,
+          detail: 'No employee found with that PIN.',
+        });
+      }
+      return buildSuccess(employee);
+    }
+
+    // Org-scan flow: find whichever employee in the org has this PIN
     const employees = await db.query.employees.findMany({
       where: and(
-        eq(schema.employees.orgId, orgId),
+        eq(schema.employees.orgId, body.data.orgId),
         eq(schema.employees.isActive, true),
       ),
       with: { role: true },
@@ -178,31 +235,7 @@ export async function authRoutes(app: FastifyInstance) {
     for (const employee of employees) {
       if (!employee.pin) continue;
       const valid = await verifyPin(pin, employee.pin);
-      if (valid) {
-        const accessToken = app.jwt.sign({
-          sub: employee.id,
-          orgId: employee.orgId,
-          roleId: employee.roleId,
-          permissions: (employee.role?.permissions ?? {}) as Record<string, boolean>,
-          locationIds: (employee.locationIds ?? []) as string[],
-          name: `${employee.firstName} ${employee.lastName}`,
-          email: employee.email,
-        });
-
-        return reply.status(200).send({
-          accessToken,
-          expiresIn: 900,
-          employee: {
-            id: employee.id,
-            orgId: employee.orgId,
-            firstName: employee.firstName,
-            lastName: employee.lastName,
-            email: employee.email,
-            roleId: employee.roleId,
-            locationIds: employee.locationIds,
-          },
-        });
-      }
+      if (valid) return buildSuccess(employee);
     }
 
     return reply.status(401).send({
