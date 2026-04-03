@@ -9,6 +9,11 @@ interface Location {
   name: string;
   suburb?: string;
   state?: string;
+  address?: {
+    suburb?: string;
+    state?: string;
+    [key: string]: unknown;
+  };
 }
 
 export function LocationPicker() {
@@ -36,9 +41,13 @@ export function LocationPicker() {
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
-  const subtitle = selected
-    ? [selected.suburb, selected.state].filter(Boolean).join(', ')
-    : null;
+  const getSubtitle = (loc: Location) => {
+    const suburb = loc.address?.suburb ?? loc.suburb;
+    const state = loc.address?.state ?? loc.state;
+    return [suburb, state].filter(Boolean).join(', ') || null;
+  };
+
+  const subtitle = selected ? getSubtitle(selected) : null;
 
   return (
     <div ref={ref} className="relative mx-3 mt-3">
@@ -75,8 +84,8 @@ export function LocationPicker() {
               <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
               <div>
                 <p className="font-medium">{loc.name}</p>
-                {(loc.suburb || loc.state) && (
-                  <p className="text-xs text-gray-400">{[loc.suburb, loc.state].filter(Boolean).join(', ')}</p>
+                {getSubtitle(loc) && (
+                  <p className="text-xs text-gray-400">{getSubtitle(loc)}</p>
                 )}
               </div>
             </button>
