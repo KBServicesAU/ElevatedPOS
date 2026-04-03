@@ -25,6 +25,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: elevatedpos-config
+            - secretRef:
+                name: elevatedpos-secrets
           env:
             - name: NODE_ENV
               value: "production"
@@ -32,11 +34,6 @@ spec:
               value: "3005"
             - name: NEXT_TELEMETRY_DISABLED
               value: "1"
-            - name: STRIPE_PUBLISHABLE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: elevatedpos-secrets
-                  key: STRIPE_PUBLISHABLE_KEY
             - name: INTEGRATIONS_API_URL
               value: "http://integrations:4010"
             - name: AUTH_API_URL
