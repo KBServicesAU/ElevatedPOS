@@ -1,4 +1,4 @@
-import { AnzWorldlineClient, mapAnzStatusCode, mapProductIdToScheme } from './anzworldline';
+import { AnzWorldlineTIMClient, isApproved, mapCardType } from './anzworldline';
 import { db, schema } from '../db';
 import { eq, and } from 'drizzle-orm';
 
@@ -11,23 +11,14 @@ export interface AcquirerConfig {
 }
 
 export interface PaymentRequest {
-  amount:       number;         // in dollars (e.g. 10.00)
-  currency:     string;
-  tipAmount?:   number;
-  referenceId:  string;
-  terminalId?:  string;
-  acquirer:     AcquirerName;
-  /** Required for acquirers that need per-org credentials (e.g. ANZ Worldline) */
-  orgId?:       string;
-  /** Raw card data — only supply when card-present or MOTO */
-  cardData?: {
-    cardholderName: string;
-    cardNumber:     string;
-    cvv:            string;
-    expiryDate:     string;     // MMYY
-  };
-  /** Use a stored token instead of raw card data */
-  token?: string;
+  amount:      number;   // in dollars (e.g. 10.00)
+  currency:    string;
+  tipAmount?:  number;
+  referenceId: string;
+  terminalId?: string;
+  acquirer:    AcquirerName;
+  /** Required for acquirers that need per-org terminal lookup (e.g. ANZ TIM) */
+  orgId?:      string;
 }
 
 export interface PaymentResult {
@@ -45,7 +36,7 @@ export interface PaymentResult {
 export async function processPayment(req: PaymentRequest): Promise<PaymentResult> {
   switch (req.acquirer) {
     case 'anz':
-      return processAnzPayment(req);
+      return processAnzTIMPayment(req);
     default:
       return stubPayment(req);
   }
@@ -56,108 +47,93 @@ export async function processRefund(
   amount:                number,
   acquirer:              AcquirerName,
   orgId?:                string,
-  currency =             'AUD',
 ): Promise<PaymentResult> {
   if (acquirer === 'anz' && orgId) {
-    return processAnzRefund(originalTransactionId, amount, orgId, currency);
+    return processAnzTIMRefund(originalTransactionId, amount, orgId);
   }
-  // Stub for other acquirers
   await delay(100);
   return { success: true, acquirerTransactionId: `REF-${Date.now()}` };
 }
 
-// ─── ANZ Worldline ─────────────────────────────────────────────────────────
+// ─── ANZ Worldline TIM ─────────────────────────────────────────────────────
 
-async function getAnzClient(orgId: string): Promise<AnzWorldlineClient | null> {
+async function getTIMClient(orgId: string): Promise<AnzWorldlineTIMClient | null> {
   const creds = await db.query.terminalCredentials.findFirst({
     where: and(
-      eq(schema.terminalCredentials.orgId, orgId),
+      eq(schema.terminalCredentials.orgId,    orgId),
       eq(schema.terminalCredentials.provider, 'anz'),
       eq(schema.terminalCredentials.isActive, true),
     ),
   });
-  if (!creds?.merchantId || !creds?.apiKey || !creds?.apiSecret) return null;
+  if (!creds?.terminalIp) return null;
 
-  return new AnzWorldlineClient({
-    merchantId:  creds.merchantId,
-    apiKey:      creds.apiKey,
-    apiSecret:   creds.apiSecret,
-    environment: (creds.environment ?? 'preprod') as 'preprod' | 'production',
+  return new AnzWorldlineTIMClient({
+    terminalIp:   creds.terminalIp,
+    terminalPort: creds.terminalPort ?? 8080,
   });
 }
 
-async function processAnzPayment(req: PaymentRequest): Promise<PaymentResult> {
+async function processAnzTIMPayment(req: PaymentRequest): Promise<PaymentResult> {
   if (!req.orgId) {
     return { success: false, errorMessage: 'orgId is required for ANZ Worldline payments' };
   }
 
-  const client = await getAnzClient(req.orgId);
+  const client = await getTIMClient(req.orgId);
   if (!client) {
-    return { success: false, errorMessage: 'ANZ Worldline credentials not configured for this organisation' };
+    return {
+      success:      false,
+      errorMessage: 'ANZ Worldline terminal not configured — please set the terminal IP and port',
+    };
   }
 
   const totalDollars = (req.amount ?? 0) + (req.tipAmount ?? 0);
   const amountCents  = Math.round(totalDollars * 100);
 
   try {
-    const { data, httpStatus } = await client.createPayment({
-      amountCents,
-      currency:          req.currency,
-      merchantReference: req.referenceId,
-      skipAuthentication: true,   // card-present / MOTO — skip 3DS
-      ...(req.cardData ? { card: req.cardData } : {}),
-      ...(req.token    ? { token: req.token }   : {}),
-    });
+    const { data } = await client.purchase(amountCents, req.referenceId);
 
-    if (httpStatus === 201 || httpStatus === 200) {
-      const statusCode = data.status?.statusCode ?? 0;
-      const mapped     = mapAnzStatusCode(statusCode);
-      const cardOut    = data.paymentOutput?.cardPaymentMethodSpecificOutput;
-
-      if (mapped === 'approved') {
-        return {
-          success:               true,
-          acquirerTransactionId: data.id,
-          cardScheme:            mapProductIdToScheme(cardOut?.paymentProductId),
-          cardLast4:             cardOut?.card?.cardNumber?.slice(-4),
-          authCode:              cardOut?.authorisationCode,
-        };
-      }
-
+    if (isApproved(data)) {
       return {
-        success:      false,
-        errorMessage: `Payment declined by ANZ Worldline (status ${statusCode})`,
+        success:               true,
+        acquirerTransactionId: data.transactionId,
+        cardScheme:            mapCardType(data.cardType),
+        cardLast4:             data.maskedPan?.slice(-4),
+        authCode:              data.authorizationCode,
       };
     }
 
-    const err = data as unknown as { errors?: { message: string }[] };
-    const msg = err?.errors?.[0]?.message ?? `ANZ API returned HTTP ${httpStatus}`;
-    return { success: false, errorMessage: msg };
+    return {
+      success:      false,
+      errorCode:    data.responseCode,
+      errorMessage: data.responseText ?? `Terminal declined (${data.responseCode})`,
+    };
 
   } catch (e) {
-    return { success: false, errorMessage: e instanceof Error ? e.message : 'Unknown ANZ error' };
+    return {
+      success:      false,
+      errorMessage: e instanceof Error ? e.message : 'Could not reach the ANZ Worldline terminal',
+    };
   }
 }
 
-async function processAnzRefund(
+async function processAnzTIMRefund(
   transactionId: string,
   amount:        number,
   orgId:         string,
-  currency:      string,
 ): Promise<PaymentResult> {
-  const client = await getAnzClient(orgId);
+  const client = await getTIMClient(orgId);
   if (!client) {
-    return { success: false, errorMessage: 'ANZ Worldline credentials not configured' };
+    return { success: false, errorMessage: 'ANZ Worldline terminal not configured' };
   }
 
   try {
-    const amountCents         = Math.round(amount * 100);
-    const { data, httpStatus } = await client.refundPayment(transactionId, amountCents, currency);
+    const amountCents = Math.round(amount * 100);
+    const { data }    = await client.refund(amountCents, transactionId);
 
-    if (httpStatus === 201) {
-      return { success: true, acquirerTransactionId: data.id };
+    if (isApproved(data)) {
+      return { success: true, acquirerTransactionId: data.transactionId };
     }
-    return { success: false, errorMessage: `ANZ refund returned HTTP ${httpStatus}` };
+    return { success: false, errorCode: data.responseCode, errorMessage: data.responseText };
   } catch (e) {
     return { success: false, errorMessage: e instanceof Error ? e.message : 'Unknown ANZ error' };
   }

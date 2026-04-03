@@ -140,20 +140,18 @@ export const invoiceLines = pgTable('invoice_lines', {
 // ---------------------------------------------------------------------------
 
 export const terminalCredentials = pgTable('terminal_credentials', {
-  id:          uuid('id').primaryKey().defaultRandom(),
-  orgId:       uuid('org_id').notNull(),
+  id:           uuid('id').primaryKey().defaultRandom(),
+  orgId:        uuid('org_id').notNull(),
   /** e.g. 'anz', 'tyro', 'windcave' */
-  provider:    varchar('provider', { length: 50 }).notNull(),
-  /** Friendly label for the credential, e.g. "Main Store Terminal" */
-  label:       varchar('label', { length: 255 }),
-  /** Worldline PSPID / Tyro TID / etc. */
-  merchantId:  varchar('merchant_id', { length: 255 }),
-  apiKey:      varchar('api_key', { length: 500 }),
-  apiSecret:   varchar('api_secret', { length: 500 }),
-  /** 'preprod' | 'production' */
-  environment: varchar('environment', { length: 20 }).notNull().default('preprod'),
-  isActive:    boolean('is_active').notNull().default(true),
-  metadata:    jsonb('metadata').default({}),
-  createdAt:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  provider:     varchar('provider', { length: 50 }).notNull(),
+  /** Friendly label, e.g. "Main Store Terminal" */
+  label:        varchar('label', { length: 255 }),
+  /** IPv4 address of the terminal on the local network, e.g. "192.168.1.100" */
+  terminalIp:   varchar('terminal_ip', { length: 45 }),
+  /** HTTP port the terminal listens on — default 8080 */
+  terminalPort: integer('terminal_port').notNull().default(8080),
+  isActive:     boolean('is_active').notNull().default(true),
+  metadata:     jsonb('metadata').default({}),
+  createdAt:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

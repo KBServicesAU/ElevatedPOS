@@ -1,8 +1,9 @@
 /**
- * Terminal integration routes — ANZ Worldline
+ * Terminal integration routes — ANZ Worldline TIM
  *
- * Credentials management, connection testing, and lifecycle operations
- * (capture, cancel, refund) on ANZ Worldline payments.
+ * The ANZ Worldline TIM (Terminal Integration Module) is a local HTTP server
+ * running on the EFTPOS terminal. Configuration only requires the terminal's
+ * IP address and port (default: 8080) — no API keys needed.
  *
  * Base prefix: /api/v1/terminal
  */
@@ -11,22 +12,17 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../db';
-import { AnzWorldlineClient, mapAnzStatusCode } from '../lib/anzworldline';
+import { AnzWorldlineTIMClient, isApproved, mapCardType } from '../lib/anzworldline';
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
 const saveCredentialsSchema = z.object({
-  provider:    z.literal('anz'),
-  label:       z.string().min(1).max(255).optional(),
-  merchantId:  z.string().min(1),
-  apiKey:      z.string().min(1),
-  apiSecret:   z.string().min(1),
-  environment: z.enum(['preprod', 'production']).default('preprod'),
-});
-
-const captureSchema = z.object({
-  /** Leave undefined to capture full authorised amount */
-  amount: z.number().positive().optional(),
+  provider:     z.literal('anz'),
+  label:        z.string().min(1).max(255).optional(),
+  /** IPv4 address of the terminal, e.g. "192.168.1.100" */
+  terminalIp:   z.string().min(7).max(45),
+  /** Port the terminal HTTP server listens on — default 8080 */
+  terminalPort: z.number().int().min(1).max(65535).default(8080),
 });
 
 const refundSchema = z.object({
@@ -36,21 +32,19 @@ const refundSchema = z.object({
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
-async function getAnzClient(orgId: string): Promise<AnzWorldlineClient | null> {
+async function getTIMClient(orgId: string): Promise<AnzWorldlineTIMClient | null> {
   const creds = await db.query.terminalCredentials.findFirst({
     where: and(
-      eq(schema.terminalCredentials.orgId,      orgId),
-      eq(schema.terminalCredentials.provider,   'anz'),
-      eq(schema.terminalCredentials.isActive,   true),
+      eq(schema.terminalCredentials.orgId,    orgId),
+      eq(schema.terminalCredentials.provider, 'anz'),
+      eq(schema.terminalCredentials.isActive, true),
     ),
   });
-  if (!creds?.merchantId || !creds?.apiKey || !creds?.apiSecret) return null;
+  if (!creds?.terminalIp) return null;
 
-  return new AnzWorldlineClient({
-    merchantId:  creds.merchantId,
-    apiKey:      creds.apiKey,
-    apiSecret:   creds.apiSecret,
-    environment: (creds.environment ?? 'preprod') as 'preprod' | 'production',
+  return new AnzWorldlineTIMClient({
+    terminalIp:   creds.terminalIp,
+    terminalPort: creds.terminalPort ?? 8080,
   });
 }
 
@@ -63,8 +57,7 @@ export async function terminalRoutes(app: FastifyInstance) {
 
   /**
    * POST /api/v1/terminal/credentials
-   * Save (upsert) ANZ Worldline API credentials for the current org.
-   * Returns the record WITHOUT exposing apiKey / apiSecret.
+   * Save (upsert) the terminal's IP and port for the current org.
    */
   app.post('/credentials', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
@@ -78,7 +71,7 @@ export async function terminalRoutes(app: FastifyInstance) {
       });
     }
 
-    const { provider, label, merchantId, apiKey, apiSecret, environment } = body.data;
+    const { provider, label, terminalIp, terminalPort } = body.data;
 
     const existing = await db.query.terminalCredentials.findFirst({
       where: and(
@@ -91,47 +84,36 @@ export async function terminalRoutes(app: FastifyInstance) {
     if (existing) {
       const rows = await db
         .update(schema.terminalCredentials)
-        .set({
-          label:       label ?? null,
-          merchantId,
-          apiKey,
-          apiSecret,
-          environment,
-          isActive:    true,
-          updatedAt:   new Date(),
-        })
+        .set({ label: label ?? null, terminalIp, terminalPort, isActive: true, updatedAt: new Date() })
         .where(eq(schema.terminalCredentials.id, existing.id))
         .returning();
       saved = rows[0]!;
     } else {
       const rows = await db
         .insert(schema.terminalCredentials)
-        .values({ orgId, provider, label: label ?? null, merchantId, apiKey, apiSecret, environment })
+        .values({ orgId, provider, label: label ?? null, terminalIp, terminalPort })
         .returning();
       saved = rows[0]!;
     }
 
-    // Never return secrets in the response
-    const { apiKey: _k, apiSecret: _s, ...safe } = saved;
-    return reply.status(200).send({ data: safe });
+    return reply.status(200).send({ data: saved });
   });
 
   /**
    * GET /api/v1/terminal/credentials
-   * List terminal credential records for the org (no secrets exposed).
+   * List terminal configuration for this org.
    */
   app.get('/credentials', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const rows = await db.query.terminalCredentials.findMany({
       where: eq(schema.terminalCredentials.orgId, orgId),
     });
-    const safe = rows.map(({ apiKey: _k, apiSecret: _s, ...r }) => r);
-    return reply.status(200).send({ data: safe });
+    return reply.status(200).send({ data: rows });
   });
 
   /**
    * DELETE /api/v1/terminal/credentials/:id
-   * Soft-delete (deactivate) a credential record.
+   * Deactivate a terminal configuration.
    */
   app.delete('/credentials/:id', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
@@ -153,161 +135,71 @@ export async function terminalRoutes(app: FastifyInstance) {
     return reply.status(204).send();
   });
 
-  // ── ANZ Worldline — Connection ──────────────────────────────────────────
+  // ── ANZ Worldline TIM — Connection ─────────────────────────────────────
 
   /**
    * POST /api/v1/terminal/anz/test
-   * Test the ANZ Worldline API connection using the stored credentials.
+   * Ping the terminal to confirm it is reachable on the local network.
    */
   app.post('/anz/test', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
-    const client    = await getAnzClient(orgId);
+    const client    = await getTIMClient(orgId);
     if (!client) {
       return reply.status(404).send({
         type:   'https://nexus.app/errors/not-configured',
-        title:  'ANZ Worldline Not Configured',
+        title:  'Terminal Not Configured',
         status: 404,
-        detail: 'No active ANZ Worldline credentials found. Please configure them first.',
+        detail: 'No active ANZ Worldline terminal found. Please save the terminal IP and port first.',
       });
     }
 
-    const ok = await client.testConnection();
-    return reply.status(200).send({
-      ok,
-      message: ok
-        ? 'ANZ Worldline connection successful'
-        : 'ANZ Worldline connection failed — check your credentials',
-    });
+    try {
+      const { data, httpStatus } = await client.getStatus();
+      return reply.status(200).send({
+        ok:      httpStatus === 200,
+        message: httpStatus === 200
+          ? 'Terminal is reachable and ready'
+          : 'Terminal responded but may not be ready',
+        terminal: data,
+      });
+    } catch (e) {
+      return reply.status(200).send({
+        ok:      false,
+        message: `Could not reach terminal: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
   });
 
-  // ── ANZ Worldline — Payment lifecycle ──────────────────────────────────
+  // ── ANZ Worldline TIM — Payment lifecycle ──────────────────────────────
 
   /**
    * GET /api/v1/terminal/anz/payments/:paymentId/status
-   * Fetch the live status of an ANZ Worldline transaction.
+   * Returns the current local DB status of the payment.
    */
   app.get('/anz/payments/:paymentId/status', async (request, reply) => {
-    const { orgId }    = request.user as { orgId: string };
-    const { paymentId } = request.params as { paymentId: string };
-
-    const payment = await db.query.payments.findFirst({
-      where: and(
-        eq(schema.payments.id,    paymentId),
-        eq(schema.payments.orgId, orgId),
-      ),
-    });
-    if (!payment) return reply.status(404).send({ title: 'Payment Not Found', status: 404 });
-    if (!payment.acquirerTransactionId) {
-      return reply.status(409).send({
-        title:  'No Acquirer Transaction',
-        status: 409,
-        detail: 'This payment has no ANZ Worldline transaction ID.',
-      });
-    }
-
-    const client = await getAnzClient(orgId);
-    if (!client) return reply.status(404).send({ title: 'ANZ Worldline Not Configured', status: 404 });
-
-    const { data, httpStatus } = await client.getPayment(payment.acquirerTransactionId);
-    return reply.status(httpStatus).send({ data });
-  });
-
-  /**
-   * POST /api/v1/terminal/anz/payments/:paymentId/capture
-   * Capture a previously authorised ANZ Worldline payment.
-   * Optionally supply a partial amount (in dollars) in the body.
-   */
-  app.post('/anz/payments/:paymentId/capture', async (request, reply) => {
-    const { orgId }    = request.user as { orgId: string };
-    const { paymentId } = request.params as { paymentId: string };
-    const body = captureSchema.safeParse(request.body);
-    if (!body.success) {
-      return reply.status(422).send({
-        type:   'https://nexus.app/errors/validation',
-        title:  'Validation Error',
-        status: 422,
-        detail: body.error.message,
-      });
-    }
-
-    const payment = await db.query.payments.findFirst({
-      where: and(eq(schema.payments.id, paymentId), eq(schema.payments.orgId, orgId)),
-    });
-    if (!payment) return reply.status(404).send({ title: 'Payment Not Found', status: 404 });
-    if (!payment.acquirerTransactionId) {
-      return reply.status(409).send({ title: 'No Acquirer Transaction', status: 409 });
-    }
-
-    const client = await getAnzClient(orgId);
-    if (!client) return reply.status(404).send({ title: 'ANZ Worldline Not Configured', status: 404 });
-
-    const amountCents = body.data.amount !== undefined
-      ? Math.round(body.data.amount * 100)
-      : undefined;
-
-    const { data, httpStatus } = await client.capturePayment(
-      payment.acquirerTransactionId,
-      amountCents,
-    );
-
-    if (httpStatus === 200 || httpStatus === 201) {
-      await db.update(schema.payments)
-        .set({ status: 'approved', processedAt: new Date() })
-        .where(eq(schema.payments.id, paymentId));
-    }
-
-    return reply.status(httpStatus).send({ data });
-  });
-
-  /**
-   * POST /api/v1/terminal/anz/payments/:paymentId/cancel
-   * Cancel / void an ANZ Worldline authorisation.
-   * Updates the local payment status to 'void' on success.
-   */
-  app.post('/anz/payments/:paymentId/cancel', async (request, reply) => {
-    const { orgId }    = request.user as { orgId: string };
+    const { orgId }     = request.user as { orgId: string };
     const { paymentId } = request.params as { paymentId: string };
 
     const payment = await db.query.payments.findFirst({
       where: and(eq(schema.payments.id, paymentId), eq(schema.payments.orgId, orgId)),
     });
     if (!payment) return reply.status(404).send({ title: 'Payment Not Found', status: 404 });
-    if (!payment.acquirerTransactionId) {
-      return reply.status(409).send({ title: 'No Acquirer Transaction', status: 409 });
-    }
-    if (payment.status === 'void') {
-      return reply.status(409).send({ title: 'Payment Already Voided', status: 409 });
-    }
 
-    const client = await getAnzClient(orgId);
-    if (!client) return reply.status(404).send({ title: 'ANZ Worldline Not Configured', status: 404 });
-
-    const { data, httpStatus } = await client.cancelPayment(payment.acquirerTransactionId);
-
-    if (httpStatus === 200) {
-      await db.update(schema.payments)
-        .set({ status: 'void' })
-        .where(eq(schema.payments.id, paymentId));
-    }
-
-    return reply.status(httpStatus).send({ data });
+    return reply.status(200).send({ data: payment });
   });
 
   /**
    * POST /api/v1/terminal/anz/payments/:paymentId/refund
-   * Refund a captured ANZ Worldline payment.
+   * Send a refund to the terminal for a previously approved payment.
    * Body: { amount: number (dollars), currency?: string }
-   * Updates the local payment status to 'refunded' on success.
    */
   app.post('/anz/payments/:paymentId/refund', async (request, reply) => {
-    const { orgId }    = request.user as { orgId: string };
+    const { orgId }     = request.user as { orgId: string };
     const { paymentId } = request.params as { paymentId: string };
     const body = refundSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type:   'https://nexus.app/errors/validation',
-        title:  'Validation Error',
-        status: 422,
+        type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422,
         detail: body.error.message,
       });
     }
@@ -316,9 +208,6 @@ export async function terminalRoutes(app: FastifyInstance) {
       where: and(eq(schema.payments.id, paymentId), eq(schema.payments.orgId, orgId)),
     });
     if (!payment) return reply.status(404).send({ title: 'Payment Not Found', status: 404 });
-    if (!payment.acquirerTransactionId) {
-      return reply.status(409).send({ title: 'No Acquirer Transaction', status: 409 });
-    }
     if (payment.status !== 'approved') {
       return reply.status(409).send({
         title:  'Payment Not Refundable',
@@ -326,23 +215,51 @@ export async function terminalRoutes(app: FastifyInstance) {
         detail: `Cannot refund a payment in '${payment.status}' status.`,
       });
     }
+    if (!payment.acquirerTransactionId) {
+      return reply.status(409).send({ title: 'No terminal transaction ID on record', status: 409 });
+    }
 
-    const client = await getAnzClient(orgId);
-    if (!client) return reply.status(404).send({ title: 'ANZ Worldline Not Configured', status: 404 });
+    const client = await getTIMClient(orgId);
+    if (!client) return reply.status(404).send({ title: 'Terminal Not Configured', status: 404 });
 
-    const amountCents              = Math.round(body.data.amount * 100);
-    const { data, httpStatus }     = await client.refundPayment(
-      payment.acquirerTransactionId,
-      amountCents,
-      body.data.currency,
-    );
+    const amountCents          = Math.round(body.data.amount * 100);
+    const { data, httpStatus } = await client.refund(amountCents, payment.acquirerTransactionId, paymentId);
 
-    if (httpStatus === 201) {
+    if (isApproved(data)) {
       await db.update(schema.payments)
         .set({ status: 'refunded' })
         .where(eq(schema.payments.id, paymentId));
     }
 
-    return reply.status(httpStatus).send({ data });
+    return reply.status(httpStatus).send({ data, approved: isApproved(data) });
+  });
+
+  /**
+   * POST /api/v1/terminal/anz/payments/:paymentId/reverse
+   * Reverse (void) an approved payment via the terminal.
+   */
+  app.post('/anz/payments/:paymentId/reverse', async (request, reply) => {
+    const { orgId }     = request.user as { orgId: string };
+    const { paymentId } = request.params as { paymentId: string };
+
+    const payment = await db.query.payments.findFirst({
+      where: and(eq(schema.payments.id, paymentId), eq(schema.payments.orgId, orgId)),
+    });
+    if (!payment)                          return reply.status(404).send({ title: 'Payment Not Found', status: 404 });
+    if (payment.status === 'void')         return reply.status(409).send({ title: 'Payment Already Voided', status: 409 });
+    if (!payment.acquirerTransactionId)    return reply.status(409).send({ title: 'No terminal transaction ID on record', status: 409 });
+
+    const client = await getTIMClient(orgId);
+    if (!client) return reply.status(404).send({ title: 'Terminal Not Configured', status: 404 });
+
+    const { data, httpStatus } = await client.reverse(payment.acquirerTransactionId);
+
+    if (isApproved(data)) {
+      await db.update(schema.payments)
+        .set({ status: 'void' })
+        .where(eq(schema.payments.id, paymentId));
+    }
+
+    return reply.status(httpStatus).send({ data, approved: isApproved(data) });
   });
 }
