@@ -7,6 +7,8 @@ import {
   Users,
   ScrollText,
   Activity,
+  UserCog,
+  HandshakeIcon,
 } from 'lucide-react';
 import { LogoutButton } from './LogoutButton';
 
@@ -32,6 +34,8 @@ const navItems = [
   { href: '/merchants', label: 'Merchants', Icon: Building2 },
   { href: '/devices', label: 'Devices', Icon: Monitor },
   { href: '/staff', label: 'Platform Staff', Icon: Users },
+  { href: '/org-accounts', label: 'Org Portal Accounts', Icon: UserCog },
+  { href: '/reseller-accounts', label: 'Reseller Accounts', Icon: HandshakeIcon },
   { href: '/audit', label: 'Audit Log', Icon: ScrollText },
   { href: '/system', label: 'System Health', Icon: Activity },
 ];

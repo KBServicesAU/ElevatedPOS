@@ -116,7 +116,9 @@ export async function platformRoutes(app: FastifyInstance) {
       { expiresIn: '8h' },
     );
 
-    return reply.status(200).send({ token, staff: { id: staff.id, email: staff.email, firstName: staff.firstName, lastName: staff.lastName, role: staff.role } });
+    const userPayload = { id: staff.id, email: staff.email, name: `${staff.firstName} ${staff.lastName}`, firstName: staff.firstName, lastName: staff.lastName, role: staff.role };
+    // Return both `token` (godmode) and `accessToken` + `user` (org/reseller portals)
+    return reply.status(200).send({ token, accessToken: token, staff: userPayload, user: userPayload });
   });
 
   // GET /api/v1/platform/organisations

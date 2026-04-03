@@ -74,6 +74,38 @@ async function seed() {
   }).onConflictDoNothing();
   console.log('  ✓ Employee: manager@elevatedpos.dev  |  password: manager123!  |  PIN: 5678');
 
+  // ── Platform Staff ────────────────────────────────────────────────────────
+  const adminHash    = await bcrypt.hash('Admin2024!', 12);
+  const supportHash  = await bcrypt.hash('Support2024!', 12);
+  const resellerHash = await bcrypt.hash('Reseller2024!', 12);
+
+  await db.insert(schema.platformStaff).values({
+    email: 'admin@elevatedpos.com.au',
+    passwordHash: adminHash,
+    firstName: 'Platform',
+    lastName: 'Admin',
+    role: 'superadmin',
+  }).onConflictDoNothing();
+  console.log('  ✓ Platform superadmin: admin@elevatedpos.com.au  |  password: Admin2024!');
+
+  await db.insert(schema.platformStaff).values({
+    email: 'support@elevatedpos.com.au',
+    passwordHash: supportHash,
+    firstName: 'Support',
+    lastName: 'Team',
+    role: 'support',
+  }).onConflictDoNothing();
+  console.log('  ✓ Platform support: support@elevatedpos.com.au  |  password: Support2024!');
+
+  await db.insert(schema.platformStaff).values({
+    email: 'reseller@elevatedpos.com.au',
+    passwordHash: resellerHash,
+    firstName: 'Demo',
+    lastName: 'Reseller',
+    role: 'reseller',
+  }).onConflictDoNothing();
+  console.log('  ✓ Platform reseller: reseller@elevatedpos.com.au  |  password: Reseller2024!');
+
   console.log('\n✅ Auth seed complete');
   await pool.end();
 }
