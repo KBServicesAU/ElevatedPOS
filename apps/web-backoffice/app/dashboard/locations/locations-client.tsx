@@ -94,9 +94,39 @@ export function LocationsClient() {
 
   useEffect(() => {
     setIsLoading(true);
-    apiFetch<{ data?: Location[] } | Location[]>('locations')
+    apiFetch<{ data?: unknown[] } | unknown[]>('locations')
       .then((json) => {
-        const data: Location[] = Array.isArray(json) ? json : (json as { data?: Location[] }).data ?? [];
+        const raw: unknown[] = Array.isArray(json) ? json : (json as { data?: unknown[] }).data ?? [];
+        const data: Location[] = raw.map((item) => {
+          const r = item as Record<string, unknown>;
+          // API may return address as a nested object or a flat string
+          const addr = r['address'];
+          const street = typeof addr === 'object' && addr !== null
+            ? String((addr as Record<string, unknown>)['street'] ?? '')
+            : String(addr ?? '');
+          const suburb = typeof addr === 'object' && addr !== null
+            ? String((addr as Record<string, unknown>)['suburb'] ?? '')
+            : String(r['suburb'] ?? '');
+          const state = typeof addr === 'object' && addr !== null
+            ? String((addr as Record<string, unknown>)['state'] ?? '')
+            : String(r['state'] ?? '');
+          const postcode = typeof addr === 'object' && addr !== null
+            ? String((addr as Record<string, unknown>)['postcode'] ?? '')
+            : String(r['postcode'] ?? '');
+          return {
+            id: String(r['id'] ?? ''),
+            name: String(r['name'] ?? ''),
+            address: street,
+            suburb,
+            state,
+            postcode,
+            phone: String(r['phone'] ?? ''),
+            managerName: String(r['managerName'] ?? r['manager_name'] ?? ''),
+            managerEmail: String(r['managerEmail'] ?? r['manager_email'] ?? ''),
+            status: (r['status'] === 'inactive' ? 'inactive' : 'active') as Location['status'],
+            revenueToday: Number(r['revenueToday'] ?? r['revenue_today'] ?? 0),
+          };
+        });
         setLocations(data.length > 0 ? data : MOCK_LOCATIONS);
       })
       .catch(() => setLocations(MOCK_LOCATIONS))
