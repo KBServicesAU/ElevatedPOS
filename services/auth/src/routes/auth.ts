@@ -337,6 +337,46 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.status(204).send();
   });
 
+  // GET /api/v1/auth/verify-email?token=xxx&emp=uuid
+  app.get('/verify-email', { config: { skipAuth: true } }, async (request, reply) => {
+    const { token, emp } = request.query as { token?: string; emp?: string };
+
+    if (!token || !emp) {
+      return reply.status(400).send({ error: 'Missing token or emp parameter' });
+    }
+
+    const employee = await db.query.employees.findFirst({
+      where: eq(schema.employees.id, emp),
+    });
+
+    if (!employee) {
+      return reply.status(404).send({ error: 'Account not found' });
+    }
+
+    if (employee.emailVerified) {
+      return reply.send({ ok: true, alreadyVerified: true });
+    }
+
+    if (
+      employee.emailVerificationToken !== token ||
+      !employee.emailVerificationExpiresAt ||
+      employee.emailVerificationExpiresAt < new Date()
+    ) {
+      return reply.status(400).send({ error: 'Invalid or expired verification link' });
+    }
+
+    await db
+      .update(schema.employees)
+      .set({
+        emailVerified: true,
+        emailVerificationToken: null,
+        emailVerificationExpiresAt: null,
+      })
+      .where(eq(schema.employees.id, emp));
+
+    return reply.send({ ok: true, alreadyVerified: false });
+  });
+
   // GET /api/v1/auth/me
   app.get('/me', {
     onRequest: [app.authenticate],

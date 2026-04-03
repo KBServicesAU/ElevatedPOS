@@ -70,6 +70,9 @@ export const employees = pgTable('employees', {
   mfaSecret: varchar('mfa_secret', { length: 255 }),
   failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
   lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  emailVerified: boolean('email_verified').notNull().default(false),
+  emailVerificationToken: varchar('email_verification_token', { length: 255 }),
+  emailVerificationExpiresAt: timestamp('email_verification_expires_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
