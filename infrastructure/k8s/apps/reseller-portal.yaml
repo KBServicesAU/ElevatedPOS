@@ -61,7 +61,8 @@ spec:
   selector:
     app: reseller-portal
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
       targetPort: 3000
 ---
 apiVersion: autoscaling/v2
