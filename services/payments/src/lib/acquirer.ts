@@ -51,8 +51,11 @@ export async function processRefund(
   if (acquirer === 'anz' && orgId) {
     return processAnzTIMRefund(originalTransactionId, amount, orgId);
   }
-  await delay(100);
-  return { success: true, acquirerTransactionId: `REF-${Date.now()}` };
+  return {
+    success:      false,
+    errorCode:    'ACQUIRER_NOT_CONFIGURED',
+    errorMessage: `Refund acquirer '${acquirer}' is not configured for this installation.`,
+  };
 }
 
 // ─── ANZ Worldline TIM ─────────────────────────────────────────────────────
@@ -139,16 +142,13 @@ async function processAnzTIMRefund(
   }
 }
 
-// ─── Stub (used when no real SDK is wired up) ───────────────────────────────
+// ─── Stub (returns error — acquirer not configured) ─────────────────────────
 
-async function stubPayment(_req: PaymentRequest): Promise<PaymentResult> {
-  await delay(100);
+async function stubPayment(req: PaymentRequest): Promise<PaymentResult> {
   return {
-    success:               true,
-    acquirerTransactionId: `ACQ-${Date.now()}`,
-    cardScheme:            'visa',
-    cardLast4:             '4242',
-    authCode:              String(Math.floor(Math.random() * 999999)).padStart(6, '0'),
+    success:      false,
+    errorCode:    'ACQUIRER_NOT_CONFIGURED',
+    errorMessage: `Payment acquirer '${req.acquirer}' is not configured for this installation. Only ANZ Worldline TIM is supported.`,
   };
 }
 

@@ -11,6 +11,8 @@ import {
   fetchStock,
   fetchPurchaseOrders,
   fetchEmployees,
+  fetchRoles,
+  fetchShifts,
   fetchLoyaltyPrograms,
   fetchCampaigns,
   fetchAutomations,
@@ -41,6 +43,8 @@ export const queryKeys = {
   stock: (params?: object) => ['stock', params] as const,
   purchaseOrders: () => ['purchase-orders'] as const,
   employees: () => ['employees'] as const,
+  roles: () => ['roles'] as const,
+  shifts: (params?: object) => ['shifts', params] as const,
   loyaltyPrograms: () => ['loyalty-programs'] as const,
   campaigns: (params?: object) => ['campaigns', params] as const,
   automations: () => ['automations'] as const,
@@ -115,6 +119,26 @@ export function useEmployees() {
     queryKey: queryKeys.employees(),
     queryFn: fetchEmployees,
     refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+}
+
+// ─── Roles ────────────────────────────────────────────────────────────────────
+
+export function useRoles() {
+  return useQuery({
+    queryKey: queryKeys.roles(),
+    queryFn: fetchRoles,
+    staleTime: 5 * 60_000, // roles change rarely
+  });
+}
+
+// ─── Shifts ───────────────────────────────────────────────────────────────────
+
+export function useShifts(params?: Parameters<typeof fetchShifts>[0]) {
+  return useQuery({
+    queryKey: queryKeys.shifts(params),
+    queryFn: () => fetchShifts(params),
     staleTime: 30_000,
   });
 }

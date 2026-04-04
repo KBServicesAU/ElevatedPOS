@@ -225,6 +225,49 @@ export function fetchPurchaseOrders(): Promise<{ data: PurchaseOrder[] }> {
   return apiFetch<{ data: PurchaseOrder[] }>('purchase-orders?status=open,confirmed,shipped');
 }
 
+// ─── Roles ────────────────────────────────────────────────────────────────────
+
+export interface Role {
+  id: string;
+  name: string;
+  description?: string | null;
+  permissions: Record<string, boolean>;
+  isSystemRole?: boolean;
+}
+
+export function fetchRoles(): Promise<{ data: Role[] }> {
+  return apiFetch<{ data: Role[] }>('roles');
+}
+
+// ─── Shifts (time-clock) ──────────────────────────────────────────────────────
+
+export interface Shift {
+  id: string;
+  employeeId: string;
+  locationId: string;
+  orgId: string;
+  clockInAt: string;
+  clockOutAt: string | null;
+  breakMinutes: number;
+  status: 'open' | 'closed' | 'approved';
+}
+
+export function fetchShifts(params?: {
+  employeeId?: string;
+  locationId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  status?: 'open' | 'closed' | 'approved';
+}): Promise<{ data: Shift[] }> {
+  const qs = new URLSearchParams();
+  if (params?.employeeId) qs.set('employeeId', params.employeeId);
+  if (params?.locationId) qs.set('locationId', params.locationId);
+  if (params?.dateFrom)   qs.set('dateFrom', params.dateFrom);
+  if (params?.dateTo)     qs.set('dateTo', params.dateTo);
+  if (params?.status)     qs.set('status', params.status);
+  return apiFetch<{ data: Shift[] }>(`shifts/shifts?${qs}`);
+}
+
 // ─── Employees ────────────────────────────────────────────────────────────────
 
 export interface Employee {

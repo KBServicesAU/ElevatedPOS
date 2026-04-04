@@ -6,7 +6,7 @@ import {
   Plus, Clock, CheckCircle, XCircle, Shield, Download, ChevronLeft, ChevronRight,
   Calendar, Users, Edit2, ToggleLeft, ToggleRight, X, Check, FileDown, KeyRound,
 } from 'lucide-react';
-import { useEmployees } from '@/lib/hooks';
+import { useEmployees, useRoles, useShifts } from '@/lib/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Employee } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
@@ -79,20 +79,7 @@ function initials(name: string): string {
     .slice(0, 2);
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_ROLES = [
-  { id: 'r1', name: 'Owner',      permissions: { 'orders:read': true, 'orders:write': true, 'catalog:read': true, 'catalog:write': true, 'inventory:read': true, 'inventory:write': true, 'customers:read': true, 'reports:read': true, 'settings:write': true, 'employees:write': true } },
-  { id: 'r2', name: 'Manager',    permissions: { 'orders:read': true, 'orders:write': true, 'catalog:read': true, 'inventory:read': true, 'customers:read': true, 'reports:read': true } },
-  { id: 'r3', name: 'Cashier',    permissions: { 'orders:read': true, 'orders:write': true, 'catalog:read': true, 'customers:read': true } },
-  { id: 'r4', name: 'Supervisor', permissions: { 'orders:read': true, 'orders:write': true, 'catalog:read': true, 'inventory:read': true, 'customers:read': true } },
-];
-
-const MOCK_TIMESHEETS: Record<string, Record<string, number>> = {
-  emp1: { Mon: 8, Tue: 7.5, Wed: 8, Thu: 0, Fri: 8, Sat: 6, Sun: 0 },
-  emp2: { Mon: 0, Tue: 8, Wed: 8, Thu: 8, Fri: 7, Sat: 0, Sun: 0 },
-  emp3: { Mon: 6, Tue: 6, Wed: 0, Thu: 6, Fri: 6, Sat: 8, Sun: 4 },
-};
+// (MOCK_ROLES and MOCK_TIMESHEETS replaced with real API calls — see useRoles/useShifts hooks)
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -122,6 +109,8 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { data: rolesData } = useRoles();
+  const roles = rolesData?.data ?? [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -187,7 +176,7 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             >
               <option value="">Select role…</option>
-              {MOCK_ROLES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </div>
           <div>
@@ -600,12 +589,37 @@ function TimesheetsTab() {
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [showPayrollExport, setShowPayrollExport] = useState(false);
 
+  const weekEnd = addDays(weekStart, 7);
+  const { data: shiftsData } = useShifts({
+    dateFrom: weekStart.toISOString(),
+    dateTo:   weekEnd.toISOString(),
+  });
+  const shifts = shiftsData?.data ?? [];
+
   const weekDates = DAYS.map((_, i) => addDays(weekStart, i));
 
+  /** Hours worked by an employee on a given day index (0=Mon … 6=Sun) */
   const getHours = (empId: string, dayIdx: number): number | null => {
-    const key = Object.keys(MOCK_TIMESHEETS)[employees.findIndex((e) => e.id === empId) % 3] ?? 'emp1';
-    const val = MOCK_TIMESHEETS[key]?.[DAYS[dayIdx]];
-    return val ?? null;
+    const dayDate = weekDates[dayIdx]!;
+    const dayStart = new Date(dayDate); dayStart.setHours(0, 0, 0, 0);
+    const dayEndTs = new Date(dayDate); dayEndTs.setHours(23, 59, 59, 999);
+
+    const dayShifts = shifts.filter((s) => {
+      if (s.employeeId !== empId) return false;
+      const cin = new Date(s.clockInAt);
+      return cin >= dayStart && cin <= dayEndTs;
+    });
+
+    if (dayShifts.length === 0) return null;
+
+    const totalMins = dayShifts.reduce((sum, s) => {
+      const cin  = new Date(s.clockInAt).getTime();
+      const cout = s.clockOutAt ? new Date(s.clockOutAt).getTime() : Date.now();
+      const worked = (cout - cin) / 60_000 - (s.breakMinutes ?? 0);
+      return sum + Math.max(0, worked);
+    }, 0);
+
+    return Math.round(totalMins / 6) / 10; // round to 1dp hours
   };
 
   const getTotal = (empId: string): number => {
@@ -613,16 +627,20 @@ function TimesheetsTab() {
   };
 
   const getStatus = (empId: string): 'approved' | 'pending' | 'no_shifts' => {
-    const total = getTotal(empId);
-    if (total === 0) return 'no_shifts';
-    const idx = employees.findIndex((e) => e.id === empId);
-    return idx % 3 === 0 ? 'approved' : 'pending';
+    const empShifts = shifts.filter((s) => s.employeeId === empId);
+    if (empShifts.length === 0) return 'no_shifts';
+    return empShifts.every((s) => s.status === 'approved') ? 'approved' : 'pending';
   };
 
   const handleApprove = async (empId: string) => {
     setApprovingId(empId);
-    // In production, would call POST /api/proxy/clock/shifts/:id/approve for each shift
-    await new Promise((r) => setTimeout(r, 800));
+    // Approve each closed shift for this employee in the current week
+    const toApprove = shifts.filter((s) => s.employeeId === empId && s.status === 'closed');
+    await Promise.all(
+      toApprove.map((s) =>
+        fetch(`/api/proxy/shifts/shifts/${s.id}/approve`, { method: 'POST' }).catch(() => null),
+      ),
+    );
     setApprovingId(null);
   };
 
@@ -852,13 +870,15 @@ function CreateRoleModal({ onClose }: { onClose: () => void }) {
 
 function RolesTab() {
   const [showCreate, setShowCreate] = useState(false);
+  const { data: rolesData, isLoading: rolesLoading } = useRoles();
+  const roles = rolesData?.data ?? [];
 
   return (
     <div>
       {showCreate && <CreateRoleModal onClose={() => setShowCreate(false)} />}
 
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-gray-500">{MOCK_ROLES.length} roles configured</p>
+        <p className="text-sm text-gray-500">{rolesLoading ? '…' : `${roles.length} roles configured`}</p>
         <button
           onClick={() => setShowCreate(true)}
           className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
@@ -868,7 +888,7 @@ function RolesTab() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {MOCK_ROLES.map((role) => {
+        {roles.map((role) => {
           const permKeys = Object.keys(role.permissions).filter((k) => role.permissions[k as keyof typeof role.permissions]);
           const modules = [...new Set(permKeys.map((k) => ALL_PERMISSIONS.find((p) => p.id === k)?.module).filter(Boolean))];
 

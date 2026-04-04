@@ -50,6 +50,10 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
     prefix: '/api/v1/employees',
   },
+  roles: {
+    base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
+    prefix: '/api/v1/roles',
+  },
   customers: {
     base: process.env.CUSTOMERS_API_URL ?? 'http://localhost:4006',
     prefix: '/api/v1/customers',

@@ -239,7 +239,7 @@ export async function invoiceRoutes(app: FastifyInstance) {
       },
       seller: {
         name: 'ElevatedPOS',                          // Replace with org profile lookup
-        logoUrl: '/logo-placeholder.png',
+        logoUrl: process.env['APP_LOGO_URL'] ?? null,
         address: null,                               // Populate from org settings
         abn: null,
       },

@@ -3,6 +3,42 @@ import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 
+const NOTIFICATIONS_URL = process.env['NOTIFICATIONS_SERVICE_URL'] ?? 'http://notifications:4009';
+
+async function sendRoyaltyStatementNotification(opts: {
+  toEmail: string;
+  contactName: string | null;
+  groupName: string;
+  period: string;
+  royaltyAmount: string;
+  orgId: string;
+}): Promise<void> {
+  const { toEmail, contactName, groupName, period, royaltyAmount, orgId } = opts;
+  try {
+    await fetch(`${NOTIFICATIONS_URL}/email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: toEmail,
+        subject: `Royalty Statement Issued — ${groupName} ${period}`,
+        template: 'custom',
+        orgId,
+        data: {
+          body: `<p>Hi ${contactName ?? 'Franchisee'},</p>
+<p>Your royalty statement for <strong>${period}</strong> has been issued.</p>
+<p><strong>Franchise Group:</strong> ${groupName}<br>
+<strong>Royalty Amount Due:</strong> $${royaltyAmount}</p>
+<p>Please log in to the franchisee portal to review and pay the statement.</p>
+<p>Thank you,<br>ElevatedPOS Franchise Team</p>`,
+        },
+      }),
+    });
+  } catch (err) {
+    // Non-fatal — log but don't fail the issue request
+    console.error('[franchise/royalties] Failed to send statement notification:', err);
+  }
+}
+
 const generateStatementsSchema = z.object({
   period: z.string().regex(/^\d{4}-\d{2}$/, 'Period must be in YYYY-MM format'),
   locationIds: z.array(z.string().uuid()).optional(),
@@ -198,7 +234,24 @@ export async function royaltyRoutes(app: FastifyInstance) {
       .where(eq(schema.royaltyStatements.id, id))
       .returning();
 
-    // TODO: send notification to franchisee via notifications service
+    // Notify franchisee — look up their email from the franchise_locations record
+    const location = await db.query.franchiseLocations.findFirst({
+      where: and(
+        eq(schema.franchiseLocations.groupId, groupId),
+        eq(schema.franchiseLocations.locationId, stmt.locationId),
+      ),
+    });
+    if (location?.franchiseeEmail) {
+      void sendRoyaltyStatementNotification({
+        toEmail: location.franchiseeEmail,
+        contactName: location.franchiseeContactName ?? null,
+        groupName: group.name,
+        period: stmt.period,
+        royaltyAmount: updated?.royaltyAmount ?? '0',
+        orgId,
+      });
+    }
+
     return reply.status(200).send({ data: updated });
   });
 

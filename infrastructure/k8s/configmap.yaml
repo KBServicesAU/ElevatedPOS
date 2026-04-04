@@ -29,3 +29,7 @@ data:
   # Set to "true" on environments with Stripe test keys but no physical
   # Terminal hardware (e.g. staging). Production should be "false".
   STRIPE_TERMINAL_SIMULATED: "false"
+  # Storefront: default org when slug-to-org mapping has no match
+  DEFAULT_ORG_ID: "00000000-0000-0000-0000-000000000001"
+  # Invoice PDF: publicly accessible logo URL (leave empty to omit logo)
+  APP_LOGO_URL: "https://app.elevatedpos.com.au/logo.png"

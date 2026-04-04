@@ -13,16 +13,130 @@ import { test, expect, type Page } from '@playwright/test';
  *   7. Cash flow completes immediately and shows receipt
  *
  * These tests run against the full Next.js dev server.
- * No backend services are required for the static catalogue / demo payment.
+ * No backend services are required — all API calls are intercepted
+ * via page.route() and answered with fixture data.
  */
 
 const POS_URL = '/pos';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── API Fixtures ────────────────────────────────────────────────────────────���
+
+const FIXTURE_CATEGORIES = {
+  data: [
+    { id: 'c1', name: 'Coffee',   sortOrder: 0 },
+    { id: 'c2', name: 'Pastries', sortOrder: 1 },
+    { id: 'c3', name: 'Food',     sortOrder: 2 },
+  ],
+};
+
+const FIXTURE_PRODUCTS = {
+  data: [
+    { id: 'p1', name: 'Flat White',    price: 550,  categoryId: 'c1', categoryName: 'Coffee',   description: 'Single origin espresso, steamed milk' },
+    { id: 'p2', name: 'Iced Latte',    price: 600,  categoryId: 'c1', categoryName: 'Coffee',   description: 'Cold espresso over ice' },
+    { id: 'p3', name: 'Cold Brew',     price: 500,  categoryId: 'c1', categoryName: 'Coffee',   description: '12-hour cold brew' },
+    { id: 'p4', name: 'Pour Over',     price: 800,  categoryId: 'c1', categoryName: 'Coffee',   description: 'Single origin pour over' },
+    { id: 'p5', name: 'Croissant',     price: 400,  categoryId: 'c2', categoryName: 'Pastries', description: 'Buttery French croissant' },
+    { id: 'p6', name: 'Banana Bread',  price: 450,  categoryId: 'c2', categoryName: 'Pastries', description: 'House-made banana bread' },
+    { id: 'p7', name: 'Avocado Toast', price: 1450, categoryId: 'c3', categoryName: 'Food',     description: 'Sourdough, avocado, dukkah' },
+    { id: 'p8', name: 'Eggs Benedict', price: 1800, categoryId: 'c3', categoryName: 'Food',     description: 'Poached eggs, hollandaise' },
+  ],
+};
+
+const FIXTURE_EMPLOYEES = {
+  data: [
+    { id: 'emp-e2e-1', firstName: 'Jane', lastName: 'Doe', role: 'Manager', clockedIn: true },
+  ],
+};
+
+// ─── Helpers ────────────────────────────────────────────────────────��────────
+
+/**
+ * Register page.route() intercepts for all POS-related API calls so no real
+ * backend services are needed.  Must be called before any navigation to /pos.
+ */
+async function setupApiMocks(page: Page) {
+  // Catalog — products
+  await page.route('**/api/proxy/catalog/products**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_PRODUCTS),
+    }),
+  );
+
+  // Catalog — categories
+  await page.route('**/api/proxy/catalog/categories**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_CATEGORIES),
+    }),
+  );
+
+  // Employees — staff screen list
+  await page.route('**/api/proxy/employees**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_EMPLOYEES),
+    }),
+  );
+
+  // Device PIN verification — always succeed in E2E
+  await page.route('**/api/auth/device-pin-verify**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
+    }),
+  );
+}
+
+/**
+ * Inject a fake device session into localStorage so the POS page skips the
+ * device-pairing gate.  Then navigate through the staff screen so the POS
+ * terminal is visible before tests start.
+ *
+ * Must be called in beforeEach before any assertions.
+ */
+async function seedDeviceSession(page: Page) {
+  // 1. Set up route mocks BEFORE navigating (they persist for this page context)
+  await setupApiMocks(page);
+
+  // 2. Navigate to /pos so we are on the right origin to write localStorage
+  await page.goto(POS_URL);
+
+  // 3. Seed device info into localStorage
+  await page.evaluate(() => {
+    localStorage.setItem('nexus_device_token', 'e2e-fake-device-token');
+    localStorage.setItem('nexus_device_info', JSON.stringify({
+      deviceId: '00000000-0000-0000-0000-e2e000000001',
+      role: 'pos',
+      locationId: '00000000-0000-0000-0000-000000000099',
+      orgId: '00000000-0000-0000-0000-000000000001',
+      label: 'E2E Test POS',
+    }));
+  });
+
+  // 4. Reload — now the page sees the device token and shows the Staff Screen
+  await page.reload();
+
+  // 5. Staff screen: wait for employee card to appear, then click it
+  await expect(page.getByText('Jane')).toBeVisible({ timeout: 10_000 });
+  await page.getByText('Jane').first().click();
+
+  // 6. PIN pad: enter any 4-digit PIN (our mock always returns ok: true)
+  for (const digit of ['1', '2', '3', '4']) {
+    await page.getByRole('button', { name: new RegExp(`^${digit}$`) }).click();
+  }
+
+  // 7. POS terminal should now be visible
+  await expect(page.getByRole('button', { name: /flat white/i })).toBeVisible({ timeout: 10_000 });
+}
 
 async function goToPOS(page: Page) {
-  await page.goto(POS_URL);
-  // Wait for the product grid to appear
+  // seedDeviceSession already navigated us to the POS terminal.
+  // Just assert the product grid is ready.
   await expect(page.getByRole('button', { name: /flat white/i })).toBeVisible();
 }
 
@@ -35,29 +149,7 @@ async function getCartTotal(page: Page): Promise<string> {
   return page.locator('text=Total').last().locator('+ *').textContent() ?? '';
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Inject a fake device session into localStorage so the POS page skips the
- * device-pairing gate and goes straight to the product terminal.
- * Must be called before any navigation to /pos.
- */
-async function seedDeviceSession(page: Page) {
-  // Navigate to the app origin first so localStorage is scoped correctly
-  await page.goto('/pos');
-  await page.evaluate(() => {
-    localStorage.setItem('nexus_device_token', 'e2e-fake-device-token');
-    localStorage.setItem('nexus_device_info', JSON.stringify({
-      deviceId: '00000000-0000-0000-0000-e2e000000001',
-      role: 'pos',
-      locationId: '00000000-0000-0000-0000-000000000099',
-      orgId: '00000000-0000-0000-0000-000000000001',
-      label: 'E2E Test POS',
-    }));
-  });
-}
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
+// ─── Tests ───────────────────────────────────────────────────────────────────��
 
 test.describe('POS screen', () => {
   test.beforeEach(async ({ page }) => {

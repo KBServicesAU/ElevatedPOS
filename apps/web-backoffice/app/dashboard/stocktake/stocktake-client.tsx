@@ -295,7 +295,7 @@ function VarianceReport({ items, onClose }: VarianceReportProps) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function StocktakeClient() {
+export function StocktakeClient({ currentUserName = 'Unknown' }: { currentUserName?: string }) {
   const [stocktakes, setStocktakes] = useState<Stocktake[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showNewModal, setShowNewModal] = useState(false);
@@ -337,7 +337,7 @@ export function StocktakeClient() {
       countNumber: `CNT-${String(Math.floor(Math.random() * 900) + 27).padStart(4, '0')}`,
       type,
       location,
-      startedBy: 'Jane Doe',
+      startedBy: currentUserName,
       startedAt: new Date().toISOString(),
       status: 'in_progress',
       varianceTotal: 0,
