@@ -32,7 +32,7 @@ spec:
               service:
                 name: org-portal
                 port:
-                  number: 3000
+                  number: 3011
     - host: reseller.elevatedpos.com.au
       http:
         paths:
@@ -42,7 +42,7 @@ spec:
               service:
                 name: reseller-portal
                 port:
-                  number: 3000
+                  number: 3012
     - host: godmode.elevatedpos.com.au
       http:
         paths:
@@ -52,4 +52,4 @@ spec:
               service:
                 name: godmode
                 port:
-                  number: 3000
+                  number: 3010

@@ -21,7 +21,7 @@ spec:
         - name: reseller-portal
           image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/reseller-portal:latest
           ports:
-            - containerPort: 3000
+            - containerPort: 3012
           envFrom:
             - configMapRef:
                 name: elevatedpos-config
@@ -29,7 +29,7 @@ spec:
                 name: elevatedpos-secrets
           env:
             - name: PORT
-              value: "3000"
+              value: "3012"
             - name: NEXT_TELEMETRY_DISABLED
               value: "1"
           resources:
@@ -42,13 +42,13 @@ spec:
           readinessProbe:
             httpGet:
               path: /api/health
-              port: 3000
+              port: 3012
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /api/health
-              port: 3000
+              port: 3012
             initialDelaySeconds: 20
             periodSeconds: 20
 ---
@@ -62,8 +62,8 @@ spec:
     app: reseller-portal
   ports:
     - name: http
-      port: 3000
-      targetPort: 3000
+      port: 3012
+      targetPort: 3012
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
