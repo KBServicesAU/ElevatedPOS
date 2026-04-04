@@ -464,10 +464,20 @@ export function PriceListsClient() {
     setPriceLists((prev) => [...prev, newPl]);
   };
 
-  const handleAddOverride = (
+  const handleAddOverride = async (
     priceListId: string,
     override: Omit<ProductOverride, 'id'>,
   ) => {
+    // Persist to API (POST /api/proxy/price-lists/:id/entries)
+    try {
+      await fetch(`/api/proxy/price-lists/${priceListId}/entries`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([{ productId: override.productId, price: override.overridePrice }]),
+      });
+    } catch {
+      // optimistic — continue regardless
+    }
     setPriceLists((prev) =>
       prev.map((pl) => {
         if (pl.id !== priceListId) return pl;
