@@ -22,6 +22,9 @@ spec:
     - hosts:
         - godmode.elevatedpos.com.au
       secretName: elevatedpos-godmode-tls
+    - hosts:
+        - epsales.elevatedpos.com.au
+      secretName: elevatedpos-sales-portal-tls
   rules:
     - host: organisation.elevatedpos.com.au
       http:
@@ -53,3 +56,13 @@ spec:
                 name: godmode
                 port:
                   number: 3010
+    - host: epsales.elevatedpos.com.au
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sales-portal
+                port:
+                  number: 53113

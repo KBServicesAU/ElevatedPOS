@@ -53,6 +53,7 @@ jobs:
           - { name: org-portal,      context: apps/org-portal }
           - { name: reseller-portal, context: apps/reseller-portal }
           - { name: godmode,         context: apps/godmode }
+          - { name: sales-portal,    context: apps/sales-portal }
     steps:
       - uses: actions/checkout@v4
 
@@ -155,6 +156,7 @@ jobs:
           kubectl set image deployment/org-portal org-portal=${{ env.ECR_REGISTRY }}/elevatedpos/org-portal:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/reseller-portal reseller-portal=${{ env.ECR_REGISTRY }}/elevatedpos/reseller-portal:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/godmode godmode=${{ env.ECR_REGISTRY }}/elevatedpos/godmode:${{ github.sha }} -n elevatedpos
+          kubectl set image deployment/sales-portal sales-portal=${{ env.ECR_REGISTRY }}/elevatedpos/sales-portal:${{ github.sha }} -n elevatedpos
 
       - name: Wait for rollout
         run: |
@@ -255,6 +257,81 @@ jobs:
             " && echo "auth 0010 OK" || echo "auth 0010 WARN"
           fi
 
+          # -- Auth migration 0011: plans, signup_links, support_notes, audit_logs, sales_agent role --
+          if [ -n "$RELAY_POD" ]; then
+            kubectl exec -n elevatedpos "$RELAY_POD" -- node -e "
+              const {Pool}=require('pg');
+              const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
+              const sqls=[
+                \`ALTER TYPE platform_role ADD VALUE IF NOT EXISTS 'sales_agent'\`,
+                \`CREATE TABLE IF NOT EXISTS plans (
+                  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                  name varchar(100) NOT NULL,
+                  slug varchar(100) NOT NULL UNIQUE,
+                  description text,
+                  monthly_price numeric(10,2) NOT NULL,
+                  annual_price numeric(10,2),
+                  features jsonb NOT NULL DEFAULT '[]',
+                  is_public boolean NOT NULL DEFAULT true,
+                  is_active boolean NOT NULL DEFAULT true,
+                  max_locations integer NOT NULL DEFAULT 1,
+                  max_employees integer NOT NULL DEFAULT 50,
+                  max_products integer NOT NULL DEFAULT 1000,
+                  trial_days integer NOT NULL DEFAULT 14,
+                  sort_order integer NOT NULL DEFAULT 0,
+                  created_at timestamptz NOT NULL DEFAULT now(),
+                  updated_at timestamptz NOT NULL DEFAULT now()
+                )\`,
+                \`CREATE TABLE IF NOT EXISTS signup_links (
+                  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                  code varchar(50) NOT NULL UNIQUE,
+                  created_by_platform_user_id uuid REFERENCES platform_staff(id),
+                  sales_agent_id uuid REFERENCES platform_staff(id),
+                  plan_id uuid REFERENCES plans(id),
+                  org_name varchar(200),
+                  custom_monthly_price numeric(10,2),
+                  custom_annual_price numeric(10,2),
+                  custom_trial_days integer,
+                  note text,
+                  expires_at timestamptz,
+                  used_at timestamptz,
+                  used_by_org_id uuid,
+                  is_active boolean NOT NULL DEFAULT true,
+                  created_at timestamptz NOT NULL DEFAULT now(),
+                  updated_at timestamptz NOT NULL DEFAULT now()
+                )\`,
+                \`CREATE TABLE IF NOT EXISTS support_notes (
+                  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                  org_id uuid NOT NULL,
+                  author_id uuid NOT NULL REFERENCES platform_staff(id),
+                  author_name varchar(200) NOT NULL,
+                  body text NOT NULL,
+                  created_at timestamptz NOT NULL DEFAULT now(),
+                  updated_at timestamptz NOT NULL DEFAULT now()
+                )\`,
+                \`CREATE TABLE IF NOT EXISTS audit_logs (
+                  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                  org_id uuid,
+                  platform_user_id uuid,
+                  actor_name varchar(200),
+                  action varchar(100) NOT NULL,
+                  resource_type varchar(100) NOT NULL,
+                  resource_id varchar(200),
+                  detail jsonb,
+                  ip_address varchar(45),
+                  created_at timestamptz NOT NULL DEFAULT now()
+                )\`
+              ];
+              (async()=>{
+                for(const s of sqls){
+                  try{await p.query(s);}catch(e){console.error('auth 0011 step:',e.message);}
+                }
+                console.log('auth 0011: applied');
+                p.end();
+              })();
+            " && echo "auth 0011 OK" || echo "auth 0011 WARN"
+          fi
+
           # -- Catalog migration 0006: inventory enhancements --
           if [ -n "$RELAY_POD" ]; then
             kubectl exec -n elevatedpos "$RELAY_POD" -- node -e "
@@ -317,6 +394,7 @@ jobs:
           kubectl set image deployment/org-portal org-portal=${{ env.ECR_REGISTRY }}/elevatedpos/org-portal:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/reseller-portal reseller-portal=${{ env.ECR_REGISTRY }}/elevatedpos/reseller-portal:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/godmode godmode=${{ env.ECR_REGISTRY }}/elevatedpos/godmode:${{ github.sha }} -n elevatedpos
+          kubectl set image deployment/sales-portal sales-portal=${{ env.ECR_REGISTRY }}/elevatedpos/sales-portal:${{ github.sha }} -n elevatedpos
 
       - name: Wait for production rollout
         run: |

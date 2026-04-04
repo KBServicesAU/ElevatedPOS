@@ -9,6 +9,9 @@ import {
   Activity,
   UserCog,
   HandshakeIcon,
+  CreditCard,
+  Link as LinkIcon,
+  Settings,
 } from 'lucide-react';
 import { LogoutButton } from './LogoutButton';
 
@@ -36,8 +39,11 @@ const navItems = [
   { href: '/staff', label: 'Platform Staff', Icon: Users },
   { href: '/org-accounts', label: 'Org Portal Accounts', Icon: UserCog },
   { href: '/reseller-accounts', label: 'Reseller Accounts', Icon: HandshakeIcon },
+  { href: '/plans', label: 'Plans', Icon: CreditCard },
+  { href: '/signup-links', label: 'Signup Links', Icon: LinkIcon },
   { href: '/audit', label: 'Audit Log', Icon: ScrollText },
   { href: '/system', label: 'System Health', Icon: Activity },
+  { href: '/settings', label: 'Settings', Icon: Settings },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

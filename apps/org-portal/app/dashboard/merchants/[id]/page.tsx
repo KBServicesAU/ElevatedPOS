@@ -10,6 +10,9 @@ import {
   ExternalLink,
   RefreshCw,
   KeyRound,
+  Trash2,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 
 interface OrgDetail {
@@ -38,11 +41,224 @@ interface ApiDeviceResponse {
 interface Note {
   id: string;
   text: string;
+  authorName?: string;
+  authorId?: string;
   createdAt: string;
+}
+
+interface ApiNoteResponse {
+  notes?: Note[];
+  data?: Note[];
 }
 
 const TABS = ['Overview', 'Devices', 'Orders', 'Notes'] as const;
 type Tab = (typeof TABS)[number];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function apiFetch(path: string, options?: RequestInit): Promise<unknown> {
+  const res = await fetch(`/api/proxy/${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(options?.headers ?? {}),
+    },
+  });
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    data = {};
+  }
+  if (!res.ok) {
+    const msg =
+      (data as { message?: string; error?: string })?.message ??
+      (data as { message?: string; error?: string })?.error ??
+      `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Notes tab
+// ---------------------------------------------------------------------------
+
+interface NotesTabProps {
+  orgId: string;
+}
+
+function NotesTab({ orgId }: NotesTabProps) {
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [noteText, setNoteText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  // Current user id from /api/auth/me
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { email?: string } | null) => {
+        if (data?.email) setCurrentUserId(data.email);
+      })
+      .catch(() => {});
+  }, []);
+
+  const fetchNotes = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiFetch(`platform/support-notes?orgId=${encodeURIComponent(orgId)}`);
+      if (Array.isArray(data)) {
+        setNotes(data as Note[]);
+      } else if (data && typeof data === 'object') {
+        const d = data as ApiNoteResponse;
+        if (Array.isArray(d.notes)) setNotes(d.notes);
+        else if (Array.isArray(d.data)) setNotes(d.data);
+        else setNotes([]);
+      } else {
+        setNotes([]);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+      setNotes([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchNotes();
+  }, [fetchNotes]);
+
+  async function handleAddNote(e: React.FormEvent) {
+    e.preventDefault();
+    if (!noteText.trim()) return;
+    setSaving(true);
+    setError('');
+    try {
+      await apiFetch('platform/support-notes', {
+        method: 'POST',
+        body: JSON.stringify({ orgId, text: noteText.trim() }),
+      });
+      setNoteText('');
+      await fetchNotes();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteNote(noteId: string) {
+    setDeletingId(noteId);
+    setError('');
+    try {
+      await apiFetch(`platform/support-notes/${noteId}`, { method: 'DELETE' });
+      await fetchNotes();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Add note */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+          <StickyNote size={16} className="text-blue-600" /> Add Note
+        </h3>
+        <form onSubmit={handleAddNote}>
+          <textarea
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            placeholder="Type your support note here…"
+            rows={3}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent resize-none"
+          />
+          {error && (
+            <p className="flex items-center gap-1.5 text-sm text-red-600 mt-2">
+              <AlertCircle size={14} />
+              {error}
+            </p>
+          )}
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={!noteText.trim() || saving}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              {saving && <Loader2 size={14} className="animate-spin" />}
+              Add Note
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Notes list */}
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-400">
+          <Loader2 size={18} className="animate-spin" />
+          Loading notes…
+        </div>
+      ) : notes.length === 0 ? (
+        <div className="text-center text-sm text-gray-400 py-6">No notes yet</div>
+      ) : (
+        <div className="space-y-3">
+          {notes.map((note) => {
+            const isOwn =
+              !note.authorId ||
+              note.authorId === currentUserId ||
+              note.authorName === currentUserId;
+            return (
+              <div key={note.id} className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap flex-1">{note.text}</p>
+                  {isOwn && (
+                    <button
+                      onClick={() => handleDeleteNote(note.id)}
+                      disabled={deletingId === note.id}
+                      className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0 mt-0.5"
+                      title="Delete note"
+                    >
+                      {deletingId === note.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={14} />
+                      )}
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  {note.authorName && (
+                    <span className="text-xs text-gray-500 font-medium">{note.authorName}</span>
+                  )}
+                  {note.authorName && <span className="text-xs text-gray-300">·</span>}
+                  <span className="text-xs text-gray-400">
+                    {new Date(note.createdAt).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
 
 export default function MerchantDetailPage() {
   const params = useParams();
@@ -53,10 +269,6 @@ export default function MerchantDetailPage() {
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
   const [loadingOrg, setLoadingOrg] = useState(true);
   const [loadingDevices, setLoadingDevices] = useState(false);
-
-  // Notes state
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [noteText, setNoteText] = useState('');
 
   // Modal state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -105,34 +317,8 @@ export default function MerchantDetailPage() {
     }
   }, [activeTab, fetchDevices]);
 
-  // Load notes from localStorage
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(`support_notes_${orgId}`);
-      if (raw) {
-        setNotes(JSON.parse(raw) as Note[]);
-      }
-    } catch {
-      setNotes([]);
-    }
-  }, [orgId]);
-
-  function saveNote() {
-    if (!noteText.trim()) return;
-    const newNote: Note = {
-      id: Date.now().toString(),
-      text: noteText.trim(),
-      createdAt: new Date().toISOString(),
-    };
-    const updated = [newNote, ...notes];
-    setNotes(updated);
-    localStorage.setItem(`support_notes_${orgId}`, JSON.stringify(updated));
-    setNoteText('');
-  }
-
   async function handleResetPassword() {
     if (!newPassword || newPassword !== passwordConfirm) return;
-    // Placeholder: show success but don't call if endpoint doesn't exist
     setPasswordStatus('success');
     setTimeout(() => {
       setShowPasswordModal(false);
@@ -305,55 +491,22 @@ export default function MerchantDetailPage() {
           {activeTab === 'Orders' && (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
               <ShoppingCart size={36} className="mx-auto text-gray-300 mb-3" />
-              <h3 className="text-lg font-semibold text-gray-700 mb-1">Connect to Orders Service</h3>
+              <h3 className="text-lg font-semibold text-gray-700 mb-1">Orders</h3>
               <p className="text-sm text-gray-500 mb-3">
-                Orders data is managed by the orders microservice.
+                View full order history in the Orders section.
               </p>
-              <p className="text-xs font-mono bg-gray-100 px-3 py-1.5 rounded-lg inline-block text-gray-600">
-                orgId: {orgId}
-              </p>
+              <a
+                href={`/dashboard/orders?orgId=${org.id}`}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-900 text-white text-sm font-medium rounded-lg hover:bg-blue-800 transition-colors"
+              >
+                <ShoppingCart size={14} />
+                View Orders for this Merchant
+              </a>
             </div>
           )}
 
           {/* Notes */}
-          {activeTab === 'Notes' && (
-            <div className="space-y-4">
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                  <StickyNote size={16} className="text-blue-600" /> Add Note
-                </h3>
-                <textarea
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  placeholder="Type your support note here…"
-                  rows={3}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent resize-none"
-                />
-                <button
-                  onClick={saveNote}
-                  disabled={!noteText.trim()}
-                  className="mt-2 px-4 py-2 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
-                >
-                  Save Note
-                </button>
-              </div>
-
-              {notes.length === 0 ? (
-                <div className="text-center text-sm text-gray-400 py-6">No notes yet</div>
-              ) : (
-                <div className="space-y-3">
-                  {notes.map((note) => (
-                    <div key={note.id} className="bg-white rounded-xl border border-gray-200 p-4">
-                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{note.text}</p>
-                      <p className="text-xs text-gray-400 mt-2">
-                        {new Date(note.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {activeTab === 'Notes' && <NotesTab orgId={orgId} />}
         </div>
 
         {/* Right — Support Actions */}
@@ -374,7 +527,9 @@ export default function MerchantDetailPage() {
               >
                 <RefreshCw size={16} />
                 Regenerate Device Code
-                <span className="ml-auto text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">soon</span>
+                <span className="ml-auto text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">
+                  soon
+                </span>
               </button>
             </div>
           </div>
@@ -393,7 +548,9 @@ export default function MerchantDetailPage() {
             ) : (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    New Password
+                  </label>
                   <input
                     type="password"
                     value={newPassword}
@@ -461,7 +618,9 @@ function StatusBadge({ status }: { status?: string }) {
       ? 'bg-gray-100 text-gray-500'
       : 'bg-yellow-100 text-yellow-700';
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${classes}`}>
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${classes}`}
+    >
       {status ?? 'unknown'}
     </span>
   );

@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useCallback } from 'react';
 import { platformFetch } from '@/lib/api';
-import { ArrowLeft, Edit2, X, LogIn, CreditCard, ExternalLink, Copy, Check, Plus, UserX, UserCheck } from 'lucide-react';
+import { ArrowLeft, Edit2, X, LogIn, CreditCard, ExternalLink, Copy, Check, Plus, UserX, UserCheck, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 
 interface OrgDetail {
@@ -49,6 +49,19 @@ interface OrgEmployee {
   roleId?: string | null;
   role?: { name: string } | null;
   createdAt: string;
+}
+
+interface SupportNote {
+  id: string;
+  body: string;
+  authorId: string | null;
+  authorEmail?: string | null;
+  authorName?: string | null;
+  createdAt: string;
+}
+
+interface SupportNotesResponse {
+  data: SupportNote[];
 }
 
 function planBadgeColor(plan: string): string {
@@ -106,16 +119,23 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'devices' | 'employees' | 'staff' | 'billing' | 'notes'>('overview');
   const [devices, setDevices] = useState<Device[]>([]);
-  const [notes, setNotes] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({ plan: '', maxLocations: 1, maxDevices: 2 });
   const [saving, setSaving] = useState(false);
+
+  // Notes state (API-backed)
+  const [supportNotes, setSupportNotes] = useState<SupportNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [newNoteBody, setNewNoteBody] = useState('');
+  const [noteSubmitting, setNoteSubmitting] = useState(false);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
 
   // Impersonation state
   const [impersonating, setImpersonating] = useState(false);
   const [impersonationToken, setImpersonationToken] = useState<string | null>(null);
   const [impersonationLoginUrl, setImpersonationLoginUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showBackofficeModal, setShowBackofficeModal] = useState(false);
 
   // Employees state
   const [employees, setEmployees] = useState<OrgEmployee[]>([]);
@@ -148,9 +168,16 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
     void loadOrg();
   }, [id]);
 
-  useEffect(() => {
-    const stored = localStorage.getItem(`godmode_notes_${id}`) ?? '';
-    setNotes(stored);
+  const loadNotes = useCallback(async () => {
+    setNotesLoading(true);
+    try {
+      const data = (await platformFetch(`platform/support-notes?orgId=${id}`)) as SupportNotesResponse;
+      setSupportNotes(data.data ?? []);
+    } catch {
+      setSupportNotes([]);
+    } finally {
+      setNotesLoading(false);
+    }
   }, [id]);
 
   useEffect(() => {
@@ -173,6 +200,12 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, id]);
 
+  useEffect(() => {
+    if (activeTab === 'notes') {
+      void loadNotes();
+    }
+  }, [activeTab, loadNotes]);
+
   async function loadEmployees() {
     setEmployeesLoading(true);
     try {
@@ -185,9 +218,35 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
     }
   }
 
-  function saveNotes(value: string) {
-    setNotes(value);
-    localStorage.setItem(`godmode_notes_${id}`, value);
+  async function handleAddNote() {
+    const body = newNoteBody.trim();
+    if (!body) return;
+    setNoteSubmitting(true);
+    try {
+      await platformFetch('platform/support-notes', {
+        method: 'POST',
+        body: JSON.stringify({ orgId: id, body }),
+      });
+      setNewNoteBody('');
+      await loadNotes();
+    } catch {
+      alert('Failed to add note.');
+    } finally {
+      setNoteSubmitting(false);
+    }
+  }
+
+  async function handleDeleteNote(noteId: string) {
+    if (!confirm('Delete this note?')) return;
+    setDeletingNoteId(noteId);
+    try {
+      await platformFetch(`platform/support-notes/${noteId}`, { method: 'DELETE' });
+      await loadNotes();
+    } catch {
+      alert('Failed to delete note.');
+    } finally {
+      setDeletingNoteId(null);
+    }
   }
 
   async function handleSaveEdit() {
@@ -363,6 +422,13 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
           <p className="text-gray-500 text-sm mt-1">/{org.slug}</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowBackofficeModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-[#1e1e2e] hover:bg-[#2a2a3e] border border-[#2a2a3e] text-gray-300 text-sm rounded transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Open Backoffice
+          </button>
           <button
             onClick={handleImpersonate}
             disabled={impersonating}
@@ -770,17 +836,60 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
       )}
 
       {activeTab === 'notes' && (
-        <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6">
-          <label className="block text-xs text-gray-500 uppercase tracking-wider mb-2">
-            Internal Notes (stored locally)
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => saveNotes(e.target.value)}
-            rows={8}
-            className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded px-4 py-3 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-indigo-500 resize-none"
-            placeholder="Add internal notes about this merchant..."
-          />
+        <div className="space-y-4">
+          {/* Add note */}
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-5">
+            <label className="block text-xs text-gray-500 uppercase tracking-wider mb-2">
+              Add Support Note
+            </label>
+            <textarea
+              value={newNoteBody}
+              onChange={(e) => setNewNoteBody(e.target.value)}
+              rows={3}
+              className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded px-4 py-3 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-indigo-500 resize-none mb-3"
+              placeholder="Add an internal note about this merchant..."
+            />
+            <button
+              onClick={handleAddNote}
+              disabled={noteSubmitting || !newNoteBody.trim()}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm rounded transition-colors"
+            >
+              {noteSubmitting ? 'Saving...' : 'Add Note'}
+            </button>
+          </div>
+
+          {/* Notes list */}
+          {notesLoading ? (
+            <div className="text-gray-500 text-sm">Loading notes...</div>
+          ) : supportNotes.length === 0 ? (
+            <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6 text-center text-gray-600 text-sm">
+              No notes yet
+            </div>
+          ) : (
+            supportNotes.map((note) => (
+              <div key={note.id} className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <p className="text-white text-sm whitespace-pre-wrap flex-1">{note.body}</p>
+                  <button
+                    onClick={() => handleDeleteNote(note.id)}
+                    disabled={deletingNoteId === note.id}
+                    className="text-gray-600 hover:text-red-400 transition-colors shrink-0 disabled:opacity-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="mt-3 pt-3 border-t border-[#1e1e2e] flex items-center gap-2">
+                  <span className="text-gray-500 text-xs">
+                    {note.authorName ?? note.authorEmail ?? note.authorId ?? 'Unknown'}
+                  </span>
+                  <span className="text-gray-700 text-xs">·</span>
+                  <span className="text-gray-600 text-xs">
+                    {new Date(note.createdAt).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 
@@ -1054,6 +1163,44 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
               >
                 {editEmployeeSubmitting ? 'Saving...' : 'Save Changes'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Open Backoffice Modal */}
+      {showBackofficeModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6 w-full max-w-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-semibold">Open Backoffice</h3>
+              <button onClick={() => setShowBackofficeModal(false)} className="text-gray-500 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-gray-400 text-sm mb-4">
+              This will open the ElevatedPOS merchant backoffice in a new tab. You will need to log in as the merchant.
+            </p>
+            <p className="text-gray-500 text-xs mb-6">
+              To impersonate the merchant directly, use the <span className="text-emerald-400">Login As</span> button to generate an impersonation token.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowBackofficeModal(false)}
+                className="flex-1 px-4 py-2.5 border border-[#1e1e2e] text-gray-400 text-sm rounded hover:bg-[#1e1e2e] transition-colors"
+              >
+                Cancel
+              </button>
+              <a
+                href="https://app.elevatedpos.com.au"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setShowBackofficeModal(false)}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded transition-colors"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Open Backoffice
+              </a>
             </div>
           </div>
         </div>

@@ -14,6 +14,7 @@ import {
   CheckCircle,
   X,
   KeyRound,
+  Building2,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -30,6 +31,11 @@ interface OrgEmployee {
   failedLoginAttempts: number;
   lockedUntil?: string | null;
   createdAt?: string;
+}
+
+interface Organisation {
+  id: string;
+  businessName: string;
 }
 
 type EmployeeStatus = 'active' | 'locked' | 'inactive';
@@ -518,6 +524,98 @@ function EmployeeRow({ emp, orgId, onAction }: EmployeeRowProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Org name search dropdown
+// ---------------------------------------------------------------------------
+
+interface OrgSearchProps {
+  onSelect: (org: Organisation) => void;
+}
+
+function OrgNameSearch({ onSelect }: OrgSearchProps) {
+  const [nameQuery, setNameQuery] = useState('');
+  const [results, setResults] = useState<Organisation[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+
+  async function handleNameSearch(e: React.FormEvent) {
+    e.preventDefault();
+    if (!nameQuery.trim()) return;
+    setSearching(true);
+    setSearchError('');
+    setResults([]);
+    try {
+      const data = await apiFetch(
+        `platform/organisations?search=${encodeURIComponent(nameQuery.trim())}`
+      );
+      let orgs: Organisation[] = [];
+      if (Array.isArray(data)) {
+        orgs = data as Organisation[];
+      } else if (data && typeof data === 'object') {
+        const d = data as { organisations?: Organisation[]; data?: Organisation[] };
+        if (Array.isArray(d.organisations)) orgs = d.organisations;
+        else if (Array.isArray(d.data)) orgs = d.data;
+      }
+      setResults(orgs);
+      if (orgs.length === 0) setSearchError('No organisations found.');
+    } catch (err) {
+      setSearchError((err as Error).message);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <form onSubmit={handleNameSearch} className="flex gap-3 max-w-xl">
+        <div className="relative flex-1">
+          <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+          <input
+            type="text"
+            placeholder="Search by org name…"
+            value={nameQuery}
+            onChange={(e) => setNameQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={!nameQuery.trim() || searching}
+          className="px-5 py-2.5 bg-blue-900 hover:bg-blue-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+        >
+          {searching ? <Loader2 size={14} className="animate-spin" /> : 'Find'}
+        </button>
+      </form>
+
+      {searchError && (
+        <p className="text-xs text-red-500 flex items-center gap-1">
+          <AlertCircle size={12} />
+          {searchError}
+        </p>
+      )}
+
+      {results.length > 0 && (
+        <div className="border border-gray-200 rounded-lg overflow-hidden max-w-xl">
+          {results.map((org) => (
+            <button
+              key={org.id}
+              onClick={() => {
+                onSelect(org);
+                setResults([]);
+                setNameQuery('');
+              }}
+              className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-left hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-0"
+            >
+              <span className="font-medium text-gray-900">{org.businessName}</span>
+              <span className="text-xs font-mono text-gray-400 truncate ml-3">{org.id}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main content
 // ---------------------------------------------------------------------------
 
@@ -527,10 +625,12 @@ function StaffContent() {
 
   const [orgIdInput, setOrgIdInput] = useState(searchParams.get('orgId') ?? '');
   const [activeOrgId, setActiveOrgId] = useState(searchParams.get('orgId') ?? '');
+  const [activeOrgName, setActiveOrgName] = useState('');
   const [search, setSearch] = useState('');
   const [employees, setEmployees] = useState<OrgEmployee[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
+  const [searchMode, setSearchMode] = useState<'id' | 'name'>('id');
 
   const fetchEmployees = useCallback(async (orgId: string) => {
     if (!orgId) return;
@@ -571,7 +671,7 @@ function StaffContent() {
     if (initial) {
       setActiveOrgId(initial);
       setOrgIdInput(initial);
-      fetchEmployees(initial);
+      void fetchEmployees(initial);
     }
   }, [fetchEmployees, searchParams]);
 
@@ -580,12 +680,21 @@ function StaffContent() {
     const id = orgIdInput.trim();
     if (!id) return;
     setActiveOrgId(id);
+    setActiveOrgName('');
     router.replace(`/dashboard/staff?orgId=${encodeURIComponent(id)}`);
-    fetchEmployees(id);
+    void fetchEmployees(id);
+  }
+
+  function handleOrgSelect(org: Organisation) {
+    setActiveOrgId(org.id);
+    setActiveOrgName(org.businessName);
+    setOrgIdInput(org.id);
+    router.replace(`/dashboard/staff?orgId=${encodeURIComponent(org.id)}`);
+    void fetchEmployees(org.id);
   }
 
   function handleRefresh() {
-    if (activeOrgId) fetchEmployees(activeOrgId);
+    if (activeOrgId) void fetchEmployees(activeOrgId);
   }
 
   const filtered = employees.filter((emp) => {
@@ -623,32 +732,75 @@ function StaffContent() {
         )}
       </div>
 
-      {/* Org ID picker */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
-          Organisation
-        </p>
-        <form onSubmit={handleLoad} className="flex gap-3 max-w-xl">
-          <input
-            type="text"
-            placeholder="Enter Organisation UUID…"
-            value={orgIdInput}
-            onChange={(e) => setOrgIdInput(e.target.value)}
-            className="flex-1 px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent font-mono"
-            spellCheck={false}
-          />
-          <button
-            type="submit"
-            disabled={!orgIdInput.trim() || loading}
-            className="px-5 py-2.5 bg-blue-900 hover:bg-blue-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-          >
-            Load
-          </button>
-        </form>
+      {/* Org picker */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Organisation
+          </p>
+          {/* Toggle between ID and name search */}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+            <button
+              onClick={() => setSearchMode('id')}
+              className={`px-3 py-1.5 font-medium transition-colors ${
+                searchMode === 'id'
+                  ? 'bg-blue-900 text-white'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              By ID
+            </button>
+            <button
+              onClick={() => setSearchMode('name')}
+              className={`px-3 py-1.5 font-medium transition-colors border-l border-gray-200 ${
+                searchMode === 'name'
+                  ? 'bg-blue-900 text-white'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              By Name
+            </button>
+          </div>
+        </div>
+
+        {searchMode === 'id' ? (
+          <form onSubmit={handleLoad} className="flex gap-3 max-w-xl">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input
+                type="text"
+                placeholder="Enter Organisation UUID…"
+                value={orgIdInput}
+                onChange={(e) => setOrgIdInput(e.target.value)}
+                className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent font-mono"
+                spellCheck={false}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={!orgIdInput.trim() || loading}
+              className="px-5 py-2.5 bg-blue-900 hover:bg-blue-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+            >
+              Load
+            </button>
+          </form>
+        ) : (
+          <OrgNameSearch onSelect={handleOrgSelect} />
+        )}
+
         {activeOrgId && (
-          <p className="mt-2 text-xs text-gray-400">
-            Loaded:{' '}
-            <span className="font-mono text-gray-600">{activeOrgId}</span>
+          <p className="text-xs text-gray-400">
+            {activeOrgName ? (
+              <>
+                Loaded:{' '}
+                <span className="font-medium text-gray-700">{activeOrgName}</span>{' '}
+                <span className="font-mono text-gray-400">({activeOrgId})</span>
+              </>
+            ) : (
+              <>
+                Loaded: <span className="font-mono text-gray-600">{activeOrgId}</span>
+              </>
+            )}
           </p>
         )}
       </div>
@@ -747,7 +899,7 @@ function StaffContent() {
       {!activeOrgId && (
         <div className="flex flex-col items-center justify-center py-20 text-gray-400 gap-3">
           <Users size={40} className="opacity-30" />
-          <p className="text-sm">Enter an organisation ID above to load its employees.</p>
+          <p className="text-sm">Enter an organisation ID or search by name above to load its employees.</p>
         </div>
       )}
     </div>

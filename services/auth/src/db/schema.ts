@@ -316,7 +316,7 @@ export const printersRelations = relations(printers, ({ one }) => ({
 
 // ── Platform Staff ────────────────────────────────────────────────────────────
 
-export const platformRoleEnum = pgEnum('platform_role', ['superadmin', 'support', 'reseller']);
+export const platformRoleEnum = pgEnum('platform_role', ['superadmin', 'support', 'reseller', 'sales_agent']);
 
 export const platformStaff = pgTable('platform_staff', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -379,3 +379,72 @@ export const devicePairingCodesRelations = relations(devicePairingCodes, ({ one 
   location: one(locations, { fields: [devicePairingCodes.locationId], references: [locations.id] }),
   createdByEmployee: one(employees, { fields: [devicePairingCodes.createdBy], references: [employees.id] }),
 }));
+
+// ── Plans ─────────────────────────────────────────────────────────────────────
+
+export const plans = pgTable('plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 100 }).notNull(),
+  slug: varchar('slug', { length: 100 }).notNull().unique(),
+  description: text('description'),
+  monthlyPrice: numeric('monthly_price', { precision: 10, scale: 2 }).notNull(),
+  annualPrice: numeric('annual_price', { precision: 10, scale: 2 }),
+  features: jsonb('features').notNull().default([]),
+  isPublic: boolean('is_public').notNull().default(true),
+  isActive: boolean('is_active').notNull().default(true),
+  maxLocations: integer('max_locations').notNull().default(1),
+  maxEmployees: integer('max_employees').notNull().default(50),
+  maxProducts: integer('max_products').notNull().default(1000),
+  trialDays: integer('trial_days').notNull().default(14),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Signup Links ──────────────────────────────────────────────────────────────
+
+export const signupLinks = pgTable('signup_links', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  code: varchar('code', { length: 50 }).notNull().unique(),
+  createdByPlatformUserId: uuid('created_by_platform_user_id').references(() => platformStaff.id),
+  salesAgentId: uuid('sales_agent_id').references(() => platformStaff.id),
+  planId: uuid('plan_id').references(() => plans.id),
+  orgName: varchar('org_name', { length: 200 }),
+  customMonthlyPrice: numeric('custom_monthly_price', { precision: 10, scale: 2 }),
+  customAnnualPrice: numeric('custom_annual_price', { precision: 10, scale: 2 }),
+  customTrialDays: integer('custom_trial_days'),
+  note: text('note'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  usedByOrgId: uuid('used_by_org_id'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Support Notes ─────────────────────────────────────────────────────────────
+
+export const supportNotes = pgTable('support_notes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  authorId: uuid('author_id').notNull().references(() => platformStaff.id),
+  authorName: varchar('author_name', { length: 200 }).notNull(),
+  body: text('body').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Audit Logs ────────────────────────────────────────────────────────────────
+
+export const auditLogs = pgTable('audit_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id'),
+  platformUserId: uuid('platform_user_id'),
+  actorName: varchar('actor_name', { length: 200 }),
+  action: varchar('action', { length: 100 }).notNull(),
+  resourceType: varchar('resource_type', { length: 100 }).notNull(),
+  resourceId: varchar('resource_id', { length: 200 }),
+  detail: jsonb('detail'),
+  ipAddress: varchar('ip_address', { length: 45 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

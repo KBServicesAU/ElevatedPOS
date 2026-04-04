@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { platformFetch } from '@/lib/api';
-import { Building2, CheckCircle, DollarSign, Activity } from 'lucide-react';
+import { Building2, CheckCircle, DollarSign, Activity, ScrollText } from 'lucide-react';
 
 interface Org {
   id: string;
@@ -17,13 +17,19 @@ interface OrgsResponse {
   total: number;
 }
 
-const MOCK_ACTIVITY = [
-  { id: 1, event: 'New merchant signed up', detail: 'Acme Coffee Co.', time: '2 min ago' },
-  { id: 2, event: 'Device paired', detail: 'POS terminal — Melbourne CBD', time: '14 min ago' },
-  { id: 3, event: 'Plan upgraded', detail: 'Sunrise Bakery → Growth', time: '1 hr ago' },
-  { id: 4, event: 'New merchant signed up', detail: 'Harbor Fish & Chips', time: '3 hr ago' },
-  { id: 5, event: 'Device revoked', detail: 'KDS unit — Sydney North', time: '5 hr ago' },
-];
+interface AuditLog {
+  id: string;
+  actorEmail: string | null;
+  actorName: string | null;
+  action: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  createdAt: string;
+}
+
+interface AuditLogsResponse {
+  data: AuditLog[];
+}
 
 function planBadgeColor(plan: string): string {
   if (plan === 'enterprise') return 'bg-yellow-500/20 text-yellow-400';
@@ -31,10 +37,32 @@ function planBadgeColor(plan: string): string {
   return 'bg-gray-500/20 text-gray-400';
 }
 
+function timeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} hr ago`;
+  return `${Math.floor(diffHr / 24)}d ago`;
+}
+
+function formatActivityLine(log: AuditLog): { event: string; detail: string } {
+  const actor = log.actorName ?? log.actorEmail ?? 'System';
+  const resource = log.resourceType ? `${log.resourceType}${log.resourceId ? ` ${log.resourceId.slice(0, 8)}` : ''}` : '';
+  const event = `${actor} ${log.action.replace(/_/g, ' ')}`;
+  return { event, detail: resource };
+}
+
 export default function DashboardPage() {
   const [total, setTotal] = useState<number | null>(null);
   const [recentOrgs, setRecentOrgs] = useState<Org[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activityLogs, setActivityLogs] = useState<AuditLog[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
@@ -49,6 +77,21 @@ export default function DashboardPage() {
       }
     }
     void load();
+  }, []);
+
+  useEffect(() => {
+    async function loadActivity() {
+      setActivityLoading(true);
+      try {
+        const data = (await platformFetch('platform/audit-logs?limit=10')) as AuditLogsResponse;
+        setActivityLogs(data.data ?? []);
+      } catch {
+        setActivityLogs([]);
+      } finally {
+        setActivityLoading(false);
+      }
+    }
+    void loadActivity();
   }, []);
 
   const kpis = [
@@ -149,22 +192,34 @@ export default function DashboardPage() {
 
         {/* Recent Activity */}
         <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg">
-          <div className="px-6 py-4 border-b border-[#1e1e2e]">
+          <div className="px-6 py-4 border-b border-[#1e1e2e] flex items-center justify-between">
             <h2 className="text-white font-semibold">Recent Activity</h2>
+            <ScrollText className="w-4 h-4 text-gray-500" />
           </div>
           <div className="divide-y divide-[#1e1e2e]">
-            {MOCK_ACTIVITY.map((item) => (
-              <div
-                key={item.id}
-                className="px-6 py-3 flex items-start justify-between hover:bg-[#1e1e2e]/30"
-              >
-                <div>
-                  <p className="text-white text-sm">{item.event}</p>
-                  <p className="text-gray-500 text-xs mt-0.5">{item.detail}</p>
-                </div>
-                <span className="text-gray-600 text-xs whitespace-nowrap ml-4">{item.time}</span>
-              </div>
-            ))}
+            {activityLoading ? (
+              <div className="px-6 py-8 text-center text-gray-600 text-sm">Loading...</div>
+            ) : activityLogs.length === 0 ? (
+              <div className="px-6 py-8 text-center text-gray-600 text-sm">No activity yet</div>
+            ) : (
+              activityLogs.map((log) => {
+                const { event, detail } = formatActivityLine(log);
+                return (
+                  <div
+                    key={log.id}
+                    className="px-6 py-3 flex items-start justify-between hover:bg-[#1e1e2e]/30"
+                  >
+                    <div className="min-w-0 flex-1 mr-4">
+                      <p className="text-white text-sm truncate">{event}</p>
+                      {detail && <p className="text-gray-500 text-xs mt-0.5 truncate">{detail}</p>}
+                    </div>
+                    <span className="text-gray-600 text-xs whitespace-nowrap shrink-0">
+                      {timeAgo(log.createdAt)}
+                    </span>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>

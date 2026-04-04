@@ -18,6 +18,10 @@ import { deviceRoutes } from './routes/devices';
 import { printerRoutes } from './routes/printers';
 import { organisationRoutes } from './routes/organisations';
 import { platformRoutes } from './routes/platform';
+import { planRoutes } from './routes/plans';
+import { signupLinkRoutes } from './routes/signupLinks';
+import { supportNoteRoutes } from './routes/supportNotes';
+import { auditLogRoutes } from './routes/auditLogs';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -100,6 +104,10 @@ async function start() {
   await app.register(printerRoutes, { prefix: '/api/v1/printers' });
   await app.register(organisationRoutes, { prefix: '/api/v1/organisations' });
   await app.register(platformRoutes, { prefix: '/api/v1/platform' });
+  await app.register(planRoutes,        { prefix: '/api/v1/plans' });
+  await app.register(signupLinkRoutes,  { prefix: '/api/v1/signup-links' });
+  await app.register(supportNoteRoutes, { prefix: '/api/v1/support-notes' });
+  await app.register(auditLogRoutes,    { prefix: '/api/v1/audit-logs' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'auth', timestamp: new Date().toISOString() }));
 

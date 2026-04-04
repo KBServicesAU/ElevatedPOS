@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -12,25 +12,61 @@ import {
   Menu,
   X,
   Users,
+  ShoppingCart,
+  Link2,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/dashboard/merchants', label: 'Merchants', icon: Building2 },
+  { href: '/dashboard/orders', label: 'Orders', icon: ShoppingCart },
+  { href: '/dashboard/signup-links', label: 'Signup Links', icon: Link2 },
   { href: '/dashboard/devices', label: 'Devices', icon: MonitorSmartphone },
   { href: '/dashboard/actions-log', label: 'Actions Log', icon: ScrollText },
   { href: '/dashboard/staff', label: 'Staff', icon: Users },
 ];
 
+interface JwtUser {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  role?: string;
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [user, setUser] = useState<JwtUser>({});
+
+  useEffect(() => {
+    // Fetch user info from a dedicated me endpoint that reads the httpOnly cookie server-side
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: JwtUser | null) => {
+        if (data) setUser(data);
+      })
+      .catch(() => {});
+  }, []);
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/login');
   }
+
+  const displayName =
+    user.firstName && user.lastName
+      ? `${user.firstName} ${user.lastName}`
+      : user.firstName ?? user.email ?? 'Support Staff';
+
+  const initials =
+    user.firstName && user.lastName
+      ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
+      : user.firstName
+      ? user.firstName.slice(0, 2).toUpperCase()
+      : 'SP';
+
+  const roleLabel = user.role ?? 'support';
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -87,11 +123,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="px-3 py-4 border-t border-blue-800">
           <div className="flex items-center gap-3 px-3 py-2 mb-1">
             <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
-              <span className="text-white text-xs font-semibold">SP</span>
+              <span className="text-white text-xs font-semibold">{initials}</span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-medium truncate">Support Staff</p>
-              <p className="text-blue-300 text-xs truncate">support</p>
+              <p className="text-white text-sm font-medium truncate">{displayName}</p>
+              <p className="text-blue-300 text-xs truncate capitalize">{roleLabel}</p>
             </div>
           </div>
           <button

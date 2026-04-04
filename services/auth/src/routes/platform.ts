@@ -24,7 +24,7 @@ const createStaffSchema = z.object({
   password: z.string().min(8),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
-  role: z.enum(['superadmin', 'support', 'reseller']),
+  role: z.enum(['superadmin', 'support', 'reseller', 'sales_agent']),
   resellerOrgId: z.string().uuid().optional(),
 });
 
@@ -35,7 +35,7 @@ interface PlatformPayload {
   email: string;
   firstName: string;
   lastName: string;
-  role: 'superadmin' | 'support' | 'reseller';
+  role: 'superadmin' | 'support' | 'reseller' | 'sales_agent';
   resellerOrgId: string | null;
   type: 'platform';
 }
@@ -400,7 +400,7 @@ export async function platformRoutes(app: FastifyInstance) {
       firstName: z.string().min(1).optional(),
       lastName:  z.string().min(1).optional(),
       email:     z.string().email().optional(),
-      role:      z.enum(['superadmin', 'support', 'reseller']).optional(),
+      role:      z.enum(['superadmin', 'support', 'reseller', 'sales_agent']).optional(),
       isActive:  z.boolean().optional(),
       password:  z.string().min(8).optional(),
     }).safeParse(request.body);
