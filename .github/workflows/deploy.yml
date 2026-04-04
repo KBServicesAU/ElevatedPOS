@@ -121,7 +121,8 @@ jobs:
           kubectl delete job elevatedpos-migrations -n elevatedpos --ignore-not-found
           kubectl apply -f infrastructure/k8s/migrations-job.yaml
           kubectl wait --for=condition=complete job/elevatedpos-migrations \
-            -n elevatedpos --timeout=10m
+            -n elevatedpos --timeout=15m || \
+            (kubectl logs -l app=elevatedpos-migrations -n elevatedpos --tail=50 && exit 1)
 
       - name: Update image tags
         run: |
