@@ -1,14 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
+import crypto from 'crypto';
 import { db, schema } from '../db';
 import {
   verifyPassword,
   verifyPin,
+  hashPassword,
   generateRefreshToken,
   hashToken,
   addToBlacklist,
 } from '../lib/tokens';
+
+const NOTIFICATIONS_API_URL = process.env['NOTIFICATIONS_API_URL'] ?? 'http://notifications:4009';
+const APP_URL               = process.env['APP_URL']               ?? 'https://app.elevatedpos.com.au';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -399,5 +404,110 @@ export async function authRoutes(app: FastifyInstance) {
     if (!employee) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
     return reply.status(200).send({ data: employee });
+  });
+
+  // POST /api/v1/auth/forgot-password
+  app.post('/forgot-password', { config: { skipAuth: true } }, async (request, reply) => {
+    const body = z.object({ email: z.string().email() }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422 });
+    }
+
+    const { email } = body.data;
+
+    // Always return 200 to prevent email enumeration
+    const employee = await db.query.employees.findFirst({
+      where: eq(schema.employees.email, email.toLowerCase()),
+    });
+
+    if (employee && employee.isActive) {
+      const rawToken   = crypto.randomBytes(32).toString('hex');
+      const tokenHash  = hashToken(rawToken);
+      const expiresAt  = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      await db
+        .update(schema.employees)
+        .set({ passwordResetToken: tokenHash, passwordResetExpiresAt: expiresAt })
+        .where(eq(schema.employees.id, employee.id));
+
+      const resetUrl  = `${APP_URL}/reset-password?token=${rawToken}`;
+      const firstName = employee.firstName;
+
+      // Sign a short-lived internal JWT so the notifications service accepts the call
+      const internalToken = app.jwt.sign(
+        { sub: employee.id, orgId: employee.orgId, role: 'system' },
+        { expiresIn: '5m' },
+      );
+
+      // Fire-and-forget email — non-fatal if it fails
+      fetch(`${NOTIFICATIONS_API_URL}/api/v1/notifications/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${internalToken}` },
+        body: JSON.stringify({
+          to: employee.email,
+          subject: 'Reset your ElevatedPOS password',
+          template: 'custom',
+          orgId: employee.orgId,
+          data: {
+            body: `<p>Hi ${firstName},</p>
+<p>We received a request to reset the password for your ElevatedPOS account.</p>
+<p><a href="${resetUrl}" style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin:12px 0;">Reset My Password</a></p>
+<p>Or copy this link: ${resetUrl}</p>
+<p>This link expires in <strong>1 hour</strong>. If you didn&apos;t request a password reset, you can safely ignore this email.</p>`,
+          },
+        }),
+      }).catch((err) => console.error('[auth/forgot-password] notification failed:', err));
+    }
+
+    return reply.status(200).send({ ok: true });
+  });
+
+  // POST /api/v1/auth/reset-password
+  app.post('/reset-password', { config: { skipAuth: true } }, async (request, reply) => {
+    const body = z.object({
+      token:    z.string().min(1),
+      password: z.string().min(8),
+      // emp is optional — included in reset links for faster lookup but not required
+      emp:      z.string().uuid().optional(),
+    }).safeParse(request.body);
+
+    if (!body.success) {
+      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    }
+
+    const { token, password } = body.data;
+    const tokenHash = hashToken(token);
+
+    // Find employee by token hash (token is 32 random bytes, safe for table scan)
+    const employee = await db.query.employees.findFirst({
+      where: eq(schema.employees.passwordResetToken, tokenHash),
+    });
+
+    if (
+      !employee ||
+      !employee.passwordResetExpiresAt ||
+      employee.passwordResetExpiresAt < new Date()
+    ) {
+      return reply.status(400).send({
+        type: 'https://nexus.app/errors/invalid-token',
+        title: 'Invalid or expired reset link',
+        status: 400,
+      });
+    }
+
+    const newHash = await hashPassword(password);
+
+    await db
+      .update(schema.employees)
+      .set({
+        passwordHash:           newHash,
+        passwordResetToken:     null,
+        passwordResetExpiresAt: null,
+        failedLoginAttempts:    0,
+        lockedUntil:            null,
+      })
+      .where(eq(schema.employees.id, emp));
+
+    return reply.status(200).send({ ok: true });
   });
 }

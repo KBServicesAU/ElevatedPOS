@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { db, schema } from '../db/index.js';
+import { sendEmail } from '../lib/channels/email.js';
 
 const TEMPLATES = ['receipt', 'layby_statement', 'gift_card', 'campaign', 'custom'] as const;
 
@@ -174,16 +175,10 @@ export async function emailRoutes(app: FastifyInstance) {
     const { resolvedSubject, htmlBody, textBody } = renderTemplate(template, subject, data as Record<string, unknown>);
     const messageId = crypto.randomUUID();
 
-    // Mock SMTP: log full message to console
-    console.log('[notifications/email] MOCK SMTP — sending email', {
-      messageId,
-      to,
-      subject: resolvedSubject,
-      template,
-      orgId,
-      htmlBody: htmlBody.slice(0, 200) + (htmlBody.length > 200 ? '…' : ''),
-      textBody: textBody.slice(0, 200) + (textBody.length > 200 ? '…' : ''),
-    });
+    // Send via SMTP (falls back to console log if SMTP_HOST not set)
+    const result = await sendEmail({ to, subject: resolvedSubject, htmlBody, textBody, orgId });
+
+    const status = result.success ? 'sent' : 'failed';
 
     // Save to notificationLogs
     await db.insert(schema.notificationLogs).values({
@@ -192,10 +187,20 @@ export async function emailRoutes(app: FastifyInstance) {
       channel: 'email',
       recipient: to,
       subject: resolvedSubject,
-      status: 'sent',
+      status,
       sentAt: new Date(),
     });
 
-    return reply.status(200).send({ messageId, to, subject: resolvedSubject, status: 'sent' });
+    if (!result.success) {
+      return reply.status(502).send({
+        type: 'https://nexus.app/errors/smtp-failure',
+        title: 'Email Send Failed',
+        status: 502,
+        detail: result.error ?? 'SMTP send failed',
+        messageId,
+      });
+    }
+
+    return reply.status(200).send({ messageId: result.messageId ?? messageId, to, subject: resolvedSubject, status: 'sent' });
   });
 }
