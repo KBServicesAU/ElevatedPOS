@@ -112,7 +112,7 @@ jobs:
           kubectl apply -f infrastructure/k8s/configmap.yaml
           kubectl apply -f infrastructure/k8s/services/
           kubectl apply -f infrastructure/k8s/apps/
-          kubectl apply -f infrastructure/k8s/ingress.yaml
+          # infrastructure/k8s/ingress.yaml hosts are managed by Helm; skipped to avoid conflicts
           kubectl apply -f infrastructure/k8s/ingress/
 
       - name: Run database migrations
@@ -172,7 +172,7 @@ jobs:
           kubectl apply -f infrastructure/k8s/configmap.yaml
           kubectl apply -f infrastructure/k8s/services/
           kubectl apply -f infrastructure/k8s/apps/
-          kubectl apply -f infrastructure/k8s/ingress.yaml
+          # infrastructure/k8s/ingress.yaml hosts are managed by Helm; skipped to avoid conflicts
           kubectl apply -f infrastructure/k8s/ingress/
 
       - name: Run database migrations
