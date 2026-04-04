@@ -26,6 +26,12 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.ORDERS_API_URL ?? 'http://localhost:4004',
     prefix: '/api/v1/orders',
   },
+  // "catalog" is a catch-all for all catalog-service endpoints using the
+  // /api/proxy/catalog/<resource> convention used in POS, kiosk, product-form, etc.
+  catalog: {
+    base: process.env.CATALOG_API_URL ?? 'http://localhost:4002',
+    prefix: '/api/v1',
+  },
   products: {
     base: process.env.CATALOG_API_URL ?? 'http://localhost:4002',
     prefix: '/api/v1/products',
@@ -102,9 +108,11 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.INTEGRATIONS_API_URL ?? 'http://localhost:4010',
     prefix: '/api/v1/integrations/apps',
   },
+  // "integrations" is used with full paths like /api/proxy/integrations/api/v1/connect/...
+  // so the prefix must be empty — the frontend provides the complete path segment.
   integrations: {
     base: process.env.INTEGRATIONS_API_URL ?? 'http://localhost:4010',
-    prefix: '/api/v1/integrations',
+    prefix: '',
   },
   webhooks: {
     base: process.env.WEBHOOKS_API_URL ?? 'http://localhost:4015',

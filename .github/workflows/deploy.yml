@@ -12,6 +12,10 @@ on:
         type: choice
         options: [staging, prod]
 
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
 env:
   AWS_REGION: ap-southeast-2
   ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com

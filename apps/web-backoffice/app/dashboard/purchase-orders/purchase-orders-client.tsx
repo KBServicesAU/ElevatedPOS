@@ -142,6 +142,8 @@ function NewPOModal({ onClose, onSave }: NewPOModalProps) {
     { productName: '', sku: '', qty: '', unitCost: '' },
   ]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     fetch('/api/proxy/suppliers')
@@ -170,30 +172,44 @@ function NewPOModal({ onClose, onSave }: NewPOModalProps) {
     return sum + Math.round(qty * cost * 100);
   }, 0);
 
-  function handleSubmit(asDraft: boolean) {
-    const po: PurchaseOrder = {
-      id: `po-${Date.now()}`,
-      poNumber: `PO-2024-${String(Math.floor(Math.random() * 900) + 100)}`,
+  async function handleSubmit(asDraft: boolean) {
+    setSaveError('');
+    setSaving(true);
+    const payload = {
       supplierId,
       supplierName: selectedSupplier?.name ?? '',
       status: asDraft ? 'draft' : 'sent',
+      expectedDate,
+      shippingAddress,
       lineItems: lineItems
         .filter((li) => li.productName)
-        .map((li, i) => ({
-          id: `li-new-${i}`,
+        .map((li) => ({
           productName: li.productName,
           sku: li.sku,
           orderedQty: parseFloat(li.qty) || 0,
-          receivedQty: 0,
           unitCost: Math.round(parseFloat(li.unitCost) * 100) || 0,
         })),
-      totalCost: totalCents,
-      expectedDate,
-      shippingAddress,
-      createdAt: new Date().toISOString().slice(0, 10),
     };
-    onSave(po, asDraft);
-    onClose();
+    try {
+      const res = await fetch('/api/proxy/purchase-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.message ?? b.error ?? b.detail ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      const json = await res.json() as { data?: PurchaseOrder } | PurchaseOrder;
+      const saved = ('data' in json && json.data) ? json.data : json as PurchaseOrder;
+      onSave(saved, asDraft);
+      onClose();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to create purchase order');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const step1Valid = supplierId && expectedDate && shippingAddress;
@@ -407,17 +423,22 @@ function NewPOModal({ onClose, onSave }: NewPOModalProps) {
               </button>
             ) : (
               <>
+                {saveError && (
+                  <p className="w-full text-sm text-red-600 dark:text-red-400">{saveError}</p>
+                )}
                 <button
-                  onClick={() => handleSubmit(true)}
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  onClick={() => void handleSubmit(true)}
+                  disabled={saving}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 disabled:opacity-50"
                 >
-                  Save as Draft
+                  {saving ? 'Saving…' : 'Save as Draft'}
                 </button>
                 <button
-                  onClick={() => handleSubmit(false)}
-                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                  onClick={() => void handleSubmit(false)}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  <Truck className="h-4 w-4" /> Send to Supplier
+                  <Truck className="h-4 w-4" /> {saving ? 'Sending…' : 'Send to Supplier'}
                 </button>
               </>
             )}
