@@ -1,17 +1,16 @@
 /**
- * Email channel dispatcher — Google Workspace SMTP via nodemailer.
+ * Email channel dispatcher — Resend (https://resend.com)
  *
  * Required env vars:
- *   SMTP_HOST     smtp.gmail.com
- *   SMTP_PORT     587  (TLS/STARTTLS — recommended)
- *   SMTP_USER     info@elevatedpos.com.au
- *   SMTP_PASS     Google App Password (16 chars, no spaces)
- *   EMAIL_FROM    "ElevatedPOS <info@elevatedpos.com.au>"
+ *   RESEND_API_KEY   re_xxxxxxxxxxxxxxxxxxxx   (from Resend dashboard)
+ *   EMAIL_FROM       "ElevatedPOS <noreply@email.elevatedpos.com.au>"
  *
- * In development, if SMTP_HOST is absent the call is a no-op that logs to
- * the console so the rest of the system can be exercised locally without
+ * In development, if RESEND_API_KEY is absent the call is a no-op that logs
+ * to the console so the rest of the system can be exercised locally without
  * real credentials.
  */
+
+import { Resend } from 'resend';
 
 export interface SendEmailOptions {
   to: string;
@@ -29,11 +28,11 @@ export interface SendEmailResult {
 }
 
 export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
-  const smtpHost = process.env['SMTP_HOST'];
+  const apiKey = process.env['RESEND_API_KEY'];
 
   // ── Dev / mock path ──────────────────────────────────────────────────────
-  if (!smtpHost || process.env['EMAIL_MOCK'] === 'true') {
-    console.log('[notifications/email] No SMTP_HOST — mock send', {
+  if (!apiKey || process.env['EMAIL_MOCK'] === 'true') {
+    console.log('[notifications/email] No RESEND_API_KEY — mock send', {
       to: opts.to,
       subject: opts.subject,
       orgId: opts.orgId,
@@ -41,53 +40,42 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
     return { success: true, messageId: `mock-${Date.now()}`, mock: true };
   }
 
-  // ── Production path — Google Workspace SMTP ──────────────────────────────
+  // ── Production path — Resend ─────────────────────────────────────────────
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nodemailer = await import('nodemailer').catch(() => null);
-    if (!nodemailer) {
-      throw new Error('nodemailer is not installed — run: pnpm add nodemailer');
+    const resend = new Resend(apiKey);
+    const from = process.env['EMAIL_FROM'] ?? 'ElevatedPOS <noreply@email.elevatedpos.com.au>';
+
+    const base = { from, to: opts.to, subject: opts.subject };
+    const { data, error } = await resend.emails.send(
+      opts.htmlBody && opts.textBody ? { ...base, html: opts.htmlBody, text: opts.textBody } :
+      opts.htmlBody                  ? { ...base, html: opts.htmlBody } :
+                                       { ...base, text: opts.textBody ?? '' },
+    );
+
+    if (error) {
+      console.error('[notifications/email] Resend error', {
+        to:    opts.to,
+        orgId: opts.orgId,
+        error: error.message,
+      });
+      return { success: false, error: error.message };
     }
 
-    const smtpPort  = Number(process.env['SMTP_PORT']  ?? 587);
-    const smtpUser  = process.env['SMTP_USER']  ?? '';
-    const smtpPass  = process.env['SMTP_PASS']  ?? '';
-    const emailFrom = process.env['EMAIL_FROM'] ?? 'ElevatedPOS <info@elevatedpos.com.au>';
-
-    const transporter = nodemailer.createTransport({
-      host:   smtpHost,   // smtp.gmail.com
-      port:   smtpPort,   // 587
-      secure: smtpPort === 465,  // true for 465/SSL, false for 587/TLS
-      auth: {
-        user: smtpUser,  // info@elevatedpos.com.au
-        pass: smtpPass,  // Google App Password
-      },
-    });
-
-    const info = await transporter.sendMail({
-      from:    emailFrom,
-      to:      opts.to,
-      subject: opts.subject,
-      ...(opts.htmlBody ? { html: opts.htmlBody } : {}),
-      ...(opts.textBody ? { text: opts.textBody } : {}),
-    });
-
-    console.log('[notifications/email] Sent via Google Workspace SMTP', {
+    console.log('[notifications/email] Sent via Resend', {
       to:        opts.to,
       subject:   opts.subject,
-      messageId: info.messageId,
+      messageId: data?.id,
       orgId:     opts.orgId,
     });
 
-    return { success: true, messageId: info.messageId };
+    return { success: true, messageId: data?.id };
 
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[notifications/email] SMTP send failed', {
-      to:      opts.to,
-      subject: opts.subject,
-      orgId:   opts.orgId,
-      error:   message,
+    console.error('[notifications/email] Resend send failed', {
+      to:    opts.to,
+      orgId: opts.orgId,
+      error: message,
     });
     return { success: false, error: message };
   }

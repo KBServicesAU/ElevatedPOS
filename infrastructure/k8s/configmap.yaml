@@ -29,6 +29,8 @@ data:
   # Public app URL — used in auth emails (password reset links etc.)
   APP_URL: "https://app.elevatedpos.com.au"
   NOTIFICATIONS_API_URL: "http://notifications:4009"
+  # Email sender — must match a verified Resend domain
+  EMAIL_FROM: "ElevatedPOS <noreply@email.elevatedpos.com.au>"
   # Set to "true" on environments with Stripe test keys but no physical
   # Terminal hardware (e.g. staging). Production should be "false".
   STRIPE_TERMINAL_SIMULATED: "false"
