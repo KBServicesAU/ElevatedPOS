@@ -16,7 +16,20 @@ const createEmployeeSchema = z.object({
   startDate: z.string().datetime().optional(),
 });
 
-const updateEmployeeSchema = createEmployeeSchema.partial().omit({ password: true });
+const updateEmployeeSchema = z.object({
+  firstName:            z.string().min(1).max(100).optional(),
+  lastName:             z.string().min(1).max(100).optional(),
+  email:                z.string().email().optional(),
+  pin:                  z.string().min(4).max(8).optional(),
+  roleId:               z.string().uuid().optional(),
+  locationIds:          z.array(z.string().uuid()).optional(),
+  employmentType:       z.enum(['full_time', 'part_time', 'casual']).optional(),
+  startDate:            z.string().datetime().optional(),
+  isActive:             z.boolean().optional(),
+  lockedUntil:          z.string().datetime().nullable().optional(),
+  failedLoginAttempts:  z.number().int().min(0).optional(),
+  password:             z.string().min(8).optional(),
+});
 
 export async function employeeRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
@@ -105,14 +118,14 @@ export async function employeeRoutes(app: FastifyInstance) {
   app.patch('/:id', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
-    const body = updateEmployeeSchema.safeParse(request.body);
+    const parsed = updateEmployeeSchema.safeParse(request.body);
 
-    if (!body.success) {
+    if (!parsed.success) {
       return reply.status(422).send({
         type: 'https://nexus.app/errors/validation',
         title: 'Validation Error',
         status: 422,
-        detail: body.error.message,
+        detail: parsed.error.message,
       });
     }
 
@@ -124,17 +137,26 @@ export async function employeeRoutes(app: FastifyInstance) {
       return reply.status(404).send({ title: 'Not Found', status: 404 });
     }
 
+    let newPasswordHash: string | undefined;
+    if (parsed.data.password) {
+      newPasswordHash = await hashPassword(parsed.data.password);
+    }
+
     const updatedRows = await db
       .update(schema.employees)
       .set({
-        ...(body.data.firstName !== undefined ? { firstName: body.data.firstName } : {}),
-        ...(body.data.lastName !== undefined ? { lastName: body.data.lastName } : {}),
-        ...(body.data.email !== undefined ? { email: body.data.email.toLowerCase() } : {}),
-        ...(body.data.roleId !== undefined ? { roleId: body.data.roleId } : {}),
-        ...(body.data.locationIds !== undefined ? { locationIds: body.data.locationIds } : {}),
-        ...(body.data.employmentType !== undefined ? { employmentType: body.data.employmentType } : {}),
-        ...(body.data.startDate !== undefined ? { startDate: new Date(body.data.startDate) } : {}),
-        ...(body.data.pin !== undefined ? { pin: await hashPin(body.data.pin) } : {}),
+        ...(parsed.data.firstName !== undefined ? { firstName: parsed.data.firstName } : {}),
+        ...(parsed.data.lastName !== undefined ? { lastName: parsed.data.lastName } : {}),
+        ...(parsed.data.email !== undefined ? { email: parsed.data.email.toLowerCase() } : {}),
+        ...(parsed.data.roleId !== undefined ? { roleId: parsed.data.roleId } : {}),
+        ...(parsed.data.locationIds !== undefined ? { locationIds: parsed.data.locationIds } : {}),
+        ...(parsed.data.employmentType !== undefined ? { employmentType: parsed.data.employmentType } : {}),
+        ...(parsed.data.startDate !== undefined ? { startDate: new Date(parsed.data.startDate) } : {}),
+        ...(parsed.data.pin !== undefined ? { pin: await hashPin(parsed.data.pin) } : {}),
+        ...(parsed.data.isActive !== undefined ? { isActive: parsed.data.isActive } : {}),
+        ...(parsed.data.lockedUntil !== undefined ? { lockedUntil: parsed.data.lockedUntil ? new Date(parsed.data.lockedUntil) : null } : {}),
+        ...(parsed.data.failedLoginAttempts !== undefined ? { failedLoginAttempts: parsed.data.failedLoginAttempts } : {}),
+        ...(newPasswordHash ? { passwordHash: newPasswordHash } : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(schema.employees.id, id), eq(schema.employees.orgId, orgId)))
@@ -142,6 +164,24 @@ export async function employeeRoutes(app: FastifyInstance) {
     const updated = updatedRows[0]!;
 
     return reply.status(200).send({ data: { ...updated, passwordHash: undefined, pin: undefined } });
+  });
+
+  // POST /api/v1/employees/:id/unlock — clear lock and reset failed attempts
+  app.post('/:id/unlock', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+
+    const employee = await db.query.employees.findFirst({
+      where: and(eq(schema.employees.id, id), eq(schema.employees.orgId, user.orgId)),
+    });
+    if (!employee) return reply.status(404).send({ title: 'Employee not found', status: 404 });
+
+    const [updated] = await db.update(schema.employees)
+      .set({ failedLoginAttempts: 0, lockedUntil: null, updatedAt: new Date() })
+      .where(and(eq(schema.employees.id, id), eq(schema.employees.orgId, user.orgId)))
+      .returning();
+
+    return reply.send({ data: updated });
   });
 
   // DELETE /api/v1/employees/:id (soft delete)

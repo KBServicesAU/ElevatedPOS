@@ -11,6 +11,7 @@ import {
   LogOut,
   Menu,
   X,
+  Users,
 } from 'lucide-react';
 
 const navItems = [
@@ -18,6 +19,7 @@ const navItems = [
   { href: '/dashboard/merchants', label: 'Merchants', icon: Building2 },
   { href: '/dashboard/devices', label: 'Devices', icon: MonitorSmartphone },
   { href: '/dashboard/actions-log', label: 'Actions Log', icon: ScrollText },
+  { href: '/dashboard/staff', label: 'Staff', icon: Users },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

@@ -387,4 +387,175 @@ export async function platformRoutes(app: FastifyInstance) {
 
     return reply.send({ data: updated });
   });
+
+  // PATCH /api/v1/platform/staff/:id — update platform staff details (superadmin only)
+  app.patch('/staff/:id', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as { role?: string };
+    if (user.role !== 'superadmin') {
+      return reply.status(403).send({ title: 'Forbidden', status: 403 });
+    }
+
+    const { id } = request.params as { id: string };
+    const body = z.object({
+      firstName: z.string().min(1).optional(),
+      lastName:  z.string().min(1).optional(),
+      email:     z.string().email().optional(),
+      role:      z.enum(['superadmin', 'support', 'reseller']).optional(),
+      isActive:  z.boolean().optional(),
+      password:  z.string().min(8).optional(),
+    }).safeParse(request.body);
+
+    if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422, detail: body.error.message });
+
+    const existing = await db.query.platformStaff.findFirst({ where: eq(schema.platformStaff.id, id) });
+    if (!existing) return reply.status(404).send({ title: 'Staff not found', status: 404 });
+
+    let passwordHash: string | undefined;
+    if (body.data.password) {
+      passwordHash = await hashPassword(body.data.password);
+    }
+
+    const patch = Object.fromEntries(
+      Object.entries({
+        firstName:    body.data.firstName,
+        lastName:     body.data.lastName,
+        email:        body.data.email,
+        role:         body.data.role,
+        isActive:     body.data.isActive,
+        ...(passwordHash ? { passwordHash } : {}),
+      }).filter(([, v]) => v !== undefined),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ) as Record<string, any>;
+
+    const [updated] = await db.update(schema.platformStaff)
+      .set(patch)
+      .where(eq(schema.platformStaff.id, id))
+      .returning({ id: schema.platformStaff.id, email: schema.platformStaff.email, firstName: schema.platformStaff.firstName, lastName: schema.platformStaff.lastName, role: schema.platformStaff.role, isActive: schema.platformStaff.isActive });
+
+    return reply.send({ data: updated });
+  });
+
+  // GET /api/v1/platform/organisations/:id/employees — list employees for an org
+  app.get('/organisations/:id/employees', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { id: orgId } = request.params as { id: string };
+    const q = request.query as { search?: string; isActive?: string };
+
+    const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, orgId) });
+    if (!org) return reply.status(404).send({ title: 'Organisation not found', status: 404 });
+
+    const employees = await db.query.employees.findMany({
+      where: and(
+        eq(schema.employees.orgId, orgId),
+        ...(q.isActive !== undefined ? [eq(schema.employees.isActive, q.isActive === 'true')] : []),
+      ),
+      with: { role: true },
+      columns: { passwordHash: false, pin: false, mfaSecret: false, passwordResetToken: false, emailVerificationToken: false },
+      orderBy: (e, { asc }) => [asc(e.firstName), asc(e.lastName)],
+    });
+
+    return reply.send({ data: employees });
+  });
+
+  // PATCH /api/v1/platform/organisations/:id/employees/:empId — update org employee from platform
+  app.patch('/organisations/:id/employees/:empId', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { id: orgId, empId } = request.params as { id: string; empId: string };
+
+    const body = z.object({
+      firstName:           z.string().min(1).optional(),
+      lastName:            z.string().min(1).optional(),
+      email:               z.string().email().optional(),
+      isActive:            z.boolean().optional(),
+      lockedUntil:         z.string().datetime().nullable().optional(),
+      failedLoginAttempts: z.number().int().min(0).optional(),
+      password:            z.string().min(8).optional(),
+      roleId:              z.string().uuid().optional(),
+    }).safeParse(request.body);
+
+    if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422, detail: body.error.message });
+
+    const employee = await db.query.employees.findFirst({
+      where: and(eq(schema.employees.id, empId), eq(schema.employees.orgId, orgId)),
+    });
+    if (!employee) return reply.status(404).send({ title: 'Employee not found', status: 404 });
+
+    let passwordHash: string | undefined;
+    if (body.data.password) {
+      passwordHash = await hashPassword(body.data.password);
+    }
+
+    const patch = Object.fromEntries(
+      Object.entries({
+        firstName:           body.data.firstName,
+        lastName:            body.data.lastName,
+        email:               body.data.email,
+        isActive:            body.data.isActive,
+        lockedUntil:         body.data.lockedUntil !== undefined ? (body.data.lockedUntil ? new Date(body.data.lockedUntil) : null) : undefined,
+        failedLoginAttempts: body.data.failedLoginAttempts,
+        roleId:              body.data.roleId,
+        ...(passwordHash ? { passwordHash } : {}),
+        updatedAt:           new Date(),
+      }).filter(([, v]) => v !== undefined),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ) as Record<string, any>;
+
+    const [updated] = await db.update(schema.employees)
+      .set(patch)
+      .where(and(eq(schema.employees.id, empId), eq(schema.employees.orgId, orgId)))
+      .returning({ id: schema.employees.id, orgId: schema.employees.orgId, firstName: schema.employees.firstName, lastName: schema.employees.lastName, email: schema.employees.email, isActive: schema.employees.isActive, lockedUntil: schema.employees.lockedUntil, failedLoginAttempts: schema.employees.failedLoginAttempts, roleId: schema.employees.roleId, updatedAt: schema.employees.updatedAt });
+
+    return reply.send({ data: updated });
+  });
+
+  // POST /api/v1/platform/organisations/:id/employees — create employee in org from platform
+  app.post('/organisations/:id/employees', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as { role?: string };
+    if (user.role !== 'superadmin') {
+      return reply.status(403).send({ title: 'Forbidden — superadmin only', status: 403 });
+    }
+
+    const { id: orgId } = request.params as { id: string };
+
+    const body = z.object({
+      firstName:      z.string().min(1),
+      lastName:       z.string().min(1),
+      email:          z.string().email(),
+      password:       z.string().min(8),
+      roleId:         z.string().uuid().optional(),
+      employmentType: z.enum(['full_time', 'part_time', 'casual', 'contractor']).default('full_time'),
+      locationIds:    z.array(z.string().uuid()).default([]),
+      pin:            z.string().min(4).max(8).optional(),
+    }).safeParse(request.body);
+
+    if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422, detail: body.error.message });
+
+    const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, orgId) });
+    if (!org) return reply.status(404).send({ title: 'Organisation not found', status: 404 });
+
+    const existing = await db.query.employees.findFirst({
+      where: and(eq(schema.employees.email, body.data.email.toLowerCase()), eq(schema.employees.orgId, orgId)),
+    });
+    if (existing) return reply.status(409).send({ title: 'Email already in use', status: 409 });
+
+    const passwordHash = await hashPassword(body.data.password);
+    let pinHash: string | undefined;
+    if (body.data.pin) {
+      const bcrypt = await import('bcryptjs');
+      pinHash = await bcrypt.hash(body.data.pin, 10);
+    }
+
+    const [employee] = await db.insert(schema.employees).values({
+      orgId,
+      firstName:      body.data.firstName,
+      lastName:       body.data.lastName,
+      email:          body.data.email.toLowerCase(),
+      passwordHash,
+      pin:            pinHash ?? null,
+      roleId:         body.data.roleId ?? null,
+      locationIds:    body.data.locationIds,
+      employmentType: body.data.employmentType,
+      isActive:       true,
+    }).returning({ id: schema.employees.id, orgId: schema.employees.orgId, firstName: schema.employees.firstName, lastName: schema.employees.lastName, email: schema.employees.email, isActive: schema.employees.isActive, roleId: schema.employees.roleId, createdAt: schema.employees.createdAt });
+
+    return reply.status(201).send({ data: employee });
+  });
 }
