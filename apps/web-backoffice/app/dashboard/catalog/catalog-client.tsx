@@ -1,7 +1,15 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { Plus, Search, Filter, MoreVertical, Tag, Package, ToggleLeft, ToggleRight, Zap, X } from 'lucide-react';
+import Link from 'next/link';
+import {
+  Plus,
+  Search,
+  Pencil,
+  Eye,
+  Package,
+  ChevronDown,
+} from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useProducts, useCategories } from '@/lib/hooks';
 import { apiFetch } from '@/lib/api';
@@ -9,614 +17,646 @@ import type { Product } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 import { formatCurrency, getErrorMessage } from '@/lib/formatting';
 
-// ─── 86 toggle ────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-async function patchAvailability(productId: string, available: boolean): Promise<void> {
-  const res = await fetch(`/api/proxy/products/${productId}/availability`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ available }),
-  });
-  if (!res.ok) throw new Error(`Failed to update availability: HTTP ${res.status}`);
-}
-
-// ─── Typesense search fetch ────────────────────────────────────────────────────
-
-interface SearchResponse {
-  results: Product[];
-  total: number;
-  page: number;
-  facets: { categories: { value: string; count: number }[] };
-  typesense: boolean;
-}
-
-async function fetchSearchResults(query: string, categoryId?: string, limit = 30): Promise<SearchResponse> {
-  const qs = new URLSearchParams({ q: query, limit: String(limit) });
-  if (categoryId) qs.set('categoryId', categoryId);
-  const res = await fetch(`/api/proxy/search/products?${qs}`);
-  if (!res.ok) throw new Error(`Search failed: HTTP ${res.status}`);
-  return res.json() as Promise<SearchResponse>;
-}
-
-// ─── Add Product Modal ─────────────────────────────────────────────────────────
-
-interface AddProductForm {
+interface Category {
+  id: string;
   name: string;
-  sku: string;
-  categoryId: string;
-  basePrice: string; // dollars, as string input
-  productType: string;
-  status: string;
-  isSoldInstore: boolean;
-  trackStock: boolean;
 }
 
-const EMPTY_FORM: AddProductForm = {
-  name: '',
-  sku: '',
-  categoryId: '',
-  basePrice: '',
-  productType: 'standard',
-  status: 'active',
-  isSoldInstore: true,
-  trackStock: true,
-};
-
-interface AddProductModalProps {
-  onClose: () => void;
-  onSaved: () => void;
+interface StockLevel {
+  productId: string;
+  onHand: number;
 }
 
-function AddProductModal({ onClose, onSaved }: AddProductModalProps) {
-  const [form, setForm] = useState<AddProductForm>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const { data: categoriesData } = useCategories();
-  const categories = categoriesData?.data ?? [];
-  const { toast } = useToast();
+// ─── Extended Product type for UI ─────────────────────────────────────────────
 
-  function set<K extends keyof AddProductForm>(key: K, value: AddProductForm[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+interface ProductWithChannels extends Product {
+  showOnKiosk?: boolean;
+  isSoldOnline?: boolean;
+  imageUrl?: string;
+  weightUnit?: string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function fetchStockLevels(productIds: string[]): Promise<Record<string, number>> {
+  if (productIds.length === 0) return {};
+  try {
+    const res = await fetch(
+      `/api/proxy/inventory/stock-levels?productIds=${productIds.join(',')}`,
+    );
+    if (!res.ok) return {};
+    const json = (await res.json()) as { data?: StockLevel[] } | StockLevel[];
+    const items: StockLevel[] = Array.isArray(json) ? json : (json.data ?? []);
+    return Object.fromEntries(items.map((s) => [s.productId, s.onHand]));
+  } catch {
+    return {};
   }
+}
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
-    setSaving(true);
-    try {
-      const payload = {
-        name: form.name.trim(),
-        sku: form.sku.trim() || undefined,
-        categoryId: form.categoryId || undefined,
-        basePrice: Math.round(parseFloat(form.basePrice) * 100), // convert to cents
-        productType: form.productType,
-        status: form.status,
-        isSoldInstore: form.isSoldInstore,
-        trackStock: form.trackStock,
-      };
-      await apiFetch('products', { method: 'POST', body: JSON.stringify(payload) });
-      toast({ title: 'Product created', description: `"${form.name}" has been added to the catalog.`, variant: 'success' });
-      onSaved();
-      onClose();
-    } catch (err) {
-      const msg = getErrorMessage(err, 'Failed to create product');
-      setError(msg);
-      toast({ title: 'Failed to create product', description: msg, variant: 'destructive' });
-    } finally {
-      setSaving(false);
-    }
+async function patchProductStatus(productId: string, status: string): Promise<void> {
+  const res = await fetch(`/api/proxy/catalog/products/${productId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error(`Failed to update status: HTTP ${res.status}`);
+}
+
+// ─── Status Toggle ─────────────────────────────────────────────────────────────
+
+function StatusToggle({
+  product,
+  onToggle,
+  isToggling,
+}: {
+  product: ProductWithChannels;
+  onToggle: (product: ProductWithChannels) => void;
+  isToggling: boolean;
+}) {
+  const isActive = product.status === 'active';
+  return (
+    <button
+      onClick={() => onToggle(product)}
+      disabled={isToggling}
+      title={isActive ? 'Deactivate product' : 'Activate product'}
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+        isActive ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+          isActive ? 'translate-x-4' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  );
+}
+
+// ─── Channel Badges ────────────────────────────────────────────────────────────
+
+function ChannelBadges({ product }: { product: ProductWithChannels }) {
+  const channels: { label: string; active: boolean }[] = [
+    { label: 'Till', active: !!product.isSoldInstore },
+    { label: 'Kiosk', active: !!product.showOnKiosk },
+    { label: 'Web', active: !!product.isSoldOnline },
+  ];
+
+  const active = channels.filter((c) => c.active);
+  if (active.length === 0) {
+    return <span className="text-xs text-gray-400">—</span>;
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-
-      <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-gray-900">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Add Product</h2>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleSave} className="space-y-4 p-6">
-          {error && (
-            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
-              {error}
-            </div>
-          )}
-
-          {/* Name */}
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Product Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              required
-              type="text"
-              value={form.name}
-              onChange={(e) => set('name', e.target.value)}
-              placeholder="e.g. Flat White"
-              className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {/* SKU */}
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">SKU</label>
-              <input
-                type="text"
-                value={form.sku}
-                onChange={(e) => set('sku', e.target.value)}
-                placeholder="Auto-generated"
-                className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              />
-            </div>
-
-            {/* Base Price */}
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Price ($) <span className="text-red-500">*</span>
-              </label>
-              <input
-                required
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.basePrice}
-                onChange={(e) => set('basePrice', e.target.value)}
-                placeholder="0.00"
-                className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {/* Category */}
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
-              <select
-                value={form.categoryId}
-                onChange={(e) => set('categoryId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              >
-                <option value="">No category</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Product Type */}
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
-              <select
-                value={form.productType}
-                onChange={(e) => set('productType', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              >
-                <option value="standard">Standard</option>
-                <option value="variant">Variant</option>
-                <option value="bundle">Bundle</option>
-                <option value="service">Service</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Status */}
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-            <div className="flex gap-3">
-              {['active', 'inactive', 'draft'].map((s) => (
-                <label key={s} className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="radio"
-                    name="status"
-                    value={s}
-                    checked={form.status === s}
-                    onChange={() => set('status', s)}
-                    className="accent-indigo-600"
-                  />
-                  <span className="text-sm capitalize text-gray-700 dark:text-gray-300">{s}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Toggles */}
-          <div className="flex gap-6">
-            <label className="flex cursor-pointer items-center gap-2.5">
-              <input
-                type="checkbox"
-                checked={form.isSoldInstore}
-                onChange={(e) => set('isSoldInstore', e.target.checked)}
-                className="h-4 w-4 accent-indigo-600"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Sold in-store</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-2.5">
-              <input
-                type="checkbox"
-                checked={form.trackStock}
-                onChange={(e) => set('trackStock', e.target.checked)}
-                className="h-4 w-4 accent-indigo-600"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Track stock</span>
-            </label>
-          </div>
-
-          {/* Actions */}
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving || !form.name || !form.basePrice}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
-            >
-              {saving ? 'Saving…' : 'Add Product'}
-            </button>
-          </div>
-        </form>
-      </div>
+    <div className="flex flex-wrap gap-1">
+      {active.map((c) => (
+        <span
+          key={c.label}
+          className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+        >
+          {c.label}
+        </span>
+      ))}
     </div>
   );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Type Badge ────────────────────────────────────────────────────────────────
+
+function TypeBadge({ type }: { type: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    standard: { label: 'Standard', cls: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300' },
+    weighted: { label: 'Weighted', cls: 'bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+    variant: { label: 'Variant', cls: 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+  };
+  const entry = map[type] ?? { label: type, cls: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300' };
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${entry.cls}`}>
+      {entry.label}
+    </span>
+  );
+}
+
+// ─── Image Thumbnail ───────────────────────────────────────────────────────────
+
+function ProductThumb({ imageUrl, name }: { imageUrl?: string; name: string }) {
+  if (imageUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={imageUrl}
+        alt={name}
+        className="h-10 w-10 rounded-lg object-cover"
+      />
+    );
+  }
+  return (
+    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800">
+      <Package className="h-5 w-5 text-gray-400" />
+    </div>
+  );
+}
+
+// ─── Bulk Action Bar ───────────────────────────────────────────────────────────
+
+function BulkActionBar({
+  selectedCount,
+  onClear,
+}: {
+  selectedCount: number;
+  onClear: () => void;
+}) {
+  if (selectedCount === 0) return null;
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 dark:border-indigo-800 dark:bg-indigo-900/20">
+      <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+        {selectedCount} selected
+      </span>
+      <button className="rounded-lg border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+        Activate
+      </button>
+      <button className="rounded-lg border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+        Deactivate
+      </button>
+      <button
+        onClick={onClear}
+        className="ml-auto text-xs text-indigo-500 hover:text-indigo-700 dark:text-indigo-400"
+      >
+        Clear selection
+      </button>
+    </div>
+  );
+}
+
+// ─── Empty State ───────────────────────────────────────────────────────────────
+
+function EmptyState({ hasFilters }: { hasFilters: boolean }) {
+  return (
+    <tr>
+      <td colSpan={9} className="px-5 py-16 text-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800">
+            <Package className="h-7 w-7 text-gray-400" />
+          </div>
+          <p className="text-sm font-medium text-gray-900 dark:text-white">No products found</p>
+          {!hasFilters ? (
+            <>
+              <p className="text-sm text-gray-500">Get started by adding your first product.</p>
+              <Link
+                href="/dashboard/catalog/products/new"
+                className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
+              >
+                <Plus className="h-4 w-4" /> Add your first product
+              </Link>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">Try adjusting your filters.</p>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ─── Select Component ──────────────────────────────────────────────────────────
+
+function FilterSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder: string;
+}) {
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="appearance-none rounded-lg border border-gray-200 bg-white py-2 pl-3 pr-8 text-sm text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+      >
+        <option value="">{placeholder}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+    </div>
+  );
+}
+
+// ─── Main Component ────────────────────────────────────────────────────────────
 
 export function CatalogClient() {
   const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [showAddProduct, setShowAddProduct] = useState(false);
-  // Track optimistic 86 state: productId -> available override
-  const [availabilityOverrides, setAvailabilityOverrides] = useState<Record<string, boolean>>({});
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [channelFilter, setChannelFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
 
-  // Typesense search state
-  const [searchResults, setSearchResults] = useState<Product[] | null>(null);
-  const [searchTotal, setSearchTotal] = useState(0);
-  const [isTypesenseResult, setIsTypesenseResult] = useState(false);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // SOH map: productId -> onHand quantity
+  const [sohMap, setSohMap] = useState<Record<string, number>>({});
 
-  const [showFilters, setShowFilters] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: productsData, isLoading: productsLoading } = useProducts({
-    categoryId: selectedCategory || undefined,
-    limit: 100,
-  });
-  const { data: categoriesData } = useCategories();
-
-  const baseProducts = productsData?.data ?? [];
-  const categories = categoriesData?.data ?? [];
-
-  // Debounced Typesense search
+  // Debounce search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    if (search.length < 2) {
-      setSearchResults(null);
-      setIsTypesenseResult(false);
-      setSearchLoading(false);
-      return;
-    }
-
-    setSearchLoading(true);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const data = await fetchSearchResults(search, selectedCategory || undefined, 30);
-        setSearchResults(data.results);
-        setSearchTotal(data.total);
-        setIsTypesenseResult(data.typesense);
-      } catch {
-        // On error fall back to base list — no-op
-        setSearchResults(null);
-        setIsTypesenseResult(false);
-      } finally {
-        setSearchLoading(false);
-      }
-    }, 300);
-
+    debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [search, selectedCategory]);
+  }, [search]);
 
-  // Rerun search when category filter changes while a query is active
-  const handleCategoryChange = (catId: string) => {
-    setSelectedCategory(catId);
-  };
+  const { data: productsData, isLoading: productsLoading } = useProducts({
+    categoryId: categoryFilter || undefined,
+    status: statusFilter || undefined,
+    search: debouncedSearch || undefined,
+    limit: 100,
+  });
 
+  const { data: categoriesData } = useCategories();
+
+  const baseProducts = (productsData?.data ?? []) as ProductWithChannels[];
+  const categories = (categoriesData?.data ?? []) as Category[];
+
+  // Apply client-side filters for type and channel (not supported by API params)
   const products = useMemo(() => {
-    const base = searchResults !== null ? searchResults : baseProducts;
-    return base.filter((p) => {
-      if (statusFilter && p.status !== statusFilter) return false;
-      if (typeFilter && p.productType !== typeFilter) return false;
+    return baseProducts.filter((p) => {
+      if (typeFilter) {
+        if (typeFilter === 'weighted' && p.productType !== 'weighted' && p.productType !== 'scalable') return false;
+        if (typeFilter !== 'weighted' && p.productType !== typeFilter) return false;
+      }
+      if (channelFilter) {
+        if (channelFilter === 'till' && !p.isSoldInstore) return false;
+        if (channelFilter === 'kiosk' && !p.showOnKiosk) return false;
+        if (channelFilter === 'web' && !p.isSoldOnline) return false;
+      }
       return true;
     });
-  }, [searchResults, baseProducts, statusFilter, typeFilter]);
-  const isLoading = search.length >= 2 ? searchLoading : productsLoading;
-  const total = searchResults !== null ? searchTotal : (productsData?.pagination?.total ?? baseProducts.length);
-  const activeFilterCount = [statusFilter, typeFilter].filter(Boolean).length;
+  }, [baseProducts, typeFilter, channelFilter]);
 
-  const handleToggle86 = useCallback(async (product: Product) => {
-    const currentAvailable = availabilityOverrides[product.id] ?? product.status === 'active';
-    const nextAvailable = !currentAvailable;
+  const total = productsData?.pagination?.total ?? baseProducts.length;
 
-    // Optimistic update
-    setAvailabilityOverrides((prev) => ({ ...prev, [product.id]: nextAvailable }));
-    setTogglingIds((prev) => new Set(prev).add(product.id));
+  // Load SOH after products are fetched
+  useEffect(() => {
+    const ids = baseProducts.filter((p) => p.trackStock).map((p) => p.id);
+    if (ids.length === 0) return;
+    fetchStockLevels(ids).then((map) => setSohMap(map));
+  }, [baseProducts]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    try {
-      await patchAvailability(product.id, nextAvailable);
-      toast({
-        title: nextAvailable ? 'Product available' : 'Product 86\'d',
-        description: `${product.name} is now ${nextAvailable ? 'available' : 'marked as 86\'d'}.`,
-        variant: nextAvailable ? 'success' : 'default',
-      });
-    } catch {
-      // Roll back on failure
-      setAvailabilityOverrides((prev) => ({ ...prev, [product.id]: currentAvailable }));
-      toast({ title: 'Failed to update availability', description: 'Please try again.', variant: 'destructive' });
-    } finally {
-      setTogglingIds((prev) => {
+  // ─── Bulk selection ──────────────────────────────────────────────────────────
+
+  const allVisibleIds = products.map((p) => p.id);
+  const allSelected =
+    allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.has(id));
+  const someSelected = !allSelected && allVisibleIds.some((id) => selectedIds.has(id));
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelectedIds((prev) => {
         const next = new Set(prev);
-        next.delete(product.id);
+        allVisibleIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        allVisibleIds.forEach((id) => next.add(id));
         return next;
       });
     }
-  }, [availabilityOverrides, toast]);
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // ─── Status toggle ───────────────────────────────────────────────────────────
+
+  const handleToggleStatus = useCallback(
+    async (product: ProductWithChannels) => {
+      const nextStatus = product.status === 'active' ? 'inactive' : 'active';
+      setTogglingIds((prev) => new Set(prev).add(product.id));
+
+      try {
+        await patchProductStatus(product.id, nextStatus);
+        toast({
+          title: nextStatus === 'active' ? 'Product activated' : 'Product deactivated',
+          description: `"${product.name}" is now ${nextStatus}.`,
+          variant: nextStatus === 'active' ? 'success' : 'default',
+        });
+        queryClient.invalidateQueries({ queryKey: ['products'] });
+      } catch (err) {
+        toast({
+          title: 'Failed to update status',
+          description: getErrorMessage(err, 'Please try again.'),
+          variant: 'destructive',
+        });
+      } finally {
+        setTogglingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(product.id);
+          return next;
+        });
+      }
+    },
+    [toast, queryClient],
+  );
+
+  const hasFilters = !!(search || categoryFilter || typeFilter || channelFilter || statusFilter);
 
   return (
-    <div className="space-y-6">
-      {showAddProduct && (
-        <AddProductModal
-          onClose={() => setShowAddProduct(false)}
-          onSaved={() => {
-            queryClient.invalidateQueries({ queryKey: ['products'] });
-          }}
-        />
-      )}
-
+    <div className="space-y-5">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Product Catalog</h2>
-          <p className="text-sm text-gray-500">
-            {isLoading ? 'Loading…' : `${total} products across ${categories.length} categories`}
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Products</h1>
+          <p className="mt-0.5 text-sm text-gray-500">
+            {productsLoading ? 'Loading…' : `${total} product${total !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <button
-          onClick={() => setShowAddProduct(true)}
+        <Link
+          href="/dashboard/catalog/products/new"
           className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
         >
           <Plus className="h-4 w-4" /> Add Product
-        </button>
+        </Link>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Search */}
+        <div className="relative min-w-[220px] flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search products…"
-            className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
           />
-          {/* Typesense badge — shown only when results are from Typesense */}
-          {isTypesenseResult && search.length >= 2 && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-400 dark:bg-gray-700 dark:text-gray-500">
-              <Zap className="h-2.5 w-2.5" /> Typesense
-            </span>
-          )}
         </div>
-        <div className="flex flex-wrap gap-2">
+
+        {/* Category */}
+        <FilterSelect
+          value={categoryFilter}
+          onChange={setCategoryFilter}
+          placeholder="All Categories"
+          options={categories.map((c) => ({ value: c.id, label: c.name }))}
+        />
+
+        {/* Type */}
+        <FilterSelect
+          value={typeFilter}
+          onChange={setTypeFilter}
+          placeholder="All Types"
+          options={[
+            { value: 'standard', label: 'Standard' },
+            { value: 'weighted', label: 'Weighted' },
+            { value: 'variant', label: 'Variant' },
+          ]}
+        />
+
+        {/* Channel */}
+        <FilterSelect
+          value={channelFilter}
+          onChange={setChannelFilter}
+          placeholder="All Channels"
+          options={[
+            { value: 'till', label: 'Till' },
+            { value: 'kiosk', label: 'Kiosk' },
+            { value: 'web', label: 'Web' },
+          ]}
+        />
+
+        {/* Status */}
+        <FilterSelect
+          value={statusFilter}
+          onChange={setStatusFilter}
+          placeholder="All Statuses"
+          options={[
+            { value: 'active', label: 'Active' },
+            { value: 'inactive', label: 'Inactive' },
+          ]}
+        />
+
+        {hasFilters && (
           <button
-            onClick={() => handleCategoryChange('')}
-            className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              selectedCategory === ''
-                ? 'bg-indigo-600 text-white'
-                : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
-            }`}
+            onClick={() => {
+              setSearch('');
+              setCategoryFilter('');
+              setTypeFilter('');
+              setChannelFilter('');
+              setStatusFilter('');
+            }}
+            className="text-sm text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
           >
-            All
+            Clear filters
           </button>
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => handleCategoryChange(cat.id === selectedCategory ? '' : cat.id)}
-              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                selectedCategory === cat.id
-                  ? 'bg-indigo-600 text-white'
-                  : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
-              }`}
-            >
-              {cat.name}
-            </button>
-          ))}
-          <button
-            onClick={() => setShowFilters((v) => !v)}
-            className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-              showFilters || activeFilterCount > 0
-                ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400'
-                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
-            }`}
-          >
-            <Filter className="h-4 w-4" />
-            Filter
-            {activeFilterCount > 0 && (
-              <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-        </div>
+        )}
       </div>
 
-      {/* Filter panel */}
-      {showFilters && (
-        <div className="flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Status</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            >
-              <option value="">All statuses</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="draft">Draft</option>
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Type</label>
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            >
-              <option value="">All types</option>
-              <option value="simple">Simple</option>
-              <option value="variable">Variable</option>
-              <option value="composite">Composite</option>
-              <option value="service">Service</option>
-            </select>
-          </div>
-          {activeFilterCount > 0 && (
-            <button
-              onClick={() => { setStatusFilter(''); setTypeFilter(''); }}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 dark:text-gray-400"
-            >
-              <X className="h-3.5 w-3.5" /> Clear filters
-            </button>
-          )}
-          <p className="ml-auto text-xs text-gray-400">{products.length} result{products.length !== 1 ? 's' : ''}</p>
-        </div>
-      )}
+      {/* Bulk action bar */}
+      <BulkActionBar
+        selectedCount={selectedIds.size}
+        onClear={() => setSelectedIds(new Set())}
+      />
 
-      {/* Product table */}
+      {/* Products table */}
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-gray-200 dark:border-gray-800">
-              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">Product</th>
-              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">Category</th>
-              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">Price</th>
-              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">Type</th>
-              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">Status</th>
-              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">86</th>
-              <th className="px-5 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {isLoading
-              ? Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i} className="animate-pulse">
-                    {Array.from({ length: 7 }).map((__, j) => (
-                      <td key={j} className="px-5 py-3.5">
-                        <div className="h-4 rounded bg-gray-100 dark:bg-gray-800" style={{ width: j >= 5 ? 24 : '80%' }} />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              : products.map((product: Product) => {
-                  const isAvailable = availabilityOverrides[product.id] ?? product.status === 'active';
-                  const isToggling = togglingIds.has(product.id);
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[800px]">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-800/50">
+                <th className="w-10 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someSelected;
+                    }}
+                    onChange={toggleAll}
+                    className="h-4 w-4 rounded accent-indigo-600"
+                  />
+                </th>
+                <th className="w-14 px-3 py-3" />
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Name / SKU
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Category
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Price
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  SOH
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Type
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Channels
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Active
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {productsLoading
+                ? Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      {Array.from({ length: 10 }).map((__, j) => (
+                        <td key={j} className="px-4 py-3.5">
+                          <div
+                            className="h-4 rounded bg-gray-100 dark:bg-gray-800"
+                            style={{ width: j === 0 || j === 1 ? 16 : '75%' }}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                : products.length === 0
+                  ? <EmptyState hasFilters={hasFilters} />
+                  : products.map((product) => {
+                      const isToggling = togglingIds.has(product.id);
+                      const soh = sohMap[product.id];
+                      const sohDisplay = product.trackStock
+                        ? soh !== undefined
+                          ? String(soh)
+                          : '—'
+                        : '—';
 
-                  return (
-                    <tr key={product.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!isAvailable ? 'opacity-60' : ''}`}>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-900/30">
-                            <Package className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">{product.name}</p>
-                            <p className="text-xs text-gray-400">{product.sku}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-300">
-                          <Tag className="h-3 w-3" /> {product.categoryName ?? '—'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-sm font-medium text-gray-900 dark:text-white">
-                        {formatCurrency(product.basePrice)}
-                      </td>
-                      <td className="px-5 py-3.5 text-sm text-gray-600 dark:text-gray-400 capitalize">
-                        {product.productType}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span
-                          className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
-                            product.status === 'active'
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                              : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                      return (
+                        <tr
+                          key={product.id}
+                          className={`group transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
+                            selectedIds.has(product.id) ? 'bg-indigo-50/40 dark:bg-indigo-900/10' : ''
                           }`}
                         >
-                          {product.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleToggle86(product)}
-                            disabled={isToggling}
-                            title={isAvailable ? 'Mark as 86d (unavailable)' : 'Restore availability'}
-                            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-colors disabled:opacity-50 ${
-                              isAvailable
-                                ? 'border border-gray-200 text-gray-500 hover:border-red-300 hover:bg-red-50 hover:text-red-600 dark:border-gray-700 dark:hover:border-red-700 dark:hover:bg-red-900/20 dark:hover:text-red-400'
-                                : 'border border-red-300 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40'
-                            }`}
-                          >
-                            {isAvailable
-                              ? <ToggleRight className="h-3.5 w-3.5" />
-                              : <ToggleLeft className="h-3.5 w-3.5" />
-                            }
-                            {isAvailable ? '86' : '86d'}
-                          </button>
-                          {!isAvailable && (
-                            <span className="inline-block rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                              86&apos;d
+                          {/* Checkbox */}
+                          <td className="px-4 py-3.5">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(product.id)}
+                              onChange={() => toggleOne(product.id)}
+                              className="h-4 w-4 rounded accent-indigo-600"
+                            />
+                          </td>
+
+                          {/* Thumbnail */}
+                          <td className="px-3 py-3.5">
+                            <ProductThumb imageUrl={product.imageUrl} name={product.name} />
+                          </td>
+
+                          {/* Name + SKU */}
+                          <td className="px-4 py-3.5">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              {product.name}
+                            </p>
+                            <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+                              {product.sku || '—'}
+                            </p>
+                          </td>
+
+                          {/* Category */}
+                          <td className="px-4 py-3.5">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                              {product.categoryName ?? '—'}
                             </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <button className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700">
-                          <MoreVertical className="h-4 w-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-            {!isLoading && products.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-5 py-10 text-center text-sm text-gray-400">
-                  No products found.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                          </td>
+
+                          {/* Price */}
+                          <td className="px-4 py-3.5">
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              {formatCurrency(product.basePrice)}
+                            </span>
+                          </td>
+
+                          {/* SOH */}
+                          <td className="px-4 py-3.5">
+                            <span
+                              className={`text-sm ${
+                                sohDisplay === '—'
+                                  ? 'text-gray-400'
+                                  : Number(sohDisplay) <= 0
+                                    ? 'font-medium text-red-600 dark:text-red-400'
+                                    : Number(sohDisplay) <= 5
+                                      ? 'font-medium text-amber-600 dark:text-amber-400'
+                                      : 'text-gray-700 dark:text-gray-300'
+                              }`}
+                            >
+                              {sohDisplay}
+                            </span>
+                          </td>
+
+                          {/* Type badge */}
+                          <td className="px-4 py-3.5">
+                            <TypeBadge type={product.productType} />
+                          </td>
+
+                          {/* Channel badges */}
+                          <td className="px-4 py-3.5">
+                            <ChannelBadges product={product} />
+                          </td>
+
+                          {/* Status toggle */}
+                          <td className="px-4 py-3.5">
+                            <StatusToggle
+                              product={product}
+                              onToggle={handleToggleStatus}
+                              isToggling={isToggling}
+                            />
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-4 py-3.5">
+                            <div className="flex items-center gap-1.5">
+                              <Link
+                                href={`/dashboard/catalog/products/${product.id}`}
+                                title="Edit product"
+                                className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Link>
+                              <Link
+                                href={`/dashboard/catalog/products/${product.id}`}
+                                title="View product"
+                                className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:border-indigo-700 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-300"
+                              >
+                                <Eye className="h-3 w-3" /> View
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

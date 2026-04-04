@@ -23,6 +23,12 @@ export const categories = pgTable('categories', {
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Printer / KDS routing
+  printerDestination: varchar('printer_destination', { length: 20 }),
+  kdsDestination: varchar('kds_destination', { length: 20 }),
+  customPrinterName: varchar('custom_printer_name', { length: 100 }),
+  customKdsName: varchar('custom_kds_name', { length: 100 }),
+  color: varchar('color', { length: 20 }),
 });
 
 export const taxClasses = pgTable('tax_classes', {
@@ -75,6 +81,15 @@ export const products = pgTable('products', {
   webImages: jsonb('web_images').notNull().default([]), // Additional web images [{url, alt}]
   webFeatured: boolean('web_featured').notNull().default(false), // Feature on storefront homepage
   webSortOrder: integer('web_sort_order').notNull().default(0),
+  // Kiosk / KDS / nutrition / countdown enhancements
+  showOnKiosk: boolean('show_on_kiosk').notNull().default(true),
+  dimensions: jsonb('dimensions').notNull().default({}),
+  allergens: text('allergens').array().notNull().default([]),
+  prepTimeMinutes: integer('prep_time_minutes'),
+  calories: integer('calories'),
+  isCountdown: boolean('is_countdown').notNull().default(false),
+  countdownQty: integer('countdown_qty'),
+  kitchenDisplayName: varchar('kitchen_display_name', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -269,6 +284,44 @@ export const productRecipes = pgTable(
   }),
 );
 
+// ── Product Variant Groups / Options / Rules ───────────────────────────────────
+
+export const productVariantGroups = pgTable('product_variant_groups', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  displayName: varchar('display_name', { length: 255 }),
+  required: boolean('required').notNull().default(false),
+  minSelections: integer('min_selections').notNull().default(0),
+  maxSelections: integer('max_selections').notNull().default(1),
+  allowMultiple: boolean('allow_multiple').notNull().default(false),
+  isRoot: boolean('is_root').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const productVariantOptions = pgTable('product_variant_options', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  groupId: uuid('group_id').notNull().references(() => productVariantGroups.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  priceAdjustment: decimal('price_adjustment', { precision: 12, scale: 4 }).notNull().default('0'),
+  sku: varchar('sku', { length: 100 }),
+  barcode: varchar('barcode', { length: 100 }),
+  imageUrl: text('image_url'),
+  color: varchar('color', { length: 20 }),
+  sortOrder: integer('sort_order').notNull().default(0),
+  isAvailable: boolean('is_available').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const productVariantRules = pgTable('product_variant_rules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  parentOptionId: uuid('parent_option_id').notNull().references(() => productVariantOptions.id, { onDelete: 'cascade' }),
+  childGroupId: uuid('child_group_id').notNull().references(() => productVariantGroups.id, { onDelete: 'cascade' }),
+  sortOrder: integer('sort_order').notNull().default(0),
+});
+
 // ── Drizzle ORM Relations ──────────────────────────────────────────────────────
 
 // Product ↔ Category / TaxClass / Variants / Modifiers
@@ -278,6 +331,7 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   variants:       many(productVariants),
   modifierGroups: many(productModifierGroups),
   bundles:        many(productBundles),
+  variantGroups:  many(productVariantGroups),
 }));
 
 export const categoriesRelations = relations(categories, ({ many }) => ({
@@ -340,4 +394,20 @@ export const ingredientsRelations = relations(ingredients, ({ many }) => ({
 export const productRecipesRelations = relations(productRecipes, ({ one }) => ({
   product: one(products, { fields: [productRecipes.productId], references: [products.id] }),
   ingredient: one(ingredients, { fields: [productRecipes.ingredientId], references: [ingredients.id] }),
+}));
+
+export const productVariantGroupsRelations = relations(productVariantGroups, ({ one, many }) => ({
+  product: one(products, { fields: [productVariantGroups.productId], references: [products.id] }),
+  options: many(productVariantOptions),
+  childRules: many(productVariantRules, { relationName: 'childGroup' }),
+}));
+
+export const productVariantOptionsRelations = relations(productVariantOptions, ({ one, many }) => ({
+  group: one(productVariantGroups, { fields: [productVariantOptions.groupId], references: [productVariantGroups.id] }),
+  rules: many(productVariantRules, { relationName: 'parentOption' }),
+}));
+
+export const productVariantRulesRelations = relations(productVariantRules, ({ one }) => ({
+  parentOption: one(productVariantOptions, { fields: [productVariantRules.parentOptionId], references: [productVariantOptions.id], relationName: 'parentOption' }),
+  childGroup: one(productVariantGroups, { fields: [productVariantRules.childGroupId], references: [productVariantGroups.id], relationName: 'childGroup' }),
 }));

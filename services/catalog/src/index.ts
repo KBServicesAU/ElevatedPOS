@@ -15,6 +15,7 @@ import { markdownRoutes } from './routes/markdowns';
 import { recipeRoutes } from './routes/recipes';
 import { wastageRoutes } from './routes/wastage';
 import { searchRoutes } from './routes/search';
+import { variantRoutes } from './routes/variants';
 import { db, schema } from './db';
 import { initCollections } from './lib/typesense';
 import { registerGraphQL } from './graphql';
@@ -125,6 +126,7 @@ async function start() {
   await app.register(recipeRoutes, { prefix: '/api/v1/recipes' });
   await app.register(wastageRoutes, { prefix: '/api/v1/wastage' });
   await app.register(searchRoutes, { prefix: '/api/v1/search' });
+  await app.register(variantRoutes, { prefix: '/api/v1' });
 
   await registerGraphQL(app);
 

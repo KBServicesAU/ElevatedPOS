@@ -26,6 +26,15 @@ const createProductSchema = z.object({
   pluCode: z.string().optional(),
   tags: z.array(z.string()).default([]),
   notes: z.string().optional(),
+  // Inventory enhancements
+  showOnKiosk: z.boolean().default(true),
+  dimensions: z.record(z.unknown()).default({}),
+  allergens: z.array(z.string()).default([]),
+  prepTimeMinutes: z.number().int().min(0).optional(),
+  calories: z.number().int().min(0).optional(),
+  isCountdown: z.boolean().default(false),
+  countdownQty: z.number().int().min(0).optional(),
+  kitchenDisplayName: z.string().max(255).optional(),
 });
 
 export async function productRoutes(app: FastifyInstance) {
@@ -205,6 +214,10 @@ export async function productRoutes(app: FastifyInstance) {
       notes: rawNotes,
       basePrice: rawBasePrice,
       costPrice: rawCostPrice,
+      prepTimeMinutes: rawPrepTime,
+      calories: rawCalories,
+      countdownQty: rawCountdownQty,
+      kitchenDisplayName: rawKitchenDisplayName,
       ...productRest
     } = body.data;
     const [created] = await db.insert(schema.products).values({
@@ -218,6 +231,10 @@ export async function productRoutes(app: FastifyInstance) {
       notes: rawNotes ?? null,
       basePrice: String(rawBasePrice),
       costPrice: String(rawCostPrice),
+      prepTimeMinutes: rawPrepTime ?? null,
+      calories: rawCalories ?? null,
+      countdownQty: rawCountdownQty ?? null,
+      kitchenDisplayName: rawKitchenDisplayName ?? null,
     }).returning();
     const c = created!;
 
@@ -272,6 +289,14 @@ export async function productRoutes(app: FastifyInstance) {
     if (bd.pluCode !== undefined) patchData['pluCode'] = bd.pluCode ?? null;
     if (bd.tags !== undefined) patchData['tags'] = bd.tags;
     if (bd.notes !== undefined) patchData['notes'] = bd.notes ?? null;
+    if (bd.showOnKiosk !== undefined) patchData['showOnKiosk'] = bd.showOnKiosk;
+    if (bd.dimensions !== undefined) patchData['dimensions'] = bd.dimensions;
+    if (bd.allergens !== undefined) patchData['allergens'] = bd.allergens;
+    if (bd.prepTimeMinutes !== undefined) patchData['prepTimeMinutes'] = bd.prepTimeMinutes ?? null;
+    if (bd.calories !== undefined) patchData['calories'] = bd.calories ?? null;
+    if (bd.isCountdown !== undefined) patchData['isCountdown'] = bd.isCountdown;
+    if (bd.countdownQty !== undefined) patchData['countdownQty'] = bd.countdownQty ?? null;
+    if (bd.kitchenDisplayName !== undefined) patchData['kitchenDisplayName'] = bd.kitchenDisplayName ?? null;
 
     type ProductUpdate = typeof schema.products.$inferInsert;
     const [updated] = await db.update(schema.products).set(patchData as unknown as ProductUpdate).where(and(eq(schema.products.id, id), eq(schema.products.orgId, orgId))).returning();

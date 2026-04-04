@@ -19,6 +19,7 @@ const nav = [
   { href: '/dashboard/orders', icon: ClipboardList, label: 'Orders' },
   { href: '/dashboard/quotes', icon: FileText, label: 'Quotes' },
   { href: '/dashboard/catalog', icon: Package, label: 'Catalog' },
+  { href: '/dashboard/catalog/categories', icon: Tag, label: 'Categories' },
   { href: '/dashboard/price-lists', icon: Tag, label: 'Price Lists' },
   { href: '/dashboard/markdowns', icon: Tag, label: 'Markdowns' },
   { href: '/dashboard/inventory', icon: Warehouse, label: 'Inventory' },
