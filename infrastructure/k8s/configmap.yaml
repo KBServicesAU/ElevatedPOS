@@ -26,6 +26,9 @@ data:
   REDIS_URL: "redis://redis:6379"
   CLICKHOUSE_HOST: "clickhouse.elevatedpos.svc.cluster.local"
   CLICKHOUSE_PORT: "8123"
+  # Public app URL — used in auth emails (password reset links etc.)
+  APP_URL: "https://app.elevatedpos.com.au"
+  NOTIFICATIONS_API_URL: "http://notifications:4009"
   # Set to "true" on environments with Stripe test keys but no physical
   # Terminal hardware (e.g. staging). Production should be "false".
   STRIPE_TERMINAL_SIMULATED: "false"

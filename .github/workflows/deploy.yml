@@ -228,6 +228,17 @@ jobs:
             " && echo "auth 0008 OK" || echo "auth 0008 WARN"
           fi
 
+          # -- Auth migration 0009: password reset columns --
+          if [ -n "$RELAY_POD" ]; then
+            kubectl exec -n elevatedpos "$RELAY_POD" -- node -e "
+              const {Pool}=require('pg');
+              const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
+              p.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_reset_token varchar(255), ADD COLUMN IF NOT EXISTS password_reset_expires_at timestamptz')
+                .then(()=>{console.log('auth 0009: applied');p.end();})
+                .catch(e=>{console.error('auth 0009:',e.message);p.end();process.exit(0);});
+            " && echo "auth 0009 OK" || echo "auth 0009 WARN"
+          fi
+
           # -- Catalog migration 0006: inventory enhancements --
           if [ -n "$RELAY_POD" ]; then
             kubectl exec -n elevatedpos "$RELAY_POD" -- node -e "
@@ -258,7 +269,7 @@ jobs:
 
           # -- Drizzle migrator for remaining services --
           MIGRATE_SCRIPT='const {Pool}=require("pg");const {drizzle}=require("drizzle-orm/node-postgres");const {migrate}=require("drizzle-orm/node-postgres/migrator");const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});const d=drizzle(p);migrate(d,{migrationsFolder:"src/db/migrations",migrationsTable:"__drizzle_migrations"}).then(()=>{console.log("migrations applied");p.end();process.exit(0);}).catch(e=>{console.error(e.message);p.end();process.exit(1);});'
-          for SVC in inventory orders payments customers loyalty campaigns notifications integrations automations franchise webhooks; do
+          for SVC in auth inventory orders payments customers loyalty campaigns notifications integrations automations franchise webhooks; do
             POD=$(kubectl get pods -n elevatedpos -l app=$SVC --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
             if [ -n "$POD" ]; then
               kubectl exec -n elevatedpos "$POD" -- node -e "$MIGRATE_SCRIPT" \
