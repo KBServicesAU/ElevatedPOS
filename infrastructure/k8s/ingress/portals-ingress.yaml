@@ -14,16 +14,16 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - support.elevatedpos.com.au
-      secretName: elevatedpos-support-tls
+        - organisation.elevatedpos.com.au
+      secretName: elevatedpos-organisation-tls
     - hosts:
         - reseller.elevatedpos.com.au
       secretName: elevatedpos-reseller-tls
     - hosts:
-        - admin.elevatedpos.com.au
-      secretName: elevatedpos-admin-tls
+        - godmode.elevatedpos.com.au
+      secretName: elevatedpos-godmode-tls
   rules:
-    - host: support.elevatedpos.com.au
+    - host: organisation.elevatedpos.com.au
       http:
         paths:
           - path: /
@@ -43,7 +43,7 @@ spec:
                 name: reseller-portal
                 port:
                   number: 3000
-    - host: admin.elevatedpos.com.au
+    - host: godmode.elevatedpos.com.au
       http:
         paths:
           - path: /
