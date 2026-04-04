@@ -506,7 +506,7 @@ export async function authRoutes(app: FastifyInstance) {
         failedLoginAttempts:    0,
         lockedUntil:            null,
       })
-      .where(eq(schema.employees.id, emp));
+      .where(eq(schema.employees.id, employee.id));
 
     return reply.status(200).send({ ok: true });
   });
