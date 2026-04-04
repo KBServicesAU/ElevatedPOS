@@ -114,12 +114,21 @@ const STATUS_BADGE: Record<StocktakeStatus, string> = {
 
 interface NewStocktakeModalProps {
   onClose: () => void;
-  onCreate: (type: StocktakeType, location: string) => void;
+  onCreate: (type: StocktakeType, locationId: string, locationName: string) => void;
+  locations: { id: string; name: string }[];
 }
 
-function NewStocktakeModal({ onClose, onCreate }: NewStocktakeModalProps) {
+const FALLBACK_LOCATIONS = [
+  { id: 'main-store', name: 'Main Store' },
+  { id: 'cold-room', name: 'Cold Room' },
+  { id: 'dry-storage', name: 'Dry Storage' },
+  { id: 'cellar', name: 'Cellar' },
+];
+
+function NewStocktakeModal({ onClose, onCreate, locations }: NewStocktakeModalProps) {
   const [type, setType] = useState<StocktakeType>('cycle');
-  const [location, setLocation] = useState('Main Store');
+  const locationOptions = locations.length > 0 ? locations : FALLBACK_LOCATIONS;
+  const [locationId, setLocationId] = useState(locationOptions[0]?.id ?? '');
 
   const types: { value: StocktakeType; label: string; description: string }[] = [
     { value: 'full', label: 'Full Count', description: 'Count every item in the store.' },
@@ -164,14 +173,13 @@ function NewStocktakeModal({ onClose, onCreate }: NewStocktakeModalProps) {
           <div>
             <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Location</label>
             <select
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
+              value={locationId}
+              onChange={(e) => setLocationId(e.target.value)}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             >
-              <option>Main Store</option>
-              <option>Cold Room</option>
-              <option>Dry Storage</option>
-              <option>Cellar</option>
+              {locationOptions.map((loc) => (
+                <option key={loc.id} value={loc.id}>{loc.name}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -184,7 +192,11 @@ function NewStocktakeModal({ onClose, onCreate }: NewStocktakeModalProps) {
             Cancel
           </button>
           <button
-            onClick={() => { onCreate(type, location); onClose(); }}
+            onClick={() => {
+              const locationName = locationOptions.find((l) => l.id === locationId)?.name ?? locationId;
+              onCreate(type, locationId, locationName);
+              onClose();
+            }}
             className="flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700"
           >
             <ClipboardList className="h-4 w-4" /> Start Count
@@ -301,6 +313,7 @@ export function StocktakeClient({ currentUserName = 'Unknown' }: { currentUserNa
   const [showNewModal, setShowNewModal] = useState(false);
   const [countQtys, setCountQtys] = useState<Record<string, string>>({});
   const [completedItems, setCompletedItems] = useState<CountItem[] | null>(null);
+  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -318,7 +331,17 @@ export function StocktakeClient({ currentUserName = 'Unknown' }: { currentUserNa
         setIsLoading(false);
       }
     }
-    load();
+    async function loadLocations() {
+      try {
+        const res = await fetch('/api/proxy/locations');
+        if (res.ok) {
+          const json = await res.json() as { data?: { id: string; name: string }[] };
+          setLocations(json.data ?? []);
+        }
+      } catch { /* use fallbacks */ }
+    }
+    void load();
+    void loadLocations();
   }, []);
 
   const activeStocktake = useMemo(
@@ -331,12 +354,30 @@ export function StocktakeClient({ currentUserName = 'Unknown' }: { currentUserNa
     [stocktakes],
   );
 
-  function handleCreateStocktake(type: StocktakeType, location: string) {
+  async function handleCreateStocktake(type: StocktakeType, locationId: string, locationName: string) {
+    try {
+      const res = await fetch('/api/proxy/stocktakes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locationId, countAll: type === 'full' }),
+      });
+      if (res.ok) {
+        const json = await res.json() as { data?: Stocktake };
+        if (json.data) {
+          setStocktakes((prev) => [{ ...json.data!, items: json.data!.items ?? [] }, ...prev]);
+          setCountQtys({});
+          return;
+        }
+      }
+    } catch {
+      // fall through to local optimistic
+    }
+    // Local optimistic fallback (when API unavailable or no UUID for location)
     const newSt: Stocktake = {
       id: `st-${Date.now()}`,
       countNumber: `CNT-${String(Math.floor(Math.random() * 900) + 27).padStart(4, '0')}`,
       type,
-      location,
+      location: locationName,
       startedBy: currentUserName,
       startedAt: new Date().toISOString(),
       status: 'in_progress',
@@ -560,7 +601,8 @@ export function StocktakeClient({ currentUserName = 'Unknown' }: { currentUserNa
       {showNewModal && (
         <NewStocktakeModal
           onClose={() => setShowNewModal(false)}
-          onCreate={handleCreateStocktake}
+          onCreate={(type, locationId, locationName) => { void handleCreateStocktake(type, locationId, locationName); }}
+          locations={locations}
         />
       )}
       {completedItems && (

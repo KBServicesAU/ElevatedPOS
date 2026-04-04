@@ -445,13 +445,22 @@ export function PriceListsClient() {
     });
   };
 
-  const handleCreate = (data: Omit<PriceList, 'id' | 'productCount' | 'overrides'>) => {
-    const newPl: PriceList = {
-      ...data,
-      id: `pl-${Date.now()}`,
-      productCount: 0,
-      overrides: [],
-    };
+  const handleCreate = async (data: Omit<PriceList, 'id' | 'productCount' | 'overrides'>) => {
+    let id = `pl-${Date.now()}`;
+    try {
+      const res = await fetch('/api/proxy/price-lists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: data.name, currency: 'AUD', channels: [], locationIds: [] }),
+      });
+      if (res.ok) {
+        const json = await res.json() as { data?: { id?: string } };
+        id = json.data?.id ?? id;
+      }
+    } catch {
+      // network error — keep local id
+    }
+    const newPl: PriceList = { ...data, id, productCount: 0, overrides: [] };
     setPriceLists((prev) => [...prev, newPl]);
   };
 
