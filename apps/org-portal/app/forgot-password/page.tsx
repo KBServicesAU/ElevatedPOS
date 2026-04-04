@@ -45,14 +45,14 @@ export default function ForgotPasswordPage() {
             </div>
             <h1 className="text-2xl font-semibold text-gray-900">Reset your password</h1>
             <p className="mt-1 text-sm text-gray-500">
-              Enter your email and we'll send you a reset link
+              Enter your email and we&apos;ll send you a reset link
             </p>
           </div>
 
           {status === 'success' ? (
             <div className="text-center space-y-4">
               <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-4 text-sm text-green-700">
-                If an account with that email exists, you'll receive a password reset link shortly.
+                If an account with that email exists, you&apos;ll receive a password reset link shortly.
               </div>
               <Link
                 href="/login"
