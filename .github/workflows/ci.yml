@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
   workflow_call:
+    inputs:
+      skip_e2e:
+        description: 'Skip E2E tests (set true when called from deploy workflow)'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -100,6 +105,7 @@ jobs:
     name: E2E Tests (POS → KDS)
     runs-on: ubuntu-latest
     needs: [build]
+    if: ${{ !inputs.skip_e2e }}
     continue-on-error: true
     services:
       postgres:
