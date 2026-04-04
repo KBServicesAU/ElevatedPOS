@@ -2,13 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { LayoutDashboard, CreditCard, Grid2X2, ChefHat, Tablet } from 'lucide-react';
+import { LayoutDashboard, CreditCard, Grid2X2, ChefHat, Tablet, ArrowUpDown } from 'lucide-react';
 
 const APPS = [
-  { id: 'dashboard', label: 'Dashboard',   description: 'Back office & management', icon: LayoutDashboard, href: '/dashboard', color: 'bg-elevatedpos-500'   },
-  { id: 'pos',       label: 'POS',         description: 'Point of sale terminal',   icon: CreditCard,      href: '/pos',       color: 'bg-emerald-500' },
-  { id: 'kds',       label: 'KDS Display', description: 'Kitchen display system',   icon: ChefHat,         href: '/kds',       color: 'bg-orange-500'  },
-  { id: 'kiosk',     label: 'Kiosk',       description: 'Self-service ordering',    icon: Tablet,          href: '/kiosk',     color: 'bg-yellow-500'  },
+  { id: 'dashboard',   label: 'Dashboard',   description: 'Back office & management',  icon: LayoutDashboard, href: '/dashboard',             color: 'bg-elevatedpos-500' },
+  { id: 'pos',         label: 'POS',         description: 'Point of sale terminal',    icon: CreditCard,      href: '/pos',                   color: 'bg-emerald-500'     },
+  { id: 'kds',         label: 'KDS Display', description: 'Kitchen display system',    icon: ChefHat,         href: '/kds',                   color: 'bg-orange-500'      },
+  { id: 'kiosk',       label: 'Kiosk',       description: 'Self-service ordering',     icon: Tablet,          href: '/kiosk',                 color: 'bg-yellow-500'      },
+  { id: 'bulk-manage', label: 'Bulk Manage', description: 'Import & export your data', icon: ArrowUpDown,     href: '/dashboard/bulk-manage', color: 'bg-violet-500'      },
 ] as const;
 
 interface AppSwitcherProps {

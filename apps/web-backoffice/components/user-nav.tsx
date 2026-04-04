@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { ChevronDown, LogOut, User } from 'lucide-react';
 
 interface UserNavProps {
@@ -68,13 +69,14 @@ export function UserNav({ firstName, lastName, role }: UserNavProps) {
             <p className="text-xs text-gray-400">{role ?? 'Staff'}</p>
           </div>
 
-          <button
+          <Link
+            href="/dashboard/account"
             className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
-            onClick={() => { setOpen(false); }}
+            onClick={() => setOpen(false)}
           >
             <User className="h-4 w-4 text-gray-400" />
-            My Profile
-          </button>
+            My Account
+          </Link>
 
           <button
             disabled={loading}
