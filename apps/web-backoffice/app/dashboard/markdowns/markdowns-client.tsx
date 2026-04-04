@@ -182,8 +182,16 @@ export default function MarkdownsClient() {
     }
   }
 
-  function handleDeactivate(id: string) {
+  async function handleDeactivate(id: string) {
+    try {
+      await apiFetch(`markdowns/${id}/deactivate`, { method: 'POST' });
+    } catch (err) {
+      const msg = getErrorMessage(err);
+      toast({ title: 'Failed to deactivate markdown', description: msg, variant: 'destructive' });
+      return;
+    }
     setItems((prev) => prev.map((m) => m.id === id ? { ...m, status: 'expired' as MarkdownStatus } : m));
+    toast({ title: 'Markdown deactivated', variant: 'success' });
   }
 
   const TABS: { id: FilterTab; label: string }[] = [
@@ -298,7 +306,7 @@ export default function MarkdownsClient() {
                     <td className="px-5 py-3.5">
                       {md.status !== 'expired' && (
                         <button
-                          onClick={() => handleDeactivate(md.id)}
+                          onClick={() => { void handleDeactivate(md.id); }}
                           title="Deactivate"
                           className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 transition-colors"
                         >

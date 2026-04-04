@@ -217,8 +217,16 @@ export default function QuotesClient() {
     }
   }
 
-  function handleCancel(id: string) {
+  async function handleCancel(id: string) {
+    try {
+      await apiFetch(`quotes/${id}/cancel`, { method: 'POST' });
+    } catch (err) {
+      const msg = getErrorMessage(err);
+      toast({ title: 'Failed to cancel quote', description: msg, variant: 'destructive' });
+      return;
+    }
     setItems((prev) => prev.map((q) => q.id === id ? { ...q, status: 'cancelled' as QuoteStatus } : q));
+    toast({ title: 'Quote cancelled', variant: 'success' });
   }
 
   const TABS: { id: FilterTab; label: string }[] = [
@@ -332,7 +340,7 @@ export default function QuotesClient() {
                       )}
                       {quote.status !== 'cancelled' && quote.status !== 'expired' && (
                         <button
-                          onClick={() => handleCancel(quote.id)}
+                          onClick={() => { void handleCancel(quote.id); }}
                           title="Cancel"
                           className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 transition-colors"
                         >
