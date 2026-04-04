@@ -15,6 +15,7 @@ import { oauthRoutes } from './routes/oauth';
 import { locationRoutes } from './routes/locations';
 import { payrollRoutes } from './routes/payroll';
 import { deviceRoutes } from './routes/devices';
+import { printerRoutes } from './routes/printers';
 import { organisationRoutes } from './routes/organisations';
 import { platformRoutes } from './routes/platform';
 
@@ -96,6 +97,7 @@ async function start() {
   await app.register(locationRoutes, { prefix: '/api/v1/locations' });
   await app.register(payrollRoutes, { prefix: '/api/v1/payroll' });
   await app.register(deviceRoutes, { prefix: '/api/v1/devices' });
+  await app.register(printerRoutes, { prefix: '/api/v1/printers' });
   await app.register(organisationRoutes, { prefix: '/api/v1/organisations' });
   await app.register(platformRoutes, { prefix: '/api/v1/platform' });
 

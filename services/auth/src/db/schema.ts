@@ -191,6 +191,7 @@ export const organisationsRelations = relations(organisations, ({ many }) => ({
   locations: many(locations),
   roles: many(roles),
   employees: many(employees),
+  printers: many(printers),
 }));
 
 export const locationsRelations = relations(locations, ({ one }) => ({
@@ -283,6 +284,34 @@ export const oauthTokensRelations = relations(oauthTokens, ({ one }) => ({
     fields: [oauthTokens.clientId],
     references: [oauthClients.id],
   }),
+}));
+
+// ── Printers ──────────────────────────────────────────────────────────────────
+
+export const printerConnectionTypeEnum = pgEnum('printer_connection_type', ['ip', 'usb']);
+export const printerTypeEnum = pgEnum('printer_type', ['receipt', 'kitchen_order']);
+export const printerDestinationEnum = pgEnum('printer_destination_type', ['none', 'kitchen', 'bar', 'front', 'back', 'custom']);
+
+export const printers = pgTable('printers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
+  locationId: uuid('location_id').notNull().references(() => locations.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(),
+  brand: varchar('brand', { length: 50 }).notNull().default('generic'),
+  connectionType: printerConnectionTypeEnum('connection_type').notNull().default('ip'),
+  host: varchar('host', { length: 255 }),          // IP address or hostname (for IP printers)
+  port: integer('port').default(9100),              // Default ESC/POS TCP port
+  printerType: printerTypeEnum('printer_type').notNull().default('receipt'),
+  destination: printerDestinationEnum('destination').notNull().default('none'),
+  customDestination: varchar('custom_destination', { length: 100 }),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const printersRelations = relations(printers, ({ one }) => ({
+  organisation: one(organisations, { fields: [printers.orgId], references: [organisations.id] }),
+  location: one(locations, { fields: [printers.locationId], references: [locations.id] }),
 }));
 
 // ── Platform Staff ────────────────────────────────────────────────────────────

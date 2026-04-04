@@ -17,7 +17,7 @@ const BOLD_OFF       = '\x1B\x45\x00';    // Bold off
 const CUT_PAPER      = '\x1D\x56\x42\x00'; // Full cut
 const LF             = '\n';
 
-function padLine(label: string, amount: string, width = 42): string {
+function padLine(label: string, amount: string, width = 48): string {
   const available = width - amount.length;
   return label.substring(0, available).padEnd(available) + amount;
 }
@@ -37,11 +37,11 @@ function buildReceiptBuffer(receipt: ReceiptData): Buffer {
 
   // Line items (left aligned)
   parts.push(ALIGN_LEFT);
-  parts.push('----------------------------------------' + LF);
+  parts.push('------------------------------------------------' + LF);
   for (const line of receipt.lines) {
     parts.push(padLine(line.label, line.amount) + LF);
   }
-  parts.push('----------------------------------------' + LF);
+  parts.push('------------------------------------------------' + LF);
 
   // Total (bold)
   parts.push(BOLD_ON);

@@ -199,6 +199,10 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
     prefix: '/api/v1/devices',
   },
+  printers: {
+    base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
+    prefix: '/api/v1/printers',
+  },
   // Settings — business-level configuration stored in the auth / organisation service
   settings: {
     base: process.env.AUTH_API_URL ?? 'http://localhost:4001',

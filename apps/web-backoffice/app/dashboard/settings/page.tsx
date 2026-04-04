@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
-  Building, MapPin, Printer, Receipt, CreditCard, Bell, Plug,
+  Building, MapPin, Printer as PrinterIcon, Receipt, CreditCard, Bell, Plug,
   Plus, Trash2, Check, X, ChevronRight, ToggleLeft, ToggleRight,
   Upload, Globe, Clock, Calendar, Percent, DollarSign, Loader2,
+  Smartphone,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
@@ -25,7 +27,7 @@ interface TaxRate {
   percent: number;
 }
 
-type Tab = 'organisation' | 'locations' | 'receipts' | 'tax' | 'payments' | 'notifications';
+type Tab = 'organisation' | 'locations' | 'receipts' | 'tax' | 'payments' | 'notifications' | 'devices' | 'printers';
 
 // ─── Toggle Switch ────────────────────────────────────────────────────────────
 
@@ -439,7 +441,7 @@ function ReceiptsTab() {
   };
 
   return (
-    <SectionCard title="Receipts & Documents" description="Customise receipts, invoices, and print settings" icon={Printer} onSave={handleSave} saving={saving} saved={saved}>
+    <SectionCard title="Receipts & Documents" description="Customise receipts, invoices, and print settings" icon={PrinterIcon} onSave={handleSave} saving={saving} saved={saved}>
       <Field label="Receipt Header" hint="Appears at the top of every receipt">
         {loading ? <div className="h-20 w-full animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" /> : (
           <textarea
@@ -902,13 +904,15 @@ function NotificationsTab() {
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 
-const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
+const TABS: { id: Tab; label: string; icon: React.ElementType; href?: string }[] = [
   { id: 'organisation', label: 'Organisation', icon: Building },
   { id: 'locations', label: 'Locations', icon: MapPin },
-  { id: 'receipts', label: 'Receipts', icon: Printer },
+  { id: 'receipts', label: 'Receipts', icon: PrinterIcon },
   { id: 'tax', label: 'Tax', icon: Receipt },
   { id: 'payments', label: 'Payments', icon: CreditCard },
   { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'devices', label: 'Devices', icon: Smartphone, href: '/dashboard/settings/devices' },
+  { id: 'printers', label: 'Printers', icon: PrinterIcon, href: '/dashboard/settings/printers' },
 ];
 
 export default function SettingsPage() {
@@ -924,20 +928,31 @@ export default function SettingsPage() {
       {/* Tab navigation */}
       <div className="border-b border-gray-200 dark:border-gray-800">
         <nav className="-mb-px flex gap-1 overflow-x-auto">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'border-elevatedpos-600 text-elevatedpos-600 dark:border-elevatedpos-400 dark:text-elevatedpos-400'
-                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-              }`}
-            >
-              <tab.icon className="h-4 w-4 flex-shrink-0" />
-              {tab.label}
-            </button>
-          ))}
+          {TABS.map((tab) => {
+            const cls = `flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === tab.id
+                ? 'border-elevatedpos-600 text-elevatedpos-600 dark:border-elevatedpos-400 dark:text-elevatedpos-400'
+                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`;
+            if (tab.href) {
+              return (
+                <Link key={tab.id} href={tab.href} className={cls}>
+                  <tab.icon className="h-4 w-4 flex-shrink-0" />
+                  {tab.label}
+                </Link>
+              );
+            }
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cls}
+              >
+                <tab.icon className="h-4 w-4 flex-shrink-0" />
+                {tab.label}
+              </button>
+            );
+          })}
         </nav>
       </div>
 

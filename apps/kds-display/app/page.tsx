@@ -11,6 +11,7 @@ interface KdsItem {
   modifiers: string[];
   seatNumber?: number;
   course?: string;
+  kdsDestination?: string;
 }
 
 interface KdsTicket {
@@ -28,7 +29,7 @@ interface KdsTicket {
 
 type WsMessage =
   | { type: 'connected'; locationId: string }
-  | { type: 'new_order'; order: { orderId: string; orderNumber: string; orderType: string; channel: string; tableId?: string; locationId: string; lines: { name: string; qty: number; modifiers: string[]; seatNumber?: number; course?: string }[]; createdAt: string; status: string } }
+  | { type: 'new_order'; order: { orderId: string; orderNumber: string; orderType: string; channel: string; tableId?: string; locationId: string; lines: { name: string; qty: number; modifiers: string[]; seatNumber?: number; course?: string; kdsDestination?: string }[]; createdAt: string; status: string } }
   | { type: 'order_bumped'; orderId: string; locationId: string; timestamp: string };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -146,24 +147,62 @@ function TicketCard({ ticket, onBump }: { ticket: KdsTicket; onBump: (orderId: s
 
 // ─── Connect screen ───────────────────────────────────────────────────────────
 
-function ConnectScreen({ onConnect }: { onConnect: (locationId: string) => void }) {
-  const [value, setValue] = useState('');
+const STATION_OPTIONS: { label: string; value: string }[] = [
+  { label: 'All', value: '' },
+  { label: 'Kitchen', value: 'Kitchen' },
+  { label: 'Bar', value: 'Bar' },
+  { label: 'Front', value: 'Front' },
+  { label: 'Back', value: 'Back' },
+];
+
+function ConnectScreen({ onConnect }: { onConnect: (locationId: string, station: string) => void }) {
+  const [locId, setLocId] = useState('');
+  const [stn, setStn] = useState('');
+
+  const handleConnect = () => {
+    if (!locId.trim()) return;
+    localStorage.setItem('kds_location', locId.trim());
+    localStorage.setItem('kds_station', stn);
+    onConnect(locId.trim(), stn);
+  };
+
   return (
     <div className="flex h-screen flex-col items-center justify-center bg-[#0f0f0f] text-white">
       <ChefHat className="mb-4 h-16 w-16 text-yellow-400" />
       <h1 className="mb-2 text-3xl font-extrabold tracking-wide">ElevatedPOS KDS</h1>
       <p className="mb-8 text-gray-400">Enter your Location ID to connect</p>
-      <div className="flex w-full max-w-sm flex-col gap-3">
+      <div className="flex w-full max-w-sm flex-col gap-4">
         <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && value.trim() && onConnect(value.trim())}
+          value={locId}
+          onChange={(e) => setLocId(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
           placeholder="Location ID (UUID)"
           className="rounded-lg border border-gray-600 bg-[#1a1a1a] px-4 py-3 text-center font-mono text-sm text-white placeholder-gray-600 focus:border-yellow-400 focus:outline-none"
         />
+
+        {/* Station selector */}
+        <div>
+          <p className="mb-2 text-center text-sm text-gray-400">Station</p>
+          <div className="flex gap-2 flex-wrap justify-center">
+            {STATION_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setStn(opt.value)}
+                className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+                  stn === opt.value
+                    ? 'border-yellow-400 bg-yellow-400 text-black'
+                    : 'border-gray-600 bg-[#1a1a1a] text-gray-300 hover:border-gray-400 hover:text-white'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <button
-          disabled={!value.trim()}
-          onClick={() => onConnect(value.trim())}
+          disabled={!locId.trim()}
+          onClick={handleConnect}
           className="rounded-lg bg-yellow-400 py-3 font-bold text-black disabled:opacity-40 hover:bg-yellow-300 transition-colors"
         >
           Connect
@@ -181,9 +220,14 @@ export default function KDSPage() {
   const [locationId, setLocationId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      return params.get('locationId') ?? process.env['NEXT_PUBLIC_LOCATION_ID'] ?? null;
+      return params.get('locationId') ?? localStorage.getItem('kds_location') ?? process.env['NEXT_PUBLIC_LOCATION_ID'] ?? null;
     }
     return null;
+  });
+
+  const [station, setStation] = useState<string>(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('kds_station') ?? '';
+    return '';
   });
 
   const [tickets, setTickets] = useState<KdsTicket[]>([]);
@@ -191,6 +235,11 @@ export default function KDSPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryDelay = useRef(1000);
+
+  // Keep a stable ref to station so the ws.onmessage closure can read the
+  // latest value without being recreated every time station changes.
+  const stationRef = useRef(station);
+  useEffect(() => { stationRef.current = station; }, [station]);
 
   // Tick elapsed seconds every second
   useEffect(() => {
@@ -227,6 +276,16 @@ export default function KDSPage() {
       if (msg.type === 'new_order') {
         const o = msg.order;
         const now = Date.now();
+        const currentStation = stationRef.current;
+
+        // If station is set, only include items that match this station OR have no kdsDestination
+        const filteredLines = currentStation
+          ? o.lines.filter(l => !l.kdsDestination || l.kdsDestination === currentStation)
+          : o.lines;
+
+        // Skip ticket entirely if no items match this station
+        if (filteredLines.length === 0) return;
+
         const ticket: KdsTicket = {
           orderId: o.orderId,
           orderNumber: o.orderNumber,
@@ -234,12 +293,13 @@ export default function KDSPage() {
           channel: o.channel,
           tableId: o.tableId,
           locationId: o.locationId,
-          items: o.lines.map((l) => ({
+          items: filteredLines.map((l) => ({
             name: l.name,
             qty: l.qty,
             modifiers: l.modifiers,
             seatNumber: l.seatNumber,
             course: l.course,
+            kdsDestination: l.kdsDestination,
           })),
           createdAt: o.createdAt,
           status: 'new',
@@ -287,7 +347,14 @@ export default function KDSPage() {
   }, []);
 
   if (!locationId) {
-    return <ConnectScreen onConnect={setLocationId} />;
+    return (
+      <ConnectScreen
+        onConnect={(locId, stn) => {
+          setLocationId(locId);
+          setStation(stn);
+        }}
+      />
+    );
   }
 
   return (
@@ -300,8 +367,24 @@ export default function KDSPage() {
           <span className="rounded-full bg-[#2a2a2a] px-3 py-0.5 text-sm text-gray-400 font-mono">
             {locationId.slice(0, 8)}…
           </span>
+          {station && (
+            <span className="rounded-full bg-yellow-900/50 border border-yellow-700 px-3 py-0.5 text-sm text-yellow-300 font-semibold capitalize">
+              {station}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-3 text-sm">
+          <button
+            onClick={() => {
+              localStorage.removeItem('kds_location');
+              localStorage.removeItem('kds_station');
+              setLocationId(null);
+              setStation('');
+            }}
+            className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:border-gray-500"
+          >
+            Change Station
+          </button>
           {connected ? (
             <>
               <Wifi className="h-4 w-4 text-green-400" />

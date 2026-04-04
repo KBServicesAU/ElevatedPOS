@@ -59,6 +59,7 @@ export const orderLines = pgTable('order_lines', {
   modifiers: jsonb('modifiers').notNull().default([]),
   seatNumber: integer('seat_number'),
   course: varchar('course', { length: 50 }),
+  kdsDestination: varchar('kds_destination', { length: 50 }),
   notes: text('notes'),
   status: lineStatusEnum('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

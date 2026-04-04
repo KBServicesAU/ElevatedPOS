@@ -239,6 +239,22 @@ jobs:
             " && echo "auth 0009 OK" || echo "auth 0009 WARN"
           fi
 
+          # -- Auth migration 0010: printers table --
+          if [ -n "$RELAY_POD" ]; then
+            kubectl exec -n elevatedpos "$RELAY_POD" -- node -e "
+              const {Pool}=require('pg');
+              const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
+              p.query(\`
+                DO \\\$\\\$ BEGIN CREATE TYPE printer_connection_type AS ENUM ('ip','usb'); EXCEPTION WHEN duplicate_object THEN NULL; END \\\$\\\$;
+                DO \\\$\\\$ BEGIN CREATE TYPE printer_type AS ENUM ('receipt','kitchen_order'); EXCEPTION WHEN duplicate_object THEN NULL; END \\\$\\\$;
+                DO \\\$\\\$ BEGIN CREATE TYPE printer_destination_type AS ENUM ('none','kitchen','bar','front','back','custom'); EXCEPTION WHEN duplicate_object THEN NULL; END \\\$\\\$;
+                CREATE TABLE IF NOT EXISTS printers (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE, location_id uuid NOT NULL REFERENCES locations(id) ON DELETE CASCADE, name varchar(100) NOT NULL, brand varchar(50) NOT NULL DEFAULT 'generic', connection_type printer_connection_type NOT NULL DEFAULT 'ip', host varchar(255), port integer DEFAULT 9100, printer_type printer_type NOT NULL DEFAULT 'receipt', destination printer_destination_type NOT NULL DEFAULT 'none', custom_destination varchar(100), is_active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now())
+              \`)
+                .then(()=>{console.log('auth 0010: applied');p.end();})
+                .catch(e=>{console.error('auth 0010:',e.message);p.end();process.exit(0);});
+            " && echo "auth 0010 OK" || echo "auth 0010 WARN"
+          fi
+
           # -- Catalog migration 0006: inventory enhancements --
           if [ -n "$RELAY_POD" ]; then
             kubectl exec -n elevatedpos "$RELAY_POD" -- node -e "
@@ -265,6 +281,17 @@ jobs:
               const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
               (async()=>{for(const s of sqls){try{await p.query(s);}catch(e){console.error('catalog 0006 step:',e.message);}}console.log('catalog 0006: applied');p.end();})();
             " && echo "catalog 0006 OK" || echo "catalog 0006 WARN"
+          fi
+
+          # -- Orders migration: kds_destination on order_lines --
+          if [ -n "$RELAY_POD" ]; then
+            kubectl exec -n elevatedpos "$RELAY_POD" -- node -e "
+              const {Pool}=require('pg');
+              const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
+              p.query('ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS kds_destination varchar(50)')
+                .then(()=>{console.log('orders kds_destination: applied');p.end();})
+                .catch(e=>{console.error('orders kds_destination:',e.message);p.end();process.exit(0);});
+            " && echo "orders kds_destination OK" || echo "orders kds_destination WARN"
           fi
 
           # -- Drizzle migrator for remaining services --
