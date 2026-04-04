@@ -51,7 +51,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-catalog
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/catalog:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/catalog:latest
           command: ["npx", "drizzle-kit", "migrate"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -62,7 +62,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-inventory
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/inventory:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/inventory:latest
           command: ["npx", "drizzle-kit", "migrate"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -73,7 +73,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-orders
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/orders:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/orders:latest
           command: ["npx", "drizzle-kit", "migrate"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -84,7 +84,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-payments
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/payments:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/payments:latest
           command: ["npx", "drizzle-kit", "migrate"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -95,7 +95,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-customers
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/customers:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/customers:latest
           command: ["npx", "drizzle-kit", "migrate"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -106,7 +106,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-loyalty
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/loyalty:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/loyalty:latest
           command: ["npx", "drizzle-kit", "migrate"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -117,7 +117,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-campaigns
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/campaigns:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/campaigns:latest
           command: ["node", "-e", "const {Pool}=require('pg');const {drizzle}=require('drizzle-orm/node-postgres');const {migrate}=require('drizzle-orm/node-postgres/migrator');const p=new Pool({connectionString:process.env.DATABASE_URL});const d=drizzle(p);migrate(d,{migrationsFolder:'src/db/migrations',migrationsTable:'__drizzle_migrations'}).then(()=>{console.log('Migrations applied');p.end();process.exit(0);}).catch(e=>{console.error(e);p.end();process.exit(1);});"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -128,7 +128,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-notifications
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/notifications:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/notifications:latest
           command: ["node", "-e", "const {Pool}=require('pg');const {drizzle}=require('drizzle-orm/node-postgres');const {migrate}=require('drizzle-orm/node-postgres/migrator');const p=new Pool({connectionString:process.env.DATABASE_URL});const d=drizzle(p);migrate(d,{migrationsFolder:'src/db/migrations',migrationsTable:'__drizzle_migrations'}).then(()=>{console.log('Migrations applied');p.end();process.exit(0);}).catch(e=>{console.error(e);p.end();process.exit(1);});"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -139,7 +139,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-integrations
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/integrations:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/integrations:latest
           command: ["npx", "drizzle-kit", "migrate"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -150,7 +150,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-automations
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/automations:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/automations:latest
           command: ["node", "-e", "const {Pool}=require('pg');const {drizzle}=require('drizzle-orm/node-postgres');const {migrate}=require('drizzle-orm/node-postgres/migrator');const p=new Pool({connectionString:process.env.DATABASE_URL});const d=drizzle(p);migrate(d,{migrationsFolder:'src/db/migrations',migrationsTable:'__drizzle_migrations'}).then(()=>{console.log('Migrations applied');p.end();process.exit(0);}).catch(e=>{console.error(e);p.end();process.exit(1);});"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -161,7 +161,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-franchise
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/franchise:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/franchise:latest
           command: ["npx", "drizzle-kit", "migrate"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -172,7 +172,7 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
         - name: migrate-webhooks
-          image: 643603453013.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/webhooks:v1.1.1
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/webhooks:latest
           command: ["node", "-e", "const {Pool}=require('pg');const {drizzle}=require('drizzle-orm/node-postgres');const {migrate}=require('drizzle-orm/node-postgres/migrator');const p=new Pool({connectionString:process.env.DATABASE_URL});const d=drizzle(p);migrate(d,{migrationsFolder:'src/db/migrations',migrationsTable:'__drizzle_migrations'}).then(()=>{console.log('Migrations applied');p.end();process.exit(0);}).catch(e=>{console.error(e);p.end();process.exit(1);});"]
           env:
             - name: NODE_TLS_REJECT_UNAUTHORIZED
