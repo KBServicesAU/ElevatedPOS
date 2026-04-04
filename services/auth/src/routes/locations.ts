@@ -12,14 +12,30 @@ const tradingHourSchema = z.object({
 
 const createLocationSchema = z.object({
   name: z.string().min(1).max(255),
-  address: z.record(z.unknown()).optional().default({}),
+  // Accept either a nested address object OR flat string fields from the frontend form
+  address: z.union([z.string().max(500), z.record(z.unknown())]).optional(),
+  suburb: z.string().max(100).optional(),
+  state: z.string().max(100).optional(),
+  postcode: z.string().max(20).optional(),
   phone: z.string().max(50).optional(),
   timezone: z.string().max(100).default('Australia/Sydney'),
   type: z.enum(['retail', 'warehouse', 'kitchen']).default('retail'),
   settings: z.record(z.unknown()).optional().default({}),
+  managerEmail: z.string().email().optional(),
 });
 
-const updateLocationSchema = createLocationSchema.partial();
+const updateLocationSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  address: z.union([z.string().max(500), z.record(z.unknown())]).optional(),
+  suburb: z.string().max(100).optional(),
+  state: z.string().max(100).optional(),
+  postcode: z.string().max(20).optional(),
+  phone: z.string().max(50).optional(),
+  timezone: z.string().max(100).optional(),
+  type: z.enum(['retail', 'warehouse', 'kitchen']).optional(),
+  settings: z.record(z.unknown()).optional(),
+  managerEmail: z.string().email().optional(),
+});
 
 const tradingHoursSchema = z.object({
   hours: z.array(tradingHourSchema).min(1),
@@ -42,12 +58,24 @@ export async function locationRoutes(app: FastifyInstance) {
       });
     }
 
+    // Normalise address: frontend may send flat fields (address, suburb, state, postcode)
+    // or a nested object — store as a consistent nested object in the DB
+    const addressObj: Record<string, unknown> =
+      typeof body.data.address === 'object' && body.data.address !== null
+        ? (body.data.address as Record<string, unknown>)
+        : {
+            street: body.data.address ?? '',
+            suburb: body.data.suburb ?? '',
+            state: body.data.state ?? '',
+            postcode: body.data.postcode ?? '',
+          };
+
     const createdRows = await db
       .insert(schema.locations)
       .values({
         orgId,
         name: body.data.name,
-        address: body.data.address ?? null,
+        address: addressObj,
         phone: body.data.phone ?? null,
         timezone: body.data.timezone,
         type: body.data.type,
@@ -131,11 +159,32 @@ export async function locationRoutes(app: FastifyInstance) {
       });
     }
 
+    // Normalise address for PATCH the same way as POST
+    let patchAddress: Record<string, unknown> | undefined;
+    if (
+      body.data.address !== undefined ||
+      body.data.suburb !== undefined ||
+      body.data.state !== undefined ||
+      body.data.postcode !== undefined
+    ) {
+      if (typeof body.data.address === 'object' && body.data.address !== null) {
+        patchAddress = body.data.address as Record<string, unknown>;
+      } else {
+        const current = (existing.address as Record<string, unknown>) ?? {};
+        patchAddress = {
+          street: body.data.address ?? current['street'] ?? '',
+          suburb: body.data.suburb ?? current['suburb'] ?? '',
+          state: body.data.state ?? current['state'] ?? '',
+          postcode: body.data.postcode ?? current['postcode'] ?? '',
+        };
+      }
+    }
+
     const updatedRows = await db
       .update(schema.locations)
       .set({
         ...(body.data.name !== undefined ? { name: body.data.name } : {}),
-        ...(body.data.address !== undefined ? { address: body.data.address } : {}),
+        ...(patchAddress !== undefined ? { address: patchAddress } : {}),
         ...(body.data.phone !== undefined ? { phone: body.data.phone } : {}),
         ...(body.data.timezone !== undefined ? { timezone: body.data.timezone } : {}),
         ...(body.data.type !== undefined ? { type: body.data.type } : {}),

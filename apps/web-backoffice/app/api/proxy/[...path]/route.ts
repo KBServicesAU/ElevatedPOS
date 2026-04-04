@@ -102,6 +102,10 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.INTEGRATIONS_API_URL ?? 'http://localhost:4010',
     prefix: '/api/v1/integrations/apps',
   },
+  integrations: {
+    base: process.env.INTEGRATIONS_API_URL ?? 'http://localhost:4010',
+    prefix: '/api/v1/integrations',
+  },
   webhooks: {
     base: process.env.WEBHOOKS_API_URL ?? 'http://localhost:4015',
     prefix: '/api/v1/webhooks',
