@@ -174,8 +174,123 @@ export async function POST(
     }
   }
 
-  // For Lightspeed and other providers — similar pattern, similar implementation
-  // (add more providers here as needed)
+  if (params.provider === 'eposnow') {
+    type EposProduct = { Id: number; Name: string; Description?: string; SalePrice?: number; SKUCode?: string; Barcode?: string };
+    type EposCategory = { Id: number; Name: string; Description?: string };
+    type EposCustomer = { Id: number; Forename?: string; Surname?: string; EmailAddress?: string; MobileNumber?: string };
+    type EposStaff = { Id: number; Forename?: string; Surname?: string; EmailAddress?: string; Role?: string };
+
+    const eposHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+    // Categories first (products may reference them)
+    if (include.includes('categories')) {
+      try {
+        const res = await fetch('https://api.eposnow.com/api/category', { headers: eposHeaders });
+        const data = res.ok ? (await res.json()) as EposCategory[] : [];
+        let count = 0;
+        for (const cat of data) {
+          if (!cat.Name) continue;
+          try {
+            await fetch(`${internalBase}/api/proxy/catalog/categories`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ name: cat.Name, description: cat.Description ?? '' }),
+            });
+            count++;
+          } catch { /* continue */ }
+        }
+        results.categories = count;
+      } catch (e) {
+        errors.push(`categories: ${e instanceof Error ? e.message : 'unknown'}`);
+      }
+    }
+
+    // Products
+    if (include.includes('products')) {
+      try {
+        const res = await fetch('https://api.eposnow.com/api/product', { headers: eposHeaders });
+        const data = res.ok ? (await res.json()) as EposProduct[] : [];
+        let count = 0;
+        for (const p of data) {
+          if (!p.Name) continue;
+          try {
+            await fetch(`${internalBase}/api/proxy/products`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                name: p.Name,
+                description: p.Description ?? '',
+                sku: p.SKUCode ?? '',
+                barcodes: p.Barcode ? [p.Barcode] : [],
+                basePrice: (p.SalePrice ?? 0).toFixed(2),
+                status: 'active',
+              }),
+            });
+            count++;
+          } catch { /* continue */ }
+        }
+        results.products = count;
+      } catch (e) {
+        errors.push(`products: ${e instanceof Error ? e.message : 'unknown'}`);
+      }
+    }
+
+    // Customers
+    if (include.includes('customers')) {
+      try {
+        const res = await fetch('https://api.eposnow.com/api/customer', { headers: eposHeaders });
+        const data = res.ok ? (await res.json()) as EposCustomer[] : [];
+        let count = 0;
+        for (const c of data) {
+          if (!c.Forename && !c.Surname) continue;
+          try {
+            await fetch(`${internalBase}/api/proxy/customers`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                firstName: c.Forename ?? '',
+                lastName: c.Surname ?? '',
+                email: c.EmailAddress ?? '',
+                phone: c.MobileNumber ?? '',
+              }),
+            });
+            count++;
+          } catch { /* continue */ }
+        }
+        results.customers = count;
+      } catch (e) {
+        errors.push(`customers: ${e instanceof Error ? e.message : 'unknown'}`);
+      }
+    }
+
+    // Staff
+    if (include.includes('staff')) {
+      try {
+        const res = await fetch('https://api.eposnow.com/api/staff', { headers: eposHeaders });
+        const data = res.ok ? (await res.json()) as EposStaff[] : [];
+        let count = 0;
+        for (const s of data) {
+          if (!s.Forename && !s.Surname) continue;
+          try {
+            await fetch(`${internalBase}/api/proxy/staff`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                firstName: s.Forename ?? '',
+                lastName: s.Surname ?? '',
+                email: s.EmailAddress ?? '',
+                role: (s.Role ?? 'staff').toLowerCase(),
+              }),
+            });
+            count++;
+          } catch { /* continue */ }
+        }
+        results.staff = count;
+      } catch (e) {
+        errors.push(`staff: ${e instanceof Error ? e.message : 'unknown'}`);
+      }
+    }
+  }
 
   if (errors.length > 0) {
     return NextResponse.json({ results, errors }, { status: 207 });

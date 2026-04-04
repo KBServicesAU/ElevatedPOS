@@ -184,6 +184,53 @@ export async function GET(
       } satisfies PreviewResult);
     }
 
+    if (params.provider === 'eposnow') {
+      type EposProduct = { Id: number; Name: string; Description?: string; SalePrice?: number; SKUCode?: string };
+      type EposCategory = { Id: number; Name: string; Description?: string };
+      type EposCustomer = { Id: number; Forename?: string; Surname?: string; EmailAddress?: string; MobileNumber?: string };
+      type EposStaff = { Id: number; Forename?: string; Surname?: string; EmailAddress?: string };
+
+      const eposHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+      const [productsRes, categoriesRes, customersRes, staffRes] = await Promise.all([
+        fetch('https://api.eposnow.com/api/product', { headers: eposHeaders }),
+        fetch('https://api.eposnow.com/api/category', { headers: eposHeaders }),
+        fetch('https://api.eposnow.com/api/customer', { headers: eposHeaders }),
+        fetch('https://api.eposnow.com/api/staff', { headers: eposHeaders }),
+      ]);
+
+      const productsData = productsRes.ok ? (await productsRes.json()) as EposProduct[] : [];
+      const categoriesData = categoriesRes.ok ? (await categoriesRes.json()) as EposCategory[] : [];
+      const customersData = customersRes.ok ? (await customersRes.json()) as EposCustomer[] : [];
+      const staffData = staffRes.ok ? (await staffRes.json()) as EposStaff[] : [];
+
+      const products = productsData.map((p) => ({
+        name: p.Name,
+        sku: p.SKUCode ?? '',
+        price: p.SalePrice != null ? `$${p.SalePrice.toFixed(2)}` : '',
+      }));
+      const categories = categoriesData.map((c) => ({
+        name: c.Name,
+        description: c.Description ?? '',
+      }));
+      const customers = customersData.map((c) => ({
+        name: `${c.Forename ?? ''} ${c.Surname ?? ''}`.trim(),
+        email: c.EmailAddress ?? '',
+        phone: c.MobileNumber ?? '',
+      }));
+      const staff = staffData.map((s) => ({
+        name: `${s.Forename ?? ''} ${s.Surname ?? ''}`.trim(),
+        email: s.EmailAddress ?? '',
+      }));
+
+      return NextResponse.json({
+        products:   { count: products.length,   preview: products.slice(0, 5)   },
+        categories: { count: categories.length, preview: categories.slice(0, 5) },
+        customers:  { count: customers.length,  preview: customers.slice(0, 5)  },
+        staff:      { count: staff.length,      preview: staff.slice(0, 5)      },
+      } satisfies PreviewResult);
+    }
+
     // For other providers, return empty preview (not yet fully implemented)
     return NextResponse.json(EMPTY_RESULT);
   } catch {
