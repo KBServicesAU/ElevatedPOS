@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: godmode
+  namespace: elevatedpos
+  labels:
+    app: godmode
+    app.kubernetes.io/part-of: elevatedpos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: godmode
+  template:
+    metadata:
+      labels:
+        app: godmode
+    spec:
+      serviceAccountName: elevatedpos-service
+      containers:
+        - name: godmode
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/godmode:latest
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: elevatedpos-config
+            - secretRef:
+                name: elevatedpos-secrets
+          env:
+            - name: PORT
+              value: "3000"
+            - name: NEXT_TELEMETRY_DISABLED
+              value: "1"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: godmode
+  namespace: elevatedpos
+spec:
+  selector:
+    app: godmode
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: godmode
+  namespace: elevatedpos
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: godmode
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
