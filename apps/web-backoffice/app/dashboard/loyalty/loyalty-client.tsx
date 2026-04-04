@@ -1,6 +1,7 @@
 'use client';
 
-import { Star, TrendingUp, Gift, Plus, Users } from 'lucide-react';
+import { useState } from 'react';
+import { Star, TrendingUp, Gift, Plus, Users, X } from 'lucide-react';
 import { useLoyaltyPrograms } from '@/lib/hooks';
 import type { LoyaltyProgram, LoyaltyTier } from '@/lib/api';
 
@@ -11,8 +12,111 @@ const tierColors: Record<string, string> = {
   Platinum: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
 };
 
+// ─── Create Program Modal ─────────────────────────────────────────────────────
+
+interface CreateProgramModalProps {
+  onClose: () => void;
+  onCreated: () => void;
+}
+
+function CreateProgramModal({ onClose, onCreated }: CreateProgramModalProps) {
+  const [name, setName] = useState('');
+  const [earnRate, setEarnRate] = useState('1');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      const res = await fetch('/api/proxy/programs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), earnRate: parseFloat(earnRate) || 1, active: true }),
+      });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.message ?? b.error ?? b.detail ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      onCreated();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create program');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Create Loyalty Program</h2>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <form onSubmit={(e) => void handleSave(e)} className="space-y-5 p-6">
+          {error && (
+            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Program Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Rewards Club"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Points earned per $1 spent
+            </label>
+            <input
+              type="number"
+              min="0.1"
+              step="0.1"
+              value={earnRate}
+              onChange={(e) => setEarnRate(e.target.value)}
+              className="w-32 rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !name.trim()}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {saving ? 'Creating…' : 'Create Program'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export function LoyaltyClient() {
-  const { data, isLoading, isError } = useLoyaltyPrograms();
+  const { data, isLoading, isError, refetch } = useLoyaltyPrograms();
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const programs = data?.data ?? [];
   const program = programs[0] as LoyaltyProgram | undefined;
   const tiers: LoyaltyTier[] = program?.tiers ?? [];
@@ -33,6 +137,12 @@ export function LoyaltyClient() {
   if (isError || !program) {
     return (
       <div className="space-y-6">
+        {showCreateModal && (
+          <CreateProgramModal
+            onClose={() => setShowCreateModal(false)}
+            onCreated={() => { void refetch?.(); }}
+          />
+        )}
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Loyalty Program</h2>
           <p className="text-sm text-gray-400">No loyalty program configured yet.</p>
@@ -40,7 +150,10 @@ export function LoyaltyClient() {
         <div className="rounded-xl border border-dashed border-gray-200 p-8 text-center dark:border-gray-700">
           <Star className="mx-auto mb-2 h-8 w-8 text-gray-300" />
           <p className="text-sm text-gray-500">Create your first loyalty program to start rewarding customers.</p>
-          <button className="mt-4 flex items-center gap-2 mx-auto rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="mt-4 flex items-center gap-2 mx-auto rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
             <Plus className="h-4 w-4" /> Create Program
           </button>
         </div>
@@ -50,12 +163,21 @@ export function LoyaltyClient() {
 
   return (
     <div className="space-y-6">
+      {showCreateModal && (
+        <CreateProgramModal
+          onClose={() => setShowCreateModal(false)}
+          onCreated={() => { void refetch?.(); }}
+        />
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Loyalty Program</h2>
           <p className="text-sm text-gray-500">{totalMembers} active members</p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+        >
           <Plus className="h-4 w-4" /> New Reward
         </button>
       </div>

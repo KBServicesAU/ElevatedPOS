@@ -152,20 +152,51 @@ function SupplierModal({ existing, onClose, onSave }: SupplierModalProps) {
     leadTimeDays: existing?.leadTimeDays ?? 7,
     notes: existing?.notes ?? '',
   });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  function handleSubmit() {
-    const supplier: Supplier = {
-      id: existing?.id ?? `sup-${Date.now()}`,
-      ...form,
-      productCount: existing?.productCount ?? 0,
-      lastOrderDate: existing?.lastOrderDate ?? new Date().toISOString().slice(0, 10),
-    };
-    onSave(supplier);
-    onClose();
+  async function handleSubmit() {
+    setError('');
+    setSaving(true);
+    try {
+      const url = existing ? `/api/proxy/suppliers/${existing.id}` : '/api/proxy/suppliers';
+      const method = existing ? 'PATCH' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.message ?? b.error ?? b.detail ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      const json = await res.json() as { data?: Supplier } | Supplier;
+      const saved: Supplier = ('data' in json && json.data) ? json.data : json as Supplier;
+      onSave({
+        id: saved.id ?? existing?.id ?? `sup-${Date.now()}`,
+        name: saved.name ?? form.name,
+        contactName: saved.contactName ?? form.contactName,
+        email: saved.email ?? form.email,
+        phone: saved.phone ?? form.phone,
+        website: saved.website ?? form.website,
+        address: saved.address ?? form.address,
+        paymentTerms: (saved.paymentTerms ?? form.paymentTerms) as PaymentTerms,
+        leadTimeDays: saved.leadTimeDays ?? form.leadTimeDays,
+        notes: saved.notes ?? form.notes,
+        productCount: saved.productCount ?? existing?.productCount ?? 0,
+        lastOrderDate: saved.lastOrderDate ?? existing?.lastOrderDate ?? new Date().toISOString().slice(0, 10),
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save supplier');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const isValid = form.name.trim() && form.email.trim();
@@ -280,20 +311,28 @@ function SupplierModal({ existing, onClose, onSave }: SupplierModalProps) {
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!isValid}
-            className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
-          >
-            {existing ? 'Save Changes' : 'Add Supplier'}
-          </button>
+        <div className="border-t border-gray-200 px-6 py-4 dark:border-gray-800 space-y-3">
+          {error && (
+            <div className="rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => void handleSubmit()}
+              disabled={!isValid || saving}
+              className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
+            >
+              {saving ? 'Saving…' : existing ? 'Save Changes' : 'Add Supplier'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -525,26 +564,29 @@ export function SuppliersClient() {
   const [editTarget, setEditTarget] = useState<Supplier | null>(null);
   const [detailTarget, setDetailTarget] = useState<Supplier | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch('/api/proxy/suppliers');
-        if (res.ok) {
-          const json = await res.json();
-          setSuppliers(json.data ?? []);
-        } else {
-          setSuppliers([]);
-        }
-      } catch {
+  async function loadSuppliers() {
+    try {
+      const res = await fetch('/api/proxy/suppliers');
+      if (res.ok) {
+        const json = await res.json();
+        setSuppliers(json.data ?? []);
+      } else {
         setSuppliers([]);
-      } finally {
-        setIsLoading(false);
       }
+    } catch {
+      setSuppliers([]);
+    } finally {
+      setIsLoading(false);
     }
-    load();
+  }
+
+  useEffect(() => {
+    void loadSuppliers();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleSaveSupplier(supplier: Supplier) {
+    // Optimistically update local state so the UI is instant
     setSuppliers((prev) => {
       const idx = prev.findIndex((s) => s.id === supplier.id);
       if (idx >= 0) {
@@ -556,6 +598,8 @@ export function SuppliersClient() {
     });
     // If we were viewing the edited supplier in the detail panel, update it
     if (detailTarget?.id === supplier.id) setDetailTarget(supplier);
+    // Re-fetch to ensure list is in sync with what the server stored
+    void loadSuppliers();
   }
 
   function handleEditFromDetail(supplier: Supplier) {

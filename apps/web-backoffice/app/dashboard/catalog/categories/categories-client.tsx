@@ -136,8 +136,8 @@ function CategoryModal({ categories, editing, onClose, onSaved }: ModalProps) {
 
     try {
       const url = editing
-        ? `/api/proxy/catalog/categories/${editing.id}`
-        : '/api/proxy/catalog/categories';
+        ? `/api/proxy/categories/${editing.id}`
+        : '/api/proxy/categories';
       const method = editing ? 'PATCH' : 'POST';
       const res = await fetch(url, {
         method,
@@ -454,7 +454,7 @@ export function CategoriesClient() {
 
   const loadCategories = useCallback(async () => {
     try {
-      const res = await fetch('/api/proxy/catalog/categories');
+      const res = await fetch('/api/proxy/categories');
       if (!res.ok) return;
       const json = await res.json() as { data?: Category[] } | Category[];
       const data: Category[] = Array.isArray(json) ? json : (json.data ?? []);
@@ -492,7 +492,7 @@ export function CategoriesClient() {
       prev.map((c) => (c.id === cat.id ? { ...c, isActive: !c.isActive } : c)),
     );
     try {
-      const res = await fetch(`/api/proxy/catalog/categories/${cat.id}`, {
+      const res = await fetch(`/api/proxy/categories/${cat.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: !cat.isActive }),
