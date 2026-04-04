@@ -117,6 +117,13 @@ jobs:
           # Force-recreate portal services that were previously created without kubectl apply
           kubectl delete service godmode org-portal reseller-portal -n elevatedpos --ignore-not-found=true
           kubectl apply -f infrastructure/k8s/apps/
+          # Remove any pre-existing portal ingresses that may conflict with portals-ingress.yaml
+          kubectl delete ingress \
+            elevatedpos-org-portal-ingress \
+            elevatedpos-reseller-portal-ingress \
+            elevatedpos-godmode-ingress \
+            elevatedpos-portals-ingress \
+            -n elevatedpos --ignore-not-found=true
           # infrastructure/k8s/ingress.yaml hosts are managed by Helm; skipped to avoid conflicts
           kubectl apply -f infrastructure/k8s/ingress/
 
@@ -189,6 +196,13 @@ jobs:
           # Force-recreate portal services that were previously created without kubectl apply
           kubectl delete service godmode org-portal reseller-portal -n elevatedpos --ignore-not-found=true
           kubectl apply -f infrastructure/k8s/apps/
+          # Remove any pre-existing portal ingresses that may conflict with portals-ingress.yaml
+          kubectl delete ingress \
+            elevatedpos-org-portal-ingress \
+            elevatedpos-reseller-portal-ingress \
+            elevatedpos-godmode-ingress \
+            elevatedpos-portals-ingress \
+            -n elevatedpos --ignore-not-found=true
           # infrastructure/k8s/ingress.yaml hosts are managed by Helm; skipped to avoid conflicts
           kubectl apply -f infrastructure/k8s/ingress/
 
