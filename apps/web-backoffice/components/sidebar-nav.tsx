@@ -6,7 +6,7 @@ import {
   Star, Megaphone, Plug, ClipboardList, BellRing, Building2,
   Truck, Gift, CalendarCheck, ArrowLeftRight, MapPin, Clock, Webhook, ShoppingCart,
   FileText, Tag, CreditCard, ChefHat, Tablet, Smartphone, Receipt, RefreshCw, Globe,
-  Banknote, ArrowDownToLine, Wallet, ArrowUpDown, UserCog,
+  Banknote, ArrowDownToLine, Wallet, ArrowUpDown, UserCog, MoveRight,
 } from 'lucide-react';
 import { NavLink } from './nav-link';
 
@@ -50,6 +50,7 @@ const nav = [
   { href: '/dashboard/webhooks', icon: Webhook, label: 'Webhooks' },
   { href: '/dashboard/automations', icon: Zap, label: 'Automations' },
   { href: '/dashboard/locations', icon: MapPin, label: 'Locations' },
+  { href: '/dashboard/easy-move',   icon: MoveRight,  label: 'Easy Move'   },
   { href: '/dashboard/bulk-manage', icon: ArrowUpDown, label: 'Bulk Manage' },
   { href: '/dashboard/account', icon: UserCog, label: 'Account' },
   { href: '/dashboard/settings', icon: Settings, label: 'Settings' },
