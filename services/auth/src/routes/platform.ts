@@ -3,6 +3,7 @@ import { eq, ilike, and, count, or, SQL, asc } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db';
 import { verifyPassword, hashPassword } from '../lib/tokens';
+import { logAudit } from '../lib/audit';
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -245,6 +246,20 @@ export async function platformRoutes(app: FastifyInstance) {
 
     if (!updated) return reply.status(404).send({ title: 'Not Found', status: 404 });
 
+    const platformUser = request.user as PlatformPayload;
+    void logAudit({
+      orgId: id,
+      platformUserId: platformUser.sub,
+      actorName: platformUser.email,
+      action: body.data.planStatus === 'suspended' ? 'org_suspended'
+            : body.data.planStatus === 'active'    ? 'org_reactivated'
+            : 'org_plan_updated',
+      resourceType: 'organisation',
+      resourceId: id,
+      detail: body.data as Record<string, unknown>,
+      ipAddress: request.ip,
+    });
+
     return reply.send({ data: updated });
   });
 
@@ -348,7 +363,7 @@ export async function platformRoutes(app: FastifyInstance) {
       { expiresIn: '30m' },
     );
 
-    // Audit log
+    // Audit log — both structured log and persistent DB record
     app.log.info({
       event: 'impersonation',
       platformUser: platformUser.email,
@@ -356,6 +371,16 @@ export async function platformRoutes(app: FastifyInstance) {
       orgName: org.name,
       employeeId: employee.id,
       employeeEmail: employee.email,
+    });
+    void logAudit({
+      orgId,
+      platformUserId: platformUser.sub,
+      actorName: platformUser.email,
+      action: 'impersonation',
+      resourceType: 'employee',
+      resourceId: employee.id,
+      detail: { orgName: org.name, employeeEmail: employee.email },
+      ipAddress: request.ip,
     });
 
     return reply.send({

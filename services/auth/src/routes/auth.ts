@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import crypto from 'crypto';
 import { db, schema } from '../db';
+import { logAudit } from '../lib/audit';
 import {
   verifyPassword,
   verifyPin,
@@ -459,6 +460,18 @@ export async function authRoutes(app: FastifyInstance) {
       }).catch((err) => console.error('[auth/forgot-password] notification failed:', err));
     }
 
+    // Audit: password reset requested (only log when employee was found to avoid enumeration concern in logs)
+    if (employee && employee.isActive) {
+      void logAudit({
+        orgId: employee.orgId,
+        action: 'password_reset_requested',
+        resourceType: 'employee',
+        resourceId: employee.id,
+        actorName: employee.email,
+        ipAddress: request.ip,
+      });
+    }
+
     return reply.status(200).send({ ok: true });
   });
 
@@ -507,6 +520,15 @@ export async function authRoutes(app: FastifyInstance) {
         lockedUntil:            null,
       })
       .where(eq(schema.employees.id, employee.id));
+
+    void logAudit({
+      orgId: employee.orgId,
+      action: 'password_reset_completed',
+      resourceType: 'employee',
+      resourceId: employee.id,
+      actorName: employee.email,
+      ipAddress: request.ip,
+    });
 
     return reply.status(200).send({ ok: true });
   });
