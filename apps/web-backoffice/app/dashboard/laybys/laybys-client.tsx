@@ -23,16 +23,6 @@ interface LaybysResponse {
   data: Layby[];
 }
 
-const MOCK_DATA: Layby[] = [
-  { id: 'lb1', agreementNumber: 'LB-2026-0031', customerName: 'Emma Johnson', total: 850, paid: 425, status: 'active', nextPaymentDate: 'Apr 1, 2026', nextPaymentAmount: 213, createdAt: 'Jan 10, 2026', itemsSummary: 'Sony WH-1000XM5 Headphones' },
-  { id: 'lb2', agreementNumber: 'LB-2026-0030', customerName: 'Marcus Lee', total: 1200, paid: 400, status: 'active', nextPaymentDate: 'Mar 28, 2026', nextPaymentAmount: 400, createdAt: 'Jan 28, 2026', itemsSummary: 'Dyson V15 Vacuum + Accessories' },
-  { id: 'lb3', agreementNumber: 'LB-2026-0028', customerName: 'Sophie Wilson', total: 450, paid: 450, status: 'completed', nextPaymentDate: null, nextPaymentAmount: null, createdAt: 'Dec 1, 2025', itemsSummary: 'KitchenAid Stand Mixer' },
-  { id: 'lb4', agreementNumber: 'LB-2026-0025', customerName: 'David Chen', total: 2000, paid: 800, status: 'active', nextPaymentDate: 'Apr 5, 2026', nextPaymentAmount: 400, createdAt: 'Nov 10, 2025', itemsSummary: 'Apple iPad Pro 13", Magic Keyboard' },
-  { id: 'lb5', agreementNumber: 'LB-2026-0022', customerName: 'Anika Patel', total: 600, paid: 0, status: 'cancelled', nextPaymentDate: null, nextPaymentAmount: null, createdAt: 'Oct 20, 2025', itemsSummary: 'Espresso Machine DeLonghi La Specialista' },
-  { id: 'lb6', agreementNumber: 'LB-2026-0019', customerName: 'James O\'Brien', total: 380, paid: 380, status: 'completed', nextPaymentDate: null, nextPaymentAmount: null, createdAt: 'Sep 14, 2025', itemsSummary: 'Samsung Galaxy Buds Pro × 2' },
-  { id: 'lb7', agreementNumber: 'LB-2026-0035', customerName: 'Lily Nguyen', total: 700, paid: 175, status: 'active', nextPaymentDate: 'Mar 25, 2026', nextPaymentAmount: 175, createdAt: 'Feb 25, 2026', itemsSummary: 'GoPro HERO12 + Accessories Bundle' },
-];
-
 type FilterTab = 'active' | 'completed' | 'cancelled' | 'all';
 
 const STATUS_STYLES: Record<Layby['status'], string> = {

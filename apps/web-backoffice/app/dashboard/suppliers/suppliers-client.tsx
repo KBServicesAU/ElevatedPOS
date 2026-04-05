@@ -39,86 +39,6 @@ interface SupplierProduct {
   lastCost: number;
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_SUPPLIERS: Supplier[] = [
-  {
-    id: 'sup-1',
-    name: 'Fresh Valley Produce',
-    contactName: 'Rachel Kim',
-    email: 'rachel@freshvalley.com.au',
-    phone: '+61 2 9345 6789',
-    website: 'https://freshvalley.com.au',
-    address: '45 Farm Road, Penrith NSW 2750',
-    paymentTerms: 'Net14',
-    leadTimeDays: 2,
-    notes: 'Preferred produce supplier. Delivers Mon/Wed/Fri.',
-    productCount: 18,
-    lastOrderDate: '2024-03-11',
-  },
-  {
-    id: 'sup-2',
-    name: 'Metro Wholesale Foods',
-    contactName: 'David Chen',
-    email: 'david.chen@metrowholesale.com',
-    phone: '+61 2 8765 4321',
-    website: 'https://metrowholesale.com',
-    address: '12 Industrial Ave, Silverwater NSW 2128',
-    paymentTerms: 'Net30',
-    leadTimeDays: 5,
-    notes: 'Large range of dry goods and pantry staples.',
-    productCount: 54,
-    lastOrderDate: '2024-03-12',
-  },
-  {
-    id: 'sup-3',
-    name: 'Pacific Beverages Co.',
-    contactName: 'Sophie Martin',
-    email: 'sophie@pacificbev.com.au',
-    phone: '+61 2 7890 1234',
-    website: 'https://pacificbev.com.au',
-    address: '88 Waterfront Dr, Pyrmont NSW 2009',
-    paymentTerms: 'COD',
-    leadTimeDays: 3,
-    notes: 'Specialises in premium beverages and water.',
-    productCount: 12,
-    lastOrderDate: '2024-03-14',
-  },
-];
-
-const RECENT_ORDERS_MAP: Record<string, RecentOrder[]> = {
-  'sup-1': [
-    { poNumber: 'PO-2024-0041', date: '2024-03-06', status: 'received', total: 14700 },
-    { poNumber: 'PO-2024-0043', date: '2024-03-11', status: 'partial', total: 13400 },
-    { poNumber: 'PO-2024-0038', date: '2024-02-26', status: 'received', total: 9200 },
-  ],
-  'sup-2': [
-    { poNumber: 'PO-2024-0042', date: '2024-03-12', status: 'sent', total: 43560 },
-    { poNumber: 'PO-2024-0035', date: '2024-02-18', status: 'received', total: 38900 },
-  ],
-  'sup-3': [
-    { poNumber: 'PO-2024-0044', date: '2024-03-14', status: 'draft', total: 12000 },
-    { poNumber: 'PO-2024-0032', date: '2024-02-10', status: 'received', total: 8400 },
-  ],
-};
-
-const PRODUCTS_MAP: Record<string, SupplierProduct[]> = {
-  'sup-1': [
-    { name: 'Cherry Tomatoes (1kg)', sku: 'VEG-CT1KG', lastCost: 450 },
-    { name: 'Baby Spinach (500g)', sku: 'VEG-BSP500', lastCost: 380 },
-    { name: 'Broccoli (1kg)', sku: 'VEG-BRO1KG', lastCost: 320 },
-    { name: 'Carrots (1kg)', sku: 'VEG-CAR1KG', lastCost: 180 },
-  ],
-  'sup-2': [
-    { name: 'Arborio Rice (5kg)', sku: 'DRY-AR5KG', lastCost: 1200 },
-    { name: 'Olive Oil Extra Virgin (1L)', sku: 'OIL-EVOO1L', lastCost: 890 },
-    { name: 'Canned Tomatoes (400g)', sku: 'CAN-TOM400', lastCost: 210 },
-  ],
-  'sup-3': [
-    { name: 'Sparkling Water (500ml 24pk)', sku: 'BEV-SW500-24', lastCost: 2400 },
-    { name: 'Still Water (1L 12pk)', sku: 'BEV-STW1L-12', lastCost: 1800 },
-  ],
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -351,8 +271,30 @@ interface SupplierDetailProps {
 
 function SupplierDetail({ supplier, onClose, onEdit }: SupplierDetailProps) {
   const [tab, setTab] = useState<DetailTab>('info');
-  const recentOrders = RECENT_ORDERS_MAP[supplier.id] ?? [];
-  const products = PRODUCTS_MAP[supplier.id] ?? [];
+  const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
+  const [products, setProducts] = useState<SupplierProduct[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [productsLoading, setProductsLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab === 'orders' && recentOrders.length === 0) {
+      setOrdersLoading(true);
+      fetch(`/api/proxy/purchase-orders?supplierId=${supplier.id}`)
+        .then((r) => r.ok ? r.json() : { data: [] })
+        .then((json) => setRecentOrders(Array.isArray(json) ? json : (json.data ?? [])))
+        .catch(() => setRecentOrders([]))
+        .finally(() => setOrdersLoading(false));
+    }
+    if (tab === 'products' && products.length === 0) {
+      setProductsLoading(true);
+      fetch(`/api/proxy/products?supplierId=${supplier.id}`)
+        .then((r) => r.ok ? r.json() : { data: [] })
+        .then((json) => setProducts(Array.isArray(json) ? json : (json.data ?? [])))
+        .catch(() => setProducts([]))
+        .finally(() => setProductsLoading(false));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, supplier.id]);
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
@@ -455,7 +397,8 @@ function SupplierDetail({ supplier, onClose, onEdit }: SupplierDetailProps) {
 
           {tab === 'orders' && (
             <div className="space-y-3">
-              {recentOrders.length === 0 && (
+              {ordersLoading && <p className="text-sm text-gray-400">Loading…</p>}
+              {!ordersLoading && recentOrders.length === 0 && (
                 <p className="text-sm text-gray-400">No orders yet.</p>
               )}
               {recentOrders.map((order) => (
@@ -477,7 +420,8 @@ function SupplierDetail({ supplier, onClose, onEdit }: SupplierDetailProps) {
 
           {tab === 'products' && (
             <div className="space-y-3">
-              {products.length === 0 && (
+              {productsLoading && <p className="text-sm text-gray-400">Loading…</p>}
+              {!productsLoading && products.length === 0 && (
                 <p className="text-sm text-gray-400">No products linked.</p>
               )}
               {products.map((product) => (

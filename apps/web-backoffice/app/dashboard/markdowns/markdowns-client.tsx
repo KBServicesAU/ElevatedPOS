@@ -27,46 +27,7 @@ interface MarkdownsResponse {
   data: Markdown[];
 }
 
-const MOCK_DATA: Markdown[] = [
-  {
-    id: 'md1',
-    name: 'Spring Sale — All Products',
-    description: '10% off everything storewide for spring.',
-    scope: 'all',
-    scopeLabel: 'All Products',
-    discountType: 'percentage',
-    discountValue: 10,
-    startsAt: 'Mar 20, 2026 09:00',
-    endsAt: 'Mar 31, 2026 23:59',
-    status: 'active',
-  },
-  {
-    id: 'md2',
-    name: 'Electronics — Category Promo',
-    description: 'Mid-season discount on all electronics.',
-    scope: 'category',
-    scopeLabel: 'Electronics',
-    discountType: 'percentage',
-    discountValue: 15,
-    startsAt: 'Apr 1, 2026 00:00',
-    endsAt: 'Apr 14, 2026 23:59',
-    status: 'scheduled',
-  },
-  {
-    id: 'md3',
-    name: 'Clearance — MacBook Pro 14"',
-    description: 'Fixed $200 off to clear old stock.',
-    scope: 'product',
-    scopeLabel: 'MacBook Pro 14"',
-    discountType: 'fixed',
-    discountValue: 200,
-    startsAt: 'Jan 1, 2026 00:00',
-    endsAt: 'Feb 28, 2026 23:59',
-    status: 'expired',
-  },
-];
-
-const MOCK_CATEGORIES = ['Electronics', 'Clothing', 'Food & Beverage', 'Home & Garden', 'Sporting Goods', 'Toys'];
+const CATEGORIES = ['Electronics', 'Clothing', 'Food & Beverage', 'Home & Garden', 'Sporting Goods', 'Toys'];
 
 type FilterTab = 'all' | MarkdownStatus;
 
@@ -379,7 +340,7 @@ export default function MarkdownsClient() {
                     className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
                   >
                     <option value="">Select a category</option>
-                    {MOCK_CATEGORIES.map((c) => (
+                    {CATEGORIES.map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>

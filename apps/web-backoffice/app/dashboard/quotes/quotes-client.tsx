@@ -31,68 +31,6 @@ interface QuotesResponse {
   data: Quote[];
 }
 
-const MOCK_DATA: Quote[] = [
-  {
-    id: 'q1',
-    quoteNumber: 'QT-2026-0001',
-    customerName: 'Acme Corp',
-    status: 'draft',
-    items: [
-      { productName: 'MacBook Pro 16"', qty: 2, unitPrice: 3499 },
-      { productName: 'Magic Mouse', qty: 2, unitPrice: 99 },
-    ],
-    discountPct: 5,
-    total: 6841.1,
-    validUntil: 'Apr 15, 2026',
-    notes: 'Awaiting final approval from procurement.',
-    createdAt: 'Mar 10, 2026',
-  },
-  {
-    id: 'q2',
-    quoteNumber: 'QT-2026-0002',
-    customerName: 'Blue Ridge Logistics',
-    status: 'sent',
-    items: [
-      { productName: 'Dell UltraSharp 27"', qty: 5, unitPrice: 749 },
-      { productName: 'Logitech MX Keys', qty: 5, unitPrice: 119 },
-    ],
-    discountPct: 10,
-    total: 3870,
-    validUntil: 'Apr 1, 2026',
-    notes: 'Bulk discount applied.',
-    createdAt: 'Mar 15, 2026',
-  },
-  {
-    id: 'q3',
-    quoteNumber: 'QT-2026-0003',
-    customerName: 'Greenleaf Studio',
-    status: 'accepted',
-    items: [
-      { productName: 'iPad Pro 12.9"', qty: 3, unitPrice: 1299 },
-      { productName: 'Apple Pencil', qty: 3, unitPrice: 129 },
-    ],
-    discountPct: 0,
-    total: 4284,
-    validUntil: 'Apr 10, 2026',
-    notes: 'Ready for order conversion.',
-    createdAt: 'Mar 5, 2026',
-  },
-  {
-    id: 'q4',
-    quoteNumber: 'QT-2026-0004',
-    customerName: 'Harrington & Sons',
-    status: 'expired',
-    items: [
-      { productName: 'HP LaserJet Pro', qty: 1, unitPrice: 599 },
-    ],
-    discountPct: 0,
-    total: 599,
-    validUntil: 'Feb 28, 2026',
-    notes: 'Customer did not respond in time.',
-    createdAt: 'Feb 14, 2026',
-  },
-];
-
 type FilterTab = 'all' | QuoteStatus;
 
 const STATUS_STYLES: Record<QuoteStatus, string> = {

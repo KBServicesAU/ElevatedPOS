@@ -21,59 +21,6 @@ interface TransferItem {
   qty: number;
 }
 
-const MOCK_TRANSFERS: Transfer[] = [
-  {
-    id: '1',
-    transferNumber: 'TRF-0001',
-    fromLocation: 'Main Store',
-    toLocation: 'City Branch',
-    status: 'received',
-    itemsCount: 12,
-    requestedBy: 'Jane Doe',
-    createdAt: '2026-03-20T09:00:00Z',
-  },
-  {
-    id: '2',
-    transferNumber: 'TRF-0002',
-    fromLocation: 'City Branch',
-    toLocation: 'Airport Kiosk',
-    status: 'in_transit',
-    itemsCount: 5,
-    requestedBy: 'Bob Smith',
-    createdAt: '2026-03-21T11:30:00Z',
-  },
-  {
-    id: '3',
-    transferNumber: 'TRF-0003',
-    fromLocation: 'Main Store',
-    toLocation: 'Airport Kiosk',
-    status: 'pending',
-    itemsCount: 8,
-    requestedBy: 'Alice Lee',
-    createdAt: '2026-03-22T14:00:00Z',
-  },
-  {
-    id: '4',
-    transferNumber: 'TRF-0004',
-    fromLocation: 'Airport Kiosk',
-    toLocation: 'Main Store',
-    status: 'pending',
-    itemsCount: 3,
-    requestedBy: 'Jane Doe',
-    createdAt: '2026-03-22T15:45:00Z',
-  },
-  {
-    id: '5',
-    transferNumber: 'TRF-0005',
-    fromLocation: 'City Branch',
-    toLocation: 'Main Store',
-    status: 'cancelled',
-    itemsCount: 6,
-    requestedBy: 'Bob Smith',
-    createdAt: '2026-03-19T08:00:00Z',
-  },
-];
-
 const STATUS_COLORS: Record<Transfer['status'], string> = {
   pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
   in_transit: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',

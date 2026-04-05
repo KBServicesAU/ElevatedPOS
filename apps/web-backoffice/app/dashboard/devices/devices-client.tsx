@@ -128,6 +128,7 @@ export default function DevicesClient() {
   const [locations, setLocations]     = useState<Location[]>([]);
   const [loading,   setLoading]       = useState(true);
   const [revoking,  setRevoking]      = useState<string | null>(null);
+  const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
   const [copiedCode, setCopiedCode]   = useState<string | null>(null);
 
   const [genRole,       setGenRole]       = useState<DeviceRole>('pos');
@@ -185,7 +186,7 @@ export default function DevicesClient() {
   // ── Revoke ───────────────────────────────────────────────────────────────
 
   async function handleRevoke(id: string) {
-    if (!confirm('Revoke this device? It will need to be re-paired.')) return;
+    setConfirmRevokeId(null);
     setRevoking(id);
     try {
       await apiFetch(`devices/${id}`, { method: 'DELETE' });
@@ -392,14 +393,33 @@ export default function DevicesClient() {
                             {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                           </button>
                         )}
-                        <button
-                          onClick={() => handleRevoke(device.id)}
-                          disabled={revoking === device.id}
-                          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950 hover:text-red-300 transition-colors disabled:opacity-50"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          {revoking === device.id ? 'Revoking…' : 'Revoke'}
-                        </button>
+                        {confirmRevokeId === device.id ? (
+                          <span className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400">Revoke device?</span>
+                            <button
+                              onClick={() => handleRevoke(device.id)}
+                              disabled={revoking === device.id}
+                              className="text-xs font-semibold text-red-400 hover:text-red-300 disabled:opacity-50"
+                            >
+                              {revoking === device.id ? 'Revoking…' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmRevokeId(null)}
+                              className="text-xs text-gray-500 hover:text-gray-300"
+                            >
+                              No
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmRevokeId(device.id)}
+                            disabled={revoking === device.id}
+                            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950 hover:text-red-300 transition-colors disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            {revoking === device.id ? 'Revoking…' : 'Revoke'}
+                          </button>
+                        )}
                       </div>
                     </div>
 

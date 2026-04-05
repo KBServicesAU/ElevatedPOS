@@ -400,6 +400,7 @@ export default function PrintersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -425,9 +426,9 @@ export default function PrintersPage() {
   const openEdit = (printer: Printer) => { setEditTarget(printer); setModalOpen(true); };
   const closeModal = () => { setModalOpen(false); setEditTarget(null); };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete printer "${name}"? This cannot be undone.`)) return;
+  const handleDelete = async (id: string) => {
     setDeleting(id);
+    setConfirmDeleteId(null);
     try {
       await apiFetch(`printers/${id}`, { method: 'DELETE' });
       setPrinters((prev) => prev.filter((p) => p.id !== id));
@@ -592,18 +593,37 @@ export default function PrintersPage() {
                           <Pencil className="h-3 w-3" />
                           Edit
                         </button>
-                        <button
-                          onClick={() => void handleDelete(printer.id, printer.name)}
-                          disabled={deleting === printer.id}
-                          className="flex items-center gap-1.5 rounded-lg border border-red-800 px-2.5 py-1.5 text-xs font-medium text-red-400 hover:bg-red-900/30 disabled:opacity-40"
-                        >
-                          {deleting === printer.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3 w-3" />
-                          )}
-                          Delete
-                        </button>
+                        {confirmDeleteId === printer.id ? (
+                          <span className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400">Delete printer?</span>
+                            <button
+                              onClick={() => void handleDelete(printer.id)}
+                              disabled={deleting === printer.id}
+                              className="text-xs font-semibold text-red-400 hover:text-red-300 disabled:opacity-50"
+                            >
+                              {deleting === printer.id ? 'Deleting…' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="text-xs text-gray-500 hover:text-gray-300"
+                            >
+                              No
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(printer.id)}
+                            disabled={deleting === printer.id}
+                            className="flex items-center gap-1.5 rounded-lg border border-red-800 px-2.5 py-1.5 text-xs font-medium text-red-400 hover:bg-red-900/30 disabled:opacity-40"
+                          >
+                            {deleting === printer.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

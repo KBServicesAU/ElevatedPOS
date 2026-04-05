@@ -31,37 +31,6 @@ const ALL_EVENTS = [
   'inventory.low_stock',
 ];
 
-const MOCK_WEBHOOKS: Webhook[] = [
-  {
-    id: '1',
-    url: 'https://hooks.example.com/pos-events',
-    events: ['order.created', 'order.completed', 'payment.captured'],
-    active: true,
-    lastDelivery: '2026-03-23T10:30:00Z',
-    successRate: 98.5,
-    deliveryLogs: [
-      { id: 'd1', status: 'success', responseCode: 200, timestamp: '2026-03-23T10:30:00Z', event: 'order.created' },
-      { id: 'd2', status: 'success', responseCode: 200, timestamp: '2026-03-23T09:15:00Z', event: 'payment.captured' },
-      { id: 'd3', status: 'failed', responseCode: 503, timestamp: '2026-03-22T18:00:00Z', event: 'order.completed' },
-      { id: 'd4', status: 'success', responseCode: 200, timestamp: '2026-03-22T16:45:00Z', event: 'order.created' },
-      { id: 'd5', status: 'success', responseCode: 200, timestamp: '2026-03-22T14:20:00Z', event: 'payment.captured' },
-    ],
-  },
-  {
-    id: '2',
-    url: 'https://crm.example.com/webhooks/elevatedpos',
-    events: ['customer.created', 'order.completed'],
-    active: false,
-    lastDelivery: '2026-03-20T08:00:00Z',
-    successRate: 75.0,
-    deliveryLogs: [
-      { id: 'd6', status: 'failed', responseCode: 404, timestamp: '2026-03-20T08:00:00Z', event: 'customer.created' },
-      { id: 'd7', status: 'success', responseCode: 200, timestamp: '2026-03-19T17:30:00Z', event: 'order.completed' },
-      { id: 'd8', status: 'failed', responseCode: 500, timestamp: '2026-03-19T12:00:00Z', event: 'customer.created' },
-    ],
-  },
-];
-
 function formatTimestamp(iso: string) {
   return new Date(iso).toLocaleString('en-AU', {
     day: '2-digit',

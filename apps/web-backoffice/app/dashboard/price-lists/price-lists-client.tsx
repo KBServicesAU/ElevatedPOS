@@ -36,48 +36,6 @@ interface PriceList {
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
-const MOCK_PRICE_LISTS: PriceList[] = [
-  {
-    id: 'pl-retail',
-    name: 'Retail',
-    type: 'retail',
-    description: 'Standard retail pricing for walk-in customers',
-    adjustmentType: 'per_product',
-    adjustmentValue: 0,
-    isDefault: true,
-    isActive: true,
-    productCount: 142,
-    overrides: [
-      { id: 'ov-1', productId: 'p-1', productName: 'Flat White', sku: 'SKU-001', basePrice: 450, overridePrice: 450 },
-      { id: 'ov-2', productId: 'p-2', productName: 'Long Black', sku: 'SKU-002', basePrice: 400, overridePrice: 400 },
-    ],
-  },
-  {
-    id: 'pl-wholesale',
-    name: 'Wholesale',
-    type: 'wholesale',
-    description: '20% off for wholesale / trade accounts',
-    adjustmentType: 'percent_off',
-    adjustmentValue: 20,
-    isDefault: false,
-    isActive: true,
-    productCount: 98,
-    overrides: [],
-  },
-  {
-    id: 'pl-staff',
-    name: 'Staff',
-    type: 'staff',
-    description: 'Staff discount — 30% off all items',
-    adjustmentType: 'percent_off',
-    adjustmentValue: 30,
-    isDefault: false,
-    isActive: true,
-    productCount: 142,
-    overrides: [],
-  },
-];
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 

@@ -36,58 +36,6 @@ interface Stocktake {
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
-const MOCK_ITEMS_IN_PROGRESS: CountItem[] = [
-  { id: 'ci-1', productName: 'Cherry Tomatoes (1kg)', sku: 'VEG-CT1KG', systemQty: 14, countQty: null, unitCost: 450 },
-  { id: 'ci-2', productName: 'Baby Spinach (500g)', sku: 'VEG-BSP500', systemQty: 8, countQty: null, unitCost: 380 },
-  { id: 'ci-3', productName: 'Arborio Rice (5kg)', sku: 'DRY-AR5KG', systemQty: 22, countQty: null, unitCost: 1200 },
-  { id: 'ci-4', productName: 'Olive Oil Extra Virgin (1L)', sku: 'OIL-EVOO1L', systemQty: 6, countQty: null, unitCost: 890 },
-  { id: 'ci-5', productName: 'Sparkling Water (500ml 24pk)', sku: 'BEV-SW500-24', systemQty: 10, countQty: null, unitCost: 2400 },
-];
-
-const MOCK_STOCKTAKES: Stocktake[] = [
-  {
-    id: 'st-1',
-    countNumber: 'CNT-0024',
-    type: 'full',
-    location: 'Main Store',
-    startedBy: 'Jane Doe',
-    startedAt: '2024-02-28T08:00:00Z',
-    completedAt: '2024-02-28T11:30:00Z',
-    status: 'completed',
-    varianceTotal: -3,
-    items: [
-      { id: 'ci-a', productName: 'Cherry Tomatoes (1kg)', sku: 'VEG-CT1KG', systemQty: 20, countQty: 18, unitCost: 450 },
-      { id: 'ci-b', productName: 'Baby Spinach (500g)', sku: 'VEG-BSP500', systemQty: 10, countQty: 10, unitCost: 380 },
-      { id: 'ci-c', productName: 'Arborio Rice (5kg)', sku: 'DRY-AR5KG', systemQty: 15, countQty: 14, unitCost: 1200 },
-    ],
-  },
-  {
-    id: 'st-2',
-    countNumber: 'CNT-0025',
-    type: 'cycle',
-    location: 'Cold Room',
-    startedBy: 'Mark Chen',
-    startedAt: '2024-03-07T09:00:00Z',
-    completedAt: '2024-03-07T10:15:00Z',
-    status: 'completed',
-    varianceTotal: 1,
-    items: [
-      { id: 'ci-d', productName: 'Cherry Tomatoes (1kg)', sku: 'VEG-CT1KG', systemQty: 12, countQty: 13, unitCost: 450 },
-      { id: 'ci-e', productName: 'Baby Spinach (500g)', sku: 'VEG-BSP500', systemQty: 7, countQty: 7, unitCost: 380 },
-    ],
-  },
-  {
-    id: 'st-3',
-    countNumber: 'CNT-0026',
-    type: 'spot',
-    location: 'Main Store',
-    startedBy: 'Jane Doe',
-    startedAt: '2024-03-14T14:00:00Z',
-    status: 'in_progress',
-    varianceTotal: 0,
-    items: MOCK_ITEMS_IN_PROGRESS,
-  },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -382,7 +330,7 @@ export function StocktakeClient({ currentUserName = 'Unknown' }: { currentUserNa
       startedAt: new Date().toISOString(),
       status: 'in_progress',
       varianceTotal: 0,
-      items: MOCK_ITEMS_IN_PROGRESS.map((i) => ({ ...i, countQty: null })),
+      items: [],
     };
     setStocktakes((prev) => [newSt, ...prev]);
     setCountQtys({});

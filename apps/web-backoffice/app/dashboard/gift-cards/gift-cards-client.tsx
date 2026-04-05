@@ -21,16 +21,6 @@ interface GiftCardsResponse {
   data: GiftCard[];
 }
 
-const MOCK_DATA: GiftCard[] = [
-  { id: 'gc1', code: 'GIFT-A4B2-C9D1', balance: 50, originalAmount: 50, issuedTo: 'Emma Johnson', issuedDate: 'Mar 1, 2026', expiryDate: 'Mar 1, 2027', status: 'active' },
-  { id: 'gc2', code: 'GIFT-E7F3-G8H5', balance: 25, originalAmount: 100, issuedTo: 'Marcus Lee', issuedDate: 'Feb 14, 2026', expiryDate: 'Feb 14, 2027', status: 'active' },
-  { id: 'gc3', code: 'GIFT-I2J6-K4L9', balance: 0, originalAmount: 75, issuedTo: 'Sophie Wilson', issuedDate: 'Jan 10, 2026', expiryDate: 'Jan 10, 2027', status: 'depleted' },
-  { id: 'gc4', code: 'GIFT-M3N7-O1P8', balance: 200, originalAmount: 200, issuedTo: 'David Chen', issuedDate: 'Mar 5, 2026', expiryDate: null, status: 'active' },
-  { id: 'gc5', code: 'GIFT-Q5R2-S6T4', balance: 0, originalAmount: 50, issuedTo: 'Anika Patel', issuedDate: 'Dec 20, 2025', expiryDate: 'Dec 20, 2026', status: 'cancelled' },
-  { id: 'gc6', code: 'GIFT-U9V1-W3X7', balance: 150, originalAmount: 150, issuedTo: 'James O\'Brien', issuedDate: 'Feb 28, 2026', expiryDate: 'Feb 28, 2027', status: 'active' },
-  { id: 'gc7', code: 'GIFT-Y8Z4-A2B6', balance: 0, originalAmount: 25, issuedTo: 'Lily Nguyen', issuedDate: 'Nov 5, 2025', expiryDate: 'Nov 5, 2026', status: 'depleted' },
-];
-
 type FilterTab = 'active' | 'depleted' | 'cancelled' | 'all';
 
 const STATUS_STYLES: Record<GiftCard['status'], string> = {

@@ -32,55 +32,6 @@ interface MembershipSubscription {
   dunningAttempts: number;
 }
 
-const MOCK_PLANS: MembershipPlan[] = [
-  {
-    id: 'plan1',
-    name: 'Basic',
-    description: 'Great for occasional shoppers',
-    price: 9,
-    billingCycle: 'monthly',
-    trialDays: 7,
-    benefits: ['5% member discount', 'Early sale access', 'Monthly newsletter'],
-    pointsMultiplier: 1.2,
-    isActive: true,
-    memberCount: 142,
-  },
-  {
-    id: 'plan2',
-    name: 'Growth',
-    description: 'For regular customers who want more',
-    price: 29,
-    billingCycle: 'monthly',
-    trialDays: 14,
-    benefits: ['10% member discount', 'Priority support', 'Double points', 'Exclusive products', 'Free shipping over $50'],
-    pointsMultiplier: 2,
-    isActive: true,
-    memberCount: 87,
-  },
-  {
-    id: 'plan3',
-    name: 'Pro',
-    description: 'The ultimate loyalty experience',
-    price: 79,
-    billingCycle: 'monthly',
-    trialDays: 30,
-    benefits: ['20% member discount', 'Dedicated account manager', 'Triple points', 'VIP events', 'Free shipping always', 'Early new product access'],
-    pointsMultiplier: 3,
-    isActive: true,
-    memberCount: 23,
-  },
-];
-
-const MOCK_SUBS: MembershipSubscription[] = [
-  { id: 's1', customerName: 'Emma Johnson', planName: 'Growth', status: 'active', startedAt: 'Jan 1, 2026', nextBillingDate: 'Apr 1, 2026', dunningAttempts: 0 },
-  { id: 's2', customerName: 'Marcus Lee', planName: 'Pro', status: 'active', startedAt: 'Nov 15, 2025', nextBillingDate: 'Apr 15, 2026', dunningAttempts: 0 },
-  { id: 's3', customerName: 'Sophie Wilson', planName: 'Basic', status: 'trialing', startedAt: 'Mar 20, 2026', nextBillingDate: 'Mar 27, 2026', dunningAttempts: 0 },
-  { id: 's4', customerName: 'David Chen', planName: 'Growth', status: 'past_due', startedAt: 'Oct 1, 2025', nextBillingDate: 'Mar 1, 2026', dunningAttempts: 2 },
-  { id: 's5', customerName: 'Anika Patel', planName: 'Basic', status: 'active', startedAt: 'Feb 10, 2026', nextBillingDate: 'Apr 10, 2026', dunningAttempts: 0 },
-  { id: 's6', customerName: 'James O\'Brien', planName: 'Pro', status: 'cancelled', startedAt: 'Aug 1, 2025', nextBillingDate: null, dunningAttempts: 0 },
-  { id: 's7', customerName: 'Lily Nguyen', planName: 'Growth', status: 'expired', startedAt: 'Jan 15, 2025', nextBillingDate: null, dunningAttempts: 0 },
-  { id: 's8', customerName: 'Tom Baker', planName: 'Basic', status: 'past_due', startedAt: 'Dec 5, 2025', nextBillingDate: 'Mar 5, 2026', dunningAttempts: 1 },
-];
 
 const SUB_STATUS_STYLES: Record<SubStatus, string> = {
   trialing: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400',

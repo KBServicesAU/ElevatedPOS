@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useToast } from '@/lib/use-toast';
 
 interface Subscription {
   id: string;
@@ -30,9 +31,12 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function SubscriptionsPage() {
+  const { toast } = useToast();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
+  const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
   const [form, setForm] = useState<NewSubForm>({
     customerEmail: '',
     customerName: '',
@@ -92,15 +96,23 @@ export default function SubscriptionsPage() {
   }
 
   async function handleCancel(subId: string) {
-    if (!confirm('Cancel this subscription at period end?')) return;
-    await fetch(`/api/proxy/integrations/api/v1/connect/subscriptions/${subId}`, {
-      method: 'DELETE',
-    });
-    setSubscriptions((prev) =>
-      prev.map((s) =>
-        s.stripeSubscriptionId === subId ? { ...s, cancelAtPeriodEnd: true } : s
-      )
-    );
+    setCancelling(subId);
+    try {
+      await fetch(`/api/proxy/integrations/api/v1/connect/subscriptions/${subId}`, {
+        method: 'DELETE',
+      });
+      setSubscriptions((prev) =>
+        prev.map((s) =>
+          s.stripeSubscriptionId === subId ? { ...s, cancelAtPeriodEnd: true } : s
+        )
+      );
+      toast({ title: 'Subscription cancelled', description: 'Will cancel at end of billing period.', variant: 'default' });
+    } catch {
+      toast({ title: 'Failed to cancel', description: 'Could not cancel subscription. Please try again.', variant: 'destructive' });
+    } finally {
+      setCancelling(null);
+      setCancelConfirmId(null);
+    }
   }
 
   return (
@@ -260,12 +272,31 @@ export default function SubscriptionsPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     {sub.status === 'active' && !sub.cancelAtPeriodEnd && (
-                      <button
-                        onClick={() => handleCancel(sub.stripeSubscriptionId)}
-                        className="text-xs text-red-500 hover:text-red-700 font-medium"
-                      >
-                        Cancel
-                      </button>
+                      cancelConfirmId === sub.stripeSubscriptionId ? (
+                        <span className="flex items-center justify-end gap-2">
+                          <span className="text-xs text-gray-500">Cancel at period end?</span>
+                          <button
+                            onClick={() => { void handleCancel(sub.stripeSubscriptionId); }}
+                            disabled={cancelling === sub.stripeSubscriptionId}
+                            className="text-xs font-semibold text-red-600 hover:text-red-800 disabled:opacity-50"
+                          >
+                            {cancelling === sub.stripeSubscriptionId ? 'Cancelling…' : 'Confirm'}
+                          </button>
+                          <button
+                            onClick={() => setCancelConfirmId(null)}
+                            className="text-xs text-gray-400 hover:text-gray-600"
+                          >
+                            No
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setCancelConfirmId(sub.stripeSubscriptionId)}
+                          className="text-xs text-red-500 hover:text-red-700 font-medium"
+                        >
+                          Cancel
+                        </button>
+                      )
                     )}
                   </td>
                 </tr>

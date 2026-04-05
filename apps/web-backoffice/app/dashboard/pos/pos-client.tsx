@@ -102,7 +102,7 @@ export default function POSClientPage() {
                   <div>
                     <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">Web Browser</p>
                     <p className="mt-0.5 text-xs text-emerald-600 dark:text-emerald-400">
-                      Customers open <strong>localhost:8081</strong> in any browser. Works on tablets, PCs, and phones.
+                      Customers open <strong>{POS_WEB_URL}</strong> in any browser. Works on tablets, PCs, and phones.
                     </p>
                     <a
                       href={POS_WEB_URL}
