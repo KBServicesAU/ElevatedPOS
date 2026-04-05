@@ -84,14 +84,13 @@ export default function BillingPage() {
         </div>
         <div className="text-center py-8 border border-dashed border-gray-200 rounded-xl">
           <div className="text-3xl mb-3">💳</div>
-          <p className="text-gray-500 text-sm mb-4">No payment method on file.</p>
-          <button
-            type="button"
-            onClick={() => alert('Platform billing coming soon. Contact support to update your payment method.')}
-            className="px-4 py-2 border border-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
-          >
-            + Add payment method
-          </button>
+          <p className="text-gray-500 text-sm mb-1">No payment method on file.</p>
+          <p className="text-gray-400 text-xs mb-4">
+            To add a payment method, email{' '}
+            <a href="mailto:support@elevatedpos.com.au" className="text-indigo-600 hover:underline">
+              support@elevatedpos.com.au
+            </a>
+          </p>
         </div>
       </div>
 
@@ -103,19 +102,18 @@ export default function BillingPage() {
         <div className="text-center py-10">
           <div className="text-3xl mb-3 text-gray-300">🧾</div>
           <p className="text-sm text-gray-400">No invoices yet.</p>
-          <p className="text-xs text-gray-400 mt-1">Platform billing invoices will appear here.</p>
+          <p className="text-xs text-gray-400 mt-1">Platform billing invoices will appear here once generated.</p>
         </div>
       </div>
 
       {/* Cancel subscription */}
       <div className="pt-2 text-center">
-        <button
-          type="button"
-          onClick={() => alert('To cancel your subscription, please contact support@elevatedpos.com.')}
+        <a
+          href="mailto:support@elevatedpos.com.au?subject=Cancel%20Subscription"
           className="text-sm text-red-500 hover:text-red-700 underline transition-colors"
         >
           Cancel subscription
-        </button>
+        </a>
       </div>
     </div>
   );

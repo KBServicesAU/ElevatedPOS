@@ -638,7 +638,7 @@ function TimesheetsTab() {
     const toApprove = shifts.filter((s) => s.employeeId === empId && s.status === 'closed');
     await Promise.all(
       toApprove.map((s) =>
-        fetch(`/api/proxy/shifts/shifts/${s.id}/approve`, { method: 'POST' }).catch(() => null),
+        fetch(`/api/proxy/shifts/${s.id}/approve`, { method: 'POST' }).catch(() => null),
       ),
     );
     setApprovingId(null);

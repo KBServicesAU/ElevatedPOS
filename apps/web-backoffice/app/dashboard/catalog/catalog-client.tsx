@@ -45,7 +45,7 @@ async function fetchStockLevels(productIds: string[]): Promise<Record<string, nu
   if (productIds.length === 0) return {};
   try {
     const res = await fetch(
-      `/api/proxy/inventory/stock-levels?productIds=${productIds.join(',')}`,
+      `/api/proxy/stock?productIds=${productIds.join(',')}`,
     );
     if (!res.ok) return {};
     const json = (await res.json()) as { data?: StockLevel[] } | StockLevel[];

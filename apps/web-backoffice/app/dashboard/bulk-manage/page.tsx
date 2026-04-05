@@ -78,7 +78,7 @@ const ENTITIES: {
     label: 'Inventory',
     icon: Warehouse,
     templateHeaders: 'sku,location,quantity,reorder_point,reorder_qty',
-    exportEndpoint: '/api/proxy/inventory/stock-levels?limit=10000',
+    exportEndpoint: '/api/proxy/stock?limit=10000',
     exportDescription: 'Current stock levels per SKU and location, including reorder thresholds.',
   },
   {

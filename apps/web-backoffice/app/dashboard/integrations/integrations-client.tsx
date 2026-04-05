@@ -1,8 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle, XCircle, ExternalLink, Plus, Zap } from 'lucide-react';
+import { CheckCircle, XCircle, ExternalLink, Plus, Zap, Loader2 } from 'lucide-react';
 import { useIntegrationApps } from '@/lib/hooks';
+import { useQueryClient } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/api';
+import { useToast } from '@/lib/use-toast';
+import { getErrorMessage } from '@/lib/formatting';
 import type { IntegrationApp } from '@/lib/api';
 
 // Static marketplace catalog (installed status comes from API)
@@ -21,7 +25,10 @@ const CATEGORIES = ['All', 'Accounting', 'Payments', 'Email Marketing', 'Deliver
 
 export function IntegrationsClient() {
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [connectingId, setConnectingId] = useState<string | null>(null);
   const { data, isLoading } = useIntegrationApps();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   // Build a set of installed app IDs from the API
   const installedIds = new Set((data?.data ?? []).map((a) => a.id));
@@ -32,6 +39,39 @@ export function IntegrationsClient() {
 
   const connectedCount = MARKETPLACE.filter((app) => installedIds.has(app.id)).length;
 
+  async function handleConnect(appId: string, appName: string) {
+    setConnectingId(appId);
+    try {
+      // For apps that use OAuth/external redirect, the API returns a redirect URL
+      const res = await apiFetch<{ redirectUrl?: string; data?: { redirectUrl?: string } }>(
+        `integration-apps/${appId}/connect`,
+        { method: 'POST' },
+      );
+      const redirectUrl = (res as { redirectUrl?: string }).redirectUrl ?? (res as { data?: { redirectUrl?: string } }).data?.redirectUrl;
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+      } else {
+        // Direct install (no OAuth)
+        toast({ title: `${appName} connected`, description: 'Integration is now active.', variant: 'success' });
+        queryClient.invalidateQueries({ queryKey: ['integration-apps'] });
+      }
+    } catch (err) {
+      toast({ title: `Failed to connect ${appName}`, description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
+  async function handleDisconnect(appId: string, appName: string) {
+    try {
+      await apiFetch(`integration-apps/${appId}/disconnect`, { method: 'POST' });
+      toast({ title: `${appName} disconnected`, variant: 'default' });
+      queryClient.invalidateQueries({ queryKey: ['integration-apps'] });
+    } catch (err) {
+      toast({ title: `Failed to disconnect ${appName}`, description: getErrorMessage(err), variant: 'destructive' });
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -41,9 +81,14 @@ export function IntegrationsClient() {
             {isLoading ? 'Loading…' : `${connectedCount} connected · ${MARKETPLACE.length - connectedCount} available`}
           </p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+        <a
+          href="https://docs.elevatedpos.com.au/api"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+        >
           <Zap className="h-4 w-4" /> View API docs
-        </button>
+        </a>
       </div>
 
       {/* Category filter */}
@@ -98,12 +143,24 @@ export function IntegrationsClient() {
                   <span className="text-xs text-gray-400">Not connected</span>
                 )}
                 {isConnected ? (
-                  <button className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                  <button
+                    onClick={() => { void handleDisconnect(app.id, app.name); }}
+                    className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                  >
                     Configure <ExternalLink className="h-3 w-3" />
                   </button>
                 ) : (
-                  <button className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700">
-                    <Plus className="h-3 w-3" /> Connect
+                  <button
+                    onClick={() => { void handleConnect(app.id, app.name); }}
+                    disabled={connectingId === app.id}
+                    className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+                  >
+                    {connectingId === app.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Plus className="h-3 w-3" />
+                    )}
+                    {connectingId === app.id ? 'Connecting…' : 'Connect'}
                   </button>
                 )}
               </div>

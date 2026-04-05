@@ -265,7 +265,7 @@ export function fetchShifts(params?: {
   if (params?.dateFrom)   qs.set('dateFrom', params.dateFrom);
   if (params?.dateTo)     qs.set('dateTo', params.dateTo);
   if (params?.status)     qs.set('status', params.status);
-  return apiFetch<{ data: Shift[] }>(`shifts/shifts?${qs}`);
+  return apiFetch<{ data: Shift[] }>(`shifts?${qs}`);
 }
 
 // ─── Employees ────────────────────────────────────────────────────────────────
