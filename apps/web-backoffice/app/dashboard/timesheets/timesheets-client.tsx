@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Download, CheckCheck, Loader2 } from 'lucide-react';
 import { useToast } from '@/lib/use-toast';
+import { apiFetch } from '@/lib/api';
 
 interface Shift {
   id: string;
@@ -15,16 +16,6 @@ interface Shift {
   status: 'approved' | 'pending' | 'flagged';
 }
 
-const MOCK_SHIFTS: Shift[] = [
-  { id: '1', employeeName: 'Jane Doe', day: 'Mon', clockIn: '09:00', clockOut: '17:30', breakMinutes: 30, totalHours: 8, status: 'approved' },
-  { id: '2', employeeName: 'Jane Doe', day: 'Tue', clockIn: '08:55', clockOut: '17:05', breakMinutes: 30, totalHours: 7.67, status: 'approved' },
-  { id: '3', employeeName: 'Bob Smith', day: 'Mon', clockIn: '10:00', clockOut: '18:00', breakMinutes: 30, totalHours: 7.5, status: 'pending' },
-  { id: '4', employeeName: 'Bob Smith', day: 'Tue', clockIn: '10:00', clockOut: '20:30', breakMinutes: 30, totalHours: 10, status: 'flagged' },
-  { id: '5', employeeName: 'Bob Smith', day: 'Wed', clockIn: '09:30', clockOut: '17:30', breakMinutes: 30, totalHours: 7.5, status: 'pending' },
-  { id: '6', employeeName: 'Alice Lee', day: 'Mon', clockIn: '08:00', clockOut: '16:00', breakMinutes: 30, totalHours: 7.5, status: 'approved' },
-  { id: '7', employeeName: 'Alice Lee', day: 'Wed', clockIn: '08:00', clockOut: '16:00', breakMinutes: 30, totalHours: 7.5, status: 'approved' },
-  { id: '8', employeeName: 'Alice Lee', day: 'Thu', clockIn: '08:00', clockOut: '17:30', breakMinutes: 30, totalHours: 9, status: 'pending' },
-];
 
 const STATUS_COLORS: Record<Shift['status'], string> = {
   approved: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -62,6 +53,7 @@ export function TimesheetsClient() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [approvingAll, setApprovingAll] = useState(false);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
 
   function getDateRange() {
     if (period === 'this_week') return getWeekRange(0);
@@ -267,15 +259,28 @@ export function TimesheetsClient() {
                     <td className="px-5 py-3.5">
                       {s.status === 'pending' && (
                         <button
-                          onClick={() =>
-                            setShifts((prev) =>
-                              prev.map((sh) =>
-                                sh.id === s.id ? { ...sh, status: 'approved' as const } : sh,
-                              ),
-                            )
-                          }
-                          className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+                          disabled={approvingId === s.id}
+                          onClick={() => {
+                            void (async () => {
+                              setApprovingId(s.id);
+                              try {
+                                await apiFetch(`shifts/${s.id}/approve`, { method: 'POST' });
+                                setShifts((prev) =>
+                                  prev.map((sh) =>
+                                    sh.id === s.id ? { ...sh, status: 'approved' as const } : sh,
+                                  ),
+                                );
+                                toast({ title: 'Shift approved', variant: 'success' });
+                              } catch {
+                                toast({ title: 'Approval failed', description: 'Could not approve shift.', variant: 'destructive' });
+                              } finally {
+                                setApprovingId(null);
+                              }
+                            })();
+                          }}
+                          className="flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
                         >
+                          {approvingId === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                           Approve
                         </button>
                       )}

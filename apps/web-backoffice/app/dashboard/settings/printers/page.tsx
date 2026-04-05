@@ -6,6 +6,7 @@ import {
   Wifi, Usb, AlertCircle, RefreshCw, CheckCircle,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -394,6 +395,7 @@ function PrinterModal({ initial, editId, onClose, onSaved }: PrinterModalProps) 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function PrintersPage() {
+  const { toast } = useToast();
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -430,7 +432,7 @@ export default function PrintersPage() {
       await apiFetch(`printers/${id}`, { method: 'DELETE' });
       setPrinters((prev) => prev.filter((p) => p.id !== id));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete printer.');
+      toast({ title: 'Failed to delete printer', description: err instanceof Error ? err.message : 'Please try again.', variant: 'destructive' });
     } finally {
       setDeleting(null);
     }

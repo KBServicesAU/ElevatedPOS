@@ -7,6 +7,7 @@ import {
   AlertCircle, X,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -286,6 +287,7 @@ function GenerateModal({ onClose, onGenerated }: GenerateModalProps) {
 const DEVICE_LIMIT = 10; // placeholder — real limit comes from org subscription
 
 export default function DevicesPage() {
+  const { toast } = useToast();
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -318,7 +320,7 @@ export default function DevicesPage() {
       await apiFetch(`devices/${deviceId}`, { method: 'DELETE' });
       setDevices((prev) => prev.map((d) => d.id === deviceId ? { ...d, status: 'revoked' } : d));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to revoke device.');
+      toast({ title: 'Failed to revoke device', description: err instanceof Error ? err.message : 'Please try again.', variant: 'destructive' });
     } finally {
       setRevoking(null);
     }

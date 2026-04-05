@@ -273,17 +273,12 @@ export default function AccountPage() {
           Once you cancel your subscription, you will lose access to all paid features at the
           end of your current billing period.
         </p>
-        <button
-          type="button"
-          onClick={() =>
-            alert(
-              'To cancel your subscription, please contact support@elevatedpos.com.au',
-            )
-          }
-          className="px-4 py-2 border border-red-400 dark:border-red-600 text-red-600 dark:text-red-400 rounded-xl text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+        <a
+          href="mailto:support@elevatedpos.com.au?subject=Cancel%20Subscription"
+          className="inline-block px-4 py-2 border border-red-400 dark:border-red-600 text-red-600 dark:text-red-400 rounded-xl text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
         >
           Cancel Subscription
-        </button>
+        </a>
       </div>
     </div>
   );

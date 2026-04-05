@@ -7,6 +7,7 @@ import {
   Calendar, Printer, X, Check, Clock, Mail, ChevronDown, Columns2,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useToast } from '@/lib/use-toast';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -355,6 +356,7 @@ function PrintableReport({
 // ─── Schedule Report Modal ────────────────────────────────────────────────────
 
 function ScheduleReportModal({ onClose }: { onClose: () => void }) {
+  const { toast } = useToast();
   const [form, setForm] = useState({
     type: 'Sales Summary',
     frequency: 'weekly' as 'daily' | 'weekly' | 'monthly',
@@ -363,15 +365,21 @@ function ScheduleReportModal({ onClose }: { onClose: () => void }) {
     startDate: new Date().toISOString().split('T')[0],
   });
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  const handleSubmit = () => {
-    const schedules: ScheduledReport[] = JSON.parse(localStorage.getItem('elevatedpos-scheduled-reports') ?? '[]');
-    schedules.push({ id: Date.now().toString(), ...form, createdAt: new Date().toISOString() });
-    localStorage.setItem('elevatedpos-scheduled-reports', JSON.stringify(schedules));
-    setSaved(true);
-    setTimeout(onClose, 1200);
+  const handleSubmit = async () => {
+    setSaving(true);
+    try {
+      await apiFetch('reports/schedules', { method: 'POST', body: JSON.stringify(form) });
+      setSaved(true);
+      setTimeout(onClose, 1200);
+    } catch (err) {
+      toast({ title: 'Failed to schedule report', description: err instanceof Error ? err.message : 'Please try again.', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const inputCls = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white';
@@ -433,11 +441,11 @@ function ScheduleReportModal({ onClose }: { onClose: () => void }) {
             Cancel
           </button>
           <button
-            onClick={handleSubmit}
-            disabled={!form.email.trim()}
+            onClick={() => { void handleSubmit(); }}
+            disabled={!form.email.trim() || saving}
             className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-700 disabled:opacity-50"
           >
-            {saved ? <><Check className="h-4 w-4" /> Saved!</> : <><Calendar className="h-4 w-4" /> Schedule</>}
+            {saved ? <><Check className="h-4 w-4" /> Saved!</> : saving ? <><Clock className="h-4 w-4 animate-spin" /> Saving…</> : <><Calendar className="h-4 w-4" /> Schedule</>}
           </button>
         </div>
       </div>

@@ -6,7 +6,7 @@ import {
   RefreshCw, Maximize2, Terminal, CheckCircle2, AlertCircle,
 } from 'lucide-react';
 
-const POS_WEB_URL = 'http://localhost:8081';
+const POS_WEB_URL = process.env.NEXT_PUBLIC_POS_WEB_URL ?? 'http://localhost:8081';
 
 export default function POSClientPage() {
   const [iframeKey, setIframeKey] = useState(0);
