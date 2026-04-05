@@ -31,17 +31,6 @@ interface StockMovement {
   user: string;
 }
 
-const MOCK_MOVEMENTS: StockMovement[] = [
-  { id: 'mv-1', date: '2024-03-14T10:22:00Z', productName: 'Cherry Tomatoes (1kg)', sku: 'VEG-CT1KG', type: 'receipt', qtyChange: 20, location: 'Main Store', reference: 'PO-2024-0041', user: 'Jane Doe' },
-  { id: 'mv-2', date: '2024-03-14T11:05:00Z', productName: 'Baby Spinach (500g)', sku: 'VEG-BSP500', type: 'receipt', qtyChange: 15, location: 'Main Store', reference: 'PO-2024-0041', user: 'Jane Doe' },
-  { id: 'mv-3', date: '2024-03-14T12:30:00Z', productName: 'Arborio Rice (5kg)', sku: 'DRY-AR5KG', type: 'sale', qtyChange: -3, location: 'Main Store', reference: 'ORD-8812', user: 'POS Terminal 1' },
-  { id: 'mv-4', date: '2024-03-13T09:15:00Z', productName: 'Olive Oil Extra Virgin (1L)', sku: 'OIL-EVOO1L', type: 'adjustment', qtyChange: -1, location: 'Main Store', reference: 'ADJ-003', user: 'Mark Chen' },
-  { id: 'mv-5', date: '2024-03-13T14:45:00Z', productName: 'Cherry Tomatoes (1kg)', sku: 'VEG-CT1KG', type: 'transfer', qtyChange: -5, location: 'Main Store → Cold Room', reference: 'TRF-0017', user: 'Jane Doe' },
-  { id: 'mv-6', date: '2024-03-12T16:00:00Z', productName: 'Sparkling Water (500ml 24pk)', sku: 'BEV-SW500-24', type: 'return', qtyChange: 2, location: 'Main Store', reference: 'ORD-8799', user: 'POS Terminal 2' },
-  { id: 'mv-7', date: '2024-03-12T11:20:00Z', productName: 'Broccoli (1kg)', sku: 'VEG-BRO1KG', type: 'sale', qtyChange: -4, location: 'Main Store', reference: 'ORD-8791', user: 'POS Terminal 1' },
-  { id: 'mv-8', date: '2024-03-11T09:00:00Z', productName: 'Carrots (1kg)', sku: 'VEG-CAR1KG', type: 'receipt', qtyChange: 30, location: 'Main Store', reference: 'PO-2024-0043', user: 'Jane Doe' },
-];
-
 const MOVEMENT_TYPE_BADGE: Record<MovementType, string> = {
   receipt: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   adjustment: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',

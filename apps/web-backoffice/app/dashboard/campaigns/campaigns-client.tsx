@@ -1,7 +1,12 @@
 'use client';
 
-import { Plus, Megaphone, Mail, MessageSquare, Tag, Calendar } from 'lucide-react';
+import { useState } from 'react';
+import { Plus, Megaphone, Mail, MessageSquare, Tag, Calendar, X } from 'lucide-react';
 import { useCampaigns } from '@/lib/hooks';
+import { useQueryClient } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/api';
+import { useToast } from '@/lib/use-toast';
+import { getErrorMessage } from '@/lib/formatting';
 import type { Campaign } from '@/lib/api';
 import { formatDate } from '@/lib/formatting';
 
@@ -31,13 +36,105 @@ const typeColors: Record<string, string> = {
 };
 
 
+// ─── Create Campaign Modal ─────────────────────────────────────────────────────
+
+type CampaignType = 'email' | 'sms' | 'push' | 'discount' | 'points_multiplier';
+
+function CreateCampaignModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [name, setName] = useState('');
+  const [type, setType] = useState<CampaignType>('email');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setError('');
+    setSaving(true);
+    try {
+      await apiFetch('campaigns', {
+        method: 'POST',
+        body: JSON.stringify({ name: name.trim(), type, subject: subject.trim() || undefined, body: body.trim() || undefined, status: 'draft' }),
+      });
+      toast({ title: 'Campaign created', description: `"${name}" saved as draft.`, variant: 'success' });
+      onCreated();
+      onClose();
+    } catch (err) {
+      const msg = getErrorMessage(err, 'Failed to create campaign');
+      setError(msg);
+      toast({ title: 'Failed to create campaign', description: msg, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Create Campaign</h2>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"><X className="h-5 w-5" /></button>
+        </div>
+        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4 p-6">
+          {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{error}</div>}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Campaign Name <span className="text-red-500">*</span></label>
+            <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Summer Promotion" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
+            <select value={type} onChange={(e) => setType(e.target.value as CampaignType)} className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+              <option value="email">Email</option>
+              <option value="sms">SMS</option>
+              <option value="push">Push Notification</option>
+              <option value="discount">Discount</option>
+              <option value="points_multiplier">Points Multiplier</option>
+            </select>
+          </div>
+          {(type === 'email' || type === 'sms' || type === 'push') && (
+            <>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Subject / Title</label>
+                <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject line" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Message Body</label>
+                <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="Campaign message…" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+              </div>
+            </>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">Cancel</button>
+            <button type="submit" disabled={saving || !name.trim()} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{saving ? 'Creating…' : 'Save as Draft'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ────────────────────────────────────────────────────────────
+
 export function CampaignsClient() {
+  const { toast: _toast } = useToast();
+  const queryClient = useQueryClient();
   const { data, isLoading, isError } = useCampaigns();
   const campaigns = data?.data ?? [];
   const active = campaigns.filter((c) => c.status === 'active').length;
+  const [showCreate, setShowCreate] = useState(false);
 
   return (
     <div className="space-y-6">
+      {showCreate && (
+        <CreateCampaignModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { queryClient.invalidateQueries({ queryKey: ['campaigns'] }); }}
+        />
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Campaigns</h2>
@@ -45,7 +142,7 @@ export function CampaignsClient() {
             {isLoading ? 'Loading…' : `${campaigns.length} campaigns · ${active} active`}
           </p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+        <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
           <Plus className="h-4 w-4" /> Create Campaign
         </button>
       </div>

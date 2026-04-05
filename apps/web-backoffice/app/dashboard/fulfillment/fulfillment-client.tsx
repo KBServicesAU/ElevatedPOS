@@ -21,15 +21,6 @@ interface FulfillmentResponse {
   data: FulfillmentItem[];
 }
 
-const MOCK_DATA: FulfillmentItem[] = [
-  { id: 'f1', orderNumber: '#CC-4821', customerName: 'Emma Johnson', itemsSummary: 'Flat White × 2, Banana Bread', itemCount: 3, status: 'ready', readyAt: new Date(Date.now() - 7 * 60 * 1000).toISOString(), createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(), locationName: 'Sydney CBD' },
-  { id: 'f2', orderNumber: '#CC-4820', customerName: 'Marcus Lee', itemsSummary: 'Grilled Salmon, Caesar Salad', itemCount: 2, status: 'ready', readyAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(), createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(), locationName: 'Sydney CBD' },
-  { id: 'f3', orderNumber: '#CC-4819', customerName: 'Sophie Wilson', itemsSummary: 'Chicken Burger, Fries, Diet Coke', itemCount: 3, status: 'pending', readyAt: null, createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), locationName: 'Sydney CBD' },
-  { id: 'f4', orderNumber: '#CC-4818', customerName: 'David Chen', itemsSummary: 'Beef Brisket Sandwich × 2', itemCount: 2, status: 'ready', readyAt: new Date(Date.now() - 3 * 60 * 1000).toISOString(), createdAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(), locationName: 'Sydney CBD' },
-  { id: 'f5', orderNumber: '#CC-4817', customerName: 'Anika Patel', itemsSummary: 'Veggie Bowl, Sparkling Water', itemCount: 2, status: 'collected', readyAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(), createdAt: new Date(Date.now() - 70 * 60 * 1000).toISOString(), locationName: 'Sydney CBD' },
-  { id: 'f6', orderNumber: '#CC-4816', customerName: 'James O\'Brien', itemsSummary: 'Eggs Benedict, Orange Juice', itemCount: 2, status: 'collected', readyAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(), createdAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(), locationName: 'Sydney CBD' },
-];
-
 type FilterTab = 'all' | 'pending' | 'ready' | 'collected';
 
 function elapsed(isoDate: string): string {

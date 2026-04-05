@@ -9,6 +9,7 @@ import {
   Eye,
   Package,
   ChevronDown,
+  X,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useProducts, useCategories } from '@/lib/hooks';
@@ -158,14 +159,156 @@ function ProductThumb({ imageUrl, name }: { imageUrl?: string; name: string }) {
   );
 }
 
+// ─── Add Product Modal ─────────────────────────────────────────────────────────
+
+interface AddProductModalProps {
+  categories: Category[];
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function AddProductModal({ categories, onClose, onSaved }: AddProductModalProps) {
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    name: '',
+    sku: '',
+    categoryId: '',
+    basePrice: '',
+    productType: 'standard' as 'standard' | 'variant' | 'kit' | 'service',
+    isSoldInstore: true,
+    trackStock: true,
+  });
+
+  function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function generateSku() {
+    const prefix = form.name.trim().slice(0, 3).toUpperCase().replace(/\s/g, '') || 'SKU';
+    const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+    set('sku', `${prefix}-${rand}`);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!form.name.trim() || !form.sku.trim()) return;
+    const price = parseFloat(form.basePrice);
+    if (isNaN(price) || price < 0) { setError('Enter a valid base price'); return; }
+    setSaving(true);
+    try {
+      await apiFetch('products', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name.trim(),
+          sku: form.sku.trim(),
+          categoryId: form.categoryId || undefined,
+          basePrice: Math.round(price * 100),
+          productType: form.productType,
+          isSoldInstore: form.isSoldInstore,
+          trackStock: form.trackStock,
+        }),
+      });
+      toast({ title: 'Product created', description: `"${form.name}" has been added.`, variant: 'success' });
+      onSaved();
+      onClose();
+    } catch (err) {
+      const msg = getErrorMessage(err, 'Failed to create product');
+      setError(msg);
+      toast({ title: 'Failed to create product', description: msg, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Add Product</h2>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4 p-6">
+          {error && (
+            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{error}</div>
+          )}
+          {/* Name */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Name <span className="text-red-500">*</span></label>
+            <input required value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Flat White" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+          </div>
+          {/* SKU */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">SKU <span className="text-red-500">*</span></label>
+            <div className="flex gap-2">
+              <input required value={form.sku} onChange={(e) => set('sku', e.target.value)} placeholder="e.g. COFF-FW-001" className="flex-1 rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+              <button type="button" onClick={generateSku} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300">Auto</button>
+            </div>
+          </div>
+          {/* Category + Type row */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
+              <select value={form.categoryId} onChange={(e) => set('categoryId', e.target.value)} className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                <option value="">No category</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
+              <select value={form.productType} onChange={(e) => set('productType', e.target.value as typeof form.productType)} className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                <option value="standard">Standard</option>
+                <option value="variant">Variant</option>
+                <option value="kit">Kit</option>
+                <option value="service">Service</option>
+              </select>
+            </div>
+          </div>
+          {/* Base Price */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Base Price ($) <span className="text-red-500">*</span></label>
+            <input required type="number" min="0" step="0.01" value={form.basePrice} onChange={(e) => set('basePrice', e.target.value)} placeholder="0.00" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+          </div>
+          {/* Toggles */}
+          <div className="flex gap-6">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input type="checkbox" checked={form.isSoldInstore} onChange={(e) => set('isSoldInstore', e.target.checked)} className="rounded accent-indigo-600" />
+              Sold in-store
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input type="checkbox" checked={form.trackStock} onChange={(e) => set('trackStock', e.target.checked)} className="rounded accent-indigo-600" />
+              Track stock
+            </label>
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">Cancel</button>
+            <button type="submit" disabled={saving || !form.name.trim() || !form.sku.trim()} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{saving ? 'Creating…' : 'Create Product'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Bulk Action Bar ───────────────────────────────────────────────────────────
 
 function BulkActionBar({
   selectedCount,
   onClear,
+  onActivate,
+  onDeactivate,
+  bulkLoading,
 }: {
   selectedCount: number;
   onClear: () => void;
+  onActivate: () => void;
+  onDeactivate: () => void;
+  bulkLoading: boolean;
 }) {
   if (selectedCount === 0) return null;
   return (
@@ -173,10 +316,18 @@ function BulkActionBar({
       <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
         {selectedCount} selected
       </span>
-      <button className="rounded-lg border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+      <button
+        onClick={onActivate}
+        disabled={bulkLoading}
+        className="rounded-lg border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+      >
         Activate
       </button>
-      <button className="rounded-lg border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+      <button
+        onClick={onDeactivate}
+        disabled={bulkLoading}
+        className="rounded-lg border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+      >
         Deactivate
       </button>
       <button
@@ -262,6 +413,8 @@ export function CatalogClient() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   // SOH map: productId -> onHand quantity
   const [sohMap, setSohMap] = useState<Record<string, number>>({});
@@ -382,10 +535,41 @@ export function CatalogClient() {
     [toast, queryClient],
   );
 
+  async function handleBulkAction(status: 'active' | 'inactive') {
+    if (selectedIds.size === 0 || bulkLoading) return;
+    setBulkLoading(true);
+    const ids = Array.from(selectedIds);
+    let successCount = 0;
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await patchProductStatus(id, status);
+          successCount++;
+        } catch { /* individual failures ignored */ }
+      }),
+    );
+    toast({
+      title: status === 'active' ? 'Products activated' : 'Products deactivated',
+      description: `${successCount} of ${ids.length} product${ids.length !== 1 ? 's' : ''} updated.`,
+      variant: successCount > 0 ? 'success' : 'destructive',
+    });
+    setSelectedIds(new Set());
+    queryClient.invalidateQueries({ queryKey: ['products'] });
+    setBulkLoading(false);
+  }
+
   const hasFilters = !!(search || categoryFilter || typeFilter || channelFilter || statusFilter);
 
   return (
     <div className="space-y-5">
+      {showAddProduct && (
+        <AddProductModal
+          categories={categories}
+          onClose={() => setShowAddProduct(false)}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ['products'] })}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -394,12 +578,12 @@ export function CatalogClient() {
             {productsLoading ? 'Loading…' : `${total} product${total !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <Link
-          href="/dashboard/catalog/products/new"
+        <button
+          onClick={() => setShowAddProduct(true)}
           className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
         >
           <Plus className="h-4 w-4" /> Add Product
-        </Link>
+        </button>
       </div>
 
       {/* Filter bar */}
@@ -479,6 +663,9 @@ export function CatalogClient() {
       <BulkActionBar
         selectedCount={selectedIds.size}
         onClear={() => setSelectedIds(new Set())}
+        onActivate={() => { void handleBulkAction('active'); }}
+        onDeactivate={() => { void handleBulkAction('inactive'); }}
+        bulkLoading={bulkLoading}
       />
 
       {/* Products table */}

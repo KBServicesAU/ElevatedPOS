@@ -86,6 +86,8 @@ function CustomerDetailPanel({ customer, onClose }: { customer: Customer; onClos
     }
   }, [activeTab, customer.id]);
 
+  const { toast: panelToast } = useToast();
+
   async function handleAddNote() {
     if (!noteText.trim()) return;
     setSubmittingNote(true);
@@ -96,21 +98,33 @@ function CustomerDetailPanel({ customer, onClose }: { customer: Customer; onClos
         body: JSON.stringify({ content: noteText.trim(), isInternal }),
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json() as { data: Note };
         setNotes((prev) => [data.data, ...prev]);
         setNoteText('');
+      } else {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json() as { message?: string; error?: string }; msg = b.message ?? b.error ?? msg; } catch { /* ignore */ }
+        panelToast({ title: 'Failed to add note', description: msg, variant: 'destructive' });
       }
+    } catch (err) {
+      panelToast({ title: 'Failed to add note', description: getErrorMessage(err), variant: 'destructive' });
     } finally {
       setSubmittingNote(false);
     }
   }
 
   async function handleDeleteNote(noteId: string) {
-    const res = await fetch(`/api/proxy/crm/customers/${customer.id}/notes/${noteId}`, {
-      method: 'DELETE',
-    });
-    if (res.ok) {
-      setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    try {
+      const res = await fetch(`/api/proxy/crm/customers/${customer.id}/notes/${noteId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setNotes((prev) => prev.filter((n) => n.id !== noteId));
+      } else {
+        panelToast({ title: 'Failed to delete note', description: `HTTP ${res.status}`, variant: 'destructive' });
+      }
+    } catch (err) {
+      panelToast({ title: 'Failed to delete note', description: getErrorMessage(err), variant: 'destructive' });
     }
   }
 
@@ -252,7 +266,7 @@ function CustomerDetailPanel({ customer, onClose }: { customer: Customer; onClos
                     Internal (managers only)
                   </label>
                   <button
-                    onClick={handleAddNote}
+                    onClick={() => { void handleAddNote(); }}
                     disabled={!noteText.trim() || submittingNote}
                     className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
                   >
@@ -292,7 +306,7 @@ function CustomerDetailPanel({ customer, onClose }: { customer: Customer; onClos
                     <p className="text-sm text-gray-800 dark:text-gray-200">{note.content}</p>
                     <p className="mt-1.5 text-xs text-gray-400">{formatDate(note.createdAt)}</p>
                     <button
-                      onClick={() => handleDeleteNote(note.id)}
+                      onClick={() => { void handleDeleteNote(note.id); }}
                       className="absolute right-3 top-3 hidden rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-red-500 group-hover:block dark:hover:bg-gray-700"
                       title="Delete note"
                     >

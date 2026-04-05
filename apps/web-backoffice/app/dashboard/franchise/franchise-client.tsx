@@ -55,35 +55,6 @@ interface ComplianceCheck {
   checkedAt: string;
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_LOCATIONS: FranchiseeLocation[] = [
-  { id: '1', locationId: 'a1b2c3d4-0000-0000-0000-000000000001', franchiseeContactName: 'Alice Martin', franchiseeEmail: 'alice@franchise1.com', status: 'active', joinedAt: '2023-01-15T00:00:00Z', todayRevenue: 4280.5 },
-  { id: '2', locationId: 'a1b2c3d4-0000-0000-0000-000000000002', franchiseeContactName: 'Bob Chen', franchiseeEmail: 'bob@franchise2.com', status: 'active', joinedAt: '2023-03-20T00:00:00Z', todayRevenue: 3150.0 },
-  { id: '3', locationId: 'a1b2c3d4-0000-0000-0000-000000000003', franchiseeContactName: 'Carol Davies', franchiseeEmail: 'carol@franchise3.com', status: 'suspended', joinedAt: '2022-11-01T00:00:00Z', todayRevenue: 0 },
-];
-
-const MOCK_STATEMENTS: RoyaltyStatement[] = [
-  { id: 's1', period: '2024-02', locationId: 'a1b2c3d4-0000-0000-0000-000000000001', franchiseeContact: 'Alice Martin', grossSales: 85600, royaltyRate: 0.05, royaltyAmount: 4280, status: 'paid', issuedAt: '2024-03-01T00:00:00Z' },
-  { id: 's2', period: '2024-02', locationId: 'a1b2c3d4-0000-0000-0000-000000000002', franchiseeContact: 'Bob Chen', grossSales: 63000, royaltyRate: 0.05, royaltyAmount: 3150, status: 'issued', issuedAt: '2024-03-01T00:00:00Z' },
-  { id: 's3', period: '2024-01', locationId: 'a1b2c3d4-0000-0000-0000-000000000001', franchiseeContact: 'Alice Martin', grossSales: 79200, royaltyRate: 0.05, royaltyAmount: 3960, status: 'paid', issuedAt: '2024-02-01T00:00:00Z' },
-  { id: 's4', period: '2024-03', locationId: 'a1b2c3d4-0000-0000-0000-000000000001', franchiseeContact: 'Alice Martin', grossSales: 88400, royaltyRate: 0.05, royaltyAmount: 4420, status: 'draft', issuedAt: null },
-];
-
-const MOCK_POLICIES: FranchisePolicy[] = [
-  { id: 'p1', fieldPath: 'catalog.product.basePrice', lockType: 'locked', description: 'Base prices must match HQ catalog', updatedAt: '2024-01-10T00:00:00Z' },
-  { id: 'p2', fieldPath: 'catalog.category.featured', lockType: 'hq_default', description: 'Featured categories set by HQ but can be overridden', updatedAt: '2024-02-05T00:00:00Z' },
-  { id: 'p3', fieldPath: 'loyalty.earnRate', lockType: 'locked', description: 'Loyalty earn rates are network-wide', updatedAt: '2024-01-15T00:00:00Z' },
-  { id: 'p4', fieldPath: 'store.operatingHours', lockType: 'store_managed', description: 'Each location manages their own hours', updatedAt: '2024-01-01T00:00:00Z' },
-];
-
-const MOCK_COMPLIANCE: ComplianceCheck[] = [
-  { id: 'c1', locationId: 'a1b2c3d4-0000-0000-0000-000000000001', franchiseeContact: 'Alice Martin', checkType: 'required_menu_items', status: 'compliant', checkedAt: '2024-03-15T09:00:00Z' },
-  { id: 'c2', locationId: 'a1b2c3d4-0000-0000-0000-000000000001', franchiseeContact: 'Alice Martin', checkType: 'approved_pricing', status: 'compliant', checkedAt: '2024-03-15T09:00:00Z' },
-  { id: 'c3', locationId: 'a1b2c3d4-0000-0000-0000-000000000002', franchiseeContact: 'Bob Chen', checkType: 'required_menu_items', status: 'compliant', checkedAt: '2024-03-15T09:00:00Z' },
-  { id: 'c4', locationId: 'a1b2c3d4-0000-0000-0000-000000000002', franchiseeContact: 'Bob Chen', checkType: 'approved_pricing', status: 'non_compliant', checkedAt: '2024-03-15T09:00:00Z' },
-];
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatCurrency(amount: number) {
