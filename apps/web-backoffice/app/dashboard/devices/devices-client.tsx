@@ -8,6 +8,7 @@ import {
   Save, Router, ChevronDown, ChevronUp, AlertCircle,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,6 +122,7 @@ function CountdownTimer({ expiresAt }: { expiresAt: string }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function DevicesClient() {
+  const { toast } = useToast();
   // — existing state —
   const [activeTab, setActiveTab]     = useState<'devices' | 'pair'>('devices');
   const [devices,   setDevices]       = useState<Device[]>([]);
@@ -258,6 +260,7 @@ export default function DevicesClient() {
         body: JSON.stringify(draftConfig),
       });
       setDeviceConfigs((prev) => ({ ...prev, [deviceId]: draftConfig }));
+      toast({ title: 'Configuration saved', description: 'Payment settings updated for this device.', variant: 'success' });
       closeConfig();
     } catch (err) {
       setConfigError(err instanceof Error ? err.message : 'Failed to save configuration');

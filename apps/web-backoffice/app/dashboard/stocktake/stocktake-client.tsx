@@ -6,6 +6,7 @@ import {
   TrendingDown, TrendingUp,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/formatting';
+import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -256,6 +257,7 @@ function VarianceReport({ items, onClose }: VarianceReportProps) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function StocktakeClient({ currentUserName = 'Unknown' }: { currentUserName?: string }) {
+  const { toast } = useToast();
   const [stocktakes, setStocktakes] = useState<Stocktake[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showNewModal, setShowNewModal] = useState(false);
@@ -309,31 +311,19 @@ export function StocktakeClient({ currentUserName = 'Unknown' }: { currentUserNa
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ locationId, countAll: type === 'full' }),
       });
-      if (res.ok) {
-        const json = await res.json() as { data?: Stocktake };
-        if (json.data) {
-          setStocktakes((prev) => [{ ...json.data!, items: json.data!.items ?? [] }, ...prev]);
-          setCountQtys({});
-          return;
-        }
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.message ?? b.error ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
       }
-    } catch {
-      // fall through to local optimistic
+      const json = await res.json() as { data?: Stocktake };
+      const record = json.data ?? (json as unknown as Stocktake);
+      setStocktakes((prev) => [{ ...record, items: record.items ?? [] }, ...prev]);
+      setCountQtys({});
+      toast({ title: 'Stocktake started', description: `${locationName} — ${type} count in progress.`, variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Failed to start stocktake', description: err instanceof Error ? err.message : 'Please try again.', variant: 'destructive' });
     }
-    // Local optimistic fallback (when API unavailable or no UUID for location)
-    const newSt: Stocktake = {
-      id: `st-${Date.now()}`,
-      countNumber: `CNT-${String(Math.floor(Math.random() * 900) + 27).padStart(4, '0')}`,
-      type,
-      location: locationName,
-      startedBy: currentUserName,
-      startedAt: new Date().toISOString(),
-      status: 'in_progress',
-      varianceTotal: 0,
-      items: [],
-    };
-    setStocktakes((prev) => [newSt, ...prev]);
-    setCountQtys({});
   }
 
   async function handleComplete() {
@@ -350,25 +340,25 @@ export function StocktakeClient({ currentUserName = 'Unknown' }: { currentUserNa
 
     try {
       await fetch(`/api/proxy/stocktakes/${activeStocktake.id}/complete`, { method: 'POST' });
+      setStocktakes((prev) =>
+        prev.map((s) =>
+          s.id === activeStocktake.id
+            ? {
+                ...s,
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                varianceTotal,
+                items: updatedItems,
+              }
+            : s,
+        ),
+      );
+      setCompletedItems(updatedItems);
+      setCountQtys({});
+      toast({ title: 'Stocktake completed', description: `Variance: ${varianceTotal > 0 ? '+' : ''}${varianceTotal} units.`, variant: 'success' });
     } catch {
-      // use mock
+      toast({ title: 'Failed to complete stocktake', description: 'Could not save count. Please try again.', variant: 'destructive' });
     }
-
-    setStocktakes((prev) =>
-      prev.map((s) =>
-        s.id === activeStocktake.id
-          ? {
-              ...s,
-              status: 'completed',
-              completedAt: new Date().toISOString(),
-              varianceTotal,
-              items: updatedItems,
-            }
-          : s,
-      ),
-    );
-    setCompletedItems(updatedItems);
-    setCountQtys({});
   }
 
   return (
