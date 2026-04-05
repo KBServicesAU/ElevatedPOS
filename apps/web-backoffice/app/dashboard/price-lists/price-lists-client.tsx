@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Plus, ChevronDown, ChevronRight, MoreVertical, Tag,
   Search, X, Check,
@@ -32,6 +32,8 @@ interface PriceList {
   isActive: boolean;
   productCount: number;
   overrides: ProductOverride[];
+  channels?: string[];
+  locationIds?: string[];
 }
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
@@ -234,27 +236,35 @@ interface AddOverrideModalProps {
   onAdd: (priceListId: string, override: Omit<ProductOverride, 'id'>) => void;
 }
 
+interface ApiProduct { id: string; name: string; sku?: string; basePrice?: number; }
+
 function AddOverrideModal({ priceListId, onClose, onAdd }: AddOverrideModalProps) {
   const [productSearch, setProductSearch] = useState('');
   const [overridePrice, setOverridePrice] = useState('');
+  const [products, setProducts] = useState<ApiProduct[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Mock product search results
-  const mockProducts = [
-    { id: 'p-1', name: 'Flat White', sku: 'SKU-001', basePrice: 450 },
-    { id: 'p-2', name: 'Long Black', sku: 'SKU-002', basePrice: 400 },
-    { id: 'p-3', name: 'Latte', sku: 'SKU-003', basePrice: 500 },
-    { id: 'p-4', name: 'Cappuccino', sku: 'SKU-004', basePrice: 480 },
-    { id: 'p-5', name: 'Espresso', sku: 'SKU-005', basePrice: 350 },
-  ];
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setSearchLoading(true);
+      const qs = productSearch ? `?search=${encodeURIComponent(productSearch)}&limit=10` : '?limit=10';
+      fetch(`/api/proxy/catalog/products${qs}`)
+        .then((r) => r.ok ? r.json() : { data: [] })
+        .then((json: { data?: ApiProduct[] } | ApiProduct[]) => {
+          const items = Array.isArray(json) ? json : (json.data ?? []);
+          setProducts(items);
+        })
+        .catch(() => setProducts([]))
+        .finally(() => setSearchLoading(false));
+    }, 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [productSearch]);
 
-  const filtered = productSearch.length >= 1
-    ? mockProducts.filter((p) =>
-        p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-        p.sku.toLowerCase().includes(productSearch.toLowerCase()),
-      )
-    : mockProducts;
+  const filtered = products;
 
-  const [selectedProduct, setSelectedProduct] = useState<(typeof mockProducts)[0] | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<ApiProduct | null>(null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -269,8 +279,8 @@ function AddOverrideModal({ priceListId, onClose, onAdd }: AddOverrideModalProps
     onAdd(priceListId, {
       productId: selectedProduct.id,
       productName: selectedProduct.name,
-      sku: selectedProduct.sku,
-      basePrice: selectedProduct.basePrice,
+      sku: selectedProduct.sku ?? '',
+      basePrice: selectedProduct.basePrice ?? 0,
       overridePrice: priceCents,
     });
     onClose();
@@ -308,20 +318,26 @@ function AddOverrideModal({ priceListId, onClose, onAdd }: AddOverrideModalProps
               />
             </div>
             {/* Results dropdown */}
-            {!selectedProduct && filtered.length > 0 && (
-              <div className="rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
-                {filtered.map((p) => (
+            {!selectedProduct && (
+              <div className="rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 max-h-48 overflow-y-auto">
+                {searchLoading && (
+                  <div className="px-3 py-2 text-sm text-gray-400 dark:text-gray-500">Searching…</div>
+                )}
+                {!searchLoading && filtered.length === 0 && (
+                  <div className="px-3 py-2 text-sm text-gray-400 dark:text-gray-500">No products found</div>
+                )}
+                {!searchLoading && filtered.map((p) => (
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => { setSelectedProduct(p); setProductSearch(p.name); setOverridePrice((p.basePrice / 100).toFixed(2)); }}
+                    onClick={() => { setSelectedProduct(p); setProductSearch(p.name); setOverridePrice(p.basePrice != null ? (p.basePrice / 100).toFixed(2) : ''); }}
                     className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                   >
                     <div className="text-left">
                       <p className="font-medium text-gray-900 dark:text-white">{p.name}</p>
                       <p className="text-xs text-gray-400">{p.sku}</p>
                     </div>
-                    <span className="text-gray-500 dark:text-gray-400">{formatCurrency(p.basePrice)}</span>
+                    <span className="text-gray-500 dark:text-gray-400">{p.basePrice != null ? formatCurrency(p.basePrice) : '—'}</span>
                   </button>
                 ))}
               </div>
@@ -409,11 +425,22 @@ export function PriceListsClient() {
       const res = await fetch('/api/proxy/price-lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: data.name, currency: 'AUD', channels: [], locationIds: [] }),
+        body: JSON.stringify({
+          name: data.name,
+          type: data.type,
+          description: data.description,
+          adjustmentType: data.adjustmentType,
+          adjustmentValue: data.adjustmentValue,
+          isDefault: data.isDefault,
+          isActive: data.isActive,
+          currency: 'AUD',
+          channels: data.channels ?? [],
+          locationIds: data.locationIds ?? [],
+        }),
       });
       if (res.ok) {
-        const json = await res.json() as { data?: { id?: string } };
-        id = json.data?.id ?? id;
+        const json = await res.json() as { data?: { id?: string }; id?: string };
+        id = json.data?.id ?? json.id ?? id;
       }
     } catch {
       // network error — keep local id

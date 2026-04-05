@@ -40,7 +40,7 @@ export default function ForgotPasswordPage() {
         {/* Logo */}
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-white text-xl font-bold">
-            N
+            E
           </div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Reset your password</h1>
           <p className="mt-1 text-sm text-gray-500">

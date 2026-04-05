@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Stamp, Award, Users, TrendingUp, X } from 'lucide-react';
+import { Plus, Stamp, Award, Users, TrendingUp, X, Send, History, ShoppingBag, Minus as MinusIcon } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,6 +17,16 @@ interface StampProgram {
   expiryDays?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+interface StampHistoryEntry {
+  id: string;
+  type: 'earned' | 'redeemed' | 'expired' | string;
+  stamps: number;
+  orderId?: string;
+  orderReference?: string;
+  note?: string;
+  createdAt: string;
 }
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
@@ -39,6 +49,25 @@ async function createStampProgram(body: Omit<StampProgram, 'id' | 'createdAt' | 
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail ?? `HTTP ${res.status}`);
   }
+  return res.json();
+}
+
+async function issueStamps(payload: { customerId: string; stamps: number; orderId?: string }) {
+  const res = await fetch('/api/proxy/loyalty-stamps/issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { message?: string; detail?: string };
+    throw new Error(err.message ?? err.detail ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+async function fetchStampHistory(customerId: string): Promise<{ data: StampHistoryEntry[] }> {
+  const res = await fetch(`/api/proxy/loyalty-stamps/${customerId}/history`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
@@ -67,12 +96,274 @@ function StampDots({ filled, total }: { filled: number; total: number }) {
 // ─── Mock per-program stats (would come from loyalty accounts endpoint) ───────
 
 function mockStats(programId: string) {
-  // Deterministic mock from ID char codes
   const seed = programId.charCodeAt(0) + programId.charCodeAt(1);
   const activeMembers = 50 + (seed % 450);
   const redemptions = Math.floor(activeMembers * 0.15 + (seed % 30));
   const rate = activeMembers > 0 ? ((redemptions / activeMembers) * 100).toFixed(1) : '0.0';
   return { activeMembers, redemptions, rate };
+}
+
+// ─── Issue Stamps Modal ───────────────────────────────────────────────────────
+
+interface IssueStampsModalProps {
+  onClose: () => void;
+}
+
+function IssueStampsModal({ onClose }: IssueStampsModalProps) {
+  const [customerId, setCustomerId] = useState('');
+  const [stamps, setStamps] = useState(1);
+  const [orderId, setOrderId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      issueStamps({
+        customerId: customerId.trim(),
+        stamps,
+        orderId: orderId.trim() || undefined,
+      }),
+    onSuccess: () => {
+      setSuccess(true);
+    },
+    onError: (err: Error) => {
+      setError(err.message);
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!customerId.trim()) { setError('Customer ID is required'); return; }
+    if (stamps < 1) { setError('Stamps must be at least 1'); return; }
+    mutation.mutate();
+  };
+
+  if (success) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl dark:bg-gray-900 p-8 text-center">
+          <div className="text-5xl mb-3">✅</div>
+          <h3 className="text-lg font-bold text-green-600 dark:text-green-400 mb-1">Stamps Issued!</h3>
+          <p className="text-sm text-gray-500 mb-6">
+            {stamps} stamp{stamps !== 1 ? 's' : ''} issued to customer.
+          </p>
+          <button
+            onClick={onClose}
+            className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white hover:bg-indigo-700"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-gray-800">
+          <div className="flex items-center gap-2">
+            <Send className="h-4 w-4 text-indigo-500" />
+            <h3 className="text-base font-semibold text-gray-900 dark:text-white">Issue Stamps</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
+          {error && (
+            <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
+              {error}
+            </p>
+          )}
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Customer ID <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+              placeholder="Enter customer ID or email"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Number of Stamps
+            </label>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setStamps((s) => Math.max(1, s - 1))}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+              >
+                <MinusIcon className="h-4 w-4" />
+              </button>
+              <span className="w-10 text-center text-lg font-bold text-gray-900 dark:text-white">{stamps}</span>
+              <button
+                type="button"
+                onClick={() => setStamps((s) => s + 1)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Order ID (optional)
+            </label>
+            <input
+              type="text"
+              value={orderId}
+              onChange={(e) => setOrderId(e.target.value)}
+              placeholder="Link to an order"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={mutation.isPending}
+              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {mutation.isPending ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              {mutation.isPending ? 'Issuing…' : 'Issue Stamps'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Stamp History Panel ──────────────────────────────────────────────────────
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-AU', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function StampHistoryPanel({ programId, programName, onClose }: { programId: string; programName: string; onClose: () => void }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['stamp-history', programId],
+    queryFn: () => fetchStampHistory(programId),
+  });
+
+  const history = data?.data ?? [];
+
+  function entryIcon(type: string) {
+    if (type === 'earned') return <span className="text-green-500">+</span>;
+    if (type === 'redeemed') return <Award className="h-3.5 w-3.5 text-amber-500" />;
+    if (type === 'expired') return <span className="text-gray-400">×</span>;
+    return <Stamp className="h-3.5 w-3.5 text-indigo-400" />;
+  }
+
+  function entryColor(type: string) {
+    if (type === 'earned') return 'text-green-700 dark:text-green-400';
+    if (type === 'redeemed') return 'text-amber-700 dark:text-amber-400';
+    if (type === 'expired') return 'text-gray-500';
+    return 'text-gray-700 dark:text-gray-300';
+  }
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-30 bg-black/20 dark:bg-black/40"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="fixed right-0 top-0 z-40 flex h-full w-full max-w-sm flex-col bg-white shadow-2xl dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-gray-800">
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4 text-indigo-500" />
+            <div>
+              <p className="font-semibold text-gray-900 dark:text-white">Stamp History</p>
+              <p className="text-xs text-gray-400">{programName}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {isLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex animate-pulse gap-3">
+                  <div className="mt-1 h-8 w-8 rounded-full bg-gray-100 dark:bg-gray-800" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3 w-3/4 rounded bg-gray-100 dark:bg-gray-800" />
+                    <div className="h-2.5 w-1/2 rounded bg-gray-100 dark:bg-gray-800" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : isError ? (
+            <p className="py-8 text-center text-sm text-red-500">Failed to load history.</p>
+          ) : history.length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-400">No stamp history yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {history.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-4 dark:border-gray-800 dark:bg-gray-800/50"
+                >
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-bold dark:bg-gray-800">
+                    {entryIcon(entry.type)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`text-sm font-medium capitalize ${entryColor(entry.type)}`}>
+                        {entry.type === 'earned' ? `+${entry.stamps}` : entry.type === 'redeemed' ? `-${entry.stamps}` : `${entry.stamps}`} stamp{Math.abs(entry.stamps) !== 1 ? 's' : ''} {entry.type}
+                      </span>
+                    </div>
+                    {(entry.orderId ?? entry.orderReference) && (
+                      <div className="mt-0.5 flex items-center gap-1 text-xs text-gray-500">
+                        <ShoppingBag className="h-3 w-3" />
+                        Order {entry.orderReference ?? entry.orderId}
+                      </div>
+                    )}
+                    {entry.note && (
+                      <p className="mt-0.5 text-xs text-gray-400">{entry.note}</p>
+                    )}
+                    <time className="mt-1 block text-xs text-gray-400">{formatDate(entry.createdAt)}</time>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
 }
 
 // ─── Create modal ─────────────────────────────────────────────────────────────
@@ -269,7 +560,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
 
 // ─── Program card ─────────────────────────────────────────────────────────────
 
-function ProgramCard({ program }: { program: StampProgram }) {
+function ProgramCard({ program, onViewHistory }: { program: StampProgram; onViewHistory: (programId: string, programName: string) => void }) {
   const { activeMembers, redemptions, rate } = mockStats(program.id);
   const previewFilled = Math.min(3, program.stampsRequired);
 
@@ -299,7 +590,7 @@ function ProgramCard({ program }: { program: StampProgram }) {
         </span>
       </div>
 
-      {/* Stamp dots preview (shows first 3 filled, rest empty) */}
+      {/* Stamp dots preview */}
       <StampDots filled={previewFilled} total={Math.min(program.stampsRequired, 12)} />
       {program.stampsRequired > 12 && (
         <p className="mt-1 text-xs text-gray-400">+{program.stampsRequired - 12} more stamps</p>
@@ -343,6 +634,15 @@ function ProgramCard({ program }: { program: StampProgram }) {
       {program.expiryDays && (
         <p className="mt-2 text-xs text-gray-400">Expires after {program.expiryDays} days</p>
       )}
+
+      {/* View History button */}
+      <button
+        onClick={() => onViewHistory(program.id, program.name)}
+        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors"
+      >
+        <History className="h-3.5 w-3.5" />
+        View History
+      </button>
     </div>
   );
 }
@@ -351,6 +651,8 @@ function ProgramCard({ program }: { program: StampProgram }) {
 
 export function StampsClient() {
   const [showModal, setShowModal] = useState(false);
+  const [showIssueModal, setShowIssueModal] = useState(false);
+  const [historyPanel, setHistoryPanel] = useState<{ programId: string; programName: string } | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stamp-programs'],
@@ -377,13 +679,22 @@ export function StampsClient() {
             Digital punch-card programs that reward repeat customers
           </p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          <Plus className="h-4 w-4" />
-          Create Stamp Card
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowIssueModal(true)}
+            className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-300 dark:hover:bg-indigo-900/40 transition-colors"
+          >
+            <Send className="h-4 w-4" />
+            Issue Stamps
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" />
+            Create Stamp Card
+          </button>
+        </div>
       </div>
 
       {/* Summary stats */}
@@ -463,7 +774,11 @@ export function StampsClient() {
       {!isLoading && !isError && programs.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {programs.map((program) => (
-            <ProgramCard key={program.id} program={program} />
+            <ProgramCard
+              key={program.id}
+              program={program}
+              onViewHistory={(id, name) => setHistoryPanel({ programId: id, programName: name })}
+            />
           ))}
         </div>
       )}
@@ -473,6 +788,22 @@ export function StampsClient() {
         <CreateModal
           onClose={() => setShowModal(false)}
           onCreated={() => setShowModal(false)}
+        />
+      )}
+
+      {/* Issue stamps modal */}
+      {showIssueModal && (
+        <IssueStampsModal
+          onClose={() => setShowIssueModal(false)}
+        />
+      )}
+
+      {/* History side panel */}
+      {historyPanel && (
+        <StampHistoryPanel
+          programId={historyPanel.programId}
+          programName={historyPanel.programName}
+          onClose={() => setHistoryPanel(null)}
         />
       )}
     </div>

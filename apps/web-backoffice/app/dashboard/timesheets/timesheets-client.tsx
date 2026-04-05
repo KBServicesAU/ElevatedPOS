@@ -1,21 +1,30 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Download, CheckCheck, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Download, CheckCheck, Loader2, Plus, Pencil, AlertTriangle, Check } from 'lucide-react';
 import { useToast } from '@/lib/use-toast';
 import { apiFetch } from '@/lib/api';
+import { getErrorMessage } from '@/lib/formatting';
 
 interface Shift {
   id: string;
+  employeeId?: string;
   employeeName: string;
+  hourlyRate?: number;
   day: string;
   clockIn: string;
   clockOut: string;
   breakMinutes: number;
   totalHours: number;
+  notes?: string;
   status: 'approved' | 'pending' | 'flagged';
 }
 
+interface Employee {
+  id: string;
+  name: string;
+  hourlyRate?: number;
+}
 
 const STATUS_COLORS: Record<Shift['status'], string> = {
   approved: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -45,6 +54,281 @@ function getMonthRange(): { dateFrom: string; dateTo: string } {
   return { dateFrom: fmt(first), dateTo: fmt(last) };
 }
 
+// ─── Edit Shift Modal ────────────────────────────────────────────────────────
+
+interface EditShiftModalProps {
+  shift: Shift;
+  onClose: () => void;
+  onSaved: (updated: Shift) => void;
+}
+
+function EditShiftModal({ shift, onClose, onSaved }: EditShiftModalProps) {
+  const { toast } = useToast();
+  const [clockIn, setClockIn] = useState(shift.clockIn ? shift.clockIn.slice(0, 16) : '');
+  const [clockOut, setClockOut] = useState(shift.clockOut ? shift.clockOut.slice(0, 16) : '');
+  const [breakMinutes, setBreakMinutes] = useState(String(shift.breakMinutes ?? 0));
+  const [notes, setNotes] = useState(shift.notes ?? '');
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const updated = await apiFetch<Shift>(`shifts/${shift.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          clockIn: clockIn ? new Date(clockIn).toISOString() : undefined,
+          clockOut: clockOut ? new Date(clockOut).toISOString() : undefined,
+          breakMinutes: Number(breakMinutes) || 0,
+          notes,
+        }),
+      });
+      onSaved({ ...shift, ...updated });
+      toast({ title: 'Shift updated', variant: 'success' });
+      onClose();
+    } catch (err) {
+      toast({ title: 'Save failed', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-xl bg-white shadow-xl dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Edit Shift</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+        </div>
+        <div className="space-y-4 px-6 py-5">
+          {/* Employee (read-only) */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Employee</label>
+            <input
+              type="text"
+              value={shift.employeeName}
+              readOnly
+              className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+            />
+          </div>
+          {/* Clock In */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Clock In</label>
+            <input
+              type="datetime-local"
+              value={clockIn}
+              onChange={(e) => setClockIn(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+          {/* Clock Out */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Clock Out</label>
+            <input
+              type="datetime-local"
+              value={clockOut}
+              onChange={(e) => setClockOut(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+          {/* Break Minutes */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Break (minutes)</label>
+            <input
+              type="number"
+              min={0}
+              value={breakMinutes}
+              onChange={(e) => setBreakMinutes(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+          {/* Notes */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Add Shift Modal ─────────────────────────────────────────────────────────
+
+interface AddShiftModalProps {
+  onClose: () => void;
+  onAdded: (shift: Shift) => void;
+}
+
+function AddShiftModal({ onClose, onAdded }: AddShiftModalProps) {
+  const { toast } = useToast();
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(true);
+  const [employeeId, setEmployeeId] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [clockInTime, setClockInTime] = useState('09:00');
+  const [clockOutTime, setClockOutTime] = useState('17:00');
+  const [breakMinutes, setBreakMinutes] = useState('30');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiFetch<Employee[] | { data: Employee[] }>('employees?limit=100')
+      .then((res) => {
+        const list = Array.isArray(res) ? res : (res as { data: Employee[] }).data ?? [];
+        setEmployees(list);
+        if (list.length > 0) setEmployeeId(list[0].id);
+      })
+      .catch(() => {/* ignore */})
+      .finally(() => setLoadingEmployees(false));
+  }, []);
+
+  async function handleSave() {
+    if (!employeeId || !date) return;
+    setSaving(true);
+    try {
+      const clockIn = new Date(`${date}T${clockInTime}`).toISOString();
+      const clockOut = new Date(`${date}T${clockOutTime}`).toISOString();
+      const created = await apiFetch<Shift>('shifts', {
+        method: 'POST',
+        body: JSON.stringify({
+          employeeId,
+          clockIn,
+          clockOut,
+          breakMinutes: Number(breakMinutes) || 0,
+          notes,
+        }),
+      });
+      onAdded(created);
+      toast({ title: 'Shift added', variant: 'success' });
+      onClose();
+    } catch (err) {
+      toast({ title: 'Failed to add shift', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-xl bg-white shadow-xl dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Add Shift</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+        </div>
+        <div className="space-y-4 px-6 py-5">
+          {/* Employee */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Employee</label>
+            {loadingEmployees ? (
+              <div className="flex items-center gap-2 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+            ) : (
+              <select
+                value={employeeId}
+                onChange={(e) => setEmployeeId(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              >
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>{emp.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          {/* Date */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+          {/* Clock In */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Clock In</label>
+            <input
+              type="time"
+              value={clockInTime}
+              onChange={(e) => setClockInTime(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+          {/* Clock Out */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Clock Out</label>
+            <input
+              type="time"
+              value={clockOutTime}
+              onChange={(e) => setClockOutTime(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+          {/* Break */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Break (minutes)</label>
+            <input
+              type="number"
+              min={0}
+              value={breakMinutes}
+              onChange={(e) => setBreakMinutes(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+          {/* Notes */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Note</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !employeeId}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Add Shift
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
 export function TimesheetsClient() {
   const { toast } = useToast();
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -54,6 +338,9 @@ export function TimesheetsClient() {
   const [customTo, setCustomTo] = useState('');
   const [approvingAll, setApprovingAll] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [editingShift, setEditingShift] = useState<Shift | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [flaggedFilter, setFlaggedFilter] = useState(false);
 
   function getDateRange() {
     if (period === 'this_week') return getWeekRange(0);
@@ -62,8 +349,19 @@ export function TimesheetsClient() {
     return { dateFrom: customFrom, dateTo: customTo };
   }
 
-  function fetchShifts() {
-    const { dateFrom, dateTo } = getDateRange();
+  const fetchShifts = useCallback(() => {
+    let dateFrom: string;
+    let dateTo: string;
+    if (period === 'this_week') {
+      ({ dateFrom, dateTo } = getWeekRange(0));
+    } else if (period === 'last_week') {
+      ({ dateFrom, dateTo } = getWeekRange(1));
+    } else if (period === 'this_month') {
+      ({ dateFrom, dateTo } = getMonthRange());
+    } else {
+      dateFrom = customFrom;
+      dateTo = customTo;
+    }
     if (!dateFrom || !dateTo) return;
     setIsLoading(true);
     fetch(`/api/proxy/shifts?dateFrom=${dateFrom}&dateTo=${dateTo}`)
@@ -74,18 +372,48 @@ export function TimesheetsClient() {
       })
       .catch(() => setShifts([]))
       .finally(() => setIsLoading(false));
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, customFrom, customTo]);
 
   useEffect(() => {
     fetchShifts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, customFrom, customTo]);
+  }, [fetchShifts]);
 
+  // Derived counts & sums
+  const approvedShifts = shifts.filter((sh) => sh.status === 'approved');
   const totalHours = shifts.reduce((s, sh) => s + sh.totalHours, 0);
+  const approvedHours = approvedShifts.reduce((s, sh) => s + sh.totalHours, 0);
   const overtimeHours = shifts
     .filter((sh) => sh.totalHours > 8)
     .reduce((s, sh) => s + (sh.totalHours - 8), 0);
   const pendingCount = shifts.filter((sh) => sh.status === 'pending').length;
+  const flaggedCount = shifts.filter((sh) => sh.status === 'flagged').length;
+  const staffSet = new Set(shifts.map((sh) => sh.employeeId ?? sh.employeeName));
+  const staffCount = staffSet.size;
+  const totalWages = approvedShifts.reduce(
+    (s, sh) => s + sh.totalHours * (sh.hourlyRate ?? 0),
+    0,
+  );
+
+  const displayedShifts = flaggedFilter
+    ? shifts.filter((sh) => sh.status === 'flagged')
+    : shifts;
+
+  function exportPayroll() {
+    const header = 'Employee,Day,Clock In,Clock Out,Break (min),Hours,Hourly Rate,Total Pay';
+    const rows = shifts.map((s) => {
+      const rate = s.hourlyRate ?? 0;
+      const pay = s.totalHours * rate;
+      return `"${s.employeeName}","${s.day}","${s.clockIn}","${s.clockOut}",${s.breakMinutes},${s.totalHours.toFixed(2)},${rate.toFixed(2)},${pay.toFixed(2)}`;
+    });
+    const csvContent = [header, ...rows].join('\n');
+    const url = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `payroll-${getDateRange().dateFrom}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   function exportCSV() {
     const header = 'Employee,Day,Clock In,Clock Out,Break (min),Total Hours,Status';
@@ -107,15 +435,34 @@ export function TimesheetsClient() {
     setApprovingAll(true);
     try {
       await fetch('/api/proxy/shifts/approve-all', { method: 'POST' });
-      const pendingCount = shifts.filter((s) => s.status === 'pending').length;
+      const count = shifts.filter((s) => s.status === 'pending').length;
       setShifts((prev) =>
         prev.map((s) => (s.status === 'pending' ? { ...s, status: 'approved' as const } : s)),
       );
-      toast({ title: 'Timesheets approved', description: `${pendingCount} shift${pendingCount !== 1 ? 's' : ''} approved.`, variant: 'success' });
+      toast({
+        title: 'Timesheets approved',
+        description: `${count} shift${count !== 1 ? 's' : ''} approved.`,
+        variant: 'success',
+      });
     } catch {
       toast({ title: 'Approval failed', description: 'Could not approve timesheets. Please try again.', variant: 'destructive' });
     } finally {
       setApprovingAll(false);
+    }
+  }
+
+  async function approveShift(id: string) {
+    setApprovingId(id);
+    try {
+      await apiFetch(`shifts/${id}/approve`, { method: 'PATCH' });
+      setShifts((prev) =>
+        prev.map((sh) => (sh.id === id ? { ...sh, status: 'approved' as const } : sh)),
+      );
+      toast({ title: 'Shift approved', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Approval failed', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setApprovingId(null);
     }
   }
 
@@ -129,7 +476,14 @@ export function TimesheetsClient() {
             {isLoading ? 'Loading…' : `${shifts.length} shifts`}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" />
+            Add Shift
+          </button>
           <button
             onClick={exportCSV}
             className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
@@ -140,7 +494,7 @@ export function TimesheetsClient() {
           <button
             onClick={approveAll}
             disabled={approvingAll || pendingCount === 0}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
           >
             {approvingAll ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -212,6 +566,57 @@ export function TimesheetsClient() {
         ))}
       </div>
 
+      {/* Payroll Summary Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4 dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex flex-wrap gap-6">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Approved Hours</p>
+            <p className="mt-0.5 text-lg font-bold text-gray-900 dark:text-white">
+              {isLoading ? '—' : `${approvedHours.toFixed(1)} hrs`}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Est. Wage Cost</p>
+            <p className="mt-0.5 text-lg font-bold text-gray-900 dark:text-white">
+              {isLoading ? '—' : `$${totalWages.toFixed(2)}`}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Staff</p>
+            <p className="mt-0.5 text-lg font-bold text-gray-900 dark:text-white">
+              {isLoading ? '—' : staffCount}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={exportPayroll}
+          className="flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+        >
+          <Download className="h-4 w-4" />
+          Export Payroll
+        </button>
+      </div>
+
+      {/* Flagged Shifts Alert */}
+      {!isLoading && flaggedCount > 0 && (
+        <button
+          onClick={() => setFlaggedFilter((f) => !f)}
+          className={`flex w-full items-center gap-3 rounded-xl border px-5 py-3 text-left transition-colors ${
+            flaggedFilter
+              ? 'border-amber-400 bg-amber-100 dark:border-amber-600 dark:bg-amber-900/30'
+              : 'border-amber-300 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/20 dark:hover:bg-amber-900/30'
+          }`}
+        >
+          <AlertTriangle className="h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="text-sm font-medium text-amber-800 dark:text-amber-300">
+            {flaggedCount} shift{flaggedCount !== 1 ? 's' : ''} flagged for review — possible overtime or missing clock-out
+          </span>
+          <span className="ml-auto text-xs font-medium text-amber-600 dark:text-amber-400">
+            {flaggedFilter ? 'Show all' : 'View flagged'}
+          </span>
+        </button>
+      )}
+
       {/* Table */}
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <table className="w-full">
@@ -238,7 +643,7 @@ export function TimesheetsClient() {
                     ))}
                   </tr>
                 ))
-              : shifts.map((s) => (
+              : displayedShifts.map((s) => (
                   <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                     <td className="px-5 py-3.5 text-sm font-medium text-gray-900 dark:text-white">{s.employeeName}</td>
                     <td className="px-5 py-3.5 text-sm text-gray-600 dark:text-gray-400">{s.day}</td>
@@ -257,46 +662,66 @@ export function TimesheetsClient() {
                       </span>
                     </td>
                     <td className="px-5 py-3.5">
-                      {s.status === 'pending' && (
+                      <div className="flex items-center gap-1.5">
+                        {/* Edit button — always visible */}
                         <button
-                          disabled={approvingId === s.id}
-                          onClick={() => {
-                            void (async () => {
-                              setApprovingId(s.id);
-                              try {
-                                await apiFetch(`shifts/${s.id}/approve`, { method: 'POST' });
-                                setShifts((prev) =>
-                                  prev.map((sh) =>
-                                    sh.id === s.id ? { ...sh, status: 'approved' as const } : sh,
-                                  ),
-                                );
-                                toast({ title: 'Shift approved', variant: 'success' });
-                              } catch {
-                                toast({ title: 'Approval failed', description: 'Could not approve shift.', variant: 'destructive' });
-                              } finally {
-                                setApprovingId(null);
-                              }
-                            })();
-                          }}
-                          className="flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+                          onClick={() => setEditingShift(s)}
+                          className="flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
                         >
-                          {approvingId === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                          Approve
+                          <Pencil className="h-3 w-3" />
+                          Edit
                         </button>
-                      )}
+                        {/* Approve button — pending or flagged */}
+                        {(s.status === 'pending' || s.status === 'flagged') && (
+                          <button
+                            disabled={approvingId === s.id}
+                            onClick={() => approveShift(s.id)}
+                            className="flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+                          >
+                            {approvingId === s.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Check className="h-3 w-3" />
+                            )}
+                            Approve
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
-            {!isLoading && shifts.length === 0 && (
+            {!isLoading && displayedShifts.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-5 py-10 text-center text-sm text-gray-400">
-                  No shifts found for this period.
+                  {flaggedFilter ? 'No flagged shifts.' : 'No shifts found for this period.'}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Edit Shift Modal */}
+      {editingShift && (
+        <EditShiftModal
+          shift={editingShift}
+          onClose={() => setEditingShift(null)}
+          onSaved={(updated) => {
+            setShifts((prev) => prev.map((sh) => (sh.id === updated.id ? updated : sh)));
+            setEditingShift(null);
+          }}
+        />
+      )}
+
+      {/* Add Shift Modal */}
+      {showAddModal && (
+        <AddShiftModal
+          onClose={() => setShowAddModal(false)}
+          onAdded={(shift) => {
+            setShifts((prev) => [shift, ...prev]);
+          }}
+        />
+      )}
     </div>
   );
 }

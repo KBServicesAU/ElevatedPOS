@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useToast } from '@/lib/use-toast';
 
 interface Invoice {
   id: string;
   stripeInvoiceId: string;
   stripeCustomerId: string;
+  customerName?: string;
+  customer?: { name?: string };
   status: string;
   amountDue: number;
   amountPaid: number;
@@ -23,12 +26,12 @@ interface InvoiceItem {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  paid: 'bg-green-100 text-green-800',
-  open: 'bg-blue-100 text-blue-800',
-  draft: 'bg-gray-100 text-gray-600',
-  overdue: 'bg-red-100 text-red-800',
-  uncollectible: 'bg-orange-100 text-orange-800',
-  void: 'bg-gray-100 text-gray-400',
+  paid: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  open: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+  draft: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
+  overdue: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
+  uncollectible: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+  void: 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500',
 };
 
 function formatPrice(cents: number, currency = 'aud'): string {
@@ -39,6 +42,7 @@ function formatPrice(cents: number, currency = 'aud'): string {
 }
 
 export default function InvoicesPage() {
+  const { toast } = useToast();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
@@ -53,6 +57,7 @@ export default function InvoicesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [sending, setSending] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
 
   const [orgId, setOrgId] = useState<string | null>(null);
 
@@ -133,15 +138,62 @@ export default function InvoicesPage() {
 
   async function handleSend(invoiceId: string) {
     setSending(invoiceId);
-    await fetch(`/api/proxy/integrations/api/v1/connect/invoices/${invoiceId}/send`, {
-      method: 'POST',
-    });
-    setInvoices((prev) =>
-      prev.map((inv) =>
-        inv.stripeInvoiceId === invoiceId ? { ...inv, status: 'open' } : inv
-      )
-    );
-    setSending(null);
+    try {
+      const res = await fetch(`/api/proxy/integrations/api/v1/connect/invoices/${invoiceId}/send`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.stripeInvoiceId === invoiceId ? { ...inv, status: 'open' } : inv
+        )
+      );
+      toast({ title: 'Invoice sent', description: 'The invoice has been sent to the customer.', variant: 'default' });
+    } catch (err) {
+      toast({
+        title: 'Failed to send invoice',
+        description: err instanceof Error ? err.message : 'Could not send invoice.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSending(null);
+    }
+  }
+
+  async function handleDownloadPdf(inv: Invoice) {
+    setDownloadingPdf(inv.id);
+    try {
+      // If the invoice already has a direct PDF URL, open it
+      if (inv.invoicePdf) {
+        window.open(inv.invoicePdf, '_blank');
+        return;
+      }
+      const res = await fetch(`/api/proxy/invoices/${inv.id}/pdf`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoice-${inv.stripeInvoiceId ?? inv.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast({
+        title: 'Failed to download PDF',
+        description: err instanceof Error ? err.message : 'Could not download invoice PDF.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDownloadingPdf(null);
+    }
   }
 
   return (
@@ -338,8 +390,12 @@ export default function InvoicesPage() {
             <tbody className="divide-y divide-gray-100">
               {invoices.map((inv) => (
                 <tr key={inv.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                    {inv.stripeCustomerId}
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    {inv.customerName ?? inv.customer?.name ?? (
+                      <span className="font-mono text-xs text-gray-400">
+                        {inv.stripeCustomerId ? `…${inv.stripeCustomerId.slice(-8)}` : '—'}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -361,26 +417,36 @@ export default function InvoicesPage() {
                       ? new Date(inv.dueDate).toLocaleDateString('en-AU')
                       : '—'}
                   </td>
-                  <td className="px-4 py-3 text-right flex items-center justify-end gap-2">
-                    {inv.invoiceUrl && (
-                      <a
-                        href={inv.invoiceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-                      >
-                        View ↗
-                      </a>
-                    )}
-                    {inv.status === 'draft' && (
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {inv.invoiceUrl && (
+                        <a
+                          href={inv.invoiceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                        >
+                          View ↗
+                        </a>
+                      )}
                       <button
-                        onClick={() => handleSend(inv.stripeInvoiceId)}
-                        disabled={sending === inv.stripeInvoiceId}
-                        className="text-xs text-green-600 hover:text-green-800 font-medium disabled:opacity-50"
+                        onClick={() => { void handleDownloadPdf(inv); }}
+                        disabled={downloadingPdf === inv.id}
+                        className="text-xs text-gray-500 hover:text-gray-800 font-medium disabled:opacity-50"
+                        title="Download PDF"
                       >
-                        {sending === inv.stripeInvoiceId ? 'Sending...' : 'Send'}
+                        {downloadingPdf === inv.id ? 'Downloading…' : 'PDF ↓'}
                       </button>
-                    )}
+                      {inv.status === 'draft' && (
+                        <button
+                          onClick={() => { void handleSend(inv.stripeInvoiceId); }}
+                          disabled={sending === inv.stripeInvoiceId}
+                          className="text-xs text-green-600 hover:text-green-800 font-medium disabled:opacity-50"
+                        >
+                          {sending === inv.stripeInvoiceId ? 'Sending...' : 'Send'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

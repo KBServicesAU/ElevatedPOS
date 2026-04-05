@@ -5,9 +5,11 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Download, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, BarChart2,
   Calendar, Printer, X, Check, Clock, Mail, ChevronDown, Columns2,
+  FileText, AlertCircle,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
+import { getErrorMessage } from '@/lib/formatting';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -42,6 +44,45 @@ interface ScheduledReport {
   dayOfWeek?: string;
   startDate: string;
   createdAt: string;
+}
+
+interface ZReportData {
+  date?: string;
+  totalSales?: number;
+  totalRefunds?: number;
+  netSales?: number;
+  cashCollected?: number;
+  cardCollected?: number;
+  totalTransactions?: number;
+  gstCollected?: number;
+  openingFloat?: number;
+  closingFloat?: number;
+}
+
+interface BASReportData {
+  gstCollected?: number;
+  gstPaid?: number;
+  netGst?: number;
+}
+
+// ─── Menu Engineering Types ───────────────────────────────────────────────────
+
+interface MenuEngineeringProduct {
+  productId: string;
+  name: string;
+  category: string;
+  unitsSold: number;
+  revenue: number;
+  cost: number;
+  margin: number;       // decimal e.g. 0.45
+  contribution: number; // margin * revenue
+}
+
+type MenuQuadrant = 'stars' | 'plowhorses' | 'puzzles' | 'dogs';
+
+interface MenuProduct extends MenuEngineeringProduct {
+  quadrant: MenuQuadrant;
+  marginPct: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -265,6 +306,55 @@ function exportOrdersCSV(orders: Order[], label: string) {
   URL.revokeObjectURL(url);
 }
 
+function classifyMenuProducts(products: MenuEngineeringProduct[]): MenuProduct[] {
+  if (products.length === 0) return [];
+
+  const sorted = [...products].sort((a, b) => a.unitsSold - b.unitsSold);
+  const mid = Math.floor(sorted.length / 2);
+  const medianUnits =
+    sorted.length % 2 === 1
+      ? sorted[mid].unitsSold
+      : (sorted[mid - 1].unitsSold + sorted[mid].unitsSold) / 2;
+
+  return products.map((p) => {
+    const marginPct = p.margin * 100;
+    const highPopularity = p.unitsSold >= medianUnits;
+    const highMargin = marginPct >= 30;
+    let quadrant: MenuQuadrant;
+    if (highPopularity && highMargin) quadrant = 'stars';
+    else if (highPopularity && !highMargin) quadrant = 'plowhorses';
+    else if (!highPopularity && highMargin) quadrant = 'puzzles';
+    else quadrant = 'dogs';
+    return { ...p, quadrant, marginPct };
+  });
+}
+
+function exportMenuEngineeringCSV(products: MenuProduct[], label: string) {
+  const headers = ['Name', 'Category', 'Quadrant', 'Units Sold', 'Revenue', 'Cost', 'Margin %', 'Contribution'];
+  const rows = products.map((p) => [
+    p.name,
+    p.category,
+    p.quadrant.charAt(0).toUpperCase() + p.quadrant.slice(1),
+    p.unitsSold,
+    p.revenue.toFixed(2),
+    p.cost.toFixed(2),
+    p.marginPct.toFixed(1) + '%',
+    p.contribution.toFixed(2),
+  ]);
+  const csv = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `menu-engineering-${label.replace(/[^a-zA-Z0-9]/g, '-')}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ─── Printable Report ────────────────────────────────────────────────────────
 
 function PrintableReport({
@@ -453,9 +543,70 @@ function ScheduleReportModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── Z-Report Modal ───────────────────────────────────────────────────────────
+
+function ZReportModal({ data, onClose, onCloseDay, closingDay = false }: { data: ZReportData; onClose: () => void; onCloseDay: () => void; closingDay?: boolean }) {
+  const fmtAud = (v?: number) =>
+    v !== undefined ? `$${v.toFixed(2)}` : '—';
+  const today = new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="z-report-modal w-full max-w-md rounded-xl bg-white shadow-2xl dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-gray-800">
+          <div className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-elevatedpos-600" />
+            <h2 className="font-semibold text-gray-900 dark:text-white">End of Day Z-Report</h2>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="space-y-0.5 px-5 py-4">
+          <p className="mb-4 text-sm text-gray-500">{data.date ?? today}</p>
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            {[
+              { label: 'Total Sales (Gross)', value: fmtAud(data.totalSales), bold: true },
+              { label: 'Total Refunds', value: fmtAud(data.totalRefunds) },
+              { label: 'Net Sales', value: fmtAud(data.netSales), bold: true },
+              { label: 'Cash Collected', value: fmtAud(data.cashCollected) },
+              { label: 'Card Collected', value: fmtAud(data.cardCollected) },
+              { label: 'Total Transactions', value: data.totalTransactions !== undefined ? String(data.totalTransactions) : '—' },
+              { label: 'GST Collected', value: fmtAud(data.gstCollected) },
+              ...(data.openingFloat !== undefined ? [{ label: 'Opening Float', value: fmtAud(data.openingFloat) }] : []),
+              ...(data.closingFloat !== undefined ? [{ label: 'Closing Float', value: fmtAud(data.closingFloat) }] : []),
+            ].map(({ label, value, bold }) => (
+              <div key={label} className="flex items-center justify-between py-2.5">
+                <span className="text-sm text-gray-600 dark:text-gray-400">{label}</span>
+                <span className={`text-sm ${bold ? 'font-bold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-4 dark:border-gray-800">
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+          >
+            <Printer className="h-4 w-4" /> Print Z-Report
+          </button>
+          <button
+            onClick={onCloseDay}
+            disabled={closingDay}
+            className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-700 disabled:opacity-60"
+          >
+            <Check className="h-4 w-4" /> {closingDay ? 'Saving…' : 'Save & Close Day'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ReportsClient() {
+  const { toast } = useToast();
   const [range, setRange] = useState<DateRange>('today');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -464,12 +615,127 @@ export default function ReportsClient() {
   const [comparisonView, setComparisonView] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
-  // Load scheduled reports from localStorage
-  useEffect(() => {
-    setScheduledReports(JSON.parse(localStorage.getItem('elevatedpos-scheduled-reports') ?? '[]'));
-  }, [showScheduleModal]);
+  // Z-Report state
+  const [showZReport, setShowZReport] = useState(false);
+  const [zReportData, setZReportData] = useState<ZReportData>({});
+  const [zReportLoading, setZReportLoading] = useState(false);
+  const [closingDay, setClosingDay] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
+  // BAS/Tax report state
+  const [reportType, setReportType] = useState<'standard' | 'tax' | 'menu'>('standard');
+  const [basData, setBASData] = useState<BASReportData | null>(null);
+  const [basLoading, setBASLoading] = useState(false);
+
+  // Menu Engineering state
+  const [menuProducts, setMenuProducts] = useState<MenuProduct[]>([]);
+  const [menuLoading, setMenuLoading] = useState(false);
+
+  // bounds declared early so callbacks below can reference it
   const bounds = useMemo(() => getDateBounds(range, customFrom, customTo), [range, customFrom, customTo]);
+
+  // Load user role for role-gated features
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => {
+        if (json?.role) setUserRole(json.role as string);
+      })
+      .catch((err: unknown) => {
+        toast({ title: 'Failed to load user role', description: getErrorMessage(err), variant: 'destructive' });
+      });
+  }, [toast]);
+
+  const handleRunZReport = async () => {
+    setZReportLoading(true);
+    try {
+      const res = await fetch('/api/proxy/reports/eod');
+      const json = res.ok ? (await res.json() as ZReportData) : {};
+      setZReportData(json);
+      setShowZReport(true);
+    } catch {
+      setZReportData({});
+      setShowZReport(true);
+    } finally {
+      setZReportLoading(false);
+    }
+  };
+
+  const handleCloseDay = async () => {
+    setClosingDay(true);
+    try {
+      await fetch('/api/proxy/reports/eod/close', { method: 'POST' });
+      setShowZReport(false);
+    } catch (err: unknown) {
+      toast({ title: 'Failed to close day', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setClosingDay(false);
+    }
+  };
+
+  const handleLoadBAS = async () => {
+    setBASLoading(true);
+    try {
+      const res = await fetch(
+        `/api/proxy/reports/export?format=json&type=gst&from=${encodeURIComponent(bounds.from)}&to=${encodeURIComponent(bounds.to)}`
+      );
+      const json = res.ok ? (await res.json() as BASReportData) : null;
+      setBASData(json);
+    } catch (err: unknown) {
+      setBASData(null);
+      toast({ title: 'Failed to load tax report', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setBASLoading(false);
+    }
+  };
+
+  const handleLoadMenu = useCallback(async () => {
+    setMenuLoading(true);
+    try {
+      const res = await fetch(
+        `/api/proxy/reports/menu-engineering?from=${encodeURIComponent(bounds.from)}&to=${encodeURIComponent(bounds.to)}`
+      );
+      const json = res.ok ? (await res.json() as { data: MenuEngineeringProduct[] }) : { data: [] };
+      setMenuProducts(classifyMenuProducts(json.data ?? []));
+    } catch (err: unknown) {
+      setMenuProducts([]);
+      toast({ title: 'Failed to load menu engineering data', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setMenuLoading(false);
+    }
+  }, [bounds.from, bounds.to, toast]);
+
+  // Load scheduled reports from API (fall back to localStorage for migration)
+  useEffect(() => {
+    fetch('/api/proxy/reports/schedules')
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => {
+        const list: ScheduledReport[] = Array.isArray(json) ? json : (json?.data ?? []);
+        if (list.length > 0) {
+          setScheduledReports(list);
+          // Migrate to API — clear legacy localStorage data
+          try { localStorage.removeItem('elevatedpos-scheduled-reports'); } catch (err: unknown) {
+            toast({ title: 'Failed to clear legacy scheduled reports', description: getErrorMessage(err), variant: 'destructive' });
+          }
+        } else {
+          // Fallback: load from localStorage during migration period
+          try {
+            const legacy = JSON.parse(localStorage.getItem('elevatedpos-scheduled-reports') ?? '[]') as ScheduledReport[];
+            setScheduledReports(legacy);
+          } catch (err: unknown) {
+            toast({ title: 'Failed to load scheduled reports from storage', description: getErrorMessage(err), variant: 'destructive' });
+          }
+        }
+      })
+      .catch((err: unknown) => {
+        try {
+          setScheduledReports(JSON.parse(localStorage.getItem('elevatedpos-scheduled-reports') ?? '[]'));
+        } catch (storageErr: unknown) {
+          toast({ title: 'Failed to load scheduled reports', description: getErrorMessage(storageErr), variant: 'destructive' });
+        }
+        void err;
+      });
+  }, [showScheduleModal, toast]);
 
   const prevBounds = useMemo(() => {
     const from = new Date(bounds.from);
@@ -519,13 +785,22 @@ export default function ReportsClient() {
     window.print();
   }, []);
 
-  const removeScheduled = (id: string) => {
+  const removeScheduled = async (id: string) => {
     const updated = scheduledReports.filter((r) => r.id !== id);
     setScheduledReports(updated);
-    localStorage.setItem('elevatedpos-scheduled-reports', JSON.stringify(updated));
+    // Delete from API; also clean legacy localStorage
+    try {
+      await fetch(`/api/proxy/reports/schedules/${id}`, { method: 'DELETE' });
+      localStorage.removeItem('elevatedpos-scheduled-reports');
+    } catch (err: unknown) {
+      toast({ title: 'Failed to delete scheduled report', description: getErrorMessage(err), variant: 'destructive' });
+    }
   };
 
   const isHourly = range === 'today' || range === 'yesterday';
+
+  const canAccessEOD = userRole === 'owner' || userRole === 'manager';
+  const fmtAud = (v?: number) => v !== undefined ? `$${v.toFixed(2)}` : '—';
 
   return (
     <>
@@ -536,14 +811,73 @@ export default function ReportsClient() {
 
       {showScheduleModal && <ScheduleReportModal onClose={() => setShowScheduleModal(false)} />}
 
+      {showZReport && (
+        <ZReportModal
+          data={zReportData}
+          onClose={() => setShowZReport(false)}
+          onCloseDay={() => { void handleCloseDay(); }}
+          closingDay={closingDay}
+        />
+      )}
+
       <div className="space-y-6 print:hidden">
+        {/* End of Day Z-Report — owners & managers only */}
+        {canAccessEOD && (
+          <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800">
+              <div className="rounded-lg bg-elevatedpos-50 p-2 dark:bg-elevatedpos-900/30">
+                <FileText className="h-5 w-5 text-elevatedpos-600 dark:text-elevatedpos-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-900 dark:text-white">End of Day</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Generate a Z-Report and reconcile the trading day</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+              <button
+                onClick={() => { void handleRunZReport(); }}
+                disabled={zReportLoading}
+                className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-700 disabled:opacity-60"
+              >
+                <FileText className="h-4 w-4" />
+                {zReportLoading ? 'Loading…' : 'Run Z-Report'}
+              </button>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Produces a summary of all transactions for today. Running this report does not close the day.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Header + controls */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">Reports</h2>
-            <p className="text-sm text-gray-500">{bounds.label} · All Locations</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{bounds.label} · All Locations</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {/* Report type selector */}
+            <div className="flex rounded-lg border border-gray-200 bg-white overflow-hidden dark:border-gray-700 dark:bg-gray-800">
+              <button
+                onClick={() => setReportType('standard')}
+                className={`px-3 py-2 text-sm font-medium transition-colors ${reportType === 'standard' ? 'bg-elevatedpos-600 text-white' : 'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+              >
+                Standard
+              </button>
+              <button
+                onClick={() => { setReportType('tax'); void handleLoadBAS(); }}
+                className={`px-3 py-2 text-sm font-medium transition-colors ${reportType === 'tax' ? 'bg-elevatedpos-600 text-white' : 'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+              >
+                Tax / BAS
+              </button>
+              <button
+                onClick={() => { setReportType('menu'); void handleLoadMenu(); }}
+                className={`px-3 py-2 text-sm font-medium transition-colors ${reportType === 'menu' ? 'bg-elevatedpos-600 text-white' : 'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+              >
+                Menu Engineering
+              </button>
+            </div>
+
             <select
               value={range}
               onChange={(e) => setRange(e.target.value as DateRange)}
@@ -622,6 +956,191 @@ export default function ReportsClient() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* BAS / Tax Report */}
+        {reportType === 'tax' && (
+          <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800">
+              <div className="rounded-lg bg-elevatedpos-50 p-2 dark:bg-elevatedpos-900/30">
+                <BarChart2 className="h-5 w-5 text-elevatedpos-600 dark:text-elevatedpos-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-900 dark:text-white">Tax Report — BAS Summary</h3>
+                <p className="text-sm text-gray-500">{bounds.label}</p>
+              </div>
+              <a
+                href={`/api/proxy/reports/export?format=csv&type=gst&from=${encodeURIComponent(bounds.from)}&to=${encodeURIComponent(bounds.to)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+              >
+                <Download className="h-4 w-4" /> Export for BAS
+              </a>
+            </div>
+            <div className="p-5">
+              {basLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+                  ))}
+                </div>
+              ) : !basData ? (
+                <div className="flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  No tax data available for this period. Ensure GST is configured in Settings → Tax.
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {[
+                    { label: 'GST Collected (from sales)', value: fmtAud(basData.gstCollected), desc: '1A — GST on sales' },
+                    { label: 'GST Paid (purchase orders / input costs)', value: fmtAud(basData.gstPaid), desc: '1B — GST on purchases' },
+                    { label: 'Net GST Position (owed to ATO)', value: fmtAud(basData.netGst), desc: 'G20 — Net amount', bold: true },
+                  ].map(({ label, value, desc, bold }) => (
+                    <div key={label} className="flex items-center justify-between py-3">
+                      <div>
+                        <p className={`text-sm ${bold ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>{label}</p>
+                        <p className="text-xs text-gray-500">{desc}</p>
+                      </div>
+                      <span className={`text-sm ${bold ? 'font-bold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Menu Engineering */}
+        {reportType === 'menu' && (
+          <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4 dark:border-gray-800">
+              <div className="flex items-start gap-3">
+                <div className="rounded-lg bg-elevatedpos-50 p-2 dark:bg-elevatedpos-900/30">
+                  <BarChart2 className="h-5 w-5 text-elevatedpos-600 dark:text-elevatedpos-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Menu Engineering</h3>
+                  <p className="text-sm text-gray-500">{bounds.label} · Stars, Plowhorses, Puzzles, Dogs</p>
+                </div>
+              </div>
+              <button
+                onClick={() => exportMenuEngineeringCSV(menuProducts, bounds.label)}
+                disabled={menuProducts.length === 0}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+              >
+                <Download className="h-4 w-4" /> Export Menu Analysis
+              </button>
+            </div>
+            <div className="p-5">
+              {menuLoading ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+                  ))}
+                </div>
+              ) : menuProducts.length === 0 ? (
+                <div className="flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  No menu engineering data available for this period.
+                </div>
+              ) : (
+                <>
+                  {/* Legend */}
+                  <div className="mb-4 flex flex-wrap gap-3 text-xs">
+                    {([
+                      { q: 'stars', label: 'Stars', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400', desc: 'High popularity · High margin' },
+                      { q: 'plowhorses', label: 'Plowhorses', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400', desc: 'High popularity · Low margin' },
+                      { q: 'puzzles', label: 'Puzzles', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400', desc: 'Low popularity · High margin' },
+                      { q: 'dogs', label: 'Dogs', color: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400', desc: 'Low popularity · Low margin' },
+                    ] as const).map(({ q, label, color, desc }) => (
+                      <span key={q} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-medium ${color}`}>
+                        {label} <span className="font-normal opacity-70">— {desc}</span>
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* 2×2 Grid */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {([
+                      {
+                        q: 'stars' as MenuQuadrant,
+                        label: 'Stars',
+                        border: 'border-emerald-200 dark:border-emerald-800',
+                        header: 'bg-emerald-50 dark:bg-emerald-900/20',
+                        badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
+                        dot: 'bg-emerald-500',
+                        tip: 'Keep featured — these are your winners',
+                      },
+                      {
+                        q: 'plowhorses' as MenuQuadrant,
+                        label: 'Plowhorses',
+                        border: 'border-amber-200 dark:border-amber-800',
+                        header: 'bg-amber-50 dark:bg-amber-900/20',
+                        badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
+                        dot: 'bg-amber-500',
+                        tip: 'Raise price or reduce portion size',
+                      },
+                      {
+                        q: 'puzzles' as MenuQuadrant,
+                        label: 'Puzzles',
+                        border: 'border-blue-200 dark:border-blue-800',
+                        header: 'bg-blue-50 dark:bg-blue-900/20',
+                        badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
+                        dot: 'bg-blue-500',
+                        tip: 'Promote more — they\'re hidden gems',
+                      },
+                      {
+                        q: 'dogs' as MenuQuadrant,
+                        label: 'Dogs',
+                        border: 'border-red-200 dark:border-red-800',
+                        header: 'bg-red-50 dark:bg-red-900/20',
+                        badge: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
+                        dot: 'bg-red-500',
+                        tip: 'Consider removing or repositioning',
+                      },
+                    ]).map(({ q, label, border, header, badge, dot, tip }) => {
+                      const items = menuProducts.filter((p) => p.quadrant === q);
+                      return (
+                        <div key={q} className={`overflow-hidden rounded-xl border ${border}`}>
+                          <div className={`flex items-center justify-between px-4 py-3 ${header}`}>
+                            <div className="flex items-center gap-2">
+                              <span className={`h-2.5 w-2.5 rounded-full ${dot}`} />
+                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badge}`}>{label}</span>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">({items.length})</span>
+                            </div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 italic">{tip}</span>
+                          </div>
+                          {items.length === 0 ? (
+                            <p className="px-4 py-4 text-sm text-gray-400">No products in this quadrant</p>
+                          ) : (
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b border-gray-100 dark:border-gray-700/50">
+                                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-400">Product</th>
+                                  <th className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wide text-gray-400">Units</th>
+                                  <th className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wide text-gray-400">Margin</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                                {items.map((p) => (
+                                  <tr key={p.productId} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                                    <td className="px-4 py-2.5 font-medium text-gray-900 dark:text-white truncate max-w-[160px]">{p.name}</td>
+                                    <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400">{p.unitsSold.toLocaleString()}</td>
+                                    <td className="px-4 py-2.5 text-right font-medium text-gray-900 dark:text-white">{p.marginPct.toFixed(1)}%</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -831,6 +1350,8 @@ export default function ReportsClient() {
           body * { visibility: hidden !important; }
           .print-report, .print-report * { visibility: visible !important; display: block !important; }
           .print-report { position: fixed; top: 0; left: 0; width: 100%; }
+          .z-report-modal, .z-report-modal * { visibility: visible !important; }
+          .z-report-modal { position: fixed; top: 0; left: 0; width: 100%; box-shadow: none !important; }
         }
       `}</style>
     </>

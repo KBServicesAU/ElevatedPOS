@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, X, Loader2, Trash2 } from 'lucide-react';
 import { formatDate } from '@/lib/formatting';
+import { useToast } from '@/lib/use-toast';
 
 interface Transfer {
   id: string;
@@ -35,8 +36,6 @@ const STATUS_LABELS: Record<Transfer['status'], string> = {
   cancelled: 'Cancelled',
 };
 
-const LOCATIONS = ['Main Store', 'City Branch', 'Airport Kiosk'];
-
 const FILTER_TABS: { key: string; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'pending', label: 'Pending' },
@@ -44,19 +43,39 @@ const FILTER_TABS: { key: string; label: string }[] = [
   { key: 'received', label: 'Received' },
 ];
 
+interface Location {
+  id: string;
+  name: string;
+}
+
 export function TransfersClient() {
+  const { toast } = useToast();
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [locations, setLocations] = useState<Location[]>([]);
 
-  const [fromLocation, setFromLocation] = useState(LOCATIONS[0]);
-  const [toLocation, setToLocation] = useState(LOCATIONS[1]);
+  const [fromLocation, setFromLocation] = useState('');
+  const [toLocation, setToLocation] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<TransferItem[]>([{ productName: '', qty: 1 }]);
 
   useEffect(() => {
+    // Fetch locations for the transfer modal dropdowns
+    fetch('/api/proxy/settings/locations')
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => {
+        const list: Location[] = Array.isArray(json) ? json : (json?.locations ?? json?.data ?? []);
+        if (list.length > 0) {
+          setLocations(list);
+          setFromLocation(list[0].name);
+          setToLocation(list[1]?.name ?? list[0].name);
+        }
+      })
+      .catch(() => {});
+
     setIsLoading(true);
     fetch('/api/proxy/transfers')
       .then((r) => r.json())
@@ -86,14 +105,23 @@ export function TransfersClient() {
   }
 
   function openModal() {
-    setFromLocation(LOCATIONS[0]);
-    setToLocation(LOCATIONS[1]);
+    setFromLocation(locations[0]?.name ?? '');
+    setToLocation(locations[1]?.name ?? locations[0]?.name ?? '');
     setNotes('');
     setItems([{ productName: '', qty: 1 }]);
     setShowModal(true);
   }
 
   async function handleSave() {
+    if (fromLocation === toLocation) {
+      toast({ title: 'Invalid transfer', description: 'Source and destination must be different', variant: 'destructive' });
+      return;
+    }
+    const invalidItem = items.find((i) => !i.productName.trim() || i.qty <= 0);
+    if (invalidItem) {
+      toast({ title: 'Invalid items', description: 'All items must have a product name and quantity greater than 0', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
     try {
       const payload = { fromLocation, toLocation, notes, items };
@@ -234,8 +262,9 @@ export function TransfersClient() {
                     onChange={(e) => setFromLocation(e.target.value)}
                     className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   >
-                    {LOCATIONS.map((l) => (
-                      <option key={l} value={l}>{l}</option>
+                    {locations.length === 0 && <option value="">No locations configured</option>}
+                    {locations.map((l) => (
+                      <option key={l.id} value={l.name}>{l.name}</option>
                     ))}
                   </select>
                 </div>
@@ -246,8 +275,9 @@ export function TransfersClient() {
                     onChange={(e) => setToLocation(e.target.value)}
                     className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   >
-                    {LOCATIONS.map((l) => (
-                      <option key={l} value={l}>{l}</option>
+                    {locations.length === 0 && <option value="">No locations configured</option>}
+                    {locations.map((l) => (
+                      <option key={l.id} value={l.name}>{l.name}</option>
                     ))}
                   </select>
                 </div>
@@ -315,7 +345,7 @@ export function TransfersClient() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || items.every((i) => !i.productName)}
+                disabled={saving || items.every((i) => !i.productName) || fromLocation === toLocation}
                 className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
               >
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}

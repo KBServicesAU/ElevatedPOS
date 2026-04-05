@@ -7,6 +7,7 @@ import {
   LayoutDashboard, CreditCard, ShoppingCart,
   Search, X, Minus, Plus, Trash2, ChefHat, Tablet,
   User, Settings, Banknote, DollarSign, LogOut,
+  PauseCircle, ListOrdered, RefreshCw, CheckSquare, Square, Lock,
 } from 'lucide-react';
 import DevicePairingScreen from '@/components/device-pairing-screen';
 import { getDeviceToken, getDeviceInfo, fetchWithDeviceAuth, type DeviceInfo } from '@/lib/device-auth';
@@ -19,8 +20,9 @@ import { AdjustFloatModal } from './adjust-float-modal';
 import { SettingsModal } from './settings-modal';
 import { usePrinter } from './printer-context';
 import {
-  getTillSession, createTillSession, addTillAdjustment, type TillSession,
+  getTillSession, createTillSession, addTillAdjustment, clearTillSession, type TillSession,
 } from './till-session';
+import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +33,7 @@ interface Product {
   category: string;
   emoji: string;
   description?: string;
+  sku?: string;
 }
 
 interface CartItem extends Product {
@@ -48,11 +51,19 @@ interface ApiProduct {
   categoryName?: string;
   status?: string;
   description?: string;
+  sku?: string;
 }
 
 interface ApiCategory {
   id: string;
   name: string;
+}
+
+interface HeldOrder {
+  key: string;
+  cart: CartItem[];
+  parkedAt: number;
+  total: number;
 }
 
 // ─── GST helpers (Australian GST-inclusive pricing) ──────────────────────────
@@ -70,17 +81,88 @@ function itemTotal(item: CartItem): number {
   return Math.max(0, base - item.discount.value);
 }
 
+// ─── localStorage helpers ─────────────────────────────────────────────────────
+
+const CART_KEY = 'elevatedpos_cart';
+const HELD_PREFIX = 'elevatedpos_held_';
+const OFFLINE_QUEUE_KEY = 'pos_offline_queue';
+
+// ─── Offline queue helpers ────────────────────────────────────────────────────
+
+interface OfflineTransaction {
+  id: string;
+  queuedAt: number;
+  payload: unknown;
+}
+
+function getOfflineQueue(): OfflineTransaction[] {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as OfflineTransaction[];
+  } catch { return []; }
+}
+
+function addToOfflineQueue(payload: unknown) {
+  try {
+    const queue = getOfflineQueue();
+    queue.push({ id: `offline_${Date.now()}_${Math.random().toString(36).slice(2)}`, queuedAt: Date.now(), payload });
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  } catch { /* ignore */ }
+}
+
+function clearOfflineQueue() {
+  try { localStorage.removeItem(OFFLINE_QUEUE_KEY); } catch { /* ignore */ }
+}
+
+function saveCart(cart: CartItem[]) {
+  try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch { /* ignore */ }
+}
+
+function loadCart(): CartItem[] {
+  try {
+    const raw = localStorage.getItem(CART_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as CartItem[];
+  } catch { return []; }
+}
+
+function clearCart() {
+  try { localStorage.removeItem(CART_KEY); } catch { /* ignore */ }
+}
+
+function getHeldOrders(): HeldOrder[] {
+  try {
+    const orders: HeldOrder[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(HELD_PREFIX)) {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const parsed = JSON.parse(raw) as HeldOrder;
+          orders.push(parsed);
+        }
+      }
+    }
+    return orders.sort((a, b) => b.parkedAt - a.parkedAt);
+  } catch { return []; }
+}
+
+function removeHeldOrder(key: string) {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
+
 // ─── Mock catalogue ───────────────────────────────────────────────────────────
 
 const MOCK_PRODUCTS: Product[] = [
-  { id: '00000000-0000-0000-0000-000000000001', name: 'Flat White',    price: 5.50,  category: 'Coffee',   emoji: '☕', description: 'Single origin espresso, steamed milk' },
-  { id: '00000000-0000-0000-0000-000000000002', name: 'Iced Latte',    price: 6.00,  category: 'Coffee',   emoji: '🥤', description: 'Cold espresso over ice' },
-  { id: '00000000-0000-0000-0000-000000000003', name: 'Cold Brew',     price: 5.00,  category: 'Coffee',   emoji: '🧊', description: '12-hour cold brew' },
-  { id: '00000000-0000-0000-0000-000000000004', name: 'Pour Over',     price: 8.00,  category: 'Coffee',   emoji: '☕', description: 'Single origin pour over' },
-  { id: '00000000-0000-0000-0000-000000000005', name: 'Croissant',     price: 4.00,  category: 'Pastries', emoji: '🥐', description: 'Buttery French croissant' },
-  { id: '00000000-0000-0000-0000-000000000006', name: 'Banana Bread',  price: 4.50,  category: 'Pastries', emoji: '🍞', description: 'House-made banana bread' },
-  { id: '00000000-0000-0000-0000-000000000007', name: 'Avocado Toast', price: 14.50, category: 'Food',     emoji: '🥑', description: 'Sourdough, avocado, dukkah' },
-  { id: '00000000-0000-0000-0000-000000000008', name: 'Eggs Benedict', price: 18.00, category: 'Food',     emoji: '🍳', description: 'Poached eggs, hollandaise' },
+  { id: '00000000-0000-0000-0000-000000000001', name: 'Flat White',    price: 5.50,  category: 'Coffee',   emoji: '☕', description: 'Single origin espresso, steamed milk', sku: 'FLAT-WHITE' },
+  { id: '00000000-0000-0000-0000-000000000002', name: 'Iced Latte',    price: 6.00,  category: 'Coffee',   emoji: '🥤', description: 'Cold espresso over ice', sku: 'ICED-LATTE' },
+  { id: '00000000-0000-0000-0000-000000000003', name: 'Cold Brew',     price: 5.00,  category: 'Coffee',   emoji: '🧊', description: '12-hour cold brew', sku: 'COLD-BREW' },
+  { id: '00000000-0000-0000-0000-000000000004', name: 'Pour Over',     price: 8.00,  category: 'Coffee',   emoji: '☕', description: 'Single origin pour over', sku: 'POUR-OVER' },
+  { id: '00000000-0000-0000-0000-000000000005', name: 'Croissant',     price: 4.00,  category: 'Pastries', emoji: '🥐', description: 'Buttery French croissant', sku: 'CROISSANT' },
+  { id: '00000000-0000-0000-0000-000000000006', name: 'Banana Bread',  price: 4.50,  category: 'Pastries', emoji: '🍞', description: 'House-made banana bread', sku: 'BANANA-BREAD' },
+  { id: '00000000-0000-0000-0000-000000000007', name: 'Avocado Toast', price: 14.50, category: 'Food',     emoji: '🥑', description: 'Sourdough, avocado, dukkah', sku: 'AVO-TOAST' },
+  { id: '00000000-0000-0000-0000-000000000008', name: 'Eggs Benedict', price: 18.00, category: 'Food',     emoji: '🍳', description: 'Poached eggs, hollandaise', sku: 'EGGS-BEN' },
 ];
 
 const MOCK_CATEGORIES = ['All', 'Coffee', 'Pastries', 'Food'];
@@ -101,6 +183,7 @@ function AppBar({
   onStaffLogout,
   onSettings,
   onNoSale,
+  onCloseTill,
 }: {
   current: string;
   deviceLabel?: string;
@@ -108,6 +191,7 @@ function AppBar({
   onStaffLogout?: () => void;
   onSettings?: () => void;
   onNoSale?: () => void;
+  onCloseTill?: () => void;
 }) {
   return (
     <div className="flex h-10 items-center justify-between border-b border-[#2a2a3a] bg-[#1a1a2a] px-4">
@@ -130,6 +214,16 @@ function AppBar({
         })}
       </div>
       <div className="flex items-center gap-2">
+        {onCloseTill && (
+          <button
+            onClick={onCloseTill}
+            title="Close Till / Z-Report"
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-amber-500 hover:bg-[#2a2a3a] hover:text-amber-300"
+          >
+            <Lock className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Close Till</span>
+          </button>
+        )}
         {onNoSale && (
           <button
             onClick={onNoSale}
@@ -169,13 +263,571 @@ function AppBar({
   );
 }
 
+// ─── Close Till / Z-Report Modal ─────────────────────────────────────────────
+
+function CloseTillModal({
+  tillSession,
+  cashSales,
+  onClose,
+}: {
+  tillSession: TillSession;
+  cashSales: number;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [countedStr, setCountedStr] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const openingFloat = tillSession.openingFloat;
+  const expectedCash = openingFloat + cashSales;
+  const counted = Number(countedStr) || 0;
+  const variance = counted > 0 ? counted - expectedCash : null;
+
+  const handleCloseTill = async () => {
+    if (!countedStr) return;
+    setSubmitting(true);
+    try {
+      await fetch('/api/proxy/till-sessions/close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: tillSession.sessionId,
+          openingFloat,
+          expectedCash,
+          countedCash: counted,
+          variance: variance ?? 0,
+          reason: reason.trim() || undefined,
+        }),
+      }).catch(() => {});
+
+      // Print Z-Report
+      window.print();
+
+      clearTillSession();
+      toast({ title: 'Till closed. Z-Report printed.', variant: 'success' });
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="relative w-full max-w-sm rounded-2xl bg-[#1a1a2e] shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-[#2a2a3a] px-5 py-4">
+          <div className="flex items-center gap-2">
+            <Lock className="h-4 w-4 text-amber-400" />
+            <h2 className="text-sm font-bold text-white">Close Till</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-[#2a2a3a] hover:text-gray-300"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="px-5 py-5 space-y-4">
+          {/* Summary rows */}
+          <div className="rounded-xl bg-[#0f0f1a] px-4 py-3 space-y-2 text-sm">
+            <div className="flex justify-between text-gray-400">
+              <span>Opening float</span>
+              <span className="font-semibold text-white">${openingFloat.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-gray-400">
+              <span>Total cash sales</span>
+              <span className="font-semibold text-white">${cashSales.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between border-t border-[#2a2a3a] pt-2 text-gray-300 font-medium">
+              <span>Expected in drawer</span>
+              <span className="font-bold text-white">${expectedCash.toFixed(2)}</span>
+            </div>
+          </div>
+
+          {/* Counted cash input */}
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wider text-gray-500">
+              Counted Cash
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              className="w-full rounded-xl bg-[#2a2a3a] px-4 py-3 text-white placeholder-gray-600 outline-none focus:ring-2 focus:ring-amber-500"
+              placeholder="$0.00"
+              value={countedStr}
+              onChange={(e) => setCountedStr(e.target.value)}
+            />
+          </div>
+
+          {/* Variance */}
+          {variance !== null && (
+            <div className={`flex items-center justify-between rounded-xl px-4 py-3 border ${
+              variance === 0
+                ? 'border-green-700 bg-green-950/40 text-green-300'
+                : variance > 0
+                ? 'border-blue-700 bg-blue-950/40 text-blue-300'
+                : 'border-red-700 bg-red-950/40 text-red-300'
+            }`}>
+              <span className="text-sm font-medium">Variance</span>
+              <span className="text-lg font-bold">
+                {variance >= 0 ? '+' : ''}${variance.toFixed(2)}
+              </span>
+            </div>
+          )}
+
+          {/* Reason */}
+          {variance !== null && variance !== 0 && (
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-wider text-gray-500">
+                Reason for variance
+              </label>
+              <textarea
+                rows={2}
+                className="w-full rounded-xl bg-[#2a2a3a] px-4 py-3 text-sm text-white placeholder-gray-600 outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+                placeholder="Explain any cash discrepancy…"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </div>
+          )}
+
+          <button
+            onClick={() => { void handleCloseTill(); }}
+            disabled={!countedStr || submitting}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-600 py-3 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-40"
+          >
+            <Lock className="h-4 w-4" />
+            {submitting ? 'Closing…' : 'Close Till & Print Z-Report'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Held Orders Modal ────────────────────────────────────────────────────────
+
+function HeldOrdersModal({
+  onRestore,
+  onClose,
+}: {
+  onRestore: (order: HeldOrder) => void;
+  onClose: () => void;
+}) {
+  const [orders, setOrders] = useState<HeldOrder[]>([]);
+
+  useEffect(() => {
+    setOrders(getHeldOrders());
+  }, []);
+
+  const handleRestore = (order: HeldOrder) => {
+    removeHeldOrder(order.key);
+    onRestore(order);
+  };
+
+  const handleDelete = (key: string) => {
+    removeHeldOrder(key);
+    setOrders((prev) => prev.filter((o) => o.key !== key));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="relative w-full max-w-sm rounded-2xl bg-[#1a1a2e] shadow-2xl">
+        <div className="flex items-center justify-between border-b border-[#2a2a3a] px-5 py-4">
+          <div className="flex items-center gap-2">
+            <ListOrdered className="h-4 w-4 text-indigo-400" />
+            <h2 className="text-sm font-bold text-white">Held Orders</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-[#2a2a3a] hover:text-gray-300"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="max-h-96 overflow-y-auto px-5 py-4">
+          {orders.length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-500">No held orders</p>
+          ) : (
+            <div className="space-y-2">
+              {orders.map((order) => {
+                const itemCount = order.cart.reduce((s, i) => s + i.qty, 0);
+                const timeAgo = Math.round((Date.now() - order.parkedAt) / 60000);
+                return (
+                  <div
+                    key={order.key}
+                    className="flex items-center gap-3 rounded-xl bg-[#2a2a3a] p-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-white">
+                        {itemCount} item{itemCount !== 1 ? 's' : ''} — ${order.total.toFixed(2)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Parked {timeAgo < 1 ? 'just now' : `${timeAgo}m ago`}
+                      </p>
+                      <p className="truncate text-xs text-gray-400">
+                        {order.cart.map((i) => i.name).join(', ')}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => handleRestore(order)}
+                        className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-500"
+                      >
+                        Restore
+                      </button>
+                      <button
+                        onClick={() => handleDelete(order.key)}
+                        className="rounded-lg bg-[#1a1a2e] px-2.5 py-1 text-xs text-red-400 hover:text-red-300"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Refund Modal ─────────────────────────────────────────────────────────────
+
+interface RefundOrderLine {
+  id: string;
+  name: string;
+  qty: number;
+  unitPrice: number;
+}
+
+interface RefundOrder {
+  id: string;
+  orderNumber: string;
+  total: number;
+  lines: RefundOrderLine[];
+}
+
+function RefundModal({ onClose }: { onClose: () => void }) {
+  const { toast } = useToast();
+  const [orderNumberInput, setOrderNumberInput] = useState('');
+  const [fetchingOrder, setFetchingOrder] = useState(false);
+  const [order, setOrder] = useState<RefundOrder | null>(null);
+  const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
+  const [processing, setProcessing] = useState(false);
+  const [refundComplete, setRefundComplete] = useState(false);
+  const [refundAmount, setRefundAmount] = useState(0);
+
+  const handleLookup = async () => {
+    if (!orderNumberInput.trim()) return;
+    setFetchingOrder(true);
+    setOrder(null);
+    setSelectedLines(new Set());
+    try {
+      const res = await fetchWithDeviceAuth(
+        `/api/proxy/orders?orderNumber=${encodeURIComponent(orderNumberInput.trim())}`,
+      );
+      if (!res.ok) throw new Error('Order not found');
+      const data = await res.json() as { data?: RefundOrder[]; id?: string; orderNumber?: string; total?: number; lines?: RefundOrderLine[] };
+      // Handle both array and single object response shapes
+      const found: RefundOrder | null =
+        Array.isArray(data.data) && data.data.length > 0
+          ? data.data[0]
+          : data.id
+          ? { id: data.id, orderNumber: data.orderNumber ?? orderNumberInput, total: data.total ?? 0, lines: data.lines ?? [] }
+          : null;
+      if (!found) throw new Error('Order not found');
+      setOrder(found);
+      // Pre-select all lines
+      setSelectedLines(new Set(found.lines.map((l) => l.id)));
+    } catch (err) {
+      toast({ title: 'Order not found', description: String(err instanceof Error ? err.message : err), variant: 'destructive' });
+    } finally {
+      setFetchingOrder(false);
+    }
+  };
+
+  const toggleLine = (id: string) => {
+    setSelectedLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const calcRefundAmount = (): number => {
+    if (!order) return 0;
+    return order.lines
+      .filter((l) => selectedLines.has(l.id))
+      .reduce((s, l) => s + l.unitPrice * l.qty, 0);
+  };
+
+  const handleProcessRefund = async () => {
+    if (!order || selectedLines.size === 0) return;
+    const amount = calcRefundAmount();
+    setRefundAmount(amount);
+    setProcessing(true);
+    try {
+      const res = await fetchWithDeviceAuth(`/api/proxy/orders/${order.id}/refund`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lines: order.lines
+            .filter((l) => selectedLines.has(l.id))
+            .map((l) => ({ lineId: l.id, qty: l.qty })),
+          reason: 'POS refund',
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(errData.message ?? 'Refund failed');
+      }
+      setRefundComplete(true);
+      toast({ title: 'Refund processed', description: `$${amount.toFixed(2)} refunded`, variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Refund failed', description: String(err instanceof Error ? err.message : err), variant: 'destructive' });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="relative w-full max-w-md rounded-2xl bg-[#1a1a2e] shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-[#2a2a3a] px-5 py-4">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-orange-400" />
+            <h2 className="text-sm font-bold text-white">Process Refund</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-[#2a2a3a] hover:text-gray-300"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="px-5 py-5">
+          {refundComplete ? (
+            <div className="py-6 text-center">
+              <div className="mb-3 text-5xl">✅</div>
+              <h3 className="mb-1 text-lg font-bold text-green-400">Refund Complete</h3>
+              <p className="text-sm text-gray-400">${refundAmount.toFixed(2)} refunded</p>
+              <button
+                onClick={onClose}
+                className="mt-4 w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white hover:bg-indigo-500"
+              >
+                Done
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Order lookup */}
+              <div className="mb-4">
+                <label className="mb-1 block text-xs uppercase tracking-wider text-gray-500">
+                  Order Number
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={orderNumberInput}
+                    onChange={(e) => setOrderNumberInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { void handleLookup(); } }}
+                    placeholder="Enter order number…"
+                    className="flex-1 rounded-xl bg-[#2a2a3a] px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    onClick={() => { void handleLookup(); }}
+                    disabled={fetchingOrder}
+                    className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+                  >
+                    {fetchingOrder ? '…' : 'Find'}
+                  </button>
+                </div>
+              </div>
+
+              {order && (
+                <>
+                  <div className="mb-3 rounded-xl bg-[#0f0f1a] px-4 py-3">
+                    <p className="text-xs text-gray-500">Order #{order.orderNumber}</p>
+                    <p className="text-sm font-semibold text-white">Total: ${order.total.toFixed(2)}</p>
+                  </div>
+
+                  <p className="mb-2 text-xs uppercase tracking-wider text-gray-500">Select items to refund</p>
+                  <div className="mb-4 max-h-48 space-y-1.5 overflow-y-auto">
+                    {order.lines.map((line) => {
+                      const selected = selectedLines.has(line.id);
+                      return (
+                        <button
+                          key={line.id}
+                          onClick={() => toggleLine(line.id)}
+                          className={`flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors ${
+                            selected ? 'bg-indigo-950 ring-1 ring-indigo-500' : 'bg-[#2a2a3a] hover:bg-[#333347]'
+                          }`}
+                        >
+                          {selected
+                            ? <CheckSquare className="h-4 w-4 flex-shrink-0 text-indigo-400" />
+                            : <Square className="h-4 w-4 flex-shrink-0 text-gray-500" />}
+                          <span className="flex-1 text-sm text-white">{line.qty}× {line.name}</span>
+                          <span className="text-sm font-semibold text-indigo-300">
+                            ${(line.unitPrice * line.qty).toFixed(2)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Refund amount preview */}
+                  <div className="mb-4 flex items-center justify-between rounded-xl border border-orange-900 bg-orange-950/30 px-4 py-3">
+                    <span className="text-sm text-orange-300">Refund Amount</span>
+                    <span className="text-lg font-bold text-orange-400">${calcRefundAmount().toFixed(2)}</span>
+                  </div>
+
+                  <button
+                    onClick={() => { void handleProcessRefund(); }}
+                    disabled={processing || selectedLines.size === 0}
+                    className="w-full rounded-xl bg-orange-600 py-3 text-sm font-bold text-white hover:bg-orange-500 disabled:opacity-40"
+                  >
+                    {processing ? 'Processing…' : `Process Refund $${calcRefundAmount().toFixed(2)}`}
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── POS terminal ─────────────────────────────────────────────────────────────
+
+// ─── Offline/Online banner ────────────────────────────────────────────────────
+
+function useNetworkStatus() {
+  const [isOnline, setIsOnline] = useState(true);
+  const [justReconnected, setJustReconnected] = useState(false);
+
+  useEffect(() => {
+    // Initialise from current navigator state
+    setIsOnline(navigator.onLine);
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      setJustReconnected(true);
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setJustReconnected(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  return { isOnline, justReconnected, setJustReconnected };
+}
+
+async function syncOfflineQueue(toast: ReturnType<typeof useToast>['toast']) {
+  const queue = getOfflineQueue();
+  if (queue.length === 0) return;
+  try {
+    const res = await fetch('/api/proxy/orders/sync-offline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactions: queue }),
+    });
+    if (res.ok) {
+      clearOfflineQueue();
+      toast({
+        title: 'Offline transactions synced',
+        description: `${queue.length} queued transaction${queue.length !== 1 ? 's' : ''} uploaded.`,
+        variant: 'success',
+      });
+    }
+  } catch {
+    // Silently ignore — will retry next reconnection
+  }
+}
+
+function OfflineBanner({
+  isOnline,
+  justReconnected,
+  onDismissReconnected,
+}: {
+  isOnline: boolean;
+  justReconnected: boolean;
+  onDismissReconnected: () => void;
+}) {
+  useEffect(() => {
+    if (!justReconnected) return;
+    const timer = setTimeout(() => { onDismissReconnected(); }, 3000);
+    return () => clearTimeout(timer);
+  }, [justReconnected, onDismissReconnected]);
+
+  if (isOnline && !justReconnected) return null;
+
+  if (!isOnline) {
+    return (
+      <div className="flex items-center gap-2 bg-amber-500 px-4 py-2 text-sm font-medium text-white">
+        <span>⚠️</span>
+        <span>You are offline. Transactions will be queued.</span>
+      </div>
+    );
+  }
+
+  // justReconnected = true
+  return (
+    <div className="flex items-center gap-2 bg-emerald-600 px-4 py-2 text-sm font-medium text-white">
+      <span>✓</span>
+      <span>Connection restored.</span>
+    </div>
+  );
+}
 
 function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null; staff: StaffMember }) {
   const router = useRouter();
-  const { receiptPort, connectPrinter } = usePrinter();
+  const { receiptConnected, openCashDrawer: printerOpenCashDrawer, connectPrinter } = usePrinter();
+  const { toast } = useToast();
 
+  // ── Network status ────────────────────────────────────────────────────────────
+  const { isOnline, justReconnected, setJustReconnected } = useNetworkStatus();
+
+  // When we come back online, attempt to sync any queued transactions
+  useEffect(() => {
+    if (isOnline && justReconnected) {
+      void syncOfflineQueue(toast);
+    }
+  }, [isOnline, justReconnected, toast]);
+
+  // ── Cart state — initialised from localStorage on mount ──
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartRestored, setCartRestored] = useState(false);
+
+  // Restore cart from localStorage on mount
+  useEffect(() => {
+    const saved = loadCart();
+    if (saved.length > 0) setCart(saved);
+    setCartRestored(true);
+  }, []);
+
+  // Persist cart to localStorage on every change (after initial restore)
+  useEffect(() => {
+    if (!cartRestored) return;
+    saveCart(cart);
+  }, [cart, cartRestored]);
+
   const [category, setCategory] = useState('All');
   const [search, setSearch] = useState('');
   const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
@@ -188,6 +840,9 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdjustFloat, setShowAdjustFloat] = useState(false);
+  const [showHeldOrders, setShowHeldOrders] = useState(false);
+  const [showRefund, setShowRefund] = useState(false);
+  const [showCloseTill, setShowCloseTill] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
   // Till session
@@ -199,6 +854,56 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
 
   // Long-press tracking
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Barcode scanner input (hidden, always focused) ────────────────────────
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const barcodeBufferRef = useRef('');
+  const barcodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep barcode input focused when no modal is open
+  const noModalOpen = !editingCartItem && !longPressProduct && !showCustomerSearch &&
+    !showSettings && !showAdjustFloat && !showHeldOrders && !showRefund && !showFloatEntry && !showCloseTill;
+
+  useEffect(() => {
+    if (noModalOpen) {
+      barcodeInputRef.current?.focus();
+    }
+  }, [noModalOpen]);
+
+  const handleBarcodeKey = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const scanned = barcodeBufferRef.current.trim();
+      barcodeBufferRef.current = '';
+      if (barcodeTimerRef.current) {
+        clearTimeout(barcodeTimerRef.current);
+        barcodeTimerRef.current = null;
+      }
+      if (!scanned) return;
+
+      // Search by SKU or id
+      const match = products.find(
+        (p) => p.sku === scanned || p.id === scanned ||
+               p.sku?.toLowerCase() === scanned.toLowerCase(),
+      );
+      if (match) {
+        setCart((prev) => {
+          const existing = prev.find((i) => i.cartKey === match.id);
+          if (existing) return prev.map((i) => i.cartKey === match.id ? { ...i, qty: i.qty + 1 } : i);
+          return [...prev, { ...match, qty: 1, cartKey: match.id }];
+        });
+        toast({ title: `Added: ${match.name}`, variant: 'success', duration: 1500 });
+      } else {
+        toast({ title: 'Barcode not found', description: scanned, variant: 'destructive', duration: 2000 });
+      }
+    } else if (e.key.length === 1) {
+      // Accumulate characters; reset buffer after 500ms of inactivity
+      barcodeBufferRef.current += e.key;
+      if (barcodeTimerRef.current) clearTimeout(barcodeTimerRef.current);
+      barcodeTimerRef.current = setTimeout(() => {
+        barcodeBufferRef.current = '';
+      }, 500);
+    }
+  }, [products, toast]);
 
   // Fetch catalog
   useEffect(() => {
@@ -227,6 +932,7 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
             category: (p.categoryId && categoryMap[p.categoryId]) ?? p.categoryName ?? 'Other',
             emoji: '🛒',
             description: p.description,
+            sku: p.sku,
           })));
         }
       } catch { /* keep mock */ }
@@ -257,6 +963,21 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
     });
   }, []);
 
+  // ── Park Sale ────────────────────────────────────────────────────────────────
+  const handleParkSale = useCallback(() => {
+    if (cart.length === 0) {
+      toast({ title: 'Cart is empty', variant: 'destructive', duration: 1500 });
+      return;
+    }
+    const key = `${HELD_PREFIX}${Date.now()}`;
+    const total = cart.reduce((s, i) => s + itemTotal(i), 0);
+    const held: HeldOrder = { key, cart, parkedAt: Date.now(), total };
+    try { localStorage.setItem(key, JSON.stringify(held)); } catch { /* ignore */ }
+    setCart([]);
+    clearCart();
+    toast({ title: 'Sale parked', description: `${cart.reduce((s, i) => s + i.qty, 0)} items held`, variant: 'success', duration: 2000 });
+  }, [cart, toast]);
+
   // GST-inclusive totals
   const cartTotal = cart.reduce((sum, i) => sum + itemTotal(i), 0);
   const gst = gstComponent(cartTotal);
@@ -264,6 +985,36 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
 
   const handleCharge = () => {
     if (cart.length === 0) return;
+
+    // When offline: queue the transaction and notify the operator
+    if (!isOnline) {
+      addToOfflineQueue({
+        items: cart.map((i) => ({
+          id: i.cartKey, name: i.name, price: i.price, qty: i.qty,
+          discount: i.discount ?? null,
+          note: i.note ?? null,
+        })),
+        total: cartTotal,
+        exGst,
+        gst,
+        customerId: selectedCustomer?.id ?? null,
+        customerName: selectedCustomer ? `${selectedCustomer.firstName} ${selectedCustomer.lastName}` : null,
+        staffId: staff.id,
+        staffName: `${staff.firstName} ${staff.lastName}`,
+        queueReason: 'offline',
+      });
+      toast({
+        title: 'Transaction queued',
+        description: 'You are offline. This transaction will be synced when you reconnect.',
+        variant: 'default',
+      });
+      setCart([]);
+      clearCart();
+      return;
+    }
+
+    // Online path: proceed normally to payment screen
+    clearCart();
     const params = new URLSearchParams({
       items: JSON.stringify(cart.map((i) => ({
         id: i.cartKey, name: i.name, price: i.price, qty: i.qty,
@@ -290,11 +1041,10 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
       });
       if (updated) setTillSession(updated);
     }
-    if (receiptPort) {
-      const { openCashDrawer } = await import('./receipt-printer');
-      await openCashDrawer(receiptPort).catch(() => {});
+    if (receiptConnected) {
+      await printerOpenCashDrawer().catch(() => {});
     }
-  }, [tillSession, staff, receiptPort]);
+  }, [tillSession, staff, receiptConnected, printerOpenCashDrawer]);
 
   // Long-press handlers
   const handlePointerDown = useCallback((product: Product) => {
@@ -319,6 +1069,12 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
     }
   }, []);
 
+  const heldCount = (() => {
+    try {
+      return Object.keys(localStorage).filter((k) => k.startsWith(HELD_PREFIX)).length;
+    } catch { return 0; }
+  })();
+
   if (staffLogout) {
     // Signal parent to show staff selection
     return null;
@@ -326,6 +1082,19 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
 
   return (
     <div className="relative flex h-full flex-col bg-[#1e1e2e]">
+      {/* Hidden barcode scanner input — always captures keyboard when no modal open */}
+      <input
+        ref={barcodeInputRef}
+        className="pointer-events-none absolute opacity-0"
+        style={{ left: -9999, top: -9999, width: 1, height: 1 }}
+        aria-hidden="true"
+        tabIndex={-1}
+        onKeyDown={handleBarcodeKey}
+        onChange={() => { /* controlled by keydown */ }}
+        value=""
+        readOnly
+      />
+
       <AppBar
         current="pos"
         deviceLabel={deviceInfo?.label ?? deviceInfo?.deviceId?.slice(0, 8)}
@@ -333,7 +1102,52 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
         onStaffLogout={() => setStaffLogout(true)}
         onSettings={() => setShowSettings(true)}
         onNoSale={handleNoSale}
+        onCloseTill={
+          staff.role && ['manager', 'owner', 'Manager', 'Owner'].includes(staff.role)
+            ? () => setShowCloseTill(true)
+            : undefined
+        }
       />
+
+      {/* Offline / reconnected banner */}
+      <OfflineBanner
+        isOnline={isOnline}
+        justReconnected={justReconnected}
+        onDismissReconnected={() => setJustReconnected(false)}
+      />
+
+      {/* POS toolbar — Park Sale, Held Orders, Refund */}
+      <div className="flex items-center gap-2 border-b border-[#2a2a3a] bg-[#16161f] px-4 py-1.5">
+        <button
+          onClick={handleParkSale}
+          disabled={cart.length === 0}
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-400 hover:bg-[#2a2a3a] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <PauseCircle className="h-3.5 w-3.5" />
+          Park Sale
+        </button>
+        <button
+          onClick={() => setShowHeldOrders(true)}
+          className="relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-400 hover:bg-[#2a2a3a] hover:text-white"
+        >
+          <ListOrdered className="h-3.5 w-3.5" />
+          Held Orders
+          {heldCount > 0 && (
+            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500 text-[9px] font-bold text-white">
+              {heldCount}
+            </span>
+          )}
+        </button>
+        <div className="ml-auto">
+          <button
+            onClick={() => setShowRefund(true)}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-orange-500 hover:bg-[#2a2a3a] hover:text-orange-400"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refund
+          </button>
+        </div>
+      </div>
 
       {loadingCatalog && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/40">
@@ -451,7 +1265,7 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
                       )}
                     </div>
                     {item.note && (
-                      <p className="truncate text-xs italic text-amber-300/70">📝 {item.note}</p>
+                      <p className="truncate text-xs italic text-gray-500">📝 {item.note}</p>
                     )}
                     <p className="text-xs text-indigo-300">${itemTotal(item).toFixed(2)}</p>
                   </div>
@@ -512,7 +1326,7 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
 
             {cart.length > 0 && (
               <button
-                onClick={() => setCart([])}
+                onClick={() => { setCart([]); clearCart(); }}
                 className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl py-2 text-xs text-gray-500 hover:text-gray-300"
               >
                 <Trash2 className="h-3 w-3" />
@@ -589,6 +1403,40 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
         <SettingsModal
           onClose={() => setShowSettings(false)}
           onConnect={(printerType, method) => connectPrinter(printerType, method).catch(() => {})}
+        />
+      )}
+
+      {showHeldOrders && (
+        <HeldOrdersModal
+          onRestore={(order) => {
+            setCart(order.cart);
+            setShowHeldOrders(false);
+          }}
+          onClose={() => setShowHeldOrders(false)}
+        />
+      )}
+
+      {showRefund && (
+        <RefundModal onClose={() => setShowRefund(false)} />
+      )}
+
+      {showCloseTill && tillSession && (
+        <CloseTillModal
+          tillSession={tillSession}
+          cashSales={
+            // Sum all cash deposits from adjustments (no_sale and withdrawal
+            // don't count as sales; cash sales are tracked externally).
+            // Best-effort: use adjustments of type 'deposit' as proxy for cash
+            // added. Real cash sales would come from a completed-orders total.
+            tillSession.adjustments
+              .filter((a) => a.type === 'deposit')
+              .reduce((s, a) => s + a.amount, 0)
+          }
+          onClose={() => {
+            setShowCloseTill(false);
+            // If the session was cleared by the modal, reflect that in state
+            setTillSession(getTillSession());
+          }}
         />
       )}
     </div>

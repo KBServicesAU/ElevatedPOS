@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, Filter, Eye, RefreshCw, Loader2, X, RotateCcw } from 'lucide-react';
+import { Search, Filter, Eye, RefreshCw, Loader2, X, RotateCcw, ChevronDown, ChevronUp, Mail, MessageSquare, Send } from 'lucide-react';
 import { useOrders, useInvalidateOrders } from '@/lib/hooks';
 import { apiFetch } from '@/lib/api';
 import type { Order, OrderLineItem } from '@/lib/api';
@@ -62,6 +62,13 @@ interface RefundItem {
   unitPrice: number;
 }
 
+interface OrderNote {
+  id: string;
+  body: string;
+  author: string;
+  createdAt: string;
+}
+
 export function OrdersClient() {
   const { toast } = useToast();
   const [search, setSearch] = useState('');
@@ -71,6 +78,7 @@ export function OrdersClient() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const invalidate = useInvalidateOrders();
+  const [limit, setLimit] = useState(50);
 
   const { data, isLoading, isError, refetch, isFetching } = useOrders({
     search: search || undefined,
@@ -78,7 +86,7 @@ export function OrdersClient() {
     channel: channelFilter || undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
-    limit: 50,
+    limit,
   });
 
   const activeDateFilters = [dateFrom, dateTo].filter(Boolean).length;
@@ -112,9 +120,95 @@ export function OrdersClient() {
   // Detail modal
   const [detailOrder, setDetailOrder] = useState<Order | null>(null);
 
+  // Internal notes state
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notes, setNotes] = useState<OrderNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [newNoteBody, setNewNoteBody] = useState('');
+  const [addingNote, setAddingNote] = useState(false);
+
+  // Cancel order state
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancellingOrder, setCancellingOrder] = useState(false);
+
+  // Email receipt state
+  const [emailReceiptOpen, setEmailReceiptOpen] = useState(false);
+  const [receiptEmail, setReceiptEmail] = useState('');
+  const [sendingReceipt, setSendingReceipt] = useState(false);
+
+  async function loadNotes(orderId: string) {
+    setNotesLoading(true);
+    try {
+      const res = await apiFetch<{ data: OrderNote[] }>(`orders/${orderId}/notes`);
+      setNotes(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setNotes([]);
+    } finally {
+      setNotesLoading(false);
+    }
+  }
+
+  async function handleToggleNotes() {
+    if (!detailOrder) return;
+    const opening = !notesOpen;
+    setNotesOpen(opening);
+    if (opening && notes.length === 0) {
+      await loadNotes(detailOrder.id);
+    }
+  }
+
+  async function handleAddNote() {
+    if (!detailOrder || !newNoteBody.trim()) return;
+    setAddingNote(true);
+    try {
+      const res = await apiFetch<{ data: OrderNote }>(`orders/${detailOrder.id}/notes`, {
+        method: 'POST',
+        body: JSON.stringify({ body: newNoteBody.trim() }),
+      });
+      setNotes((prev) => [...prev, res.data]);
+      setNewNoteBody('');
+      toast({ title: 'Note added', variant: 'success' });
+    } catch (err) {
+      toast({
+        title: 'Failed to add note',
+        description: getErrorMessage(err, 'Could not save note.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setAddingNote(false);
+    }
+  }
+
+  async function handleSendReceipt() {
+    if (!detailOrder || !receiptEmail.trim()) return;
+    setSendingReceipt(true);
+    try {
+      await apiFetch(`orders/${detailOrder.id}/send-receipt`, {
+        method: 'POST',
+        body: JSON.stringify({ email: receiptEmail.trim() }),
+      });
+      toast({ title: `Receipt sent to ${receiptEmail.trim()}`, variant: 'success' });
+      setEmailReceiptOpen(false);
+    } catch (err) {
+      toast({
+        title: 'Failed to send receipt',
+        description: getErrorMessage(err, 'Could not send receipt.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingReceipt(false);
+    }
+  }
+
   async function openDetail(order: Order) {
     setDetailOrder(order);
     setRefundOrder(null);
+    setNotesOpen(false);
+    setNotes([]);
+    setNewNoteBody('');
+    setEmailReceiptOpen(false);
+    setCancelConfirmOpen(false);
+    setReceiptEmail((order as Order & { customerEmail?: string }).customerEmail ?? '');
     if (loadedOrderId !== order.id) setDetailItems([]);
     await loadOrderItems(order);
   }
@@ -163,9 +257,8 @@ export function OrdersClient() {
     setProcessingRefund(true);
     const selectedItems = refundItems.filter((i) => i.selected);
     try {
-      const res = await fetch('/api/proxy/refunds', {
+      await apiFetch('refunds', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId: refundOrder.id,
           items: selectedItems.map(({ id, qty }) => ({ id, qty })),
@@ -173,10 +266,6 @@ export function OrdersClient() {
           notes: refundNotes,
         }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { message?: string };
-        throw new Error(err.message ?? `HTTP ${res.status}`);
-      }
       toast({ title: 'Refund processed', description: `Refund for order ${refundOrder.orderNumber ?? refundOrder.id} has been submitted.`, variant: 'success' });
       invalidate();
       setRefundOrder(null);
@@ -188,6 +277,34 @@ export function OrdersClient() {
       });
     } finally {
       setProcessingRefund(false);
+    }
+  }
+
+  async function handleCancelOrder() {
+    if (!detailOrder) return;
+    setCancellingOrder(true);
+    try {
+      await apiFetch(`orders/${detailOrder.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'cancelled' }),
+      });
+      const cancelledOrder = { ...detailOrder, status: 'cancelled' as const };
+      setDetailOrder(cancelledOrder);
+      invalidate();
+      setCancelConfirmOpen(false);
+      toast({
+        title: 'Order cancelled',
+        description: `Order ${detailOrder.orderNumber ?? detailOrder.id} has been cancelled.`,
+        variant: 'destructive',
+      });
+    } catch (err) {
+      toast({
+        title: 'Failed to cancel order',
+        description: getErrorMessage(err, 'Could not cancel this order.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setCancellingOrder(false);
     }
   }
 
@@ -309,7 +426,7 @@ export function OrdersClient() {
       )}
 
       {/* Orders table */}
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
         {isError ? (
           <div className="p-8 text-center text-sm text-red-500 dark:text-red-400">
             Failed to load orders.{' '}
@@ -318,7 +435,7 @@ export function OrdersClient() {
             </button>
           </div>
         ) : (
-          <table className="w-full">
+          <table className="w-full min-w-[800px]">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-800">
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">Order</th>
@@ -404,6 +521,23 @@ export function OrdersClient() {
           </table>
         )}
       </div>
+
+      {/* Pagination */}
+      {!isLoading && orders.length > 0 && total > orders.length && (
+        <div className="flex flex-col items-center gap-3 py-2">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Showing {orders.length} of {total} orders
+          </p>
+          <button
+            onClick={() => setLimit((prev) => prev + 50)}
+            disabled={isFetching}
+            className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-5 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60"
+          >
+            {isFetching && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isFetching ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
+      )}
 
       {/* Order Detail Modal */}
       {detailOrder && (
@@ -518,24 +652,178 @@ export function OrdersClient() {
                   ))}
                 </div>
               </div>
+
+              {/* Email Receipt */}
+              <div className="rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
+                <button
+                  onClick={() => setEmailReceiptOpen((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-gray-400" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Email Receipt</span>
+                  </div>
+                  {emailReceiptOpen ? (
+                    <ChevronUp className="h-4 w-4 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-gray-400" />
+                  )}
+                </button>
+                {emailReceiptOpen && (
+                  <div className="border-t border-gray-100 dark:border-gray-800 px-4 py-3 space-y-3 bg-gray-50/50 dark:bg-gray-800/20">
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        value={receiptEmail}
+                        onChange={(e) => setReceiptEmail(e.target.value)}
+                        placeholder="customer@example.com"
+                        className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                      />
+                      <button
+                        onClick={() => { void handleSendReceipt(); }}
+                        disabled={sendingReceipt || !receiptEmail.trim()}
+                        className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                      >
+                        {sendingReceipt ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Send className="h-3.5 w-3.5" />
+                        )}
+                        Send Receipt
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Internal Notes */}
+              <div className="rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
+                <button
+                  onClick={() => { void handleToggleNotes(); }}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-gray-400" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Internal Notes</span>
+                    {notes.length > 0 && (
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400">
+                        {notes.length}
+                      </span>
+                    )}
+                  </div>
+                  {notesOpen ? (
+                    <ChevronUp className="h-4 w-4 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-gray-400" />
+                  )}
+                </button>
+
+                {notesOpen && (
+                  <div className="border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/20">
+                    {/* Notes thread */}
+                    <div className="px-4 py-3 space-y-3 max-h-64 overflow-y-auto">
+                      {notesLoading ? (
+                        <div className="space-y-2">
+                          {[1, 2].map((i) => (
+                            <div key={i} className="animate-pulse space-y-1">
+                              <div className="h-3 w-32 rounded bg-gray-200 dark:bg-gray-700" />
+                              <div className="h-10 rounded bg-gray-200 dark:bg-gray-700" />
+                            </div>
+                          ))}
+                        </div>
+                      ) : notes.length === 0 ? (
+                        <p className="text-xs text-gray-400 text-center py-2">No notes yet. Add the first one below.</p>
+                      ) : (
+                        notes.map((note) => (
+                          <div key={note.id} className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{note.author}</span>
+                              <span className="text-xs text-gray-400">{timeAgo(note.createdAt)}</span>
+                            </div>
+                            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{note.body}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Add note */}
+                    <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-3 space-y-2">
+                      <textarea
+                        value={newNoteBody}
+                        onChange={(e) => setNewNoteBody(e.target.value)}
+                        rows={2}
+                        placeholder="Add an internal note…"
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none resize-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => { void handleAddNote(); }}
+                          disabled={addingNote || !newNoteBody.trim()}
+                          className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                        >
+                          {addingNote ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <MessageSquare className="h-3.5 w-3.5" />
+                          )}
+                          Add Note
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
-              {detailOrder.status !== 'refunded' && detailOrder.status !== 'cancelled' && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                {/* Cancel Order */}
+                {(['open', 'pending', 'processing'] as const).includes(detailOrder.status as 'open' | 'pending' | 'processing') && (
+                  cancelConfirmOpen ? (
+                    <span className="inline-flex items-center gap-2 text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Cancel this order? This cannot be undone.</span>
+                      <button
+                        onClick={() => { void handleCancelOrder(); }}
+                        disabled={cancellingOrder}
+                        className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                      >
+                        {cancellingOrder && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                        Confirm Cancel
+                      </button>
+                      <button
+                        onClick={() => setCancelConfirmOpen(false)}
+                        className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400"
+                      >
+                        No
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setCancelConfirmOpen(true)}
+                      className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+                    >
+                      Cancel Order
+                    </button>
+                  )
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {detailOrder.status !== 'refunded' && detailOrder.status !== 'cancelled' && (
+                  <button
+                    onClick={() => openRefund(detailOrder)}
+                    className="flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Refund
+                  </button>
+                )}
                 <button
-                  onClick={() => openRefund(detailOrder)}
-                  className="flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                  onClick={() => setDetailOrder(null)}
+                  className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                 >
-                  <RotateCcw className="h-4 w-4" />
-                  Refund
+                  Close
                 </button>
-              )}
-              <button
-                onClick={() => setDetailOrder(null)}
-                className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-              >
-                Close
-              </button>
+              </div>
             </div>
           </div>
         </div>

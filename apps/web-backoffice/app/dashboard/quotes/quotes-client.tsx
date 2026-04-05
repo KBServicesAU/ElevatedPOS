@@ -4,9 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 import { getErrorMessage } from '@/lib/formatting';
-import { FileText, Plus, X, AlertCircle, Eye, ArrowRight, Ban, Trash2 } from 'lucide-react';
+import { FileText, Plus, X, Eye, ArrowRight, Ban, Trash2, Printer, Loader2 } from 'lucide-react';
 
-type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'expired' | 'cancelled';
+type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'expired' | 'cancelled' | 'converted';
 
 interface QuoteItem {
   productName: string;
@@ -39,7 +39,10 @@ const STATUS_STYLES: Record<QuoteStatus, string> = {
   accepted: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
   expired: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
   cancelled: 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400',
+  converted: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400',
 };
+
+const CONVERTIBLE_STATUSES: QuoteStatus[] = ['draft', 'sent', 'accepted'];
 
 const emptyItem = (): QuoteItem => ({ productName: '', qty: 1, unitPrice: 0 });
 
@@ -57,6 +60,8 @@ export default function QuotesClient() {
   const [saving, setSaving] = useState(false);
   const [viewQuote, setViewQuote] = useState<Quote | null>(null);
   const [convertingId, setConvertingId] = useState<string | null>(null);
+  const [confirmConvertId, setConfirmConvertId] = useState<string | null>(null);
+  const [printingId, setPrintingId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     customerName: '',
@@ -142,11 +147,19 @@ export default function QuotesClient() {
   }
 
   async function handleConvert(id: string) {
+    setConfirmConvertId(null);
     setConvertingId(id);
     try {
-      await apiFetch(`quotes/${id}/convert`, { method: 'POST' });
-      setItems((prev) => prev.map((q) => q.id === id ? { ...q, status: 'accepted' as QuoteStatus } : q));
-      toast({ title: 'Quote converted to order', description: 'The quote has been successfully converted.', variant: 'success' });
+      const res = await apiFetch<{ orderNumber?: string; data?: { orderNumber?: string } }>(`quotes/${id}/convert`, { method: 'POST' });
+      const orderNumber = res.orderNumber ?? res.data?.orderNumber;
+      setItems((prev) => prev.map((q) => q.id === id ? { ...q, status: 'converted' as QuoteStatus } : q));
+      toast({
+        title: 'Order created',
+        description: orderNumber
+          ? `Quote converted to order #${orderNumber}`
+          : 'The quote has been converted to a live order.',
+        variant: 'success',
+      });
     } catch (err) {
       const msg = getErrorMessage(err);
       toast({ title: 'Failed to convert quote', description: msg, variant: 'destructive' });
@@ -167,12 +180,33 @@ export default function QuotesClient() {
     toast({ title: 'Quote cancelled', variant: 'success' });
   }
 
+  async function handlePrint(quote: Quote) {
+    setPrintingId(quote.id);
+    try {
+      const res = await fetch(`/api/proxy/quotes/${quote.id}/pdf`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${quote.quoteNumber}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Fallback: open print view in a new tab
+      window.open(`/dashboard/quotes/${quote.id}/print`, '_blank');
+    } finally {
+      setPrintingId(null);
+    }
+  }
+
   const TABS: { id: FilterTab; label: string }[] = [
     { id: 'all', label: `All (${items.length})` },
     { id: 'draft', label: `Draft (${items.filter((i) => i.status === 'draft').length})` },
     { id: 'sent', label: `Sent (${items.filter((i) => i.status === 'sent').length})` },
     { id: 'accepted', label: `Accepted (${items.filter((i) => i.status === 'accepted').length})` },
     { id: 'expired', label: `Expired (${items.filter((i) => i.status === 'expired').length})` },
+    { id: 'converted', label: `Converted (${items.filter((i) => i.status === 'converted').length})` },
   ];
 
   const filtered = activeTab === 'all' ? items : items.filter((q) => q.status === activeTab);
@@ -266,14 +300,30 @@ export default function QuotesClient() {
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </button>
-                      {(quote.status === 'sent' || quote.status === 'accepted') && (
+                      <button
+                        onClick={() => { void handlePrint(quote); }}
+                        disabled={printingId === quote.id}
+                        title="Print / Export PDF"
+                        className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors disabled:opacity-50"
+                      >
+                        {printingId === quote.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Printer className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      {CONVERTIBLE_STATUSES.includes(quote.status) && (
                         <button
-                          onClick={() => handleConvert(quote.id)}
+                          onClick={() => setConfirmConvertId(quote.id)}
                           disabled={convertingId === quote.id}
                           title="Convert to Order"
                           className="rounded p-1 text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/30 transition-colors disabled:opacity-50"
                         >
-                          <ArrowRight className="h-3.5 w-3.5" />
+                          {convertingId === quote.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          )}
                         </button>
                       )}
                       {quote.status !== 'cancelled' && quote.status !== 'expired' && (
@@ -440,6 +490,32 @@ export default function QuotesClient() {
         </div>
       )}
 
+      {/* Convert Confirmation Modal */}
+      {confirmConvertId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900 p-6">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-2">Convert to Order</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Convert this quote to a live order?</p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmConvertId(null)}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void handleConvert(confirmConvertId); }}
+                disabled={convertingId !== null}
+                className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+              >
+                {convertingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                Convert to Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* View Quote Modal */}
       {viewQuote && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -513,9 +589,21 @@ export default function QuotesClient() {
               >
                 Close
               </button>
-              {(viewQuote.status === 'sent' || viewQuote.status === 'accepted') && (
+              <button
+                onClick={() => { void handlePrint(viewQuote); }}
+                disabled={printingId === viewQuote.id}
+                className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {printingId === viewQuote.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Printer className="h-4 w-4" />
+                )}
+                Print / PDF
+              </button>
+              {CONVERTIBLE_STATUSES.includes(viewQuote.status) && (
                 <button
-                  onClick={() => { handleConvert(viewQuote.id); setViewQuote(null); }}
+                  onClick={() => { setConfirmConvertId(viewQuote.id); setViewQuote(null); }}
                   className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
                 >
                   <ArrowRight className="h-4 w-4" />

@@ -14,7 +14,7 @@ export default function HomePage() {
       <div className="mb-12 text-center">
         <div className="mb-4 inline-flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-elevatedpos-500 shadow-lg shadow-elevatedpos-500/30">
-            <span className="text-2xl font-bold text-white">N</span>
+            <span className="text-2xl font-bold text-white">E</span>
           </div>
           <span className="text-4xl font-bold tracking-tight text-white">ElevatedPOS</span>
         </div>

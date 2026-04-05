@@ -23,10 +23,10 @@ interface Payout {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  paid: 'bg-green-100 text-green-800',
-  pending: 'bg-yellow-100 text-yellow-800',
-  failed: 'bg-red-100 text-red-800',
-  canceled: 'bg-gray-100 text-gray-500',
+  paid: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
+  failed: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
+  canceled: 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
 };
 
 function formatAUD(cents: number): string {
@@ -82,9 +82,9 @@ export default function PayoutsPage() {
     return (
       <div className="p-8">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-gray-200 rounded w-48" />
-          <div className="h-32 bg-gray-200 rounded-2xl" />
-          <div className="h-64 bg-gray-200 rounded-2xl" />
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-48" />
+          <div className="h-32 bg-gray-200 dark:bg-gray-700 rounded-2xl" />
+          <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded-2xl" />
         </div>
       </div>
     );
@@ -94,28 +94,28 @@ export default function PayoutsPage() {
     <div className="p-8 max-w-5xl">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Payouts</h1>
-        <p className="text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payouts</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">
           Track payouts from your Stripe account to your bank.
         </p>
       </div>
 
       {/* Balance card */}
       {orgId && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
-          <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 mb-6">
+          <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
             Balance
           </h2>
           <div className="grid grid-cols-2 gap-6">
-            <div className="bg-gray-50 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-500 mb-1">Available</p>
-              <p className="text-2xl font-bold text-gray-900">{formatAUD(availableAUD)}</p>
-              <p className="text-xs text-gray-400 mt-1">Ready to payout</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Available</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{formatAUD(availableAUD)}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Ready to payout</p>
             </div>
-            <div className="bg-gray-50 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-500 mb-1">Pending</p>
-              <p className="text-2xl font-bold text-gray-900">{formatAUD(pendingAUD)}</p>
-              <p className="text-xs text-gray-400 mt-1">Estimated 2 business days</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Pending</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{formatAUD(pendingAUD)}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Estimated 2–5 business days</p>
             </div>
           </div>
         </div>
@@ -123,10 +123,10 @@ export default function PayoutsPage() {
 
       {/* Payouts table */}
       {!orgId ? (
-        <div className="text-center py-20 bg-white rounded-2xl border border-gray-200">
+        <div className="text-center py-20 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800">
           <div className="text-4xl mb-3">🔒</div>
-          <h3 className="font-semibold text-lg mb-1">Not connected</h3>
-          <p className="text-gray-500 text-sm">
+          <h3 className="font-semibold text-lg mb-1 text-gray-900 dark:text-white">Not connected</h3>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
             Connect your Stripe account in{' '}
             <a href="/dashboard/payments" className="text-indigo-600 underline">
               Payments
@@ -135,55 +135,55 @@ export default function PayoutsPage() {
           </p>
         </div>
       ) : payouts.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-2xl border border-gray-200">
+        <div className="text-center py-20 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800">
           <div className="text-4xl mb-3">💸</div>
-          <h3 className="font-semibold text-lg mb-1">No payouts yet</h3>
-          <p className="text-gray-500 text-sm">
+          <h3 className="font-semibold text-lg mb-1 text-gray-900 dark:text-white">No payouts yet</h3>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
             Payouts will appear here once funds are transferred to your bank.
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
           <table className="w-full">
-            <thead className="border-b border-gray-200 bg-gray-50">
+            <thead className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
               <tr>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider pb-3 px-4 pt-4">
+                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider pb-3 px-4 pt-4">
                   Date
                 </th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider pb-3 px-4 pt-4">
+                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider pb-3 px-4 pt-4">
                   Amount
                 </th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider pb-3 px-4 pt-4">
+                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider pb-3 px-4 pt-4">
                   Status
                 </th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider pb-3 px-4 pt-4">
+                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider pb-3 px-4 pt-4">
                   Arrival Date
                 </th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider pb-3 px-4 pt-4">
+                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider pb-3 px-4 pt-4">
                   ID
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {payouts.map((payout) => (
-                <tr key={payout.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm text-gray-600">
+                <tr key={payout.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                     {formatDate(payout.created)}
                   </td>
-                  <td className="px-4 py-3 text-sm font-semibold text-gray-900">
+                  <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white">
                     {formatAUD(payout.amount)}
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[payout.status] ?? 'bg-gray-100 text-gray-600'}`}
+                      className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[payout.status] ?? 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'}`}
                     >
                       {payout.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                     {formatDate(payout.arrival_date)}
                   </td>
-                  <td className="px-4 py-3 text-xs font-mono text-gray-400">{payout.id}</td>
+                  <td className="px-4 py-3 text-xs font-mono text-gray-400 dark:text-gray-500">{payout.id}</td>
                 </tr>
               ))}
             </tbody>

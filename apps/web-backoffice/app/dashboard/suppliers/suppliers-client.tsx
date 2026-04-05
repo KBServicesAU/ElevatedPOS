@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, X, Mail, Phone, Globe, MapPin, Clock, Package,
-  CalendarDays, Pencil, ChevronRight, Truck,
+  CalendarDays, Pencil, ChevronRight, Truck, Trash2,
 } from 'lucide-react';
-import { formatCurrency, formatDate } from '@/lib/formatting';
+import { formatDollars, formatDate } from '@/lib/formatting';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -267,14 +267,16 @@ interface SupplierDetailProps {
   supplier: Supplier;
   onClose: () => void;
   onEdit: (supplier: Supplier) => void;
+  onDelete: (supplier: Supplier) => void;
 }
 
-function SupplierDetail({ supplier, onClose, onEdit }: SupplierDetailProps) {
+function SupplierDetail({ supplier, onClose, onEdit, onDelete }: SupplierDetailProps) {
   const [tab, setTab] = useState<DetailTab>('info');
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [products, setProducts] = useState<SupplierProduct[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [productsLoading, setProductsLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (tab === 'orders' && recentOrders.length === 0) {
@@ -313,6 +315,30 @@ function SupplierDetail({ supplier, onClose, onEdit }: SupplierDetailProps) {
             >
               <Pencil className="h-3 w-3" /> Edit
             </button>
+            {confirmDelete ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="text-xs text-gray-500 dark:text-gray-400">Delete?</span>
+                <button
+                  onClick={() => onDelete(supplier)}
+                  className="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                >
+                  No
+                </button>
+              </span>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+              >
+                <Trash2 className="h-3 w-3" /> Delete
+              </button>
+            )}
             <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
               <X className="h-5 w-5" />
             </button>
@@ -411,7 +437,7 @@ function SupplierDetail({ supplier, onClose, onEdit }: SupplierDetailProps) {
                   </div>
                   <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
                     <span>{formatDate(order.date)}</span>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">{formatCurrency(order.total)}</span>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">{formatDollars(order.total)}</span>
                   </div>
                 </div>
               ))}
@@ -432,7 +458,7 @@ function SupplierDetail({ supplier, onClose, onEdit }: SupplierDetailProps) {
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-500">Last Cost</p>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{formatCurrency(product.lastCost)}</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{formatDollars(product.lastCost)}</p>
                   </div>
                 </div>
               ))}
@@ -507,6 +533,7 @@ export function SuppliersClient() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editTarget, setEditTarget] = useState<Supplier | null>(null);
   const [detailTarget, setDetailTarget] = useState<Supplier | null>(null);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
   async function loadSuppliers() {
     try {
@@ -549,6 +576,31 @@ export function SuppliersClient() {
   function handleEditFromDetail(supplier: Supplier) {
     setEditTarget(supplier);
     setDetailTarget(null);
+  }
+
+  async function handleDeleteSupplier(supplier: Supplier) {
+    setDeletingIds((prev) => new Set(prev).add(supplier.id));
+    setDetailTarget(null);
+    try {
+      const res = await fetch(`/api/proxy/suppliers/${supplier.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.message ?? b.error ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      setSuppliers((prev) => prev.filter((s) => s.id !== supplier.id));
+    } catch (err) {
+      // Re-open the detail panel so the user can retry; show error via alert
+      setDetailTarget(supplier);
+      // Non-critical: surface the error in the console; a toast would require importing useToast
+      console.error('Failed to delete supplier:', err instanceof Error ? err.message : err);
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(supplier.id);
+        return next;
+      });
+    }
   }
 
   return (
@@ -620,6 +672,7 @@ export function SuppliersClient() {
           supplier={detailTarget}
           onClose={() => setDetailTarget(null)}
           onEdit={handleEditFromDetail}
+          onDelete={(s) => { void handleDeleteSupplier(s); }}
         />
       )}
     </div>

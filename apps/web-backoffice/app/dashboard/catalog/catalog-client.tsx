@@ -10,6 +10,8 @@ import {
   Package,
   ChevronDown,
   X,
+  Copy,
+  Trash2,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useProducts, useCategories } from '@/lib/hooks';
@@ -37,6 +39,24 @@ interface ProductWithChannels extends Product {
   isSoldOnline?: boolean;
   imageUrl?: string;
   weightUnit?: string;
+  costPrice?: number;
+  barcode?: string;
+  gstFree?: boolean;
+}
+
+// ─── Modifier types ───────────────────────────────────────────────────────────
+
+interface ModifierOption {
+  name: string;
+  priceAdjustment: number;
+}
+
+interface ModifierGroup {
+  id?: string;
+  name: string;
+  required: boolean;
+  multiSelect: boolean;
+  options: ModifierOption[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -63,6 +83,15 @@ async function patchProductStatus(productId: string, status: string): Promise<vo
     body: JSON.stringify({ status }),
   });
   if (!res.ok) throw new Error(`Failed to update status: HTTP ${res.status}`);
+}
+
+function generateRandomSku(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 8; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
 }
 
 // ─── Status Toggle ─────────────────────────────────────────────────────────────
@@ -159,6 +188,110 @@ function ProductThumb({ imageUrl, name }: { imageUrl?: string; name: string }) {
   );
 }
 
+// ─── Modifier Group Form ───────────────────────────────────────────────────────
+
+function ModifierGroupForm({
+  onSave,
+  onCancel,
+}: {
+  onSave: (group: ModifierGroup) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [required, setRequired] = useState(false);
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [options, setOptions] = useState<ModifierOption[]>([{ name: '', priceAdjustment: 0 }]);
+
+  function addOption() {
+    setOptions((prev) => [...prev, { name: '', priceAdjustment: 0 }]);
+  }
+
+  function removeOption(i: number) {
+    setOptions((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  function updateOption(i: number, field: keyof ModifierOption, value: string | number) {
+    setOptions((prev) =>
+      prev.map((opt, idx) =>
+        idx === i ? { ...opt, [field]: value } : opt,
+      ),
+    );
+  }
+
+  function handleSave() {
+    if (!name.trim()) return;
+    const validOptions = options.filter((o) => o.name.trim());
+    onSave({ name: name.trim(), required, multiSelect, options: validOptions });
+  }
+
+  return (
+    <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-4 space-y-3 dark:border-indigo-800 dark:bg-indigo-900/10">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Group Name</label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Milk Type"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+        />
+      </div>
+      <div className="flex gap-4">
+        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+          <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} className="rounded accent-indigo-600" />
+          Required
+        </label>
+        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+          <input type="checkbox" checked={multiSelect} onChange={(e) => setMultiSelect(e.target.checked)} className="rounded accent-indigo-600" />
+          Multi-select
+        </label>
+      </div>
+      <div>
+        <p className="mb-1.5 text-xs font-medium text-gray-700 dark:text-gray-300">Options</p>
+        <div className="space-y-2">
+          {options.map((opt, i) => (
+            <div key={i} className="flex gap-2 items-center">
+              <input
+                value={opt.name}
+                onChange={(e) => updateOption(i, 'name', e.target.value)}
+                placeholder="Option name"
+                className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              />
+              <input
+                type="number"
+                step="0.01"
+                value={opt.priceAdjustment}
+                onChange={(e) => updateOption(i, 'priceAdjustment', parseFloat(e.target.value) || 0)}
+                placeholder="+$0.00"
+                className="w-24 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              />
+              {options.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeOption(i)}
+                  className="text-gray-400 hover:text-red-500"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={addOption}
+          className="mt-2 text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400"
+        >
+          + Add option
+        </button>
+      </div>
+      <div className="flex gap-2 justify-end">
+        <button type="button" onClick={onCancel} className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300">Cancel</button>
+        <button type="button" onClick={handleSave} disabled={!name.trim()} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50">Save Group</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Add Product Modal ─────────────────────────────────────────────────────────
 
 interface AddProductModalProps {
@@ -174,41 +307,67 @@ function AddProductModal({ categories, onClose, onSaved }: AddProductModalProps)
   const [form, setForm] = useState({
     name: '',
     sku: '',
+    barcode: '',
     categoryId: '',
     basePrice: '',
+    costPrice: '',
+    imageUrl: '',
     productType: 'standard' as 'standard' | 'variant' | 'kit' | 'service',
     isSoldInstore: true,
     trackStock: true,
+    gstFree: false,
   });
+  const [imageError, setImageError] = useState(false);
+  const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
+  const [showModifierForm, setShowModifierForm] = useState(false);
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function generateSku() {
-    const prefix = form.name.trim().slice(0, 3).toUpperCase().replace(/\s/g, '') || 'SKU';
-    const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-    set('sku', `${prefix}-${rand}`);
+    set('sku', generateRandomSku());
+  }
+
+  const price = parseFloat(form.basePrice) || 0;
+  const cost = parseFloat(form.costPrice) || 0;
+  const margin = price > 0 && cost >= 0 && cost <= price
+    ? ((price - cost) / price) * 100
+    : null;
+
+  function handleAddModifierGroup(group: ModifierGroup) {
+    setModifierGroups((prev) => [...prev, group]);
+    setShowModifierForm(false);
+  }
+
+  function removeModifierGroup(i: number) {
+    setModifierGroups((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     if (!form.name.trim() || !form.sku.trim()) return;
-    const price = parseFloat(form.basePrice);
-    if (isNaN(price) || price < 0) { setError('Enter a valid base price'); return; }
+    const parsedPrice = parseFloat(form.basePrice);
+    if (isNaN(parsedPrice) || parsedPrice < 0) { setError('Enter a valid base price'); return; }
     setSaving(true);
     try {
+      const parsedCost = form.costPrice !== '' ? parseFloat(form.costPrice) : undefined;
       await apiFetch('products', {
         method: 'POST',
         body: JSON.stringify({
           name: form.name.trim(),
           sku: form.sku.trim(),
+          barcode: form.barcode.trim() || undefined,
           categoryId: form.categoryId || undefined,
-          basePrice: Math.round(price * 100),
+          basePrice: Math.round(parsedPrice * 100),
+          costPrice: parsedCost !== undefined && !isNaN(parsedCost) ? Math.round(parsedCost * 100) : undefined,
+          imageUrl: form.imageUrl.trim() || undefined,
           productType: form.productType,
           isSoldInstore: form.isSoldInstore,
           trackStock: form.trackStock,
+          gstFree: form.gstFree || undefined,
+          modifierGroups: modifierGroups.length > 0 ? modifierGroups : undefined,
         }),
       });
       toast({ title: 'Product created', description: `"${form.name}" has been added.`, variant: 'success' });
@@ -226,68 +385,166 @@ function AddProductModal({ categories, onClose, onSaved }: AddProductModalProps)
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-gray-900">
+      <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-gray-900 max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Add Product</h2>
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4 p-6">
-          {error && (
-            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{error}</div>
-          )}
-          {/* Name */}
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Name <span className="text-red-500">*</span></label>
-            <input required value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Flat White" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-          </div>
-          {/* SKU */}
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">SKU <span className="text-red-500">*</span></label>
-            <div className="flex gap-2">
-              <input required value={form.sku} onChange={(e) => set('sku', e.target.value)} placeholder="e.g. COFF-FW-001" className="flex-1 rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-              <button type="button" onClick={generateSku} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300">Auto</button>
-            </div>
-          </div>
-          {/* Category + Type row */}
-          <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={(e) => { void handleSubmit(e); }} className="overflow-y-auto">
+          <div className="space-y-4 p-6">
+            {error && (
+              <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{error}</div>
+            )}
+            {/* Name */}
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
-              <select value={form.categoryId} onChange={(e) => set('categoryId', e.target.value)} className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white">
-                <option value="">No category</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Name <span className="text-red-500">*</span></label>
+              <input required value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Flat White" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
             </div>
+            {/* SKU */}
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
-              <select value={form.productType} onChange={(e) => set('productType', e.target.value as typeof form.productType)} className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white">
-                <option value="standard">Standard</option>
-                <option value="variant">Variant</option>
-                <option value="kit">Kit</option>
-                <option value="service">Service</option>
-              </select>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">SKU <span className="text-red-500">*</span></label>
+              <div className="flex gap-2">
+                <input required value={form.sku} onChange={(e) => set('sku', e.target.value)} placeholder="e.g. COFF-FW-001" className="flex-1 rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+                <button type="button" onClick={generateSku} className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300">Generate</button>
+              </div>
             </div>
-          </div>
-          {/* Base Price */}
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Base Price ($) <span className="text-red-500">*</span></label>
-            <input required type="number" min="0" step="0.01" value={form.basePrice} onChange={(e) => set('basePrice', e.target.value)} placeholder="0.00" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-          </div>
-          {/* Toggles */}
-          <div className="flex gap-6">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input type="checkbox" checked={form.isSoldInstore} onChange={(e) => set('isSoldInstore', e.target.checked)} className="rounded accent-indigo-600" />
-              Sold in-store
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input type="checkbox" checked={form.trackStock} onChange={(e) => set('trackStock', e.target.checked)} className="rounded accent-indigo-600" />
-              Track stock
-            </label>
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">Cancel</button>
-            <button type="submit" disabled={saving || !form.name.trim() || !form.sku.trim()} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{saving ? 'Creating…' : 'Create Product'}</button>
+            {/* Barcode */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Barcode</label>
+              <input value={form.barcode} onChange={(e) => set('barcode', e.target.value)} placeholder="e.g. 9300675016022" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+            </div>
+            {/* Category + Type row */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
+                <select value={form.categoryId} onChange={(e) => set('categoryId', e.target.value)} className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                  <option value="">No category</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
+                <select value={form.productType} onChange={(e) => set('productType', e.target.value as typeof form.productType)} className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                  <option value="standard">Standard</option>
+                  <option value="variant">Variant</option>
+                  <option value="kit">Kit</option>
+                  <option value="service">Service</option>
+                </select>
+              </div>
+            </div>
+            {/* Base Price */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Base Price ($) <span className="text-red-500">*</span></label>
+              <input required type="number" min="0" step="0.01" value={form.basePrice} onChange={(e) => set('basePrice', e.target.value)} placeholder="0.00" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+            </div>
+            {/* Cost Price */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Cost Price (excl. GST) ($)</label>
+              <input type="number" min="0" step="0.01" value={form.costPrice} onChange={(e) => set('costPrice', e.target.value)} placeholder="0.00" className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+              {margin !== null && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Margin: <span className={`font-medium ${margin >= 50 ? 'text-green-600 dark:text-green-400' : margin >= 20 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>{margin.toFixed(1)}%</span>
+                </p>
+              )}
+            </div>
+            {/* Image URL */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Image URL</label>
+              <div className="flex gap-3 items-center">
+                <input
+                  type="url"
+                  value={form.imageUrl}
+                  onChange={(e) => { set('imageUrl', e.target.value); setImageError(false); }}
+                  placeholder="https://example.com/image.jpg"
+                  className="flex-1 rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                />
+                {form.imageUrl ? (
+                  imageError ? (
+                    <div className="h-12 w-12 shrink-0 rounded bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                      <Package className="h-5 w-5 text-gray-400" />
+                    </div>
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={form.imageUrl}
+                      alt="Preview"
+                      className="h-12 w-12 shrink-0 rounded object-cover"
+                      onError={() => setImageError(true)}
+                    />
+                  )
+                ) : (
+                  <div className="h-12 w-12 shrink-0 rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                    <Package className="h-5 w-5 text-gray-300 dark:text-gray-600" />
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Toggles */}
+            <div className="flex flex-wrap gap-6">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input type="checkbox" checked={form.isSoldInstore} onChange={(e) => set('isSoldInstore', e.target.checked)} className="rounded accent-indigo-600" />
+                Sold in-store
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input type="checkbox" checked={form.trackStock} onChange={(e) => set('trackStock', e.target.checked)} className="rounded accent-indigo-600" />
+                Track stock
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input type="checkbox" checked={form.gstFree} onChange={(e) => set('gstFree', e.target.checked)} className="rounded accent-indigo-600" />
+                GST-free (no 10% GST applied)
+              </label>
+            </div>
+
+            {/* Modifier Groups — shown for non-simple (non-standard) types */}
+            {form.productType !== 'standard' && (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/50">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">Modifier Groups</p>
+                  {!showModifierForm && (
+                    <button
+                      type="button"
+                      onClick={() => setShowModifierForm(true)}
+                      className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Add Group
+                    </button>
+                  )}
+                </div>
+                {modifierGroups.length === 0 && !showModifierForm && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500">No modifier groups yet. Add one to let customers customise this product.</p>
+                )}
+                {modifierGroups.map((group, i) => (
+                  <div key={i} className="mb-2 flex items-start justify-between rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{group.name}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {group.required ? 'Required' : 'Optional'} · {group.multiSelect ? 'Multi-select' : 'Single'} · {group.options.length} option{group.options.length !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeModifierGroup(i)}
+                      className="ml-2 text-gray-400 hover:text-red-500"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+                {showModifierForm && (
+                  <ModifierGroupForm
+                    onSave={handleAddModifierGroup}
+                    onCancel={() => setShowModifierForm(false)}
+                  />
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">Cancel</button>
+              <button type="submit" disabled={saving || !form.name.trim() || !form.sku.trim()} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{saving ? 'Creating…' : 'Create Product'}</button>
+            </div>
           </div>
         </form>
       </div>
@@ -405,6 +662,8 @@ function FilterSelect({
 // ─── Main Component ────────────────────────────────────────────────────────────
 
 export function CatalogClient() {
+  // Task 4: Separate input state from debounced search state
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -415,30 +674,25 @@ export function CatalogClient() {
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [duplicatingIds, setDuplicatingIds] = useState<Set<string>>(new Set());
 
   // SOH map: productId -> onHand quantity
   const [sohMap, setSohMap] = useState<Record<string, number>>({});
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  // Debounce search
+  // Task 4: 300ms debounce on search input
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [search]);
+    const t = setTimeout(() => setSearch(searchInput), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   const { data: productsData, isLoading: productsLoading } = useProducts({
     categoryId: categoryFilter || undefined,
     status: statusFilter || undefined,
-    search: debouncedSearch || undefined,
-    limit: 100,
+    search: search || undefined,
+    limit: 500,
   });
 
   const { data: categoriesData } = useCategories();
@@ -535,6 +789,51 @@ export function CatalogClient() {
     [toast, queryClient],
   );
 
+  // ─── Task 5: Duplicate product ───────────────────────────────────────────────
+
+  const handleDuplicate = useCallback(
+    async (product: ProductWithChannels) => {
+      setDuplicatingIds((prev) => new Set(prev).add(product.id));
+      try {
+        await apiFetch('products', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: `Copy of ${product.name}`,
+            sku: generateRandomSku(),
+            categoryId: product.categoryId,
+            basePrice: product.basePrice,
+            productType: product.productType,
+            isSoldInstore: product.isSoldInstore,
+            trackStock: product.trackStock,
+            imageUrl: (product as ProductWithChannels).imageUrl,
+            costPrice: (product as ProductWithChannels).costPrice,
+            barcode: undefined,
+            gstFree: (product as ProductWithChannels).gstFree,
+          }),
+        });
+        toast({
+          title: 'Product duplicated',
+          description: `"Copy of ${product.name}" has been created.`,
+          variant: 'success',
+        });
+        queryClient.invalidateQueries({ queryKey: ['products'] });
+      } catch (err) {
+        toast({
+          title: 'Failed to duplicate product',
+          description: getErrorMessage(err, 'Please try again.'),
+          variant: 'destructive',
+        });
+      } finally {
+        setDuplicatingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(product.id);
+          return next;
+        });
+      }
+    },
+    [toast, queryClient],
+  );
+
   async function handleBulkAction(status: 'active' | 'inactive') {
     if (selectedIds.size === 0 || bulkLoading) return;
     setBulkLoading(true);
@@ -558,7 +857,7 @@ export function CatalogClient() {
     setBulkLoading(false);
   }
 
-  const hasFilters = !!(search || categoryFilter || typeFilter || channelFilter || statusFilter);
+  const hasFilters = !!(searchInput || categoryFilter || typeFilter || channelFilter || statusFilter);
 
   return (
     <div className="space-y-5">
@@ -588,13 +887,13 @@ export function CatalogClient() {
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3">
-        {/* Search */}
+        {/* Search — Task 4: use searchInput/setSearchInput */}
         <div className="relative min-w-[220px] flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search products…"
             className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
           />
@@ -646,6 +945,7 @@ export function CatalogClient() {
         {hasFilters && (
           <button
             onClick={() => {
+              setSearchInput('');
               setSearch('');
               setCategoryFilter('');
               setTypeFilter('');
@@ -669,7 +969,7 @@ export function CatalogClient() {
       />
 
       {/* Products table */}
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[800px]">
             <thead>
@@ -730,12 +1030,21 @@ export function CatalogClient() {
                   ? <EmptyState hasFilters={hasFilters} />
                   : products.map((product) => {
                       const isToggling = togglingIds.has(product.id);
+                      const isDuplicating = duplicatingIds.has(product.id);
                       const soh = sohMap[product.id];
                       const sohDisplay = product.trackStock
                         ? soh !== undefined
                           ? String(soh)
                           : '—'
                         : '—';
+
+                      // Task 2: compute margin for display
+                      const displayPrice = product.basePrice / 100;
+                      const displayCost = product.costPrice !== undefined ? product.costPrice / 100 : null;
+                      const displayMargin =
+                        displayCost !== null && displayPrice > 0 && displayCost <= displayPrice
+                          ? ((displayPrice - displayCost) / displayPrice) * 100
+                          : null;
 
                       return (
                         <tr
@@ -776,11 +1085,19 @@ export function CatalogClient() {
                             </span>
                           </td>
 
-                          {/* Price */}
+                          {/* Price — Task 2: show cost + margin */}
                           <td className="px-4 py-3.5">
                             <span className="text-sm font-medium text-gray-900 dark:text-white">
                               {formatCurrency(product.basePrice)}
                             </span>
+                            {displayCost !== null && (
+                              <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+                                Cost: {formatCurrency(product.costPrice!)}
+                                {displayMargin !== null && (
+                                  <span className="ml-1 text-gray-400">· {displayMargin.toFixed(0)}% margin</span>
+                                )}
+                              </p>
+                            )}
                           </td>
 
                           {/* SOH */}
@@ -819,7 +1136,7 @@ export function CatalogClient() {
                             />
                           </td>
 
-                          {/* Actions */}
+                          {/* Actions — Task 5: Duplicate button */}
                           <td className="px-4 py-3.5">
                             <div className="flex items-center gap-1.5">
                               <Link
@@ -836,6 +1153,14 @@ export function CatalogClient() {
                               >
                                 <Eye className="h-3 w-3" /> View
                               </Link>
+                              <button
+                                title="Duplicate product"
+                                disabled={isDuplicating}
+                                onClick={() => { void handleDuplicate(product); }}
+                                className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -844,6 +1169,16 @@ export function CatalogClient() {
             </tbody>
           </table>
         </div>
+        {/* Show a note if total exceeds the fetched limit */}
+        {!productsLoading && total > baseProducts.length && (
+          <p className="px-4 py-3 text-center text-sm text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-800">
+            Showing {products.length} of {total} products.{' '}
+            <a href="/dashboard/bulk-manage" className="text-indigo-600 dark:text-indigo-400 underline hover:text-indigo-700">
+              Use Bulk Manage
+            </a>{' '}
+            to export or manage all products.
+          </p>
+        )}
       </div>
     </div>
   );

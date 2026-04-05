@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Plus, Clock, CheckCircle, XCircle, Shield, Download, ChevronLeft, ChevronRight,
@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { Employee } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 import { getErrorMessage } from '@/lib/formatting';
+import { auditLog } from '@/lib/audit';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -132,6 +133,11 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.message ?? `HTTP ${res.status}`);
       }
+      auditLog({
+        action: 'employee.created',
+        resourceType: 'employee',
+        meta: { employeeName: `${form.firstName} ${form.lastName}`, email: form.email },
+      });
       toast({ title: 'Employee added', description: `${form.firstName} ${form.lastName} has been added to the team.`, variant: 'success' });
       queryClient.invalidateQueries({ queryKey: ['employees'] });
       onClose();
@@ -226,12 +232,44 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
 
 // ─── Employee Side Panel ──────────────────────────────────────────────────────
 
+interface EmployeeShift {
+  id: string;
+  clockInAt: string;
+  clockOutAt?: string;
+  breakMinutes?: number;
+  status?: string;
+}
+
 function EmployeeSidePanel({ employee, onClose }: { employee: Employee; onClose: () => void }) {
   const router = useRouter();
   const [active, setActive] = useState(employee.status !== 'inactive');
   const [togglingStatus, setTogglingStatus] = useState(false);
+  const [recentShifts, setRecentShifts] = useState<EmployeeShift[]>([]);
+  const [shiftsLoading, setShiftsLoading] = useState(true);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    // Fetch real recent shifts for this employee
+    fetch(`/api/proxy/shifts?employeeId=${employee.id}&limit=5`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => {
+        const list: EmployeeShift[] = Array.isArray(json) ? json : (json?.data ?? []);
+        setRecentShifts(list);
+      })
+      .catch(() => setRecentShifts([]))
+      .finally(() => setShiftsLoading(false));
+
+    // Fetch permissions for this employee
+    fetch(`/api/proxy/employees/${employee.id}/permissions`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => {
+        const perms: string[] = Array.isArray(json) ? json : (json?.permissions ?? json?.data ?? []);
+        setPermissions(perms.map((p) => typeof p === 'string' ? p : p));
+      })
+      .catch(() => setPermissions([]));
+  }, [employee.id]);
 
   async function handleToggleStatus() {
     const nextActive = !active;
@@ -247,6 +285,12 @@ function EmployeeSidePanel({ employee, onClose }: { employee: Employee; onClose:
         throw new Error(data.message ?? `HTTP ${res.status}`);
       }
       setActive(nextActive);
+      auditLog({
+        action: nextActive ? 'employee.activated' : 'employee.deactivated',
+        resourceId: employee.id,
+        resourceType: 'employee',
+        meta: { employeeName: `${employee.firstName} ${employee.lastName}` },
+      });
       toast({
         title: nextActive ? 'Employee activated' : 'Employee deactivated',
         description: `${employee.firstName} ${employee.lastName} is now ${nextActive ? 'active' : 'inactive'}.`,
@@ -305,32 +349,56 @@ function EmployeeSidePanel({ employee, onClose }: { employee: Employee; onClose:
       {/* Recent shifts */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">Recent Shifts</h4>
-        <div className="space-y-2">
-          {[
-            { date: 'Today', hours: '8:00 AM – 4:30 PM', duration: '8h 30m' },
-            { date: 'Yesterday', hours: '9:00 AM – 5:00 PM', duration: '8h 0m' },
-            { date: 'Mon', hours: '7:30 AM – 3:30 PM', duration: '8h 0m' },
-          ].map((shift, i) => (
-            <div key={i} className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-900 dark:text-white">{shift.date}</span>
-                <span className="text-xs text-gray-500">{shift.duration}</span>
-              </div>
-              <p className="mt-0.5 text-xs text-gray-400">{shift.hours}</p>
-            </div>
-          ))}
-        </div>
+        {shiftsLoading ? (
+          <div className="space-y-2">
+            {[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />)}
+          </div>
+        ) : recentShifts.length === 0 ? (
+          <p className="text-xs text-gray-400 dark:text-gray-500">No shifts recorded yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {recentShifts.map((shift) => {
+              const cin = new Date(shift.clockInAt);
+              const cout = shift.clockOutAt ? new Date(shift.clockOutAt) : null;
+              const totalMins = cout
+                ? Math.max(0, (cout.getTime() - cin.getTime()) / 60_000 - (shift.breakMinutes ?? 0))
+                : null;
+              const hours = totalMins !== null ? `${Math.floor(totalMins / 60)}h ${Math.round(totalMins % 60)}m` : 'In progress';
+              const dateLabel = cin.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+              const inTime = cin.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+              const outTime = cout ? cout.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }) : '—';
+              return (
+                <div key={shift.id} className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">{dateLabel}</span>
+                    <span className="text-xs text-gray-500">{hours}</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-gray-400">{inTime} – {outTime}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Permissions summary */}
         <h4 className="mb-3 mt-5 text-xs font-semibold uppercase tracking-wide text-gray-500">Permissions</h4>
-        <div className="grid grid-cols-2 gap-1.5">
-          {['orders:read', 'catalog:read', 'inventory:read', 'customers:read'].map((perm) => (
-            <div key={perm} className="flex items-center gap-1.5 rounded-lg bg-gray-50 px-2 py-1.5 dark:bg-gray-800">
-              <Check className="h-3 w-3 text-green-500" />
-              <span className="text-xs text-gray-600 dark:text-gray-400">{perm}</span>
-            </div>
-          ))}
-        </div>
+        {permissions.length === 0 ? (
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            Permissions are determined by the assigned role:{' '}
+            <span className="font-medium capitalize">
+              {typeof employee.role === 'object' ? employee.role?.name : employee.role ?? '—'}
+            </span>
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-1.5">
+            {permissions.map((perm) => (
+              <div key={perm} className="flex items-center gap-1.5 rounded-lg bg-gray-50 px-2 py-1.5 dark:bg-gray-800">
+                <Check className="h-3 w-3 text-green-500" />
+                <span className="text-xs text-gray-600 dark:text-gray-400">{perm}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Actions */}
@@ -342,7 +410,11 @@ function EmployeeSidePanel({ employee, onClose }: { employee: Employee; onClose:
           >
             View Full Profile
           </button>
-          <button className="rounded-lg border border-gray-200 px-3 py-2 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">
+          <button
+            onClick={() => router.push(`/dashboard/staff/${employee.id}?edit=1`)}
+            title="Edit employee"
+            className="rounded-lg border border-gray-200 px-3 py-2 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+          >
             <Edit2 className="h-4 w-4 text-gray-500" />
           </button>
         </div>
@@ -457,18 +529,143 @@ function ChangePinModal({ employee, onClose }: { employee: Employee; onClose: ()
   );
 }
 
+// ─── Invite Staff Modal ───────────────────────────────────────────────────────
+
+function InviteStaffModal({ onClose }: { onClose: () => void }) {
+  const [form, setForm] = useState({ email: '', role: '', firstName: '', lastName: '' });
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+  const { data: rolesData } = useRoles();
+  const roles = rolesData?.data ?? [];
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await fetch('/api/proxy/employees/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: form.email,
+          roleId: form.role || undefined,
+          firstName: form.firstName || undefined,
+          lastName: form.lastName || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message ?? `HTTP ${res.status}`);
+      }
+      toast({
+        title: 'Invitation sent',
+        description: `An invite email has been sent to ${form.email}.`,
+        variant: 'success',
+      });
+      onClose();
+    } catch (err) {
+      const msg = getErrorMessage(err, 'Failed to send invitation');
+      toast({ title: 'Failed to send invitation', description: msg, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputClass =
+    'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white';
+
+  return (
+    <Modal title="Invite Staff Member" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          They'll receive an email with a link to set their password and complete setup.
+        </p>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">
+            Email address <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="email"
+            required
+            value={form.email}
+            onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+            placeholder="jane@yourstore.com"
+            className={inputClass}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">First Name</label>
+            <input
+              type="text"
+              value={form.firstName}
+              onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
+              placeholder="Jane"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Last Name</label>
+            <input
+              type="text"
+              value={form.lastName}
+              onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
+              placeholder="Doe"
+              className={inputClass}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Role</label>
+          <select
+            value={form.role}
+            onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+            className={inputClass}
+          >
+            <option value="">Select role…</option>
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving || !form.email.trim()}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {saving ? 'Sending…' : 'Send Invite'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 // ─── Employees Tab ────────────────────────────────────────────────────────────
 
 function EmployeesTab() {
   const { data, isLoading, isError } = useEmployees();
   const employees = data?.data ?? [];
   const [showAdd, setShowAdd] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const [selected, setSelected] = useState<Employee | null>(null);
   const [pinEmployee, setPinEmployee] = useState<Employee | null>(null);
 
   return (
     <div className="relative">
       {showAdd && <AddEmployeeModal onClose={() => setShowAdd(false)} />}
+      {showInvite && <InviteStaffModal onClose={() => setShowInvite(false)} />}
       {pinEmployee && <ChangePinModal employee={pinEmployee} onClose={() => setPinEmployee(null)} />}
       {selected && <EmployeeSidePanel employee={selected} onClose={() => setSelected(null)} />}
 
@@ -476,19 +673,27 @@ function EmployeesTab() {
         <p className="text-sm text-gray-500">
           {isLoading ? 'Loading…' : `${employees.length} employees`}
         </p>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          <Plus className="h-4 w-4" /> Add Employee
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowInvite(true)}
+            className="flex items-center gap-2 rounded-lg border border-indigo-300 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-400 dark:hover:bg-indigo-900/20"
+          >
+            <Plus className="h-4 w-4" /> Invite Staff
+          </button>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" /> Add Employee
+          </button>
+        </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
         {isError ? (
           <div className="p-8 text-center text-sm text-red-500">Failed to load staff.</div>
         ) : (
-          <table className="w-full">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-800">
                 {['Employee', 'Role', 'Location', 'Status', 'Last Clock-in', 'Actions'].map((h) => (
@@ -535,7 +740,7 @@ function EmployeesTab() {
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-sm text-gray-600 dark:text-gray-400">
-                        Main Store
+                        {emp.locationName ?? (emp.locationId ? `Location ${emp.locationId.slice(0, 6)}` : '—')}
                       </td>
                       <td className="px-5 py-3.5">
                         <span className={`inline-flex items-center gap-1 text-xs font-medium ${emp.clockedIn ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
@@ -567,8 +772,30 @@ function EmployeesTab() {
                   ))}
               {!isLoading && employees.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-10 text-center text-sm text-gray-400">
-                    No employees found.
+                  <td colSpan={6} className="px-5 py-16 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 dark:bg-indigo-900/20">
+                        <Users className="h-6 w-6 text-indigo-400" />
+                      </div>
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">No staff yet</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 max-w-xs">
+                        Add your first employee or invite them by email so they can set their own password.
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <button
+                          onClick={() => setShowInvite(true)}
+                          className="rounded-lg border border-indigo-300 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-400"
+                        >
+                          Send Invite
+                        </button>
+                        <button
+                          onClick={() => setShowAdd(true)}
+                          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                        >
+                          Add Employee
+                        </button>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               )}

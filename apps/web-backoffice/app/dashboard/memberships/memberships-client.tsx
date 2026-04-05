@@ -162,8 +162,22 @@ export default function MembershipsClient() {
     }
   }
 
-  function togglePlanActive(planId: string) {
-    setPlans((prev) => prev.map((p) => p.id === planId ? { ...p, isActive: !p.isActive } : p));
+  async function togglePlanActive(planId: string) {
+    const plan = plans.find((p) => p.id === planId);
+    if (!plan) return;
+    const newActive = !plan.isActive;
+    setPlans((prev) => prev.map((p) => p.id === planId ? { ...p, isActive: newActive } : p));
+    try {
+      await apiFetch(`membership-plans/${planId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: newActive }),
+      });
+      toast({ title: newActive ? 'Plan activated' : 'Plan deactivated', variant: 'success' });
+    } catch (err) {
+      // Revert on failure
+      setPlans((prev) => prev.map((p) => p.id === planId ? { ...p, isActive: !newActive } : p));
+      toast({ title: 'Failed to update plan', description: getErrorMessage(err), variant: 'destructive' });
+    }
   }
 
   async function handleCancelSub(id: string) {

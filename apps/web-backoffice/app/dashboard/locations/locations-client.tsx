@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { MapPin, Plus, Pencil, Eye, X, Loader2 } from 'lucide-react';
+import { MapPin, Plus, Pencil, Eye, X, Loader2, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, getErrorMessage } from '@/lib/formatting';
 import { useToast } from '@/lib/use-toast';
@@ -28,6 +28,7 @@ interface AddLocationForm {
   state: string;
   postcode: string;
   phone: string;
+  managerName: string;
   managerEmail: string;
 }
 
@@ -38,8 +39,157 @@ const EMPTY_FORM: AddLocationForm = {
   state: '',
   postcode: '',
   phone: '',
+  managerName: '',
   managerEmail: '',
 };
+
+// ─── Location Detail Panel ────────────────────────────────────────────────────
+
+interface LocationDetailPanelProps {
+  loc: Location;
+  onClose: () => void;
+  onEdit: (loc: Location) => void;
+  onDeleted: (id: string) => void;
+  onStatusChanged: (id: string, isActive: boolean) => void;
+}
+
+function LocationDetailPanel({ loc, onClose, onEdit, onDeleted, onStatusChanged }: LocationDetailPanelProps) {
+  const { toast } = useToast();
+  const [toggling, setToggling] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleToggleStatus() {
+    setToggling(true);
+    const newActive = loc.status !== 'active';
+    try {
+      await apiFetch(`locations/${loc.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: newActive }),
+      });
+      onStatusChanged(loc.id, newActive);
+      toast({
+        title: newActive ? 'Location activated' : 'Location deactivated',
+        description: `"${loc.name}" is now ${newActive ? 'active' : 'inactive'}.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      const msg = getErrorMessage(err, 'Failed to update status.');
+      toast({ title: 'Failed to update status', description: msg, variant: 'destructive' });
+    } finally {
+      setToggling(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm(`Delete "${loc.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`locations/${loc.id}`, { method: 'DELETE' });
+      onDeleted(loc.id);
+      toast({ title: 'Location deleted', description: `"${loc.name}" has been deleted.`, variant: 'success' });
+      onClose();
+    } catch (err) {
+      const msg = getErrorMessage(err, 'Failed to delete location.');
+      toast({ title: 'Failed to delete location', description: msg, variant: 'destructive' });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+
+      {/* Slide-in panel */}
+      <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm overflow-y-auto bg-white shadow-2xl dark:bg-gray-900">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white">Location Details</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-6 p-6">
+          {/* Name & status */}
+          <div>
+            <p className="text-lg font-bold text-gray-900 dark:text-white">{loc.name}</p>
+            <span
+              className={`mt-1 inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                loc.status === 'active'
+                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                  : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+              }`}
+            >
+              {loc.status}
+            </span>
+          </div>
+
+          {/* Details */}
+          <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+            <div>
+              <span className="font-medium text-gray-700 dark:text-gray-300">Address: </span>
+              {loc.address}{loc.suburb ? `, ${loc.suburb}` : ''}{loc.state ? `, ${loc.state}` : ''}{loc.postcode ? ` ${loc.postcode}` : ''}
+            </div>
+            <div>
+              <span className="font-medium text-gray-700 dark:text-gray-300">Phone: </span>
+              {loc.phone || '—'}
+            </div>
+            <div>
+              <span className="font-medium text-gray-700 dark:text-gray-300">Manager: </span>
+              {loc.managerName || '—'}
+            </div>
+            <div>
+              <span className="font-medium text-gray-700 dark:text-gray-300">Manager Email: </span>
+              {loc.managerEmail || '—'}
+            </div>
+          </div>
+
+          {/* Status toggle */}
+          <div className="flex items-center justify-between rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-white">Active Status</p>
+              <p className="text-xs text-gray-500">Toggle location on/off</p>
+            </div>
+            <button
+              onClick={() => void handleToggleStatus()}
+              disabled={toggling}
+              className="text-gray-400 hover:text-indigo-600 disabled:opacity-50"
+            >
+              {toggling
+                ? <Loader2 className="h-6 w-6 animate-spin" />
+                : loc.status === 'active'
+                  ? <ToggleRight className="h-7 w-7 text-indigo-600" />
+                  : <ToggleLeft className="h-7 w-7" />
+              }
+            </button>
+          </div>
+
+          {/* Actions */}
+          <div className="space-y-3">
+            <button
+              onClick={() => { onEdit(loc); onClose(); }}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              <Pencil className="h-4 w-4" /> Edit Location
+            </button>
+            <button
+              onClick={() => void handleDelete()}
+              disabled={deleting}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900/30 dark:text-red-400 dark:hover:bg-red-900/20"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Delete Location
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export function LocationsClient() {
   const { toast } = useToast();
@@ -49,6 +199,7 @@ export function LocationsClient() {
   const [editTarget, setEditTarget] = useState<Location | null>(null);
   const [form, setForm] = useState<AddLocationForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [detailLocation, setDetailLocation] = useState<Location | null>(null);
 
   useEffect(() => {
     setIsLoading(true);
@@ -93,6 +244,36 @@ export function LocationsClient() {
 
   const totalRevenue = locations.reduce((s, l) => s + l.revenueToday, 0);
   const activeCount = locations.filter((l) => l.status === 'active').length;
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  async function handleCardToggle(loc: Location) {
+    setTogglingId(loc.id);
+    const newActive = loc.status !== 'active';
+    // Optimistic update
+    setLocations((prev) =>
+      prev.map((l) => l.id === loc.id ? { ...l, status: newActive ? 'active' : 'inactive' } : l),
+    );
+    try {
+      await apiFetch(`locations/${loc.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: newActive }),
+      });
+      toast({
+        title: newActive ? 'Location activated' : 'Location deactivated',
+        description: `"${loc.name}" is now ${newActive ? 'active' : 'inactive'}.`,
+        variant: 'success',
+      });
+    } catch (err) {
+      // Revert optimistic update
+      setLocations((prev) =>
+        prev.map((l) => l.id === loc.id ? { ...l, status: loc.status } : l),
+      );
+      const msg = getErrorMessage(err, 'Failed to update status.');
+      toast({ title: 'Failed to update status', description: msg, variant: 'destructive' });
+    } finally {
+      setTogglingId(null);
+    }
+  }
 
   function openAdd() {
     setEditTarget(null);
@@ -109,6 +290,7 @@ export function LocationsClient() {
       state: loc.state,
       postcode: loc.postcode,
       phone: loc.phone,
+      managerName: loc.managerName,
       managerEmail: loc.managerEmail,
     });
     setShowModal(true);
@@ -125,7 +307,7 @@ export function LocationsClient() {
         setLocations((prev) =>
           prev.map((l) =>
             l.id === editTarget.id
-              ? { ...l, ...form, managerName: form.managerEmail.split('@')[0] }
+              ? { ...l, ...form }
               : l,
           ),
         );
@@ -154,7 +336,7 @@ export function LocationsClient() {
             ? String((addr as Record<string, unknown>)['postcode'] ?? form.postcode)
             : (created.postcode ?? form.postcode),
           phone: created.phone ?? form.phone,
-          managerName: created.managerName ?? form.managerEmail.split('@')[0],
+          managerName: created.managerName ?? form.managerName,
           managerEmail: created.managerEmail ?? form.managerEmail,
           status: created.status ?? 'active',
           revenueToday: created.revenueToday ?? 0,
@@ -237,15 +419,18 @@ export function LocationsClient() {
                     </p>
                   </div>
                 </div>
-                <span
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                <button
+                  title={loc.status === 'active' ? 'Click to deactivate' : 'Click to activate'}
+                  onClick={() => void handleCardToggle(loc)}
+                  disabled={togglingId === loc.id}
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-70 disabled:cursor-wait disabled:opacity-50 ${
                     loc.status === 'active'
                       ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                       : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
                   }`}
                 >
-                  {loc.status}
-                </span>
+                  {togglingId === loc.id ? '…' : loc.status}
+                </button>
               </div>
 
               <div className="mt-4 space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
@@ -269,7 +454,10 @@ export function LocationsClient() {
                   <Pencil className="h-3.5 w-3.5" />
                   Edit
                 </button>
-                <button className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800">
+                <button
+                  onClick={() => setDetailLocation(loc)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+                >
                   <Eye className="h-3.5 w-3.5" />
                   View Details
                 </button>
@@ -277,6 +465,25 @@ export function LocationsClient() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Location Detail Panel */}
+      {detailLocation && (
+        <LocationDetailPanel
+          loc={detailLocation}
+          onClose={() => setDetailLocation(null)}
+          onEdit={(loc) => { openEdit(loc); }}
+          onDeleted={(id) => {
+            setLocations((prev) => prev.filter((l) => l.id !== id));
+          }}
+          onStatusChanged={(id, isActive) => {
+            setLocations((prev) =>
+              prev.map((l) => l.id === id ? { ...l, status: isActive ? 'active' : 'inactive' } : l),
+            );
+            // Update detail panel location so toggle reflects new state
+            setDetailLocation((prev) => prev ? { ...prev, status: isActive ? 'active' : 'inactive' } : null);
+          }}
+        />
       )}
 
       {/* Add / Edit Modal */}
@@ -304,6 +511,7 @@ export function LocationsClient() {
                   { key: 'state', label: 'State', placeholder: 'NSW' },
                   { key: 'postcode', label: 'Postcode', placeholder: '2000' },
                   { key: 'phone', label: 'Phone', placeholder: '02 9000 0001' },
+                  { key: 'managerName', label: 'Manager Name', placeholder: 'Jane Smith' },
                   { key: 'managerEmail', label: 'Manager Email', placeholder: 'manager@example.com' },
                 ] as { key: keyof AddLocationForm; label: string; placeholder: string }[]
               ).map(({ key, label, placeholder }) => (
@@ -330,7 +538,7 @@ export function LocationsClient() {
                 Cancel
               </button>
               <button
-                onClick={handleSave}
+                onClick={() => void handleSave()}
                 disabled={saving || !form.name}
                 className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
               >

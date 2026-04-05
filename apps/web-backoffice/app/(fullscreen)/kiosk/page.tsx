@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { LayoutDashboard, CreditCard, ChefHat, Tablet, ShoppingCart, X, Plus } from 'lucide-react';
 import DevicePairingScreen from '@/components/device-pairing-screen';
@@ -233,6 +233,15 @@ function KioskTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
   const [pendingNav, setPendingNav] = useState<string | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
 
+  // Session timeout state
+  const TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+  const WARNING_MS = 15 * 1000; // show warning at 15s remaining
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
+  const [timeoutCountdown, setTimeoutCountdown] = useState(15);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const warningRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const locationId = deviceInfo?.locationId ?? '00000000-0000-0000-0000-000000000001';
 
   useEffect(() => {
@@ -269,6 +278,48 @@ function KioskTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
     }
     loadCatalog();
   }, [deviceInfo]);
+
+  const resetSessionTimer = useCallback(() => {
+    if (!started || checkedOut) return;
+    setShowTimeoutWarning(false);
+    setTimeoutCountdown(15);
+    if (warningRef.current) clearTimeout(warningRef.current);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+
+    warningRef.current = setTimeout(() => {
+      setShowTimeoutWarning(true);
+      setTimeoutCountdown(15);
+      let remaining = 15;
+      countdownRef.current = setInterval(() => {
+        remaining -= 1;
+        setTimeoutCountdown(remaining);
+        if (remaining <= 0 && countdownRef.current) clearInterval(countdownRef.current);
+      }, 1000);
+    }, TIMEOUT_MS - WARNING_MS);
+
+    timeoutRef.current = setTimeout(() => {
+      setShowTimeoutWarning(false);
+      setCart([]);
+      setCheckedOut(false);
+      setStarted(false);
+      setCategory('All');
+      setSearch('');
+    }, TIMEOUT_MS);
+  }, [started, checkedOut, TIMEOUT_MS, WARNING_MS]);
+
+  useEffect(() => {
+    if (!started || checkedOut) return;
+    resetSessionTimer();
+    const events = ['touchstart', 'click', 'keypress'] as const;
+    events.forEach((ev) => window.addEventListener(ev, resetSessionTimer));
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, resetSessionTimer));
+      if (warningRef.current) clearTimeout(warningRef.current);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, [started, checkedOut, resetSessionTimer]);
 
   const filtered = useMemo(
     () => products.filter((p) => (category === 'All' || p.category === category) && p.name.toLowerCase().includes(search.toLowerCase())),
@@ -426,6 +477,26 @@ function KioskTerminal({ deviceInfo }: { deviceInfo: DeviceInfo | null }) {
             </div>
           </div>
           <CartSidebar cart={cart} onRemove={removeFromCart} onAdd={increaseQty} onCheckout={handleCheckout} isLoading={checkingOut} />
+        </div>
+      )}
+
+      {/* Session timeout warning modal */}
+      {showTimeoutWarning && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-5 rounded-2xl bg-[#1a1a1a] p-8 shadow-2xl border border-[#333] text-center max-w-sm w-full mx-4">
+            <div className="text-5xl">⏱️</div>
+            <h2 className="text-2xl font-extrabold text-white">Are you still there?</h2>
+            <p className="text-gray-400">Your session will reset in</p>
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500 text-2xl font-extrabold text-black">
+              {timeoutCountdown}
+            </div>
+            <button
+              onClick={resetSessionTimer}
+              className="w-full rounded-2xl bg-amber-500 py-4 text-lg font-extrabold text-black hover:bg-amber-400"
+            >
+              Yes, continue
+            </button>
+          </div>
         </div>
       )}
 

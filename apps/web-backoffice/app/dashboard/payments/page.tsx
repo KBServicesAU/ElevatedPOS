@@ -13,11 +13,11 @@ interface ConnectAccount {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  active: 'bg-green-100 text-green-800',
-  onboarding: 'bg-yellow-100 text-yellow-800',
-  restricted: 'bg-orange-100 text-orange-800',
-  pending: 'bg-gray-100 text-gray-600',
-  disabled: 'bg-red-100 text-red-800',
+  active: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  onboarding: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
+  restricted: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+  pending: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
+  disabled: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
 };
 
 export default function PaymentsPage() {
@@ -69,8 +69,8 @@ export default function PaymentsPage() {
     return (
       <div className="p-8">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-gray-200 rounded w-48" />
-          <div className="h-40 bg-gray-200 rounded-2xl" />
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-48" />
+          <div className="h-40 bg-gray-200 dark:bg-gray-700 rounded-2xl" />
         </div>
       </div>
     );
@@ -79,20 +79,20 @@ export default function PaymentsPage() {
   return (
     <div className="p-8 max-w-4xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Payments</h1>
-        <p className="text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payments</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">
           Connect your Stripe account to accept payments, manage subscriptions and send invoices.
         </p>
       </div>
 
       {!account || account.status === 'pending' ? (
         /* Not connected */
-        <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center max-w-lg mx-auto">
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-8 text-center max-w-lg mx-auto">
           <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <span className="text-3xl">💳</span>
           </div>
           <h2 className="text-xl font-bold mb-2">Connect Stripe</h2>
-          <p className="text-gray-500 mb-6 text-sm">
+          <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm">
             Link your Stripe account to start accepting payments. Takes about 5 minutes. A 1%
             platform fee applies to all transactions on top of standard Stripe fees.
           </p>
@@ -103,7 +103,7 @@ export default function PaymentsPage() {
           >
             {onboarding ? 'Redirecting to Stripe...' : 'Connect with Stripe →'}
           </button>
-          <p className="text-xs text-gray-400 mt-4">
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-4">
             Powered by Stripe Connect · Your data is secure
           </p>
         </div>
@@ -111,13 +111,13 @@ export default function PaymentsPage() {
         /* Connected */
         <div className="space-y-6">
           {/* Status card */}
-          <div className="bg-white rounded-2xl border border-gray-200 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h2 className="text-lg font-semibold">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                   {account.businessName ?? 'Your Stripe Account'}
                 </h2>
-                <p className="text-sm text-gray-500 font-mono">{account.stripeAccountId}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{account.stripeAccountId}</p>
               </div>
               <span
                 className={`px-3 py-1 rounded-full text-sm font-medium capitalize ${STATUS_COLORS[account.status] ?? ''}`}
@@ -127,24 +127,24 @@ export default function PaymentsPage() {
             </div>
 
             <div className="grid grid-cols-3 gap-4 mb-6">
-              <div className="bg-gray-50 rounded-xl p-4 text-center">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-center">
                 <div className="text-2xl mb-1">{account.chargesEnabled ? '✅' : '⏳'}</div>
-                <p className="text-sm font-medium">Charges</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">Charges</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {account.chargesEnabled ? 'Enabled' : 'Pending'}
                 </p>
               </div>
-              <div className="bg-gray-50 rounded-xl p-4 text-center">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-center">
                 <div className="text-2xl mb-1">{account.payoutsEnabled ? '✅' : '⏳'}</div>
-                <p className="text-sm font-medium">Payouts</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">Payouts</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {account.payoutsEnabled ? 'Enabled' : 'Pending'}
                 </p>
               </div>
-              <div className="bg-gray-50 rounded-xl p-4 text-center">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-center">
                 <div className="text-2xl mb-1">💰</div>
-                <p className="text-sm font-medium">Platform fee</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">Platform fee</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {account.platformFeePercent / 100}% per transaction
                 </p>
               </div>
@@ -166,7 +166,7 @@ export default function PaymentsPage() {
             <div className="flex gap-3">
               <button
                 onClick={handleDashboard}
-                className="flex-1 py-2.5 border border-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+                className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 Open Stripe Dashboard ↗
               </button>
@@ -186,27 +186,27 @@ export default function PaymentsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <a
                 href="/dashboard/subscriptions"
-                className="bg-white rounded-2xl border border-gray-200 p-5 hover:border-indigo-300 hover:shadow-sm transition-all group"
+                className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-sm transition-all group"
               >
                 <div className="text-2xl mb-3">🔄</div>
-                <h3 className="font-semibold mb-1 group-hover:text-indigo-600">Subscriptions</h3>
-                <p className="text-sm text-gray-500">Manage recurring billing for your customers</p>
+                <h3 className="font-semibold mb-1 text-gray-900 dark:text-white group-hover:text-indigo-600">Subscriptions</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Manage recurring billing for your customers</p>
               </a>
               <a
                 href="/dashboard/invoices"
-                className="bg-white rounded-2xl border border-gray-200 p-5 hover:border-indigo-300 hover:shadow-sm transition-all group"
+                className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-sm transition-all group"
               >
                 <div className="text-2xl mb-3">🧾</div>
-                <h3 className="font-semibold mb-1 group-hover:text-indigo-600">Invoices</h3>
-                <p className="text-sm text-gray-500">Send invoices directly to your customers</p>
+                <h3 className="font-semibold mb-1 text-gray-900 dark:text-white group-hover:text-indigo-600">Invoices</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Send invoices directly to your customers</p>
               </a>
               <a
                 href="/dashboard/catalog"
-                className="bg-white rounded-2xl border border-gray-200 p-5 hover:border-indigo-300 hover:shadow-sm transition-all group"
+                className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-sm transition-all group"
               >
                 <div className="text-2xl mb-3">🛍️</div>
-                <h3 className="font-semibold mb-1 group-hover:text-indigo-600">Web Store</h3>
-                <p className="text-sm text-gray-500">Manage your online store products</p>
+                <h3 className="font-semibold mb-1 text-gray-900 dark:text-white group-hover:text-indigo-600">Web Store</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Manage your online store products</p>
               </a>
             </div>
           )}

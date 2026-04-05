@@ -65,7 +65,7 @@ function LoginContent() {
         {/* Logo */}
         <div className="mb-8 text-center">
           <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-elevatedpos-500 shadow-xl shadow-elevatedpos-500/30">
-            <span className="text-3xl font-bold text-white">N</span>
+            <span className="text-3xl font-bold text-white">E</span>
           </div>
           <h1 className="text-2xl font-bold text-white">Welcome back</h1>
           <p className="mt-1 text-sm text-elevatedpos-400">Sign in to your ElevatedPOS account</p>
@@ -184,6 +184,25 @@ function LoginContent() {
           <Link href="mailto:support@elevatedpos.com.au" className="text-elevatedpos-400 hover:text-elevatedpos-200">
             Contact your administrator
           </Link>
+        </p>
+        <p className="mt-3 text-center text-xs text-elevatedpos-700">
+          <a
+            href="https://elevatedpos.com.au/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-elevatedpos-500"
+          >
+            Terms of Service
+          </a>
+          {' · '}
+          <a
+            href="https://elevatedpos.com.au/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-elevatedpos-500"
+          >
+            Privacy Policy
+          </a>
         </p>
       </div>
     </div>

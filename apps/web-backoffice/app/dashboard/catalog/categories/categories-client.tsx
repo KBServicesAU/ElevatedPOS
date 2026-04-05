@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '@/lib/api';
+import { useToast } from '@/lib/use-toast';
+import { getErrorMessage } from '@/lib/formatting';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -446,11 +449,14 @@ function RoutingBadge({ label, value }: { label: string; value: string }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function CategoriesClient() {
+  const { toast } = useToast();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
   const loadCategories = useCallback(async () => {
     try {
@@ -505,6 +511,40 @@ export function CategoriesClient() {
       );
     } finally {
       setTogglingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(cat.id);
+        return next;
+      });
+    }
+  }
+
+  async function handleDelete(cat: Category) {
+    // Guard: check if this category has sub-categories
+    const hasChildren = categories.some((c) => c.parentId === cat.id);
+    if (hasChildren) {
+      toast({
+        title: 'Cannot delete category',
+        description: 'This category has sub-categories. Delete them first.',
+        variant: 'destructive',
+      });
+      setConfirmDeleteId(null);
+      return;
+    }
+
+    setDeletingIds((prev) => new Set(prev).add(cat.id));
+    setConfirmDeleteId(null);
+    try {
+      await apiFetch(`categories/${cat.id}`, { method: 'DELETE' });
+      setCategories((prev) => prev.filter((c) => c.id !== cat.id));
+      toast({ title: 'Category deleted', variant: 'default' });
+    } catch (err) {
+      toast({
+        title: 'Failed to delete category',
+        description: getErrorMessage(err, 'Could not delete category.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingIds((prev) => {
         const next = new Set(prev);
         next.delete(cat.id);
         return next;
@@ -688,12 +728,40 @@ export function CategoriesClient() {
                     </td>
                     {/* Actions */}
                     <td className="px-5 py-3.5">
-                      <button
-                        onClick={() => openEdit(cat)}
-                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white transition-colors"
-                      >
-                        Edit
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openEdit(cat)}
+                          className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white transition-colors"
+                        >
+                          Edit
+                        </button>
+                        {confirmDeleteId === cat.id ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="text-xs text-gray-500 dark:text-gray-400">Delete?</span>
+                            <button
+                              onClick={() => { void handleDelete(cat); }}
+                              disabled={deletingIds.has(cat.id)}
+                              className="text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50 transition-colors"
+                            >
+                              {deletingIds.has(cat.id) ? 'Deleting…' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                            >
+                              No
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(cat.id)}
+                            disabled={deletingIds.has(cat.id)}
+                            className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/20 dark:hover:text-red-300 disabled:opacity-50 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

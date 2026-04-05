@@ -4,6 +4,9 @@ import { useState } from 'react';
 import { Star, TrendingUp, Gift, Plus, Users, X } from 'lucide-react';
 import { useLoyaltyPrograms } from '@/lib/hooks';
 import type { LoyaltyProgram, LoyaltyTier } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
+import { useToast } from '@/lib/use-toast';
+import { getErrorMessage } from '@/lib/formatting';
 
 const tierColors: Record<string, string> = {
   Bronze: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
@@ -12,16 +15,19 @@ const tierColors: Record<string, string> = {
   Platinum: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
 };
 
-// ─── Create Program Modal ─────────────────────────────────────────────────────
+// ─── Program Modal (Create or Edit) ──────────────────────────────────────────
 
-interface CreateProgramModalProps {
+interface ProgramModalProps {
+  program?: LoyaltyProgram;   // present → edit mode
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: () => void;
 }
 
-function CreateProgramModal({ onClose, onCreated }: CreateProgramModalProps) {
-  const [name, setName] = useState('');
-  const [earnRate, setEarnRate] = useState('1');
+function ProgramModal({ program, onClose, onSaved }: ProgramModalProps) {
+  const { toast } = useToast();
+  const isEdit = !!program;
+  const [name, setName] = useState(program?.name ?? '');
+  const [earnRate, setEarnRate] = useState(String(program?.earnRate ?? '1'));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -30,20 +36,31 @@ function CreateProgramModal({ onClose, onCreated }: CreateProgramModalProps) {
     setError('');
     setSaving(true);
     try {
-      const res = await fetch('/api/proxy/programs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), earnRate: parseFloat(earnRate) || 1, active: true }),
-      });
-      if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        try { const b = await res.json(); msg = b.message ?? b.error ?? b.detail ?? msg; } catch { /* ignore */ }
-        throw new Error(msg);
+      const body = JSON.stringify({ name: name.trim(), earnRate: parseFloat(earnRate) || 1, active: true });
+      if (isEdit && program) {
+        await apiFetch(`loyalty/programs/${program.id}`, {
+          method: 'PUT',
+          body,
+        });
+        toast({ title: 'Program updated', description: `"${name.trim()}" has been updated.`, variant: 'success' });
+      } else {
+        const res = await fetch('/api/proxy/programs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+        if (!res.ok) {
+          let msg = `HTTP ${res.status}`;
+          try { const b = await res.json(); msg = b.message ?? b.error ?? b.detail ?? msg; } catch { /* ignore */ }
+          throw new Error(msg);
+        }
+        toast({ title: 'Program created', description: `"${name.trim()}" has been created.`, variant: 'success' });
       }
-      onCreated();
+      onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create program');
+      const msg = isEdit ? getErrorMessage(err, 'Failed to update program') : (err instanceof Error ? err.message : 'Failed to create program');
+      setError(msg);
     } finally {
       setSaving(false);
     }
@@ -54,7 +71,9 @@ function CreateProgramModal({ onClose, onCreated }: CreateProgramModalProps) {
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-gray-900">
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Create Loyalty Program</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            {isEdit ? 'Edit Loyalty Program' : 'Create Loyalty Program'}
+          </h2>
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X className="h-5 w-5" />
           </button>
@@ -103,7 +122,7 @@ function CreateProgramModal({ onClose, onCreated }: CreateProgramModalProps) {
               disabled={saving || !name.trim()}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              {saving ? 'Creating…' : 'Create Program'}
+              {saving ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save Changes' : 'Create Program')}
             </button>
           </div>
         </form>
@@ -117,10 +136,15 @@ function CreateProgramModal({ onClose, onCreated }: CreateProgramModalProps) {
 export function LoyaltyClient() {
   const { data, isLoading, isError, refetch } = useLoyaltyPrograms();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingProgram, setEditingProgram] = useState<LoyaltyProgram | null>(null);
   const programs = data?.data ?? [];
   const program = programs[0] as LoyaltyProgram | undefined;
   const tiers: LoyaltyTier[] = program?.tiers ?? [];
   const totalMembers = tiers.reduce((sum, t) => sum + (t.memberCount ?? 0), 0);
+
+  function handleSaved() {
+    void refetch?.();
+  }
 
   if (isLoading) {
     return (
@@ -138,9 +162,9 @@ export function LoyaltyClient() {
     return (
       <div className="space-y-6">
         {showCreateModal && (
-          <CreateProgramModal
+          <ProgramModal
             onClose={() => setShowCreateModal(false)}
-            onCreated={() => { void refetch?.(); }}
+            onSaved={handleSaved}
           />
         )}
         <div>
@@ -164,11 +188,19 @@ export function LoyaltyClient() {
   return (
     <div className="space-y-6">
       {showCreateModal && (
-        <CreateProgramModal
+        <ProgramModal
           onClose={() => setShowCreateModal(false)}
-          onCreated={() => { void refetch?.(); }}
+          onSaved={handleSaved}
         />
       )}
+      {editingProgram && (
+        <ProgramModal
+          program={editingProgram}
+          onClose={() => setEditingProgram(null)}
+          onSaved={handleSaved}
+        />
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Loyalty Program</h2>
@@ -195,7 +227,12 @@ export function LoyaltyClient() {
             >
               {program.active ? 'Active' : 'Inactive'}
             </span>
-            <button className="text-sm text-indigo-600 hover:text-indigo-700">Edit</button>
+            <button
+              onClick={() => setEditingProgram(program)}
+              className="text-sm text-indigo-600 hover:text-indigo-700"
+            >
+              Edit
+            </button>
           </div>
         </div>
         {tiers.length > 0 && (

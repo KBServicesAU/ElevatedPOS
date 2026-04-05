@@ -49,6 +49,27 @@ interface VariantGroup {
   options: VariantOption[];
 }
 
+// ─── New SKU-based variants types ────────────────────────────────────────────
+
+/** One option dimension, e.g. { name: "Size", values: ["S","M","L"] } */
+interface ProductOptionType {
+  name: string;
+  values: string[];
+}
+
+/** One auto-generated variant row (cartesian product of option values) */
+interface GeneratedVariant {
+  /** e.g. ["S", "Red"] – one entry per option type */
+  optionValues: string[];
+  /** Display name, e.g. "S / Red" */
+  label: string;
+  sku: string;
+  price: string;
+  costPrice: string;
+  stock: string;
+  enabled: boolean;
+}
+
 interface ProductFormData {
   // Details
   name: string;
@@ -360,11 +381,13 @@ function DetailsTab({
   setField,
   categories,
   taxClasses,
+  hasVariants,
 }: {
   form: ProductFormData;
   setField: <K extends keyof ProductFormData>(k: K, v: ProductFormData[K]) => void;
   categories: Category[];
   taxClasses: TaxClass[];
+  hasVariants: boolean;
 }) {
   const [barcodeInput, setBarcodeInput] = useState('');
 
@@ -576,32 +599,39 @@ function DetailsTab({
         </div>
       </SectionCard>
 
-      <SectionCard title="Pricing">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <Label required>Base Price ($)</Label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.basePrice}
-              onChange={(v) => setField('basePrice', v)}
-              placeholder="0.00"
-            />
+      {!hasVariants && (
+        <SectionCard title="Pricing">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <Label required>Base Price ($)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.basePrice}
+                onChange={(v) => setField('basePrice', v)}
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <Label>Cost Price ($)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.costPrice}
+                onChange={(v) => setField('costPrice', v)}
+                placeholder="0.00"
+              />
+            </div>
           </div>
-          <div>
-            <Label>Cost Price ($)</Label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.costPrice}
-              onChange={(v) => setField('costPrice', v)}
-              placeholder="0.00"
-            />
-          </div>
+        </SectionCard>
+      )}
+      {hasVariants && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 px-5 py-3 text-sm text-indigo-700 dark:border-indigo-800 dark:bg-indigo-900/10 dark:text-indigo-300">
+          Price and stock are managed per-variant in the <strong>Variants</strong> tab.
         </div>
-      </SectionCard>
+      )}
 
       <SectionCard title="Hospitality">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -1135,86 +1165,413 @@ function VariantGroupCard({
   );
 }
 
+// ─── Helpers: cartesian product ──────────────────────────────────────────────
+
+function cartesian(arrays: string[][]): string[][] {
+  if (arrays.length === 0) return [[]];
+  const [first, ...rest] = arrays;
+  const restProduct = cartesian(rest);
+  return first.flatMap((val) => restProduct.map((combo) => [val, ...combo]));
+}
+
+function buildVariantSku(parentSku: string, optionValues: string[]): string {
+  const suffix = optionValues
+    .map((v) => v.toUpperCase().replace(/[^A-Z0-9]+/g, ''))
+    .filter(Boolean)
+    .join('-');
+  return parentSku ? `${parentSku}-${suffix}` : suffix;
+}
+
+/** Merge newly generated variants with any existing ones (preserve user edits) */
+function mergeVariants(
+  newCombos: string[][],
+  existing: GeneratedVariant[],
+  parentSku: string,
+  parentPrice: string,
+): GeneratedVariant[] {
+  return newCombos.map((combo) => {
+    const label = combo.join(' / ');
+    const found = existing.find((v) => v.label === label);
+    if (found) return { ...found, label, optionValues: combo };
+    return {
+      optionValues: combo,
+      label,
+      sku: buildVariantSku(parentSku, combo),
+      price: parentPrice,
+      costPrice: '',
+      stock: '',
+      enabled: true,
+    };
+  });
+}
+
+// ─── Tab: Variants (new SKU-based system) ────────────────────────────────────
+
 function VariantsTab({
-  groups,
-  setGroups,
+  hasVariants,
+  onToggleHasVariants,
+  optionTypes,
+  setOptionTypes,
+  variants,
+  setVariants,
+  parentSku,
+  parentPrice,
 }: {
-  groups: VariantGroup[];
-  setGroups: React.Dispatch<React.SetStateAction<VariantGroup[]>>;
+  hasVariants: boolean;
+  onToggleHasVariants: (v: boolean) => void;
+  optionTypes: ProductOptionType[];
+  setOptionTypes: React.Dispatch<React.SetStateAction<ProductOptionType[]>>;
+  variants: GeneratedVariant[];
+  setVariants: React.Dispatch<React.SetStateAction<GeneratedVariant[]>>;
+  parentSku: string;
+  parentPrice: string;
 }) {
-  function addGroup() {
-    setGroups((prev) => [
-      ...prev,
-      {
-        name: '',
-        required: false,
-        minSelections: 0,
-        maxSelections: 1,
-        allowMultiple: false,
-        isRoot: prev.length === 0, // first group defaults to root
-        sortOrder: prev.length,
-        options: [],
-      },
-    ]);
-  }
+  // Local state for tag input per option type
+  const [tagInputs, setTagInputs] = useState<string[]>(() => optionTypes.map(() => ''));
 
-  function updateGroup(idx: number, g: VariantGroup) {
-    setGroups((prev) => {
+  // Keep tagInputs length in sync with optionTypes
+  useEffect(() => {
+    setTagInputs((prev) => {
       const next = [...prev];
-      next[idx] = g;
-      return next;
+      while (next.length < optionTypes.length) next.push('');
+      return next.slice(0, optionTypes.length);
     });
+  }, [optionTypes.length]);
+
+  // Regenerate variant table whenever optionTypes or parentSku/parentPrice change
+  useEffect(() => {
+    if (!hasVariants) return;
+    const valueSets = optionTypes.map((o) => o.values).filter((v) => v.length > 0);
+    if (valueSets.length === 0) {
+      setVariants([]);
+      return;
+    }
+    const combos = cartesian(valueSets);
+    setVariants((prev) => mergeVariants(combos, prev, parentSku, parentPrice));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [optionTypes, hasVariants, parentSku, parentPrice]);
+
+  // ── Option type helpers ────────────────────────────────────────────────────
+
+  function addOptionType() {
+    if (optionTypes.length >= 3) return;
+    setOptionTypes((prev) => [...prev, { name: '', values: [] }]);
   }
 
-  function deleteGroup(idx: number) {
-    setGroups((prev) => prev.filter((_, i) => i !== idx));
+  function removeOptionType(idx: number) {
+    setOptionTypes((prev) => prev.filter((_, i) => i !== idx));
   }
+
+  function updateOptionTypeName(idx: number, name: string) {
+    setOptionTypes((prev) => prev.map((o, i) => (i === idx ? { ...o, name } : o)));
+  }
+
+  function addTag(idx: number, raw: string) {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    setOptionTypes((prev) =>
+      prev.map((o, i) =>
+        i === idx && !o.values.includes(trimmed)
+          ? { ...o, values: [...o.values, trimmed] }
+          : o,
+      ),
+    );
+    setTagInputs((prev) => prev.map((v, i) => (i === idx ? '' : v)));
+  }
+
+  function removeTag(optIdx: number, tagVal: string) {
+    setOptionTypes((prev) =>
+      prev.map((o, i) =>
+        i === optIdx ? { ...o, values: o.values.filter((v) => v !== tagVal) } : o,
+      ),
+    );
+  }
+
+  // ── Variant row helpers ────────────────────────────────────────────────────
+
+  function updateVariant(idx: number, patch: Partial<GeneratedVariant>) {
+    setVariants((prev) => prev.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
+  }
+
+  function applyPriceToAll(price: string) {
+    setVariants((prev) => prev.map((v) => ({ ...v, price })));
+  }
+
+  function applyCostToAll(cost: string) {
+    setVariants((prev) => prev.map((v) => ({ ...v, costPrice: cost })));
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-            Variant Groups
-          </h3>
-          <p className="mt-0.5 text-sm text-gray-500">
-            Build modifier groups (e.g. &ldquo;Size&rdquo;, &ldquo;Add-ons&rdquo;). Conditional rules
-            let options trigger additional groups.
-          </p>
+    <div className="space-y-6">
+      {/* hasVariants toggle */}
+      <SectionCard>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              Enable Product Variants
+            </p>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              Turn on to sell this product in multiple variants (e.g. sizes, colours). Price and
+              stock become per-variant.
+            </p>
+          </div>
+          <Toggle checked={hasVariants} onChange={onToggleHasVariants} />
         </div>
-        <button
-          type="button"
-          onClick={addGroup}
-          className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
-        >
-          <Plus className="h-4 w-4" /> Add Group
-        </button>
-      </div>
+      </SectionCard>
 
-      {groups.length === 0 ? (
-        <div className="rounded-xl border-2 border-dashed border-gray-200 py-12 text-center dark:border-gray-700">
-          <p className="text-sm text-gray-400">No variant groups yet.</p>
-          <button
-            type="button"
-            onClick={addGroup}
-            className="mt-3 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-          >
-            + Add your first group
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {groups.map((g, i) => (
-            <VariantGroupCard
-              key={i}
-              group={g}
-              groupIndex={i}
-              groups={groups}
-              onUpdate={updateGroup}
-              onDelete={deleteGroup}
-            />
-          ))}
-        </div>
+      {hasVariants && (
+        <>
+          {/* Option types editor */}
+          <SectionCard title="Option Types">
+            <div className="space-y-4">
+              {optionTypes.map((opt, idx) => (
+                <div
+                  key={idx}
+                  className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50"
+                >
+                  <div className="mb-3 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={opt.name}
+                      onChange={(e) => updateOptionTypeName(idx, e.target.value)}
+                      placeholder={`Option name (e.g. ${idx === 0 ? 'Size' : idx === 1 ? 'Colour' : 'Style'})`}
+                      className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeOptionType(idx)}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  {/* Tag values */}
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {opt.values.map((val) => (
+                      <span
+                        key={val}
+                        className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"
+                      >
+                        {val}
+                        <button
+                          type="button"
+                          onClick={() => removeTag(idx, val)}
+                          className="ml-0.5 text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-200"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Tag input */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={tagInputs[idx] ?? ''}
+                      onChange={(e) =>
+                        setTagInputs((prev) => prev.map((v, i) => (i === idx ? e.target.value : v)))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addTag(idx, tagInputs[idx] ?? '');
+                        }
+                      }}
+                      placeholder="Type a value and press Enter…"
+                      className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addTag(idx, tagInputs[idx] ?? '')}
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {optionTypes.length < 3 ? (
+                <button
+                  type="button"
+                  onClick={addOptionType}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-gray-300 py-3 text-sm font-medium text-gray-500 transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:border-gray-700 dark:hover:border-indigo-600 dark:hover:text-indigo-400"
+                >
+                  <Plus className="h-4 w-4" /> Add Option{optionTypes.length > 0 ? ' Type' : ' (e.g. Size, Colour)'}
+                </button>
+              ) : (
+                <p className="text-center text-xs text-gray-400 dark:text-gray-500">
+                  Maximum of 3 option types reached.
+                </p>
+              )}
+            </div>
+          </SectionCard>
+
+          {/* Auto-generated variants table */}
+          {variants.length > 0 && (
+            <SectionCard title={`Generated Variants (${variants.length})`}>
+              {/* Apply-to-all quick actions */}
+              <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800/50">
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Apply to all:</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-500">Price $</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder={parentPrice || '0.00'}
+                    className="w-24 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    onBlur={(e) => { if (e.target.value) applyPriceToAll(e.target.value); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        applyPriceToAll((e.target as HTMLInputElement).value);
+                      }
+                    }}
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-500">Cost $</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    className="w-24 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    onBlur={(e) => { if (e.target.value) applyCostToAll(e.target.value); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        applyCostToAll((e.target as HTMLInputElement).value);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="pb-2 pl-1 pr-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Variant
+                      </th>
+                      <th className="pb-2 px-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+                        SKU
+                      </th>
+                      <th className="pb-2 px-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Price ($)
+                      </th>
+                      <th className="pb-2 px-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Cost ($)
+                      </th>
+                      <th className="pb-2 px-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Stock
+                      </th>
+                      <th className="pb-2 px-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Enabled
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {[...variants]
+                      .sort((a, b) => a.label.localeCompare(b.label))
+                      .map((v) => {
+                        // find the real index in the unsorted array
+                        const realIdx = variants.findIndex((rv) => rv.label === v.label);
+                        return (
+                          <tr
+                            key={v.label}
+                            className={`${
+                              !v.enabled ? 'opacity-50' : ''
+                            } transition-opacity`}
+                          >
+                            {/* Variant name */}
+                            <td className="py-2 pl-1 pr-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                              {v.label}
+                            </td>
+                            {/* SKU */}
+                            <td className="py-2 px-2">
+                              <input
+                                type="text"
+                                value={v.sku}
+                                onChange={(e) => updateVariant(realIdx, { sku: e.target.value })}
+                                className="w-36 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                              />
+                            </td>
+                            {/* Price */}
+                            <td className="py-2 px-2">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={v.price}
+                                onChange={(e) => updateVariant(realIdx, { price: e.target.value })}
+                                placeholder="0.00"
+                                className="w-24 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                              />
+                            </td>
+                            {/* Cost */}
+                            <td className="py-2 px-2">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={v.costPrice}
+                                onChange={(e) => updateVariant(realIdx, { costPrice: e.target.value })}
+                                placeholder="0.00"
+                                className="w-24 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                              />
+                            </td>
+                            {/* Stock */}
+                            <td className="py-2 px-2">
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                value={v.stock}
+                                onChange={(e) => updateVariant(realIdx, { stock: e.target.value })}
+                                placeholder="0"
+                                className="w-20 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                              />
+                            </td>
+                            {/* Enabled */}
+                            <td className="py-2 px-2 text-center">
+                              <Toggle
+                                checked={v.enabled}
+                                onChange={(val) => updateVariant(realIdx, { enabled: val })}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </SectionCard>
+          )}
+
+          {variants.length === 0 && optionTypes.some((o) => o.values.length > 0) && (
+            <div className="rounded-xl border-2 border-dashed border-gray-200 py-8 text-center dark:border-gray-700">
+              <p className="text-sm text-gray-400">
+                Add values to your option types to generate variant combinations.
+              </p>
+            </div>
+          )}
+
+          {optionTypes.length === 0 && (
+            <div className="rounded-xl border-2 border-dashed border-gray-200 py-10 text-center dark:border-gray-700">
+              <p className="text-sm text-gray-400">
+                Add an option type above (e.g. &ldquo;Size&rdquo; with values S, M, L) to get started.
+              </p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1363,6 +1720,11 @@ export function ProductForm({ productId }: { productId?: string }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [taxClasses, setTaxClasses] = useState<TaxClass[]>([]);
 
+  // ── New SKU-based variant state ────────────────────────────────────────────
+  const [hasVariants, setHasVariants] = useState(false);
+  const [variantOptionTypes, setVariantOptionTypes] = useState<ProductOptionType[]>([]);
+  const [generatedVariants, setGeneratedVariants] = useState<GeneratedVariant[]>([]);
+
   const [loadingProduct, setLoadingProduct] = useState(isEditing);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -1469,8 +1831,8 @@ export function ProductForm({ productId }: { productId?: string }) {
         if (mountedRef.current) setLoadingProduct(false);
       });
 
-    // Load variants
-    fetch(`/api/proxy/catalog/products/${productId}/variants`)
+    // Load modifier-group-style variants (legacy)
+    fetch(`/api/proxy/catalog/products/${productId}/variant-groups`)
       .then((r) => r.json())
       .then((data: { data?: VariantGroup[] } | VariantGroup[]) => {
         if (!mountedRef.current) return;
@@ -1479,6 +1841,33 @@ export function ProductForm({ productId }: { productId?: string }) {
       })
       .catch(() => {
         // variants may not exist yet
+      });
+
+    // Load new SKU-based variants
+    fetch(`/api/proxy/products/${productId}/variants`)
+      .then((r) => r.json())
+      .then((data: { data?: GeneratedVariant[]; hasVariants?: boolean } | GeneratedVariant[]) => {
+        if (!mountedRef.current) return;
+        const isEnvelope = !Array.isArray(data);
+        const items: GeneratedVariant[] = Array.isArray(data)
+          ? data
+          : ((data.data ?? []) as GeneratedVariant[]);
+        if (items.length > 0) {
+          setHasVariants(true);
+          setGeneratedVariants(items);
+          // Reconstruct option types from first variant's optionValues
+          // The API is expected to return optionTypes alongside, but we fall back gracefully
+          const optTypes =
+            isEnvelope && (data as { optionTypes?: ProductOptionType[] }).optionTypes
+              ? ((data as { optionTypes?: ProductOptionType[] }).optionTypes ?? [])
+              : [];
+          if (optTypes.length > 0) setVariantOptionTypes(optTypes);
+        } else if (isEnvelope && (data as { hasVariants?: boolean }).hasVariants) {
+          setHasVariants(true);
+        }
+      })
+      .catch(() => {
+        // endpoint may not exist yet
       });
   }, [productId, toast]);
 
@@ -1500,7 +1889,8 @@ export function ProductForm({ productId }: { productId?: string }) {
       setActiveTab('details');
       return;
     }
-    if (!form.basePrice) {
+    // Base price required only when not using per-variant pricing
+    if (!hasVariants && !form.basePrice) {
       setSaveError('Base price is required.');
       setActiveTab('details');
       return;
@@ -1511,36 +1901,68 @@ export function ProductForm({ productId }: { productId?: string }) {
 
     try {
       const payload = buildPayload(form);
+
+      // When variants are enabled, strip top-level price and embed variant data
+      if (hasVariants) {
+        delete payload.basePrice;
+        delete payload.costPrice;
+        payload.hasVariants = true;
+        payload.variantOptionTypes = variantOptionTypes;
+        payload.variants = generatedVariants.map((v) => ({
+          optionValues: v.optionValues,
+          sku: v.sku,
+          price: v.price ? Math.round(parseFloat(v.price) * 100) : 0,
+          costPrice: v.costPrice ? Math.round(parseFloat(v.costPrice) * 100) : undefined,
+          stock: v.stock !== '' ? Number(v.stock) : undefined,
+          enabled: v.enabled,
+        }));
+      }
+
       let savedId = productId;
 
       if (isEditing) {
-        const res = await fetch(`/api/proxy/catalog/products/${productId}`, {
-          method: 'PATCH',
+        // Try new endpoint first, fall back to catalog path
+        let res = await fetch(`/api/proxy/products/${productId}`, {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          const err = (await res.json().catch(() => ({}))) as { message?: string };
-          throw new Error(err.message ?? `HTTP ${res.status}`);
+          res = await fetch(`/api/proxy/catalog/products/${productId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const err = (await res.json().catch(() => ({}))) as { message?: string };
+            throw new Error(err.message ?? `HTTP ${res.status}`);
+          }
         }
       } else {
-        const res = await fetch('/api/proxy/catalog/products', {
+        // Try new endpoint first, fall back to catalog path
+        let res = await fetch('/api/proxy/products', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          const err = (await res.json().catch(() => ({}))) as { message?: string };
-          throw new Error(err.message ?? `HTTP ${res.status}`);
+          res = await fetch('/api/proxy/catalog/products', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const err = (await res.json().catch(() => ({}))) as { message?: string };
+            throw new Error(err.message ?? `HTTP ${res.status}`);
+          }
         }
         const created = (await res.json()) as { id?: string; data?: { id?: string } };
         savedId = created.id ?? created.data?.id;
       }
 
-      // Sync variants
+      // Sync legacy modifier-group variants
       if (savedId && groups.length > 0) {
         await syncVariants(savedId, groups).catch(() => {
-          // non-fatal — product is saved
           toast({
             title: 'Product saved',
             description: 'Note: Some variant groups may not have synced.',
@@ -1643,6 +2065,7 @@ export function ProductForm({ productId }: { productId?: string }) {
             setField={setField}
             categories={categories}
             taxClasses={taxClasses}
+            hasVariants={hasVariants}
           />
         )}
         {activeTab === 'channels' && (
@@ -1655,7 +2078,16 @@ export function ProductForm({ productId }: { productId?: string }) {
           <DimensionsTab form={form} setField={setField} />
         )}
         {activeTab === 'variants' && (
-          <VariantsTab groups={groups} setGroups={setGroups} />
+          <VariantsTab
+            hasVariants={hasVariants}
+            onToggleHasVariants={setHasVariants}
+            optionTypes={variantOptionTypes}
+            setOptionTypes={setVariantOptionTypes}
+            variants={generatedVariants}
+            setVariants={setGeneratedVariants}
+            parentSku={form.sku}
+            parentPrice={form.basePrice}
+          />
         )}
       </div>
 

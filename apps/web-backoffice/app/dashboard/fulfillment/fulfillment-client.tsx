@@ -56,10 +56,11 @@ export default function FulfillmentClient() {
     setError(null);
     try {
       const res = await apiFetch<FulfillmentResponse>(
-        'fulfillment?type=click_and_collect&status=ready',
+        'fulfillment?type=click_and_collect',
       );
       setItems(res.data ?? []);
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load orders');
       setItems([]);
     } finally {
       setLoading(false);

@@ -164,6 +164,8 @@ export interface Customer {
   loyaltyPoints?: number;
   lastVisitAt?: string;
   createdAt: string;
+  dateOfBirth?: string;
+  anniversaryDate?: string;
 }
 
 export interface CustomersResponse {
@@ -275,11 +277,17 @@ export interface Employee {
   firstName: string;
   lastName: string;
   email: string;
+  phone?: string;
   roleId?: string;
   role?: { id: string; name: string } | string;
+  locationId?: string;
+  locationName?: string;
+  employmentType?: string;
+  hourlyRate?: number;
   clockedIn?: boolean;
   isActive?: boolean;
   status?: string;
+  pin?: string;
   createdAt: string;
 }
 

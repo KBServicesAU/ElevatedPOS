@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 import { getErrorMessage } from '@/lib/formatting';
-import { Gift, Plus, X, AlertCircle } from 'lucide-react';
+import { Gift, Plus, X, AlertCircle, Mail, CreditCard } from 'lucide-react';
 
 interface GiftCard {
   id: string;
@@ -29,6 +29,207 @@ const STATUS_STYLES: Record<GiftCard['status'], string> = {
   cancelled: 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400',
 };
 
+// ─── Top Up Modal ──────────────────────────────────────────────────────────────
+
+function TopUpModal({
+  card,
+  onClose,
+  onSuccess,
+}: {
+  card: GiftCard;
+  onClose: () => void;
+  onSuccess: (newBalance: number) => void;
+}) {
+  const { toast } = useToast();
+  const [amount, setAmount] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleTopUp() {
+    const num = Number(amount);
+    if (!num || num <= 0) return;
+    setLoading(true);
+    try {
+      await apiFetch(`gift-cards/${card.id}/top-up`, {
+        method: 'POST',
+        body: JSON.stringify({ amount: num }),
+      });
+      const newBalance = card.balance + num;
+      onSuccess(newBalance);
+      toast({
+        title: 'Balance topped up',
+        description: `${card.code} balance updated to $${newBalance.toFixed(2)}.`,
+        variant: 'success',
+      });
+      onClose();
+    } catch (err) {
+      toast({
+        title: 'Top-up failed',
+        description: getErrorMessage(err, 'Failed to top up gift card.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Top Up Gift Card</h2>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 font-mono">{card.code}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-4 py-3 flex items-center justify-between">
+            <span className="text-xs text-gray-500 dark:text-gray-400">Current Balance</span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">${card.balance.toFixed(2)}</span>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
+              Top-Up Amount ($) <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              min="1"
+              placeholder="e.g. 25"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+              autoFocus
+            />
+          </div>
+          {amount && Number(amount) > 0 && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              New balance will be{' '}
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                ${(card.balance + Number(amount)).toFixed(2)}
+              </span>
+            </p>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => { void handleTopUp(); }}
+            disabled={!amount || Number(amount) <= 0 || loading}
+            className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
+          >
+            {loading ? (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            ) : (
+              <CreditCard className="h-4 w-4" />
+            )}
+            Top Up
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Send Email Modal ──────────────────────────────────────────────────────────
+
+function SendEmailModal({
+  card,
+  onClose,
+}: {
+  card: GiftCard;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSend() {
+    if (!email.trim()) return;
+    setLoading(true);
+    try {
+      await apiFetch(`gift-cards/${card.id}/send-email`, {
+        method: 'POST',
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      toast({
+        title: 'Gift card sent',
+        description: `Gift card sent to ${email.trim()}.`,
+        variant: 'success',
+      });
+      onClose();
+    } catch (err) {
+      toast({
+        title: 'Failed to send',
+        description: getErrorMessage(err, 'Failed to send gift card email.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Send Gift Card</h2>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 font-mono">{card.code}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
+              Customer Email <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="email"
+              placeholder="customer@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleSend(); }}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+              autoFocus
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => { void handleSend(); }}
+            disabled={!email.trim() || loading}
+            className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
+          >
+            {loading ? (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            ) : (
+              <Mail className="h-4 w-4" />
+            )}
+            Send
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ────────────────────────────────────────────────────────────
+
 export default function GiftCardsClient() {
   const { toast } = useToast();
   const [items, setItems] = useState<GiftCard[]>([]);
@@ -38,9 +239,21 @@ export default function GiftCardsClient() {
   const [showModal, setShowModal] = useState(false);
   const [issuing, setIssuing] = useState(false);
 
-  const [form, setForm] = useState({ amount: '', customerName: '', expiryDate: '' });
+  const [form, setForm] = useState({
+    amount: '',
+    customerName: '',
+    expiryDate: '',
+    customerEmail: '',
+    sendEmail: false,
+  });
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+
+  // Top-up modal state
+  const [topUpCard, setTopUpCard] = useState<GiftCard | null>(null);
+
+  // Send email modal state
+  const [sendEmailCard, setSendEmailCard] = useState<GiftCard | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,7 +261,8 @@ export default function GiftCardsClient() {
     try {
       const res = await apiFetch<GiftCardsResponse>('gift-cards');
       setItems(res.data ?? []);
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load gift cards');
       setItems([]);
     } finally {
       setLoading(false);
@@ -97,9 +311,36 @@ export default function GiftCardsClient() {
         status: res.status ?? 'active',
       };
       setItems((prev) => [newCard, ...prev]);
-      setForm({ amount: '', customerName: '', expiryDate: '' });
+
+      // Send email if requested
+      if (form.sendEmail && form.customerEmail.trim()) {
+        try {
+          await apiFetch(`gift-cards/${newCard.id}/send-email`, {
+            method: 'POST',
+            body: JSON.stringify({ email: form.customerEmail.trim() }),
+          });
+          toast({
+            title: 'Gift card sent',
+            description: `Gift card sent to ${form.customerEmail.trim()}.`,
+            variant: 'success',
+          });
+        } catch (emailErr) {
+          toast({
+            title: 'Gift card issued (email failed)',
+            description: getErrorMessage(emailErr, 'Card issued but failed to send email.'),
+            variant: 'destructive',
+          });
+        }
+      } else {
+        toast({
+          title: 'Gift card issued',
+          description: `${newCard.code} — $${Number(form.amount).toFixed(2)} issued to ${form.customerName}.`,
+          variant: 'success',
+        });
+      }
+
+      setForm({ amount: '', customerName: '', expiryDate: '', customerEmail: '', sendEmail: false });
       setShowModal(false);
-      toast({ title: 'Gift card issued', description: `${newCard.code} — $${Number(form.amount).toFixed(2)} issued to ${form.customerName}.`, variant: 'success' });
     } catch (err) {
       const msg = getErrorMessage(err, 'Failed to issue gift card.');
       toast({ title: 'Failed to issue gift card', description: msg, variant: 'destructive' });
@@ -189,7 +430,6 @@ export default function GiftCardsClient() {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {filtered.map((card) => {
-                  const pct = card.originalAmount > 0 ? Math.round((card.balance / card.originalAmount) * 100) : 0;
                   return (
                     <tr key={card.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
                       <td className="px-4 py-3.5 font-mono text-xs text-gray-700 dark:text-gray-300">{card.code}</td>
@@ -215,7 +455,7 @@ export default function GiftCardsClient() {
                             <span className="inline-flex items-center gap-2">
                               <span className="text-xs text-gray-500 dark:text-gray-400">Cancel card?</span>
                               <button
-                                onClick={() => handleCancel(card)}
+                                onClick={() => { void handleCancel(card); }}
                                 disabled={cancellingId === card.id}
                                 className="text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50 transition-colors"
                               >
@@ -229,12 +469,28 @@ export default function GiftCardsClient() {
                               </button>
                             </span>
                           ) : (
-                            <button
-                              onClick={() => setConfirmCancelId(card.id)}
-                              className="text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                            >
-                              Cancel
-                            </button>
+                            <span className="inline-flex items-center gap-3">
+                              <button
+                                onClick={() => setTopUpCard(card)}
+                                className="flex items-center gap-1 text-xs font-medium text-elevatedpos-600 hover:text-elevatedpos-500 dark:text-elevatedpos-400 transition-colors"
+                              >
+                                <CreditCard className="h-3 w-3" />
+                                Top Up
+                              </button>
+                              <button
+                                onClick={() => setSendEmailCard(card)}
+                                className="flex items-center gap-1 text-xs text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors"
+                              >
+                                <Mail className="h-3 w-3" />
+                                Send
+                              </button>
+                              <button
+                                onClick={() => setConfirmCancelId(card.id)}
+                                className="text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </span>
                           )
                         )}
                       </td>
@@ -253,7 +509,13 @@ export default function GiftCardsClient() {
           <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
               <h2 className="text-base font-semibold text-gray-900 dark:text-white">Issue Gift Card</h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+              <button
+                onClick={() => {
+                  setShowModal(false);
+                  setForm({ amount: '', customerName: '', expiryDate: '', customerEmail: '', sendEmail: false });
+                }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -288,17 +550,46 @@ export default function GiftCardsClient() {
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                 />
               </div>
+
+              {/* Email delivery section */}
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-3">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.sendEmail}
+                    onChange={(e) => setForm({ ...form, sendEmail: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-elevatedpos-600 focus:ring-elevatedpos-500 dark:border-gray-600"
+                  />
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <Mail className="h-3.5 w-3.5 text-gray-400" />
+                    Send to customer via email
+                  </span>
+                </label>
+                {form.sendEmail && (
+                  <input
+                    type="email"
+                    placeholder="customer@example.com"
+                    value={form.customerEmail}
+                    onChange={(e) => setForm({ ...form, customerEmail: e.target.value })}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                    autoFocus
+                  />
+                )}
+              </div>
             </div>
             <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => {
+                  setShowModal(false);
+                  setForm({ amount: '', customerName: '', expiryDate: '', customerEmail: '', sendEmail: false });
+                }}
                 className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
               >
                 Cancel
               </button>
               <button
-                onClick={handleIssue}
-                disabled={!form.amount || !form.customerName || issuing}
+                onClick={() => { void handleIssue(); }}
+                disabled={!form.amount || !form.customerName || issuing || (form.sendEmail && !form.customerEmail.trim())}
                 className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
               >
                 {issuing ? (
@@ -311,6 +602,27 @@ export default function GiftCardsClient() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Top Up Modal */}
+      {topUpCard && (
+        <TopUpModal
+          card={topUpCard}
+          onClose={() => setTopUpCard(null)}
+          onSuccess={(newBalance) => {
+            setItems((prev) =>
+              prev.map((c) => c.id === topUpCard.id ? { ...c, balance: newBalance } : c)
+            );
+          }}
+        />
+      )}
+
+      {/* Send Email Modal */}
+      {sendEmailCard && (
+        <SendEmailModal
+          card={sendEmailCard}
+          onClose={() => setSendEmailCard(null)}
+        />
       )}
     </div>
   );

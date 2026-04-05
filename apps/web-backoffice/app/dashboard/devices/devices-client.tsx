@@ -6,13 +6,14 @@ import {
   Tablet, Clock, Wifi, WifiOff, Copy, Check, Settings2,
   CreditCard, Banknote, Gift, Users, Package, Wallet,
   Save, Router, ChevronDown, ChevronUp, AlertCircle,
+  Monitor as DisplayIcon, Image, Eye, RotateCcw, PowerOff,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type DeviceRole   = 'pos' | 'kds' | 'kiosk';
+type DeviceRole   = 'pos' | 'kds' | 'kiosk' | 'customer-display';
 type DeviceStatus = 'active' | 'revoked';
 
 interface Device {
@@ -56,6 +57,12 @@ interface DevicePaymentConfig {
   terminalCredentialId: string | null;
 }
 
+interface CustomerDisplaySettings {
+  idleMessage:       string;
+  logoUrl:           string;
+  showOrderTotal:    boolean;
+}
+
 // ─── Payment method definitions ───────────────────────────────────────────────
 
 const PAYMENT_METHODS = [
@@ -67,21 +74,44 @@ const PAYMENT_METHODS = [
   { id: 'bnpl',     label: 'BNPL',           desc: 'Afterpay, Zip, Humm',         Icon: Wallet,     posDefault: false, kioskDefault: false },
 ] as const;
 
-const DEFAULT_METHODS: Record<DeviceRole, string[]> = {
-  pos:   ['cash', 'card', 'giftcard'],
-  kds:   [],
-  kiosk: ['card', 'giftcard'],
+const DEFAULT_METHODS: Record<string, string[]> = {
+  pos:               ['cash', 'card', 'giftcard'],
+  kds:               [],
+  kiosk:             ['card', 'giftcard'],
+  'customer-display': [],
 };
+
+const EFTPOS_PROVIDERS = [
+  { id: 'anz',       label: 'ANZ Worldline' },
+  { id: 'tyro',      label: 'Tyro' },
+  { id: 'westpac',   label: 'Westpac' },
+  { id: 'nab',       label: 'NAB' },
+  { id: 'cba',       label: 'CBA' },
+  { id: 'windcave',  label: 'Windcave' },
+  { id: 'stripe',    label: 'Stripe Terminal' },
+] as const;
+
+// ─── Health indicator ─────────────────────────────────────────────────────────
+
+function healthDot(lastSeenAt: string | null): { color: string; label: string } {
+  if (!lastSeenAt) return { color: 'bg-gray-600', label: 'Never seen' };
+  const diffMs = Date.now() - new Date(lastSeenAt).getTime();
+  if (diffMs < 60_000)  return { color: 'bg-green-500',  label: 'Online' };
+  if (diffMs < 5 * 60_000) return { color: 'bg-yellow-500', label: 'Recently online' };
+  return { color: 'bg-red-500', label: 'Offline' };
+}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function RoleBadge({ role }: { role: DeviceRole }) {
   const map: Record<DeviceRole, { label: string; className: string; Icon: React.ElementType }> = {
-    pos:   { label: 'POS',   className: 'bg-indigo-900 text-indigo-300 border border-indigo-700',  Icon: Monitor  },
-    kds:   { label: 'KDS',   className: 'bg-orange-900 text-orange-300 border border-orange-700',  Icon: ChefHat  },
-    kiosk: { label: 'Kiosk', className: 'bg-teal-900   text-teal-300   border border-teal-700',    Icon: Tablet   },
+    pos:               { label: 'POS',      className: 'bg-indigo-900 text-indigo-300 border border-indigo-700',   Icon: Monitor       },
+    kds:               { label: 'KDS',      className: 'bg-orange-900 text-orange-300 border border-orange-700',   Icon: ChefHat       },
+    kiosk:             { label: 'Kiosk',    className: 'bg-teal-900   text-teal-300   border border-teal-700',     Icon: Tablet        },
+    'customer-display': { label: 'Display', className: 'bg-purple-900 text-purple-300 border border-purple-700',   Icon: DisplayIcon   },
   };
-  const { label, className, Icon } = map[role];
+  const cfg = map[role] ?? map['pos'];
+  const { label, className, Icon } = cfg;
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${className}`}>
       <Icon className="h-3 w-3" />{label}
@@ -123,6 +153,7 @@ function CountdownTimer({ expiresAt }: { expiresAt: string }) {
 
 export default function DevicesClient() {
   const { toast } = useToast();
+
   // — existing state —
   const [activeTab, setActiveTab]     = useState<'devices' | 'pair'>('devices');
   const [devices,   setDevices]       = useState<Device[]>([]);
@@ -149,11 +180,24 @@ export default function DevicesClient() {
   const [configError,      setConfigError]     = useState<string | null>(null);
 
   // — add-terminal inline form —
-  const [newTermLabel, setNewTermLabel] = useState('');
-  const [newTermIp,    setNewTermIp]    = useState('');
-  const [newTermPort,  setNewTermPort]  = useState(8080);
-  const [addingTerm,   setAddingTerm]   = useState(false);
-  const [termError,    setTermError]    = useState<string | null>(null);
+  const [newTermLabel,    setNewTermLabel]    = useState('');
+  const [newTermIp,       setNewTermIp]       = useState('');
+  const [newTermPort,     setNewTermPort]     = useState(8080);
+  const [newTermProvider, setNewTermProvider] = useState<string>('anz');
+  const [addingTerm,      setAddingTerm]      = useState(false);
+  const [termError,       setTermError]       = useState<string | null>(null);
+
+  // — customer display config state —
+  const [displayConfiguringId, setDisplayConfiguringId] = useState<string | null>(null);
+  const [draftDisplay, setDraftDisplay] = useState<CustomerDisplaySettings>({
+    idleMessage: '', logoUrl: '', showOrderTotal: true,
+  });
+  const [savingDisplay, setSavingDisplay] = useState(false);
+  const [displayError, setDisplayError] = useState<string | null>(null);
+
+  // — remote restart state —
+  const [confirmRestartId, setConfirmRestartId] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState<string | null>(null);
 
   // ── Loaders ──────────────────────────────────────────────────────────────
 
@@ -196,6 +240,19 @@ export default function DevicesClient() {
     } catch { /**/ } finally { setRevoking(null); }
   }
 
+  // ── Remote Restart ────────────────────────────────────────────────────────
+
+  async function handleRestart(id: string) {
+    setConfirmRestartId(null);
+    setRestarting(id);
+    try {
+      await apiFetch(`devices/${id}/restart`, { method: 'POST' });
+      toast({ title: 'Restart signal sent', description: 'The device will restart shortly.', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Restart failed', description: err instanceof Error ? err.message : 'Could not send restart signal.', variant: 'destructive' });
+    } finally { setRestarting(null); }
+  }
+
   // ── Pairing code ─────────────────────────────────────────────────────────
 
   async function handleGenerateCode(e: React.FormEvent) {
@@ -225,11 +282,13 @@ export default function DevicesClient() {
 
   function openConfig(device: Device) {
     const existing = deviceConfigs[device.id];
-    setDraftConfig(existing ?? { enabledMethods: DEFAULT_METHODS[device.role], terminalCredentialId: null });
+    setDraftConfig(existing ?? { enabledMethods: DEFAULT_METHODS[device.role] ?? [], terminalCredentialId: null });
     setConfiguringId(device.id);
     setConfigError(null);
     // reset add-terminal form
-    setNewTermLabel(''); setNewTermIp(''); setNewTermPort(8080); setTermError(null);
+    setNewTermLabel(''); setNewTermIp(''); setNewTermPort(8080); setNewTermProvider('anz'); setTermError(null);
+    // close display panel if open
+    setDisplayConfiguringId(null);
   }
 
   function closeConfig() {
@@ -246,7 +305,6 @@ export default function DevicesClient() {
       enabledMethods: has
         ? draftConfig.enabledMethods.filter((m) => m !== methodId)
         : [...draftConfig.enabledMethods, methodId],
-      // Clear terminal selection if card is being disabled
       terminalCredentialId: !has || methodId !== 'card' ? draftConfig.terminalCredentialId : null,
     });
   }
@@ -275,7 +333,7 @@ export default function DevicesClient() {
       const res = await apiFetch<{ data: TerminalCredential }>('terminal/credentials', {
         method: 'POST',
         body: JSON.stringify({
-          provider:     'anz',
+          provider:     newTermProvider,
           label:        newTermLabel || undefined,
           terminalIp:   newTermIp,
           terminalPort: newTermPort,
@@ -283,14 +341,43 @@ export default function DevicesClient() {
       });
       const newTerm = res.data;
       setTerminals((prev) => [...prev, newTerm]);
-      // Auto-select this terminal for the current device
       if (draftConfig) {
         setDraftConfig({ ...draftConfig, terminalCredentialId: newTerm.id });
       }
-      setNewTermLabel(''); setNewTermIp(''); setNewTermPort(8080);
+      setNewTermLabel(''); setNewTermIp(''); setNewTermPort(8080); setNewTermProvider('anz');
     } catch (err) {
       setTermError(err instanceof Error ? err.message : 'Failed to add terminal');
     } finally { setAddingTerm(false); }
+  }
+
+  // ── Customer Display config ───────────────────────────────────────────────
+
+  function openDisplayConfig(device: Device) {
+    setDisplayConfiguringId(device.id);
+    setDraftDisplay({ idleMessage: '', logoUrl: '', showOrderTotal: true });
+    setDisplayError(null);
+    // close payment panel if open
+    setConfiguringId(null);
+    setDraftConfig(null);
+  }
+
+  function closeDisplayConfig() {
+    setDisplayConfiguringId(null);
+    setDisplayError(null);
+  }
+
+  async function saveDisplayConfig(deviceId: string) {
+    setSavingDisplay(true); setDisplayError(null);
+    try {
+      await apiFetch(`devices/${deviceId}/customer-display-settings`, {
+        method: 'PUT',
+        body: JSON.stringify(draftDisplay),
+      });
+      toast({ title: 'Display settings saved', description: 'Customer display configuration updated.', variant: 'success' });
+      closeDisplayConfig();
+    } catch (err) {
+      setDisplayError(err instanceof Error ? err.message : 'Failed to save display settings');
+    } finally { setSavingDisplay(false); }
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -307,26 +394,26 @@ export default function DevicesClient() {
         <div className="flex items-center gap-3">
           <Smartphone className="h-6 w-6 text-indigo-400" />
           <div>
-            <h1 className="text-xl font-bold text-white">Devices</h1>
-            <p className="text-sm text-gray-500">Manage paired POS, KDS and Kiosk devices</p>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Devices</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Manage paired POS, KDS, Kiosk and Customer Display devices</p>
           </div>
         </div>
         <button
           onClick={() => { void loadDevices(); void loadCodes(); void loadTerminals(); void loadDeviceConfigs(); }}
-          className="flex items-center gap-1.5 rounded-xl bg-[#2a2a3a] px-3 py-2 text-sm text-gray-400 hover:text-white transition-colors"
+          className="flex items-center gap-1.5 rounded-xl bg-gray-100 dark:bg-[#2a2a3a] px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
         >
           <RefreshCw className="h-3.5 w-3.5" />Refresh
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="mb-6 flex gap-2 border-b border-[#2a2a3a]">
+      <div className="mb-6 flex gap-2 border-b border-gray-200 dark:border-[#2a2a3a]">
         {(['devices', 'pair'] as const).map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`pb-3 px-4 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === tab ? 'border-indigo-500 text-white' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
+            className={`pb-3 px-4 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === tab ? 'border-indigo-500 text-gray-900 dark:text-white' : 'border-transparent text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
             {tab === 'devices' ? 'Paired Devices' : 'Generate Pairing Code'}
             {tab === 'devices' && activeDevices.length > 0 && (
-              <span className="ml-2 rounded-full bg-indigo-900 px-2 py-0.5 text-xs text-indigo-300">{activeDevices.length}</span>
+              <span className="ml-2 rounded-full bg-indigo-100 dark:bg-indigo-900 px-2 py-0.5 text-xs text-indigo-700 dark:text-indigo-300">{activeDevices.length}</span>
             )}
           </button>
         ))}
@@ -337,13 +424,13 @@ export default function DevicesClient() {
         <div>
           {loading ? (
             <div className="space-y-3 animate-pulse">
-              {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 rounded-xl bg-[#2a2a3a]" />)}
+              {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 rounded-xl bg-gray-100 dark:bg-[#2a2a3a]" />)}
             </div>
           ) : activeDevices.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#2a2a3a] py-16">
-              <Smartphone className="h-12 w-12 text-gray-700 mb-3" />
-              <p className="text-gray-500 font-medium">No paired devices yet</p>
-              <p className="text-gray-600 text-sm mt-1">Generate a pairing code to connect a device</p>
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 dark:border-[#2a2a3a] py-16">
+              <Smartphone className="h-12 w-12 text-gray-400 dark:text-gray-700 mb-3" />
+              <p className="text-gray-500 dark:text-gray-500 font-medium">No paired devices yet</p>
+              <p className="text-gray-500 dark:text-gray-600 text-sm mt-1">Generate a pairing code to connect a device</p>
               <button onClick={() => setActiveTab('pair')}
                 className="mt-4 flex items-center gap-1.5 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-400 transition-colors">
                 <Plus className="h-4 w-4" />Generate Code
@@ -352,63 +439,138 @@ export default function DevicesClient() {
           ) : (
             <div className="space-y-2">
               {activeDevices.map((device) => {
-                const isOpen     = configuringId === device.id;
-                const hasConfig  = Boolean(deviceConfigs[device.id]);
-                const canConfig  = device.role !== 'kds';
+                const isPayOpen    = configuringId === device.id;
+                const isDispOpen   = displayConfiguringId === device.id;
+                const hasConfig    = Boolean(deviceConfigs[device.id]);
+                const canConfig    = device.role !== 'kds' && device.role !== 'customer-display';
+                const isDisplay    = device.role === 'customer-display';
+                const health       = healthDot(device.lastSeenAt);
+                const isRestarting = restarting === device.id;
+                const confirmingRestart = confirmRestartId === device.id;
 
                 return (
-                  <div key={device.id} className="rounded-xl overflow-hidden border border-transparent hover:border-[#2a2a3a] transition-colors">
+                  <div key={device.id} className="rounded-xl overflow-hidden border border-transparent hover:border-gray-200 dark:hover:border-[#2a2a3a] transition-colors">
                     {/* Device row */}
-                    <div className="flex items-center justify-between bg-[#2a2a3a] px-4 py-3">
+                    <div className="flex items-center justify-between bg-gray-50 dark:bg-[#2a2a3a] px-4 py-3">
                       <div className="flex items-center gap-4 min-w-0">
-                        <div className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${device.lastSeenAt && Date.now() - new Date(device.lastSeenAt).getTime() < 5 * 60 * 1000 ? 'bg-green-500' : 'bg-gray-600'}`} />
+                        {/* Health dot with tooltip */}
+                        <div className="relative group flex-shrink-0">
+                          <div className={`h-2.5 w-2.5 rounded-full ${health.color}`} />
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-10">
+                            <div className="rounded bg-gray-800 dark:bg-gray-900 px-2 py-1 text-xs text-white whitespace-nowrap shadow-lg border border-gray-600 dark:border-gray-700">
+                              {health.label} — {timeAgo(device.lastSeenAt)}
+                            </div>
+                          </div>
+                        </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-white text-sm">{device.label ?? 'Unnamed Device'}</span>
+                            <span className="font-semibold text-gray-900 dark:text-white text-sm">{device.label ?? 'Unnamed Device'}</span>
                             <RoleBadge role={device.role} />
-                            {device.platform   && <span className="text-xs text-gray-500 capitalize">{device.platform}</span>}
-                            {device.appVersion && <span className="text-xs text-gray-600">v{device.appVersion}</span>}
+                            {device.platform   && <span className="text-xs text-gray-500 dark:text-gray-500 capitalize">{device.platform}</span>}
+                            {device.appVersion && <span className="text-xs text-gray-500 dark:text-gray-600">v{device.appVersion}</span>}
                             {hasConfig && canConfig && (
-                              <span className="text-xs text-indigo-400 bg-indigo-950 border border-indigo-800 rounded-full px-2 py-0.5">
+                              <span className="text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-full px-2 py-0.5">
                                 Custom payments
                               </span>
                             )}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5">
-                            <span className="text-xs text-gray-500 font-mono">{device.id.slice(0, 8)}…</span>
-                            <span className="flex items-center gap-1 text-xs text-gray-500"><Wifi className="h-3 w-3" />{timeAgo(device.lastSeenAt)}</span>
-                            <span className="flex items-center gap-1 text-xs text-gray-500"><Clock className="h-3 w-3" />Paired {timeAgo(device.createdAt)}</span>
+                            <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">{device.id.slice(0, 8)}…</span>
+                            <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-500">
+                              <Wifi className="h-3 w-3" />Last seen {timeAgo(device.lastSeenAt)}
+                            </span>
+                            <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-500">
+                              <Clock className="h-3 w-3" />Paired {timeAgo(device.createdAt)}
+                            </span>
                           </div>
                         </div>
                       </div>
+
                       <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+                        {/* Customer Display specific button */}
+                        {isDisplay && (
+                          <>
+                            <button
+                              onClick={() => window.open('/pos/customer-display', '_blank')}
+                              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3a3a4a] hover:text-gray-900 dark:hover:text-white transition-colors"
+                            >
+                              <Eye className="h-3.5 w-3.5" />Preview
+                            </button>
+                            <button
+                              onClick={() => isDispOpen ? closeDisplayConfig() : openDisplayConfig(device)}
+                              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                                isDispOpen
+                                  ? 'bg-purple-600 text-white'
+                                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3a3a4a] hover:text-gray-900 dark:hover:text-white'
+                              }`}
+                            >
+                              <DisplayIcon className="h-3.5 w-3.5" />
+                              Display
+                              {isDispOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            </button>
+                          </>
+                        )}
+
+                        {/* Payment config button for POS / Kiosk */}
                         {canConfig && (
                           <button
-                            onClick={() => isOpen ? closeConfig() : openConfig(device)}
+                            onClick={() => isPayOpen ? closeConfig() : openConfig(device)}
                             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                              isOpen
+                              isPayOpen
                                 ? 'bg-indigo-500 text-white'
-                                : 'text-gray-400 hover:bg-[#3a3a4a] hover:text-white'
+                                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3a3a4a] hover:text-gray-900 dark:hover:text-white'
                             }`}
                           >
                             <Settings2 className="h-3.5 w-3.5" />
                             Payments
-                            {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            {isPayOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                           </button>
                         )}
+
+                        {/* Remote Restart */}
+                        {confirmingRestart ? (
+                          <span className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 dark:text-gray-400">Restart device?</span>
+                            <button
+                              onClick={() => void handleRestart(device.id)}
+                              disabled={isRestarting}
+                              className="text-xs font-semibold text-yellow-600 dark:text-yellow-400 hover:text-yellow-500 dark:hover:text-yellow-300 disabled:opacity-50"
+                            >
+                              {isRestarting ? 'Sending…' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmRestartId(null)}
+                              className="text-xs text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                            >
+                              No
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmRestartId(device.id)}
+                            disabled={isRestarting}
+                            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-yellow-600 dark:text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-950 hover:text-yellow-700 dark:hover:text-yellow-300 transition-colors disabled:opacity-50"
+                            title="Remote restart"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            {isRestarting ? 'Restarting…' : 'Restart'}
+                          </button>
+                        )}
+
+                        {/* Revoke */}
                         {confirmRevokeId === device.id ? (
                           <span className="flex items-center gap-2">
-                            <span className="text-xs text-gray-400">Revoke device?</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">Revoke device?</span>
                             <button
-                              onClick={() => handleRevoke(device.id)}
+                              onClick={() => void handleRevoke(device.id)}
                               disabled={revoking === device.id}
-                              className="text-xs font-semibold text-red-400 hover:text-red-300 disabled:opacity-50"
+                              className="text-xs font-semibold text-red-500 dark:text-red-400 hover:text-red-400 dark:hover:text-red-300 disabled:opacity-50"
                             >
                               {revoking === device.id ? 'Revoking…' : 'Confirm'}
                             </button>
                             <button
                               onClick={() => setConfirmRevokeId(null)}
-                              className="text-xs text-gray-500 hover:text-gray-300"
+                              className="text-xs text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
                             >
                               No
                             </button>
@@ -417,7 +579,7 @@ export default function DevicesClient() {
                           <button
                             onClick={() => setConfirmRevokeId(device.id)}
                             disabled={revoking === device.id}
-                            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950 hover:text-red-300 transition-colors disabled:opacity-50"
+                            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-300 transition-colors disabled:opacity-50"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             {revoking === device.id ? 'Revoking…' : 'Revoke'}
@@ -426,13 +588,88 @@ export default function DevicesClient() {
                       </div>
                     </div>
 
-                    {/* Payment config panel */}
-                    {isOpen && draftConfig && (
-                      <div className="bg-[#1a1a2e] border-t border-[#2a2a3a] p-5">
+                    {/* ── Customer Display config panel ── */}
+                    {isDispOpen && (
+                      <div className="bg-gray-50 dark:bg-[#1a1a2e] border-t border-gray-200 dark:border-[#2a2a3a] p-5">
                         <div className="flex items-center justify-between mb-4">
-                          <p className="text-sm font-bold text-white">Payment Methods</p>
+                          <p className="text-sm font-bold text-gray-900 dark:text-white">Customer Display Settings</p>
+                          <button
+                            onClick={() => window.open('/pos/customer-display', '_blank')}
+                            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+                          >
+                            <Eye className="h-3.5 w-3.5" />Preview in new tab
+                          </button>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1.5 block">Idle Display Message</label>
+                            <input
+                              type="text"
+                              value={draftDisplay.idleMessage}
+                              onChange={(e) => setDraftDisplay({ ...draftDisplay, idleMessage: e.target.value })}
+                              placeholder="Welcome! Please place your order."
+                              className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-[#3a3a4a] focus:border-purple-500 focus:outline-none"
+                            />
+                            <p className="text-xs text-gray-500 dark:text-gray-600 mt-1">Shown when no active transaction is in progress.</p>
+                          </div>
+
+                          <div>
+                            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1.5 block">
+                              <Image className="inline h-3.5 w-3.5 mr-1" />Logo URL <span className="text-gray-400 dark:text-gray-600">(optional)</span>
+                            </label>
+                            <input
+                              type="url"
+                              value={draftDisplay.logoUrl}
+                              onChange={(e) => setDraftDisplay({ ...draftDisplay, logoUrl: e.target.value })}
+                              placeholder="https://example.com/logo.png"
+                              className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-[#3a3a4a] focus:border-purple-500 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="flex items-center gap-3 cursor-pointer">
+                              <div
+                                onClick={() => setDraftDisplay({ ...draftDisplay, showOrderTotal: !draftDisplay.showOrderTotal })}
+                                className={`relative h-5 w-9 rounded-full transition-colors ${draftDisplay.showOrderTotal ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                              >
+                                <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${draftDisplay.showOrderTotal ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900 dark:text-white">Show Order Total Prominently</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-500">Display running total in large text during active transactions.</p>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+
+                        {displayError && (
+                          <p className="mt-3 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 rounded-xl px-4 py-2.5">{displayError}</p>
+                        )}
+
+                        <div className="flex items-center justify-end gap-2 mt-4">
+                          <button onClick={closeDisplayConfig} className="rounded-xl px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => void saveDisplayConfig(device.id)}
+                            disabled={savingDisplay}
+                            className="flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2 text-sm font-bold text-white hover:bg-purple-500 transition-colors disabled:opacity-40"
+                          >
+                            <Save className="h-3.5 w-3.5" />
+                            {savingDisplay ? 'Saving…' : 'Save Settings'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Payment config panel ── */}
+                    {isPayOpen && draftConfig && (
+                      <div className="bg-gray-50 dark:bg-[#1a1a2e] border-t border-gray-200 dark:border-[#2a2a3a] p-5">
+                        <div className="flex items-center justify-between mb-4">
+                          <p className="text-sm font-bold text-gray-900 dark:text-white">Payment Methods</p>
                           {device.role === 'kiosk' && (
-                            <span className="text-xs text-teal-300 bg-teal-950 border border-teal-800 rounded-full px-2.5 py-0.5">
+                            <span className="text-xs text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950 border border-teal-200 dark:border-teal-800 rounded-full px-2.5 py-0.5">
                               Self-service — cash not available
                             </span>
                           )}
@@ -451,16 +688,16 @@ export default function DevicesClient() {
                                 disabled={isDisabled}
                                 className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all border ${
                                   isEnabled
-                                    ? 'bg-indigo-950/60 border-indigo-700 text-white'
-                                    : 'bg-[#2a2a3a] border-transparent text-gray-500 hover:border-[#3a3a4a]'
+                                    ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-700 text-gray-900 dark:text-white'
+                                    : 'bg-white dark:bg-[#2a2a3a] border-gray-200 dark:border-transparent text-gray-500 dark:text-gray-500 hover:border-gray-300 dark:hover:border-[#3a3a4a]'
                                 } ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
                               >
-                                <Icon className={`h-4 w-4 flex-shrink-0 ${isEnabled ? 'text-indigo-400' : 'text-gray-600'}`} />
+                                <Icon className={`h-4 w-4 flex-shrink-0 ${isEnabled ? 'text-indigo-500 dark:text-indigo-400' : 'text-gray-400 dark:text-gray-600'}`} />
                                 <div className="min-w-0 flex-1">
                                   <p className="text-xs font-semibold truncate">{label}</p>
-                                  <p className="text-xs text-gray-600 truncate">{desc}</p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-600 truncate">{desc}</p>
                                 </div>
-                                <div className={`h-4 w-4 rounded-full flex-shrink-0 border-2 transition-colors ${isEnabled ? 'bg-indigo-500 border-indigo-400' : 'border-gray-600'}`} />
+                                <div className={`h-4 w-4 rounded-full flex-shrink-0 border-2 transition-colors ${isEnabled ? 'bg-indigo-500 border-indigo-400' : 'border-gray-300 dark:border-gray-600'}`} />
                               </button>
                             );
                           })}
@@ -468,78 +705,90 @@ export default function DevicesClient() {
 
                         {/* EFTPOS terminal section — shown when card is enabled */}
                         {draftConfig.enabledMethods.includes('card') && (
-                          <div className="mb-5 rounded-xl bg-[#2a2a3a] p-4">
+                          <div className="mb-5 rounded-xl bg-gray-100 dark:bg-[#2a2a3a] p-4">
                             <div className="flex items-center gap-2 mb-3">
-                              <Router className="h-4 w-4 text-indigo-400" />
-                              <p className="text-sm font-semibold text-white">EFTPOS Terminal (ANZ Worldline)</p>
+                              <Router className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
+                              <p className="text-sm font-semibold text-gray-900 dark:text-white">EFTPOS Terminal</p>
                             </div>
 
                             {terminals.length > 0 ? (
-                              /* Existing terminals — show dropdown */
                               <div>
-                                <label className="text-xs text-gray-400 mb-1.5 block">Select terminal for this device</label>
+                                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1.5 block">Select terminal for this device</label>
                                 <select
                                   value={draftConfig.terminalCredentialId ?? ''}
                                   onChange={(e) => setDraftConfig({ ...draftConfig, terminalCredentialId: e.target.value || null })}
-                                  className="w-full rounded-xl bg-[#1e1e2e] px-3 py-2.5 text-sm text-white border border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
+                                  className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2.5 text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
                                 >
                                   <option value="">Use organisation default</option>
                                   {terminals.map((t) => (
                                     <option key={t.id} value={t.id}>
                                       {t.label ? `${t.label} — ` : ''}{t.terminalIp}:{t.terminalPort}
+                                      {t.provider ? ` (${EFTPOS_PROVIDERS.find((p) => p.id === t.provider)?.label ?? t.provider})` : ''}
                                     </option>
                                   ))}
                                 </select>
-                                <p className="text-xs text-gray-600 mt-1.5">Each POS device can use a different physical terminal.</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-600 mt-1.5">Each POS device can use a different physical terminal.</p>
                               </div>
                             ) : (
-                              /* No terminals yet — inline add form */
                               <div>
-                                <div className="flex items-center gap-2 mb-3 text-xs text-yellow-300">
+                                <div className="flex items-center gap-2 mb-3 text-xs text-yellow-700 dark:text-yellow-300">
                                   <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                                  No EFTPOS terminals configured. Add your ANZ Worldline terminal below.
+                                  No EFTPOS terminals configured. Add your terminal below.
                                 </div>
                                 <form onSubmit={(e) => void handleAddTerminal(e)} className="space-y-3">
+                                  {/* Provider dropdown */}
                                   <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Terminal Label <span className="text-gray-600">(optional)</span></label>
+                                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Provider</label>
+                                    <select
+                                      value={newTermProvider}
+                                      onChange={(e) => setNewTermProvider(e.target.value)}
+                                      className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2 text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
+                                    >
+                                      {EFTPOS_PROVIDERS.map((p) => (
+                                        <option key={p.id} value={p.id}>{p.label}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Terminal Label <span className="text-gray-400 dark:text-gray-600">(optional)</span></label>
                                     <input
                                       type="text"
                                       value={newTermLabel}
                                       onChange={(e) => setNewTermLabel(e.target.value)}
                                       placeholder="e.g. Counter 1 Terminal"
-                                      className="w-full rounded-xl bg-[#1e1e2e] px-3 py-2 text-sm text-white placeholder-gray-600 border border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
+                                      className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
                                     />
                                   </div>
                                   <div className="flex gap-2">
                                     <div className="flex-1">
-                                      <label className="text-xs text-gray-400 mb-1 block">Terminal IP Address</label>
+                                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Terminal IP Address</label>
                                       <input
                                         type="text"
                                         value={newTermIp}
                                         onChange={(e) => setNewTermIp(e.target.value)}
                                         placeholder="192.168.1.100"
                                         required
-                                        className="w-full rounded-xl bg-[#1e1e2e] px-3 py-2 text-sm text-white placeholder-gray-600 border border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
+                                        className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
                                       />
                                     </div>
                                     <div className="w-24">
-                                      <label className="text-xs text-gray-400 mb-1 block">Port</label>
+                                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Port</label>
                                       <input
                                         type="number"
                                         value={newTermPort}
                                         onChange={(e) => setNewTermPort(Number(e.target.value))}
                                         min={1} max={65535}
-                                        className="w-full rounded-xl bg-[#1e1e2e] px-3 py-2 text-sm text-white border border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
+                                        className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2 text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
                                       />
                                     </div>
                                   </div>
                                   {termError && (
-                                    <p className="text-xs text-red-400 bg-red-950 rounded-lg px-3 py-2">{termError}</p>
+                                    <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 rounded-lg px-3 py-2">{termError}</p>
                                   )}
                                   <button
                                     type="submit"
                                     disabled={!newTermIp || addingTerm}
-                                    className="flex items-center gap-1.5 rounded-xl bg-[#3a3a4a] px-4 py-2 text-xs font-bold text-white hover:bg-[#4a4a5a] transition-colors disabled:opacity-40"
+                                    className="flex items-center gap-1.5 rounded-xl bg-gray-200 dark:bg-[#3a3a4a] px-4 py-2 text-xs font-bold text-gray-800 dark:text-white hover:bg-gray-300 dark:hover:bg-[#4a4a5a] transition-colors disabled:opacity-40"
                                   >
                                     <Router className="h-3.5 w-3.5" />
                                     {addingTerm ? 'Adding…' : 'Add Terminal'}
@@ -552,12 +801,12 @@ export default function DevicesClient() {
 
                         {/* Error */}
                         {configError && (
-                          <p className="mb-3 text-xs text-red-400 bg-red-950 rounded-xl px-4 py-2.5">{configError}</p>
+                          <p className="mb-3 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 rounded-xl px-4 py-2.5">{configError}</p>
                         )}
 
                         {/* Actions */}
                         <div className="flex items-center justify-end gap-2">
-                          <button onClick={closeConfig} className="rounded-xl px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+                          <button onClick={closeConfig} className="rounded-xl px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
                             Cancel
                           </button>
                           <button
@@ -571,7 +820,7 @@ export default function DevicesClient() {
                         </div>
 
                         {draftConfig.enabledMethods.length === 0 && (
-                          <p className="mt-2 text-center text-xs text-yellow-400">At least one payment method must be enabled.</p>
+                          <p className="mt-2 text-center text-xs text-yellow-600 dark:text-yellow-400">At least one payment method must be enabled.</p>
                         )}
                       </div>
                     )}
@@ -582,16 +831,16 @@ export default function DevicesClient() {
               {/* Revoked devices */}
               {revokedDevices.length > 0 && (
                 <details className="mt-4">
-                  <summary className="cursor-pointer text-sm text-gray-600 hover:text-gray-400 transition-colors py-2">
+                  <summary className="cursor-pointer text-sm text-gray-500 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 transition-colors py-2">
                     {revokedDevices.length} revoked device{revokedDevices.length !== 1 ? 's' : ''}
                   </summary>
                   <div className="mt-2 space-y-2">
                     {revokedDevices.map((device) => (
-                      <div key={device.id} className="flex items-center gap-4 rounded-xl bg-[#1a1a1a] px-4 py-3 opacity-50">
-                        <WifiOff className="h-4 w-4 text-gray-600" />
-                        <span className="font-medium text-gray-400 text-sm">{device.label ?? 'Unnamed Device'}</span>
+                      <div key={device.id} className="flex items-center gap-4 rounded-xl bg-gray-100 dark:bg-[#1a1a1a] px-4 py-3 opacity-50">
+                        <WifiOff className="h-4 w-4 text-gray-500 dark:text-gray-600" />
+                        <span className="font-medium text-gray-500 dark:text-gray-400 text-sm">{device.label ?? 'Unnamed Device'}</span>
                         <RoleBadge role={device.role} />
-                        <span className="text-xs text-gray-600">Revoked {timeAgo(device.createdAt)}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-600">Revoked {timeAgo(device.createdAt)}</span>
                       </div>
                     ))}
                   </div>
@@ -605,39 +854,39 @@ export default function DevicesClient() {
       {/* ── Generate code tab ── */}
       {activeTab === 'pair' && (
         <div className="max-w-lg">
-          <form onSubmit={(e) => void handleGenerateCode(e)} className="space-y-4 rounded-2xl bg-[#2a2a3a] p-6">
-            <h2 className="text-base font-bold text-white">Generate Pairing Code</h2>
-            <p className="text-sm text-gray-500">Codes are valid for 15 minutes and single-use. Enter the code on the device to pair it.</p>
+          <form onSubmit={(e) => void handleGenerateCode(e)} className="space-y-4 rounded-2xl bg-gray-50 dark:bg-[#2a2a3a] p-6">
+            <h2 className="text-base font-bold text-gray-900 dark:text-white">Generate Pairing Code</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-500">Codes are valid for 15 minutes and single-use. Enter the code on the device to pair it.</p>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-300">Device Role</label>
-              <div className="flex gap-2">
-                {(['pos', 'kds', 'kiosk'] as DeviceRole[]).map((r) => (
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Device Role</label>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {(['pos', 'kds', 'kiosk', 'customer-display'] as DeviceRole[]).map((r) => (
                   <button key={r} type="button" onClick={() => setGenRole(r)}
-                    className={`flex-1 rounded-xl py-2.5 text-sm font-bold uppercase transition-colors ${genRole === r ? 'bg-indigo-500 text-white' : 'bg-[#1e1e2e] text-gray-400 hover:text-white'}`}>
-                    {r}
+                    className={`rounded-xl py-2.5 text-xs font-bold uppercase transition-colors ${genRole === r ? 'bg-indigo-500 text-white' : 'bg-white dark:bg-[#1e1e2e] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-transparent'}`}>
+                    {r === 'customer-display' ? 'Display' : r}
                   </button>
                 ))}
               </div>
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-300">Location</label>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Location</label>
               <select value={genLocationId} onChange={(e) => setGenLocationId(e.target.value)} required
-                className="w-full rounded-xl bg-[#1e1e2e] px-4 py-2.5 text-sm text-white border border-[#3a3a4a] focus:border-indigo-500 focus:outline-none">
+                className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-4 py-2.5 text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none">
                 <option value="">Select a location…</option>
                 {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-300">Label <span className="text-gray-600">(optional)</span></label>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Label <span className="text-gray-400 dark:text-gray-600">(optional)</span></label>
               <input type="text" value={genLabel} onChange={(e) => setGenLabel(e.target.value)}
                 placeholder="e.g. Counter 1, Drive-Thru KDS" maxLength={100}
-                className="w-full rounded-xl bg-[#1e1e2e] px-4 py-2.5 text-sm text-white placeholder-gray-600 border border-[#3a3a4a] focus:border-indigo-500 focus:outline-none" />
+                className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none" />
             </div>
 
-            {genError && <p className="rounded-lg bg-red-950 px-4 py-2 text-sm text-red-400">{genError}</p>}
+            {genError && <p className="rounded-lg bg-red-50 dark:bg-red-950 px-4 py-2 text-sm text-red-600 dark:text-red-400">{genError}</p>}
 
             <button type="submit" disabled={!genLocationId || generating}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-500 py-3 text-sm font-bold text-white hover:bg-indigo-400 transition-colors disabled:opacity-40">
@@ -646,39 +895,39 @@ export default function DevicesClient() {
           </form>
 
           {latestCode && (
-            <div className="mt-6 rounded-2xl border-2 border-indigo-500 bg-[#1a1a2e] p-6 text-center">
-              <p className="mb-2 text-sm text-gray-400 font-medium">Enter this code on the device</p>
+            <div className="mt-6 rounded-2xl border-2 border-indigo-500 bg-indigo-50 dark:bg-[#1a1a2e] p-6 text-center">
+              <p className="mb-2 text-sm text-gray-500 dark:text-gray-400 font-medium">Enter this code on the device</p>
               <div className="flex items-center justify-center gap-4 mb-4">
-                <span className="text-5xl font-black text-white tracking-[0.3em] font-mono">{latestCode.code}</span>
+                <span className="text-5xl font-black text-gray-900 dark:text-white tracking-[0.3em] font-mono">{latestCode.code}</span>
                 <button onClick={() => void copyCode(latestCode.code)}
-                  className="rounded-xl bg-[#2a2a3a] p-2.5 text-gray-400 hover:text-white transition-colors">
-                  {copiedCode === latestCode.code ? <Check className="h-5 w-5 text-green-400" /> : <Copy className="h-5 w-5" />}
+                  className="rounded-xl bg-gray-100 dark:bg-[#2a2a3a] p-2.5 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+                  {copiedCode === latestCode.code ? <Check className="h-5 w-5 text-green-500 dark:text-green-400" /> : <Copy className="h-5 w-5" />}
                 </button>
               </div>
               <div className="flex items-center justify-center gap-4 text-sm flex-wrap">
-                <span className="text-gray-500">Expires in</span>
+                <span className="text-gray-500 dark:text-gray-500">Expires in</span>
                 <CountdownTimer expiresAt={latestCode.expiresAt} />
                 <RoleBadge role={latestCode.role} />
-                {latestCode.label && <span className="text-gray-400">{latestCode.label}</span>}
+                {latestCode.label && <span className="text-gray-500 dark:text-gray-400">{latestCode.label}</span>}
               </div>
             </div>
           )}
 
           {codes.length > 0 && (
             <div className="mt-6">
-              <h3 className="mb-3 text-sm font-semibold text-gray-400">Active Codes</h3>
+              <h3 className="mb-3 text-sm font-semibold text-gray-600 dark:text-gray-400">Active Codes</h3>
               <div className="space-y-2">
                 {codes.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between rounded-xl bg-[#2a2a3a] px-4 py-3">
+                  <div key={c.id} className="flex items-center justify-between rounded-xl bg-gray-50 dark:bg-[#2a2a3a] px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <span className="font-mono text-lg font-bold text-white tracking-widest">{c.code}</span>
+                      <span className="font-mono text-lg font-bold text-gray-900 dark:text-white tracking-widest">{c.code}</span>
                       <RoleBadge role={c.role} />
-                      {c.label && <span className="text-sm text-gray-400">{c.label}</span>}
+                      {c.label && <span className="text-sm text-gray-500 dark:text-gray-400">{c.label}</span>}
                     </div>
                     <div className="flex items-center gap-3">
                       <CountdownTimer expiresAt={c.expiresAt} />
-                      <button onClick={() => void copyCode(c.code)} className="rounded-lg p-1.5 text-gray-500 hover:text-white transition-colors">
-                        {copiedCode === c.code ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+                      <button onClick={() => void copyCode(c.code)} className="rounded-lg p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">
+                        {copiedCode === c.code ? <Check className="h-4 w-4 text-green-500 dark:text-green-400" /> : <Copy className="h-4 w-4" />}
                       </button>
                     </div>
                   </div>

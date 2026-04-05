@@ -61,7 +61,7 @@ export function DashboardShell({ children, firstName, lastName, role }: Dashboar
         <div className="flex h-16 items-center justify-between gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-elevatedpos-500 shadow-sm">
-              <span className="text-base font-bold text-white">N</span>
+              <span className="text-base font-bold text-white">E</span>
             </div>
             <span className="text-lg font-bold text-gray-900 dark:text-white">ElevatedPOS</span>
           </div>
@@ -79,7 +79,7 @@ export function DashboardShell({ children, firstName, lastName, role }: Dashboar
         <LocationPicker />
 
         {/* Nav links */}
-        <SidebarNav onNavigate={() => setSidebarOpen(false)} />
+        <SidebarNav onNavigate={() => setSidebarOpen(false)} role={role} />
 
         {/* User */}
         <div className="border-t border-gray-200 p-3 dark:border-gray-800">

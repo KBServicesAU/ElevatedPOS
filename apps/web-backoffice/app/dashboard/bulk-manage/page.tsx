@@ -241,13 +241,53 @@ function ImportPanel({ entity, onToast }: ImportPanelProps) {
   const handleImport = async () => {
     if (!parsed) return;
     setImporting(true);
-    await new Promise((r) => setTimeout(r, 800));
-    const count = parsed.rows.length;
-    setImporting(false);
-    onToast(`Successfully imported ${count} record${count !== 1 ? 's' : ''}`, 'success');
-    setSelectedFile(null);
-    setParsed(null);
-    if (fileRef.current) fileRef.current.value = '';
+
+    // Map entity key to import endpoint
+    const IMPORT_ENDPOINTS: Record<string, string> = {
+      products: '/api/proxy/products/bulk-import',
+      categories: '/api/proxy/catalog/categories/bulk-import',
+      customers: '/api/proxy/customers/bulk-import',
+      inventory: '/api/proxy/stock/bulk-import',
+      staff: '/api/proxy/employees/bulk-import',
+      suppliers: '/api/proxy/suppliers/bulk-import',
+      'price-lists': '/api/proxy/price-lists/bulk-import',
+    };
+
+    const endpoint = IMPORT_ENDPOINTS[entity.key] ?? `/api/proxy/${entity.key}/bulk-import`;
+
+    try {
+      const payload = {
+        headers: parsed.headers,
+        rows: parsed.rows,
+      };
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(err.message ?? `HTTP ${res.status}`);
+      }
+
+      const result = await res.json() as { imported?: number; failed?: number; count?: number };
+      const imported = result.imported ?? result.count ?? parsed.rows.length;
+      const failed = result.failed ?? 0;
+      const msg = failed > 0
+        ? `Imported ${imported} record${imported !== 1 ? 's' : ''} (${failed} failed)`
+        : `Successfully imported ${imported} record${imported !== 1 ? 's' : ''}`;
+      onToast(msg, failed > 0 ? 'error' : 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Import failed';
+      onToast(`Import failed: ${msg}`, 'error');
+    } finally {
+      setImporting(false);
+      setSelectedFile(null);
+      setParsed(null);
+      if (fileRef.current) fileRef.current.value = '';
+    }
   };
 
   const previewRows = parsed ? parsed.rows.slice(0, 3) : [];

@@ -174,6 +174,10 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.CATALOG_API_URL ?? 'http://localhost:4002',
     prefix: '/api/v1/markdowns',
   },
+  'promo-codes': {
+    base: process.env.CATALOG_API_URL ?? 'http://localhost:4002',
+    prefix: '/api/v1/promo-codes',
+  },
   recipes: {
     base: process.env.CATALOG_API_URL ?? 'http://localhost:4002',
     prefix: '/api/v1/recipes',
@@ -279,6 +283,61 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
   'multiplier-events': {
     base: process.env.LOYALTY_API_URL ?? 'http://localhost:4007',
     prefix: '/api/v1/loyalty/multiplier-events',
+  },
+  // "loyalty" catch-all — covers loyalty/programs/*, loyalty/stamps/*, loyalty/accounts/*, etc.
+  loyalty: {
+    base: process.env.LOYALTY_API_URL ?? 'http://localhost:4007',
+    prefix: '/api/v1/loyalty',
+  },
+  // "membership" catch-all — covers membership/plans/*, membership/subscriptions/*
+  membership: {
+    base: process.env.LOYALTY_API_URL ?? 'http://localhost:4007',
+    prefix: '/api/v1/memberships',
+  },
+  // Automation rules — alias for automations service
+  'automation-rules': {
+    base: process.env.AUTOMATIONS_API_URL ?? 'http://localhost:4011',
+    prefix: '/api/v1/automation-rules',
+  },
+  // "inventory" alias for stock service
+  inventory: {
+    base: process.env.INVENTORY_API_URL ?? 'http://localhost:4003',
+    prefix: '/api/v1/inventory',
+  },
+  // Reservations — routed to orders service
+  reservations: {
+    base: process.env.ORDERS_API_URL ?? 'http://localhost:4004',
+    prefix: '/api/v1/reservations',
+  },
+  // Waitlist — routed to orders service
+  waitlist: {
+    base: process.env.ORDERS_API_URL ?? 'http://localhost:4004',
+    prefix: '/api/v1/waitlist',
+  },
+  // Billing — subscription management in payments service
+  billing: {
+    base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',
+    prefix: '/api/v1/billing',
+  },
+  // Migrations — used by Easy Move to track import job status
+  migrations: {
+    base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
+    prefix: '/api/v1/migrations',
+  },
+  // Tables — floor plan management
+  tables: {
+    base: process.env.ORDERS_API_URL ?? 'http://localhost:4004',
+    prefix: '/api/v1/tables',
+  },
+  // Table sections
+  sections: {
+    base: process.env.ORDERS_API_URL ?? 'http://localhost:4004',
+    prefix: '/api/v1/sections',
+  },
+  // Roster / scheduling — time-clock service
+  roster: {
+    base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
+    prefix: '/api/v1/roster',
   },
   // Notifications service routes
   notifications: {

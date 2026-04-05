@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, X, Wifi, CreditCard, CheckCircle, AlertCircle } from 'lucide-react';
 import { usePrinter } from '../printer-context';
-import { printReceipt, type ReceiptData } from '../receipt-printer';
+import { type ReceiptData } from '../receipt-printer';
 import { getDeviceInfo } from '@/lib/device-auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,6 +31,7 @@ interface Tender {
   cardLast4?: string;
   cardBrand?: string;
   paymentIntentId?: string;
+  surchargeAmount?: number;
 }
 
 const METHOD_META: Record<PaymentMethod, { label: string; emoji: string; color: string; hint: string }> = {
@@ -307,8 +308,9 @@ function TerminalPaymentOverlay({
             <p className="mt-2 max-w-xs text-center text-xs text-red-400">{errorMsg}</p>
           )}
 
-          {/* Simulated reader badge */}
-          {(status === 'presenting' || status === 'processing' || status === 'reader_connected') && (
+          {/* Simulated reader badge — only shown when using a simulated reader */}
+          {(status === 'presenting' || status === 'processing' || status === 'reader_connected') &&
+            (process.env.NEXT_PUBLIC_STRIPE_TERMINAL_SIMULATE === 'true' || _terminalSimulated) && (
             <span className="mt-3 rounded-full border border-blue-700 bg-blue-900/30 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
               Simulated Reader
             </span>
@@ -387,11 +389,13 @@ function AddTenderDialog({
   orderId,
   onClose,
   onAdd,
+  onPaymentProcessing,
 }: {
   remaining: number;
   orderId: string;
   onClose: () => void;
   onAdd: (tender: Tender) => void;
+  onPaymentProcessing?: () => void;
 }) {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [amountStr, setAmountStr] = useState('');
@@ -399,27 +403,58 @@ function AddTenderDialog({
   const [giftCode, setGiftCode] = useState('');
   const [bnplProvider, setBnplProvider] = useState<'afterpay' | 'zip'>('afterpay');
   const [showTerminal, setShowTerminal] = useState(false);
+  const [paymentSettings, setPaymentSettings] = useState<{ cardSurchargeRate: number; cashRoundingEnabled: boolean } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/proxy/settings/payments')
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { paymentMethods?: { id: string; surcharge?: string; rounding?: string }[] } | null) => {
+        if (!data?.paymentMethods) return;
+        const card = data.paymentMethods.find(m => m.id === 'card');
+        const cash = data.paymentMethods.find(m => m.id === 'cash');
+        setPaymentSettings({
+          cardSurchargeRate: parseFloat(card?.surcharge ?? '0') || 0,
+          cashRoundingEnabled: !!(cash?.rounding && parseFloat(cash.rounding) > 0),
+        });
+      })
+      .catch(() => {});
+  }, []);
 
   const amount = amountStr === '' ? remaining : Math.min(Number(amountStr) || 0, remaining);
   const cashTendered = Number(cashTenderedStr) || 0;
-  const change = method === 'cash' ? Math.max(0, cashTendered - amount) : 0;
+
+  // RBA cash rounding: round to nearest 5 cents
+  const roundedCashTotal = paymentSettings?.cashRoundingEnabled
+    ? Math.round(amount / 0.05) * 0.05
+    : amount;
+
+  // EFTPOS surcharge (ACCC compliance)
+  const cardSurchargeRate = paymentSettings?.cardSurchargeRate ?? 0;
+  const surchargeAmt = cardSurchargeRate > 0
+    ? Math.round(amount * cardSurchargeRate / 100 * 100) / 100
+    : 0;
+  const cardChargeTotal = amount + surchargeAmt;
+
+  const change = method === 'cash' ? Math.max(0, cashTendered - roundedCashTotal) : 0;
 
   const canApply = (() => {
     if (amount <= 0) return false;
-    if (method === 'cash') return cashTendered >= amount;
+    if (method === 'cash') return cashTendered >= roundedCashTotal;
     return true;
   })();
 
   const handleApply = () => {
     if (method === 'card') {
-      // Hand off to Stripe Terminal overlay
+      // Hand off to Stripe Terminal overlay; notify CFD
+      onPaymentProcessing?.();
       setShowTerminal(true);
       return;
     }
     const tender: Tender = {
       id: newTenderId(),
       method,
-      amount,
+      // For cash, record the rounded total as the tendered amount
+      amount: method === 'cash' ? roundedCashTotal : amount,
       ...(method === 'cash' ? { cashTendered, change } : {}),
       ...(method === 'gift_card' ? { giftCardCode: giftCode.trim() } : {}),
       ...(method === 'bnpl' ? { bnplProvider } : {}),
@@ -430,16 +465,17 @@ function AddTenderDialog({
   if (showTerminal) {
     return (
       <TerminalPaymentOverlay
-        amount={amount}
+        amount={cardChargeTotal}
         orderId={orderId}
         onApproved={(result) => {
           onAdd({
             id: newTenderId(),
             method: 'card',
-            amount,
+            amount: cardChargeTotal,
             cardLast4: result.cardLast4,
             cardBrand: result.cardBrand,
             paymentIntentId: result.paymentIntentId,
+            ...(surchargeAmt > 0 ? { surchargeAmount: surchargeAmt } : {}),
           });
         }}
         onCancel={() => setShowTerminal(false)}
@@ -503,6 +539,28 @@ function AddTenderDialog({
         {method === 'cash' && (
           <>
             <p className="mb-1 text-xs uppercase tracking-wider text-gray-500">Cash Tendered</p>
+            {/* Quick-select row */}
+            <div className="mb-2 flex gap-2">
+              <button
+                onClick={() => setCashTenderedStr(amount.toFixed(2))}
+                className="flex-1 rounded-xl border border-[#1e40af] bg-[#0f3460] py-2 text-xs font-semibold text-blue-300 hover:bg-[#1e3a70]"
+              >
+                Exact
+              </button>
+              {[20, 50, 100].map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setCashTenderedStr(String(v))}
+                  className={`flex-1 rounded-xl border py-2 text-xs font-semibold transition-colors ${
+                    cashTendered === v
+                      ? 'border-green-600 bg-green-900/40 text-green-300'
+                      : 'border-[#1e40af] bg-[#0f3460] text-blue-300 hover:bg-[#1e3a70]'
+                  }`}
+                >
+                  ${v}
+                </button>
+              ))}
+            </div>
             <input
               type="number"
               className="mb-3 w-full rounded-xl bg-[#16213e] px-4 py-3 text-white placeholder-gray-600 outline-none"
@@ -510,10 +568,15 @@ function AddTenderDialog({
               value={cashTenderedStr}
               onChange={(e) => setCashTenderedStr(e.target.value)}
             />
-            {cashTendered >= amount && amount > 0 && (
-              <div className="mb-3 flex justify-between rounded-xl border border-green-900 bg-green-950/30 px-4 py-3">
-                <span className="text-sm text-green-300">Change Due</span>
-                <span className="text-base font-bold text-green-400">${change.toFixed(2)}</span>
+            {paymentSettings?.cashRoundingEnabled && roundedCashTotal !== amount && (
+              <p className="mb-2 rounded-lg bg-[#0f2a1e] px-3 py-2 text-xs text-green-400">
+                RBA cash rounding: ${roundedCashTotal.toFixed(2)}
+              </p>
+            )}
+            {cashTendered >= roundedCashTotal && roundedCashTotal > 0 && (
+              <div className="mb-3 flex items-center justify-between rounded-xl border-2 border-green-600 bg-green-950/60 px-5 py-4">
+                <span className="text-lg font-bold text-green-300">CHANGE</span>
+                <span className="text-3xl font-extrabold text-green-400">${change.toFixed(2)}</span>
               </div>
             )}
           </>
@@ -556,17 +619,32 @@ function AddTenderDialog({
 
         {/* Card: show amount and terminal badge */}
         {method === 'card' && (
-          <div className="mb-3 flex items-center justify-between rounded-xl border border-blue-900 bg-[#0f1e3d] px-4 py-3">
-            <div>
-              <p className="text-xs text-blue-400">Charging via Terminal</p>
-              <p className="text-xl font-extrabold text-white">${remaining.toFixed(2)}</p>
+          <div className="mb-3 rounded-xl border border-blue-900 bg-[#0f1e3d] px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-blue-400">Charging via Terminal</p>
+                {cardSurchargeRate > 0 ? (
+                  <div className="mt-0.5">
+                    <p className="text-sm text-gray-400">Subtotal: ${amount.toFixed(2)}</p>
+                    <p className="text-sm text-yellow-400">Surcharge ({cardSurchargeRate}%): +${surchargeAmt.toFixed(2)}</p>
+                    <p className="text-xl font-extrabold text-white">Total: ${cardChargeTotal.toFixed(2)}</p>
+                  </div>
+                ) : (
+                  <p className="text-xl font-extrabold text-white">${remaining.toFixed(2)}</p>
+                )}
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <span className="rounded-full border border-blue-700 bg-blue-900/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
+                  Tap to Pay
+                </span>
+                {(process.env.NEXT_PUBLIC_STRIPE_TERMINAL_SIMULATE === 'true' || _terminalSimulated) && (
+                  <span className="text-[10px] text-gray-600">Simulated reader</span>
+                )}
+              </div>
             </div>
-            <div className="flex flex-col items-end gap-1">
-              <span className="rounded-full border border-blue-700 bg-blue-900/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
-                Tap to Pay
-              </span>
-              <span className="text-[10px] text-gray-600">Simulated reader</span>
-            </div>
+            {cardSurchargeRate > 0 && (
+              <p className="mt-2 text-[11px] text-yellow-500">{cardSurchargeRate}% card surcharge applies (ACCC compliance)</p>
+            )}
           </div>
         )}
 
@@ -576,7 +654,7 @@ function AddTenderDialog({
           className="mt-1 w-full rounded-xl bg-green-400 py-4 text-base font-bold text-green-950 disabled:opacity-40 hover:bg-green-300"
         >
           {method === 'card'
-            ? `💳 Charge $${remaining.toFixed(2)} on Terminal`
+            ? `💳 Charge $${cardChargeTotal.toFixed(2)} on Terminal`
             : `Apply ${METHOD_META[method].emoji} $${amount.toFixed(2)}`}
         </button>
       </div>
@@ -655,10 +733,54 @@ function PaymentContent() {
   const [showAddTender, setShowAddTender] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<string | null>(null);
-  const { receiptPort } = usePrinter();
+  const { receiptConnected, printReceipt: printerPrintReceipt } = usePrinter();
 
   // Stable orderId for this transaction
   const orderIdRef = useRef(`pos-${Date.now()}`);
+
+  // ── Customer-Facing Display (CFD) broadcast channel ──────────────────────
+  const cfdChannelRef = useRef<BroadcastChannel | null>(null);
+
+  /** Post a message to the CFD and mirror it to localStorage for cross-tab fallback. */
+  const cfdPost = useCallback((msg: object) => {
+    try { cfdChannelRef.current?.postMessage(msg); } catch { /* ignore */ }
+    try { localStorage.setItem('pos_cfd_state', JSON.stringify(msg)); } catch { /* ignore */ }
+  }, []);
+
+  // On mount: open channel and signal payment screen is active
+  useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('pos_display');
+      cfdChannelRef.current = channel;
+    } catch { /* BroadcastChannel unavailable */ }
+
+    // Broadcast the current cart so the CFD transitions to cart view
+    const cartMsg = {
+      type: 'cart_update' as const,
+      items: items.map((i) => ({
+        name: i.name,
+        qty: i.qty,
+        unitPrice: i.price,
+        lineTotal: i.price * i.qty,
+      })),
+      subtotal: exGst,
+      tax: gst,
+      total,
+    };
+    try { channel?.postMessage(cartMsg); } catch { /* ignore */ }
+    try { localStorage.setItem('pos_cfd_state', JSON.stringify(cartMsg)); } catch { /* ignore */ }
+
+    return () => {
+      // Return CFD to idle when leaving the payment screen
+      const idleMsg = { type: 'idle' };
+      try { channel?.postMessage(idleMsg); } catch { /* ignore */ }
+      try { localStorage.setItem('pos_cfd_state', JSON.stringify(idleMsg)); } catch { /* ignore */ }
+      try { channel?.close(); } catch { /* ignore */ }
+      cfdChannelRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const paid = tenders.reduce((s, t) => s + t.amount, 0);
   const remaining = Math.max(0, total - paid);
@@ -673,10 +795,26 @@ function PaymentContent() {
   const handleCompleteSale = async () => {
     if (!isFullyCovered) return;
     setSubmitting(true);
+    // Signal CFD: payment is being processed
+    cfdPost({ type: 'payment_processing' });
     try {
-      const orderNumber = String(Math.floor(1000 + Math.random() * 9000));
+      // Request order number from the orders API; fall back to a timestamp-based
+      // ID that is far less likely to collide than a 4-digit random number.
+      let orderNumber: string;
+      try {
+        const onRes = await fetch('/api/proxy/orders/next-number', { method: 'POST' });
+        if (onRes.ok) {
+          const onData = await onRes.json() as { orderNumber?: string };
+          orderNumber = onData.orderNumber ?? `ORD-${Date.now().toString().slice(-8)}`;
+        } else {
+          orderNumber = `ORD-${Date.now().toString().slice(-8)}`;
+        }
+      } catch {
+        orderNumber = `ORD-${Date.now().toString().slice(-8)}`;
+      }
       const orderId = orderIdRef.current;
       const cardTender = tenders.find((t) => t.method === 'card');
+      const surchargeAmount = cardTender?.surchargeAmount ?? 0;
       const primaryMethod = tenders[0]?.method ?? 'cash';
       const createdAt = new Date().toISOString();
       const deviceInfo = getDeviceInfo();
@@ -723,17 +861,20 @@ function PaymentContent() {
         }),
       });
 
-      // 2. Best-effort: persist to orders microservice
+      // 2. Best-effort: persist to orders microservice; use server-returned
+      //    orderNumber if the API provides one (overrides our generated value).
       fetch('/api/proxy/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          orderNumber,
           locationId,
           registerId: deviceInfo?.deviceId ?? '00000000-0000-0000-0000-000000000002',
           channel: 'pos',
           orderType: 'takeaway',
           ...(customerId ? { customerId } : {}),
           ...(staffId ? { staffId } : {}),
+          ...(surchargeAmount > 0 ? { surchargeAmount } : {}),
           lines: items.map((i) => {
             let discountAmount = 0;
             if (i.discount) {
@@ -759,12 +900,22 @@ function PaymentContent() {
             };
           }),
         }),
+      }).then(async (r) => {
+        if (r.ok) {
+          const d = await r.json().catch(() => ({})) as { orderNumber?: string };
+          // If the server assigned a canonical order number, surface it on the
+          // completed-order screen so the receipt shows the right number.
+          if (d.orderNumber && d.orderNumber !== orderNumber) {
+            setCompletedOrder(d.orderNumber);
+          }
+        }
       }).catch(() => {});
 
-      // 3. Print receipt if printer is connected
-      if (receiptPort) {
+      // 3. Print receipt if printer is connected (uses context fn that reads
+      //    the live ref, avoiding the stale-value bug of reading the port directly)
+      if (receiptConnected) {
         const receiptData: ReceiptData = {
-          storeName: deviceInfo?.label ?? 'NEXUS POS',
+          storeName: deviceInfo?.label ?? 'ElevatedPOS',
           orderNumber,
           createdAt,
           staffName: staffName || undefined,
@@ -792,8 +943,14 @@ function PaymentContent() {
             change: t.change,
           })),
         };
-        await printReceipt(receiptPort, receiptData).catch(() => {});
+        await printerPrintReceipt(receiptData).catch(() => {});
       }
+
+      // Clear persisted cart on successful transaction
+      try { localStorage.removeItem('elevatedpos_cart'); } catch { /* ignore */ }
+
+      // Signal CFD: payment approved
+      cfdPost({ type: 'payment_complete', message: 'Thank you for your purchase!' });
 
       setCompletedOrder(orderNumber);
     } finally {
@@ -937,6 +1094,7 @@ function PaymentContent() {
           orderId={orderIdRef.current}
           onClose={() => setShowAddTender(false)}
           onAdd={handleAddTender}
+          onPaymentProcessing={() => cfdPost({ type: 'payment_processing' })}
         />
       )}
     </div>

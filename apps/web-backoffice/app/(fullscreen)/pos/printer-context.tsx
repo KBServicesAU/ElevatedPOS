@@ -1,19 +1,29 @@
 'use client';
 
 import { createContext, useContext, useRef, useState, useCallback, type ReactNode } from 'react';
+import {
+  printReceipt as doPrintReceipt,
+  openCashDrawer as doOpenCashDrawer,
+  type ReceiptData,
+} from './receipt-printer';
 
 interface PrinterContextValue {
-  receiptPort: SerialPort | null;
-  orderPort: SerialPort | null;
   receiptConnected: boolean;
   orderConnected: boolean;
   connectPrinter: (type: 'receipt' | 'order', method: 'serial' | 'bluetooth') => Promise<void>;
   disconnectPrinter: (type: 'receipt' | 'order') => void;
+  /** Print a receipt to the connected receipt printer. No-ops if not connected. */
+  printReceipt: (data: ReceiptData) => Promise<void>;
+  /** Open the cash drawer via the receipt printer port. No-ops if not connected. */
+  openCashDrawer: () => Promise<void>;
 }
 
 const PrinterContext = createContext<PrinterContextValue | null>(null);
 
 export function PrinterProvider({ children }: { children: ReactNode }) {
+  // Refs hold the live port objects; they are NOT exposed in context because
+  // ref.current is not tracked by React and reading it from context always
+  // returns the stale value captured at render time.
   const receiptPortRef = useRef<SerialPort | null>(null);
   const orderPortRef   = useRef<SerialPort | null>(null);
 
@@ -50,14 +60,26 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const printReceipt = useCallback(async (data: ReceiptData): Promise<void> => {
+    const port = receiptPortRef.current;
+    if (!port) return;
+    await doPrintReceipt(port, data);
+  }, []);
+
+  const openCashDrawer = useCallback(async (): Promise<void> => {
+    const port = receiptPortRef.current;
+    if (!port) return;
+    await doOpenCashDrawer(port);
+  }, []);
+
   return (
     <PrinterContext.Provider value={{
-      receiptPort: receiptPortRef.current,
-      orderPort: orderPortRef.current,
       receiptConnected,
       orderConnected,
       connectPrinter,
       disconnectPrinter,
+      printReceipt,
+      openCashDrawer,
     }}>
       {children}
     </PrinterContext.Provider>

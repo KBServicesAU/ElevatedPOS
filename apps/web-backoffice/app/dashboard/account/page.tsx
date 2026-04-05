@@ -9,7 +9,11 @@ import {
   Activity,
   User,
   Hash,
+  Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
+import { useToast } from '@/lib/use-toast';
 
 interface SessionMe {
   firstName?: string;
@@ -18,6 +22,11 @@ interface SessionMe {
   role?: string | null;
   orgId?: string;
   plan?: string;
+  createdAt?: string;
+}
+
+interface OrgSettings {
+  businessName?: string;
 }
 
 function formatMemberSince(dateStr?: string): string {
@@ -30,16 +39,150 @@ function formatMemberSince(dateStr?: string): string {
   }
 }
 
+// ─── Change Password section ─────────────────────────────────────────────────
+
+function ChangePasswordSection() {
+  const { toast } = useToast();
+  const [form, setForm] = useState({ current: '', next: '', confirm: '' });
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNext, setShowNext] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const inputClass =
+    'w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white';
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (form.next !== form.confirm) {
+      toast({ title: 'Passwords do not match', variant: 'destructive' });
+      return;
+    }
+    if (form.next.length < 8) {
+      toast({ title: 'Password must be at least 8 characters', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: form.current, newPassword: form.next }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? data.message ?? `HTTP ${res.status}`);
+      }
+      toast({ title: 'Password updated', description: 'Your password has been changed successfully.', variant: 'success' });
+      setForm({ current: '', next: '', confirm: '' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Could not update password.';
+      toast({ title: 'Failed to update password', description: msg, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 mb-5">
+      <div className="flex items-center gap-2 mb-5">
+        <Lock className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Change Password</h2>
+      </div>
+
+      <form onSubmit={handleSubmit} className="max-w-sm space-y-4">
+        {/* Current password */}
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-gray-700 dark:text-gray-300">
+            Current Password
+          </label>
+          <div className="relative">
+            <input
+              type={showCurrent ? 'text' : 'password'}
+              value={form.current}
+              onChange={(e) => setForm((f) => ({ ...f, current: e.target.value }))}
+              placeholder="••••••••"
+              required
+              className={inputClass}
+            />
+            <button
+              type="button"
+              onClick={() => setShowCurrent((s) => !s)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              aria-label={showCurrent ? 'Hide password' : 'Show password'}
+            >
+              {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+
+        {/* New password */}
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-gray-700 dark:text-gray-300">
+            New Password
+          </label>
+          <div className="relative">
+            <input
+              type={showNext ? 'text' : 'password'}
+              value={form.next}
+              onChange={(e) => setForm((f) => ({ ...f, next: e.target.value }))}
+              placeholder="Min. 8 characters"
+              required
+              minLength={8}
+              className={inputClass}
+            />
+            <button
+              type="button"
+              onClick={() => setShowNext((s) => !s)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              aria-label={showNext ? 'Hide password' : 'Show password'}
+            >
+              {showNext ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Confirm */}
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-gray-700 dark:text-gray-300">
+            Confirm New Password
+          </label>
+          <input
+            type="password"
+            value={form.confirm}
+            onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))}
+            placeholder="Repeat new password"
+            required
+            className={inputClass}
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Update Password'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function AccountPage() {
   const [me, setMe] = useState<SessionMe | null>(null);
+  const [orgSettings, setOrgSettings] = useState<OrgSettings | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/auth/me')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: SessionMe | null) => setMe(data))
-      .catch(() => null)
-      .finally(() => setLoading(false));
+    Promise.all([
+      fetch('/api/auth/me').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch('/api/proxy/settings/organisation').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([meData, orgData]: [SessionMe | null, OrgSettings | null]) => {
+      setMe(meData);
+      setOrgSettings(orgData);
+    }).finally(() => setLoading(false));
   }, []);
 
   if (loading) {
@@ -60,7 +203,7 @@ export default function AccountPage() {
   const accountNumber = me?.orgId
     ? `EPS-${me.orgId.slice(0, 8).toUpperCase()}`
     : 'EPS---------';
-  const businessName = 'Your Business';
+  const businessName = orgSettings?.businessName || 'Your Business';
   const fullName =
     [me?.firstName, me?.lastName].filter(Boolean).join(' ') || 'Account Owner';
   const email = me?.email ?? '';
@@ -135,7 +278,7 @@ export default function AccountPage() {
               </p>
             </div>
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
-              Member since {formatMemberSince()}
+              {formatMemberSince(me?.createdAt)}
             </p>
           </div>
         </div>
@@ -264,7 +407,10 @@ export default function AccountPage() {
         </div>
       </div>
 
-      {/* ── 4. Danger Zone ── */}
+      {/* ── 4. Change Password ── */}
+      <ChangePasswordSection />
+
+      {/* ── 5. Danger Zone ── */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-red-200 dark:border-red-900/50 p-6 mb-5">
         <h2 className="text-base font-semibold text-red-600 dark:text-red-400 mb-2">
           Danger Zone
@@ -280,6 +426,27 @@ export default function AccountPage() {
           Cancel Subscription
         </a>
       </div>
+
+      {/* ── Footer links ── */}
+      <p className="mt-2 text-center text-xs text-gray-400 dark:text-gray-600">
+        <a
+          href="https://elevatedpos.com.au/terms"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-gray-600 dark:hover:text-gray-400"
+        >
+          Terms of Service
+        </a>
+        {' · '}
+        <a
+          href="https://elevatedpos.com.au/privacy"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-gray-600 dark:hover:text-gray-400"
+        >
+          Privacy Policy
+        </a>
+      </p>
     </div>
   );
 }

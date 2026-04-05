@@ -141,6 +141,8 @@ export default function EasyMovePage() {
   const [importResults, setImportResults] = useState<ImportResults>({});
   const [importError, setImportError] = useState('');
   const [progress, setProgress] = useState<Record<string, number>>({});
+  const [importJobId, setImportJobId] = useState<string | null>(null);
+  const [importSubmitted, setImportSubmitted] = useState(false);
 
   // Handle OAuth callback — ?connected=1&provider=xxx
   useEffect(() => {
@@ -233,36 +235,62 @@ export default function EasyMovePage() {
     });
   }
 
+  // Poll job status when we have a real jobId from the API
+  useEffect(() => {
+    if (!importJobId || importDone) return;
+
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/proxy/migrations/${importJobId}/status`);
+        if (!res.ok) return;
+        const data = await res.json() as {
+          progress: number;
+          status: 'processing' | 'complete' | 'failed';
+          imported: number;
+          total: number;
+          results?: ImportResults;
+        };
+
+        // Update all entity progress bars uniformly from overall job progress
+        setProgress((prev) => {
+          const updated: Record<string, number> = {};
+          for (const key of Object.keys(prev)) {
+            updated[key] = data.progress;
+          }
+          return updated;
+        });
+
+        if (data.status === 'complete') {
+          clearInterval(poll);
+          setImportResults(data.results ?? {});
+          setImportDone(true);
+          setImporting(false);
+        } else if (data.status === 'failed') {
+          clearInterval(poll);
+          setImportError('Import failed on the server. Please try again.');
+          setImporting(false);
+        }
+      } catch {
+        // swallow transient poll errors
+      }
+    }, 2000);
+
+    return () => clearInterval(poll);
+  }, [importJobId, importDone]);
+
   async function handleImport() {
     if (!selectedProvider) return;
     setImporting(true);
     setImportError('');
+    setImportSubmitted(false);
+    setImportJobId(null);
 
     const entities = Array.from(include);
 
-    // Initialise progress bars
+    // Initialise progress bars at 0
     const initProgress: Record<string, number> = {};
     entities.forEach((e) => { initProgress[e] = 0; });
     setProgress(initProgress);
-
-    // Simulate progressive progress updates while import runs
-    const ticker = setInterval(() => {
-      setProgress((prev) => {
-        const updated: Record<string, number> = {};
-        let allDone = true;
-        for (const e of entities) {
-          const cur = prev[e] ?? 0;
-          if (cur < 90) {
-            updated[e] = cur + Math.floor(Math.random() * 12) + 3;
-            allDone = false;
-          } else {
-            updated[e] = cur;
-          }
-        }
-        if (allDone) clearInterval(ticker);
-        return updated;
-      });
-    }, 600);
 
     try {
       const res = await fetch(`/api/easy-move/${selectedProvider}/import`, {
@@ -270,28 +298,37 @@ export default function EasyMovePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ include: entities }),
       });
-      const data = await res.json() as { results?: ImportResults; errors?: string[]; error?: string };
+      const data = await res.json() as {
+        jobId?: string;
+        results?: ImportResults;
+        errors?: string[];
+        error?: string;
+      };
 
-      clearInterval(ticker);
-
-      if (!res.ok && !data.results) {
+      if (!res.ok && !data.results && !data.jobId) {
         setImportError(data.error ?? 'Import failed. Please try again.');
         setImporting(false);
         return;
       }
 
-      // Animate to 100%
-      const final: Record<string, number> = {};
-      entities.forEach((e) => { final[e] = 100; });
-      setProgress(final);
-
-      setTimeout(() => {
-        setImportResults(data.results ?? {});
-        setImportDone(true);
-        setImporting(false);
-      }, 600);
+      if (data.jobId) {
+        // Real server-side job — polling useEffect will handle progress
+        setImportJobId(data.jobId);
+      } else if (data.results) {
+        // Synchronous response — completed immediately
+        const final: Record<string, number> = {};
+        entities.forEach((e) => { final[e] = 100; });
+        setProgress(final);
+        setTimeout(() => {
+          setImportResults(data.results ?? {});
+          setImportDone(true);
+          setImporting(false);
+        }, 600);
+      } else {
+        // API submitted but no jobId returned — cannot track progress
+        setImportSubmitted(true);
+      }
     } catch {
-      clearInterval(ticker);
       setImportError('Import failed. Please try again.');
       setImporting(false);
     }
@@ -560,32 +597,45 @@ export default function EasyMovePage() {
                 </div>
               )}
 
-              <div className="space-y-5 px-6 py-6">
-                {Array.from(include).map((entity) => {
-                  const Icon = ENTITY_ICONS[entity];
-                  const pct = progress[entity] ?? 0;
+              {/* If API submitted but no jobId: show spinner + message */}
+              {importSubmitted ? (
+                <div className="flex flex-col items-center gap-4 px-6 py-10 text-center">
+                  <Loader2 className="h-10 w-10 animate-spin text-indigo-600" />
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-white">Import submitted</p>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      Check back in a few minutes — your data is being processed in the background.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-5 px-6 py-6">
+                  {Array.from(include).map((entity) => {
+                    const Icon = ENTITY_ICONS[entity];
+                    const pct = progress[entity] ?? 0;
 
-                  return (
-                    <div key={entity}>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Icon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                            {ENTITY_LABELS[entity]}
-                          </span>
+                    return (
+                      <div key={entity}>
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Icon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                              {ENTITY_LABELS[entity]}
+                            </span>
+                          </div>
+                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{pct}%</span>
                         </div>
-                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{pct}%</span>
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                          <div
+                            className="h-full rounded-full bg-indigo-600 transition-all duration-500"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
-                        <div
-                          className="h-full rounded-full bg-indigo-600 transition-all duration-500"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4 dark:border-gray-800">
                 {!importing && (
