@@ -369,7 +369,7 @@ function LocationsTab() {
           <div className="px-5 py-8 text-center">
             <MapPin className="mx-auto mb-2 h-8 w-8 text-gray-300" />
             <p className="text-sm font-medium text-gray-500">No locations yet</p>
-            <p className="mt-1 text-xs text-gray-400">Click "Add Location" above to add your first store or outlet.</p>
+            <p className="mt-1 text-xs text-gray-400">Click &quot;Add Location&quot; above to add your first store or outlet.</p>
           </div>
         )}
         {locations.map((loc) => (

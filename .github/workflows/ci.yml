@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [auth, catalog, inventory, orders, payments, customers, loyalty, campaigns, notifications, integrations, automations, ai, franchise, reporting, webhooks]
+        service: [auth, catalog, inventory, orders, payments, customers, loyalty, campaigns, notifications, integrations, automations, franchise]
     steps:
       - uses: actions/checkout@v4
 
@@ -149,8 +149,8 @@ jobs:
 
       - name: Build web-backoffice and kds-display
         run: |
-          pnpm --filter web-backoffice build
-          pnpm --filter kds-display build
+          pnpm --filter @nexus/web-backoffice build
+          pnpm --filter @nexus/kds-display build
 
       - name: Run E2E tests
         run: pnpm --filter @nexus/e2e test

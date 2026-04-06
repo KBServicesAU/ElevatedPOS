@@ -577,7 +577,7 @@ function InviteStaffModal({ onClose }: { onClose: () => void }) {
     <Modal title="Invite Staff Member" onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          They'll receive an email with a link to set their password and complete setup.
+          They&apos;ll receive an email with a link to set their password and complete setup.
         </p>
 
         <div>

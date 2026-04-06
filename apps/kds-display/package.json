@@ -1,11 +1,12 @@
 {
-  "name": "@elevated-pos/kds-display",
+  "name": "@nexus/kds-display",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start -p 3001"
+    "start": "next start -p 3001",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "next": "14.2.5",
