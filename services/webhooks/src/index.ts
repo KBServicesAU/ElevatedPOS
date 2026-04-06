@@ -6,6 +6,7 @@ import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { webhookRoutes } from './routes/webhooks';
 import { ingestRoutes } from './routes/ingest';
+import { stripeProxyRoutes } from './routes/stripe-proxy';
 import { processDeliveries } from './lib/deliver';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
@@ -49,6 +50,7 @@ async function start() {
   );
 
   await app.register(webhookRoutes, { prefix: '/api/v1/webhooks' });
+  await app.register(stripeProxyRoutes, { prefix: '/api/v1' });
   await app.register(ingestRoutes);
 
   app.get('/health', async () => ({ status: 'ok', service: 'webhooks', timestamp: new Date().toISOString() }));
