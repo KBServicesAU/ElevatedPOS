@@ -325,8 +325,7 @@ function CreateCampaignModal({
     const payload: Record<string, unknown> = {
       name: name.trim(),
       type,
-      status: sendOption === 'now' ? 'active' : 'scheduled',
-      audience,
+      targetSegment: { audience },
       ...(scheduledIso ? { scheduledAt: scheduledIso } : {}),
     };
 

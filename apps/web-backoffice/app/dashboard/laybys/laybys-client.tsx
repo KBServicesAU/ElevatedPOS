@@ -195,7 +195,7 @@ function RecordPaymentModal({
     if (!amountNum || amountNum <= 0) return;
     setSaving(true);
     try {
-      await apiFetch(`laybys/${layby.id}/payment`, {
+      await apiFetch(`laybys/${layby.id}/payments`, {
         method: 'POST',
         body: JSON.stringify({ amount: amountNum, method, reference }),
       });

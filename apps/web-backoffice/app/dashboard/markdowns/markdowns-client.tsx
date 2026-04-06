@@ -255,6 +255,13 @@ export default function MarkdownsClient() {
   async function handleCreate() {
     if (!form.name || !form.discountValue) return;
     setSaving(true);
+    // Convert datetime-local values (YYYY-MM-DDTHH:mm) to full ISO 8601
+    const startsAtISO = form.startsAt
+      ? new Date(form.startsAt).toISOString()
+      : new Date().toISOString();
+    const endsAtISO = form.endsAt
+      ? new Date(form.endsAt).toISOString()
+      : null;
     const status = form.startsAt ? inferStatus(form.startsAt, form.endsAt) : 'active';
     const payload = {
       name: form.name,
@@ -262,8 +269,8 @@ export default function MarkdownsClient() {
       scope: form.scope,
       discountType: form.discountType,
       discountValue: Number(form.discountValue),
-      startsAt: form.startsAt,
-      endsAt: form.endsAt || null,
+      startsAt: startsAtISO,
+      endsAt: endsAtISO,
       ...(form.isRecurring && {
         isRecurring: true,
         recurringDays: form.recurringDays,

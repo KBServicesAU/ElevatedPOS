@@ -5,13 +5,18 @@ import { db, schema } from '../db';
 
 const createMarkdownSchema = z.object({
   name: z.string().min(1),
+  description: z.string().optional(),
   scope: z.enum(['product', 'category', 'all']),
   targetId: z.string().uuid().optional(),
   discountType: z.enum(['percentage', 'fixed']),
   discountValue: z.number().positive(),
-  startsAt: z.string().datetime(),
-  endsAt: z.string().datetime().optional(),
+  startsAt: z.string().min(1),
+  endsAt: z.string().nullable().optional(),
   isClearance: z.boolean().default(false),
+  isRecurring: z.boolean().optional(),
+  recurringDays: z.array(z.string()).optional(),
+  recurringStartTime: z.string().optional(),
+  recurringEndTime: z.string().optional(),
 });
 
 const updateMarkdownSchema = createMarkdownSchema.partial();
@@ -53,7 +58,19 @@ export async function markdownRoutes(app: FastifyInstance) {
       });
     }
 
-    const { startsAt, endsAt, discountValue, targetId: rawTargetId, ...rest } = body.data;
+    const {
+      startsAt,
+      endsAt,
+      discountValue,
+      targetId: rawTargetId,
+      // Strip fields that are not in the DB schema
+      description: _desc,
+      isRecurring: _isRec,
+      recurringDays: _recDays,
+      recurringStartTime: _recStart,
+      recurringEndTime: _recEnd,
+      ...rest
+    } = body.data;
 
     const [created] = await db
       .insert(schema.markdowns)
@@ -172,6 +189,25 @@ export async function markdownRoutes(app: FastifyInstance) {
     const [updated] = await db
       .update(schema.markdowns)
       .set({ isActive: true, startsAt: now, updatedAt: now })
+      .where(and(eq(schema.markdowns.id, id), eq(schema.markdowns.orgId, orgId)))
+      .returning();
+
+    return reply.status(200).send({ data: updated });
+  });
+
+  // POST /:id/deactivate — deactivate a markdown (frontend uses this endpoint)
+  app.post('/:id/deactivate', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+
+    const existing = await db.query.markdowns.findFirst({
+      where: and(eq(schema.markdowns.id, id), eq(schema.markdowns.orgId, orgId)),
+    });
+    if (!existing) return reply.status(404).send({ title: 'Not Found', status: 404 });
+
+    const [updated] = await db
+      .update(schema.markdowns)
+      .set({ isActive: false, updatedAt: new Date() })
       .where(and(eq(schema.markdowns.id, id), eq(schema.markdowns.orgId, orgId)))
       .returning();
 

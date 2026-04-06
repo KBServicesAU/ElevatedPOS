@@ -18,6 +18,246 @@ interface BillingSubscription {
   currentPeriodEnd?: string;
 }
 
+// ─── Payment Method Section ──────────────────────────────────────────────────
+
+interface PaymentMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+}
+
+function PaymentMethodSection() {
+  const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // Card form fields
+  const [cardName, setCardName] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [expiry, setExpiry] = useState('');
+  const [cvc, setCvc] = useState('');
+
+  useEffect(() => {
+    fetch('/api/proxy/billing/payment-methods')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: PaymentMethod[] | { data?: PaymentMethod[] } | null) => {
+        if (!data) return;
+        const arr = Array.isArray(data) ? data : (data.data ?? []);
+        setMethods(arr);
+      })
+      .catch(() => {});
+  }, []);
+
+  function formatCardNumber(value: string): string {
+    const digits = value.replace(/\D/g, '').slice(0, 16);
+    return digits.replace(/(.{4})/g, '$1 ').trim();
+  }
+
+  function formatExpiry(value: string): string {
+    const digits = value.replace(/\D/g, '').slice(0, 4);
+    if (digits.length >= 3) return digits.slice(0, 2) + ' / ' + digits.slice(2);
+    return digits;
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      const res = await fetch('/api/proxy/billing/payment-methods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cardholderName: cardName,
+          number: cardNumber.replace(/\s/g, ''),
+          expMonth: parseInt(expiry.split('/')[0]?.trim() ?? '0', 10),
+          expYear: parseInt('20' + (expiry.split('/')[1]?.trim() ?? '0'), 10),
+          cvc: cvc,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? 'Failed to add payment method');
+      }
+      const pm = (await res.json()) as PaymentMethod;
+      setMethods((prev) => [...prev, pm]);
+      setShowForm(false);
+      setCardName('');
+      setCardNumber('');
+      setExpiry('');
+      setCvc('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add payment method');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleRemove(id: string) {
+    fetch(`/api/proxy/billing/payment-methods/${id}`, { method: 'DELETE' })
+      .then((r) => {
+        if (r.ok) setMethods((prev) => prev.filter((m) => m.id !== id));
+      })
+      .catch(() => {});
+  }
+
+  const brandIcon: Record<string, string> = {
+    visa: '💳 Visa',
+    mastercard: '💳 Mastercard',
+    amex: '💳 Amex',
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 mb-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Payment Method</h2>
+        {!showForm && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 transition-colors"
+          >
+            + Add
+          </button>
+        )}
+      </div>
+
+      {/* Existing methods */}
+      {methods.length > 0 && (
+        <div className="space-y-3 mb-4">
+          {methods.map((pm) => (
+            <div key={pm.id} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                  {brandIcon[pm.brand.toLowerCase()] ?? `💳 ${pm.brand}`}
+                </span>
+                <span className="text-sm text-gray-500 dark:text-gray-400 font-mono">
+                  **** {pm.last4}
+                </span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">
+                  Exp {String(pm.expMonth).padStart(2, '0')}/{pm.expYear}
+                </span>
+              </div>
+              <button
+                onClick={() => handleRemove(pm.id)}
+                className="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400 transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {methods.length === 0 && !showForm && (
+        <div className="text-center py-8 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+          <div className="text-3xl mb-3">💳</div>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-3">No payment method on file.</p>
+          <button
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors"
+          >
+            Add Payment Method
+          </button>
+        </div>
+      )}
+
+      {/* Add card form */}
+      {showForm && (
+        <form onSubmit={(e) => void handleSubmit(e)} className="border border-gray-200 dark:border-gray-700 rounded-xl p-5 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Cardholder Name
+            </label>
+            <input
+              type="text"
+              required
+              value={cardName}
+              onChange={(e) => setCardName(e.target.value)}
+              placeholder="Jane Smith"
+              className="w-full rounded-xl bg-gray-50 dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-gray-700 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Card Number
+            </label>
+            <input
+              type="text"
+              required
+              inputMode="numeric"
+              value={cardNumber}
+              onChange={(e) => setCardNumber(formatCardNumber(e.target.value))}
+              placeholder="4242 4242 4242 4242"
+              maxLength={19}
+              className="w-full rounded-xl bg-gray-50 dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-gray-700 focus:border-indigo-500 focus:outline-none font-mono"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Expiry
+              </label>
+              <input
+                type="text"
+                required
+                inputMode="numeric"
+                value={expiry}
+                onChange={(e) => setExpiry(formatExpiry(e.target.value))}
+                placeholder="MM / YY"
+                maxLength={7}
+                className="w-full rounded-xl bg-gray-50 dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-gray-700 focus:border-indigo-500 focus:outline-none font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                CVC
+              </label>
+              <input
+                type="text"
+                required
+                inputMode="numeric"
+                value={cvc}
+                onChange={(e) => setCvc(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="123"
+                maxLength={4}
+                className="w-full rounded-xl bg-gray-50 dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-gray-700 focus:border-indigo-500 focus:outline-none font-mono"
+              />
+            </div>
+          </div>
+          {error && (
+            <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 rounded-lg px-4 py-2">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            >
+              {saving ? 'Saving...' : 'Save Card'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowForm(false); setError(''); }}
+              className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
+            Your card details are transmitted securely and never stored in our app.
+          </p>
+        </form>
+      )}
+    </div>
+  );
+}
+
 export default function BillingPage() {
   const [me, setMe] = useState<SessionMe | null>(null);
   const [subscription, setSubscription] = useState<BillingSubscription | null>(null);
@@ -98,21 +338,7 @@ export default function BillingPage() {
       </div>
 
       {/* Payment method */}
-      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 mb-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Payment Method</h2>
-        </div>
-        <div className="text-center py-8 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
-          <div className="text-3xl mb-3">💳</div>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">No payment method on file.</p>
-          <p className="text-gray-400 dark:text-gray-500 text-xs mb-4">
-            To add a payment method, email{' '}
-            <a href="mailto:support@elevatedpos.com.au" className="text-indigo-600 hover:underline">
-              support@elevatedpos.com.au
-            </a>
-          </p>
-        </div>
-      </div>
+      <PaymentMethodSection />
 
       {/* Invoice history */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 mb-5">

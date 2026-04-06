@@ -3,17 +3,25 @@ import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../db';
 
+const TERM_MAP: Record<string, number> = { COD: 0, Net7: 7, Net14: 14, Net30: 30, Net60: 60, Net90: 90 };
+
 const supplierSchema = z.object({
   name: z.string().min(1),
   contactName: z.string().optional(),
-  email: z.string().email().optional(),
+  email: z.string().email().optional().or(z.literal('')),
   phone: z.string().optional(),
-  address: z.record(z.unknown()).optional(),
+  address: z.union([z.record(z.unknown()), z.string()]).optional().transform((v) =>
+    typeof v === 'string' ? (v ? { raw: v } : {}) : v ?? {},
+  ),
+  website: z.string().optional(),
   abn: z.string().optional(),
-  paymentTerms: z.number().int().default(30),
-  leadTimeDays: z.number().int().default(7),
+  paymentTerms: z.union([
+    z.number().int(),
+    z.string().transform((v) => (TERM_MAP[v] ?? parseInt(v, 10)) || 30),
+  ]).default(30),
+  leadTimeDays: z.union([z.number().int(), z.string().transform((v) => parseInt(v, 10) || 7)]).default(7),
   minimumOrderValue: z.number().min(0).optional(),
-  preferredCurrency: z.string().length(3).default('AUD'),
+  preferredCurrency: z.string().max(3).default('AUD'),
   notes: z.string().optional(),
 });
 
@@ -55,13 +63,13 @@ export async function supplierRoutes(app: FastifyInstance) {
     const [created] = await db.insert(schema.suppliers).values({
       orgId,
       name,
-      paymentTerms,
-      leadTimeDays,
+      paymentTerms: typeof paymentTerms === 'number' ? paymentTerms : 30,
+      leadTimeDays: typeof leadTimeDays === 'number' ? leadTimeDays : 7,
       preferredCurrency,
       contactName: contactName ?? null,
-      email: email ?? null,
+      email: email && email !== '' ? email : null,
       phone: phone ?? null,
-      address: address ?? null,
+      address: address ?? {},
       abn: abn ?? null,
       notes: notes ?? null,
     }).returning();

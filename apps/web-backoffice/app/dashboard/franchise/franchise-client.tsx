@@ -102,18 +102,41 @@ interface AddLocationModalProps {
 
 function AddLocationModal({ onClose, onSaved }: AddLocationModalProps) {
   const { toast } = useToast();
-  const [form, setForm] = useState({ name: '', address: '', managerEmail: '' });
+  const [form, setForm] = useState({
+    locationId: '',
+    franchiseeOrgId: '',
+    franchiseeContactName: '',
+    franchiseeEmail: '',
+  });
   const [saving, setSaving] = useState(false);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
-      await apiFetch('franchise/locations', {
+      // Ensure a franchise group exists, then add the location to it
+      const groupsRes = await apiFetch<{ data: { id: string }[] }>('franchise/groups');
+      let groupId: string;
+      if (groupsRes.data.length > 0) {
+        groupId = groupsRes.data[0].id;
+      } else {
+        // Create a default franchise group
+        const newGroup = await apiFetch<{ data: { id: string } }>('franchise/groups', {
+          method: 'POST',
+          body: JSON.stringify({ name: 'Default Franchise Group' }),
+        });
+        groupId = newGroup.data.id;
+      }
+      await apiFetch(`franchise/groups/${groupId}/locations`, {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          locationId: form.locationId,
+          franchiseeOrgId: form.franchiseeOrgId,
+          franchiseeContactName: form.franchiseeContactName || undefined,
+          franchiseeEmail: form.franchiseeEmail || undefined,
+        }),
       });
-      toast({ title: 'Location added', description: `"${form.name}" has been added to the franchise network.`, variant: 'success' });
+      toast({ title: 'Location added', description: 'The franchise location has been added to the network.', variant: 'success' });
       onSaved();
       onClose();
     } catch (err) {
@@ -136,14 +159,15 @@ function AddLocationModal({ onClose, onSaved }: AddLocationModalProps) {
         </div>
         <form onSubmit={(e) => void handleSave(e)} className="space-y-4 p-6">
           {[
-            { key: 'name' as const, label: 'Location Name', placeholder: 'CBD Store', type: 'text' },
-            { key: 'address' as const, label: 'Address', placeholder: '123 Main St, Sydney NSW 2000', type: 'text' },
-            { key: 'managerEmail' as const, label: 'Manager Email', placeholder: 'manager@franchise.com', type: 'email' },
+            { key: 'locationId' as const, label: 'Location ID', placeholder: 'Location UUID', type: 'text' },
+            { key: 'franchiseeOrgId' as const, label: 'Franchisee Org ID', placeholder: 'Franchisee Organisation UUID', type: 'text' },
+            { key: 'franchiseeContactName' as const, label: 'Contact Name', placeholder: 'Jane Smith', type: 'text' },
+            { key: 'franchiseeEmail' as const, label: 'Contact Email', placeholder: 'manager@franchise.com', type: 'email' },
           ].map(({ key, label, placeholder, type }) => (
             <div key={key}>
               <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
               <input
-                required
+                required={key === 'locationId' || key === 'franchiseeOrgId'}
                 type={type}
                 value={form[key]}
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
@@ -156,7 +180,7 @@ function AddLocationModal({ onClose, onSaved }: AddLocationModalProps) {
             <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
               Cancel
             </button>
-            <button type="submit" disabled={saving || !form.name} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+            <button type="submit" disabled={saving || !form.locationId || !form.franchiseeOrgId} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               {saving ? 'Adding…' : 'Add Location'}
             </button>
@@ -176,18 +200,38 @@ interface AddPolicyModalProps {
 
 function AddPolicyModal({ onClose, onSaved }: AddPolicyModalProps) {
   const { toast } = useToast();
-  const [form, setForm] = useState({ name: '', description: '', documentUrl: '' });
+  const [form, setForm] = useState({
+    fieldPath: '',
+    lockType: 'locked' as 'locked' | 'store_managed' | 'hq_default',
+    description: '',
+  });
   const [saving, setSaving] = useState(false);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
-      await apiFetch('franchise/policies', {
+      // Ensure a franchise group exists, then add the policy to it
+      const groupsRes = await apiFetch<{ data: { id: string }[] }>('franchise/groups');
+      let groupId: string;
+      if (groupsRes.data.length > 0) {
+        groupId = groupsRes.data[0].id;
+      } else {
+        const newGroup = await apiFetch<{ data: { id: string } }>('franchise/groups', {
+          method: 'POST',
+          body: JSON.stringify({ name: 'Default Franchise Group' }),
+        });
+        groupId = newGroup.data.id;
+      }
+      await apiFetch(`franchise/groups/${groupId}/policies`, {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          fieldPath: form.fieldPath,
+          lockType: form.lockType,
+          description: form.description || undefined,
+        }),
       });
-      toast({ title: 'Policy added', description: `"${form.name}" has been created.`, variant: 'success' });
+      toast({ title: 'Policy added', description: `Field lock for "${form.fieldPath}" has been created.`, variant: 'success' });
       onSaved();
       onClose();
     } catch (err) {
@@ -210,17 +254,31 @@ function AddPolicyModal({ onClose, onSaved }: AddPolicyModalProps) {
         </div>
         <form onSubmit={(e) => void handleSave(e)} className="space-y-4 p-6">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Policy Name</label>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Field Path</label>
             <input
               required
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              placeholder="e.g. Menu Standards"
+              value={form.fieldPath}
+              onChange={(e) => setForm((f) => ({ ...f, fieldPath: e.target.value }))}
+              placeholder="e.g. menu.pricing"
               className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Lock Type</label>
+            <select
+              value={form.lockType}
+              onChange={(e) => setForm((f) => ({ ...f, lockType: e.target.value as 'locked' | 'store_managed' | 'hq_default' }))}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            >
+              <option value="locked">Locked</option>
+              <option value="hq_default">HQ Default</option>
+              <option value="store_managed">Store Managed</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Description <span className="text-xs font-normal text-gray-400">(optional)</span>
+            </label>
             <textarea
               rows={3}
               value={form.description}
@@ -229,23 +287,11 @@ function AddPolicyModal({ onClose, onSaved }: AddPolicyModalProps) {
               className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             />
           </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Document URL <span className="text-xs font-normal text-gray-400">(optional)</span>
-            </label>
-            <input
-              type="url"
-              value={form.documentUrl}
-              onChange={(e) => setForm((f) => ({ ...f, documentUrl: e.target.value }))}
-              placeholder="https://docs.example.com/policy"
-              className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            />
-          </div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
               Cancel
             </button>
-            <button type="submit" disabled={saving || !form.name} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+            <button type="submit" disabled={saving || !form.fieldPath} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               {saving ? 'Saving…' : 'Add Policy'}
             </button>
@@ -272,15 +318,29 @@ export function FranchiseClient() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [locsRes, stmtsRes, polsRes, compRes] = await Promise.all([
-        apiFetch<unknown>('franchise/franchisees').catch(() => null),
-        apiFetch<unknown>('franchise/royalty-statements').catch(() => null),
-        apiFetch<unknown>('franchise/policies').catch(() => null),
-        apiFetch<unknown>('franchise/compliance-checks').catch(() => null),
+      // Fetch franchise groups first, then load nested data from the first group
+      const groupsRes = await apiFetch<{ data: { id: string }[] }>('franchise/groups').catch(() => ({ data: [] }));
+      const groupId = groupsRes.data[0]?.id;
+      if (!groupId) {
+        setLocations([]);
+        setStatements([]);
+        setPolicies([]);
+        setCompliance([]);
+        return;
+      }
+      const [locsRes, polsRes] = await Promise.all([
+        apiFetch<unknown>(`franchise/groups/${groupId}/locations`).catch(() => null),
+        apiFetch<unknown>(`franchise/groups/${groupId}/policies`).catch(() => null),
       ]);
       setLocations(extractList(locsRes, []));
-      setStatements(extractList(stmtsRes, []));
       setPolicies(extractList(polsRes, []));
+      // Royalty statements and compliance checks use flat routes that may not exist yet;
+      // keep fetches but gracefully fall back to empty arrays
+      const [stmtsRes, compRes] = await Promise.all([
+        apiFetch<unknown>('franchise/royalty-statements').catch(() => null),
+        apiFetch<unknown>('franchise/compliance-checks').catch(() => null),
+      ]);
+      setStatements(extractList(stmtsRes, []));
       setCompliance(extractList(compRes, []));
     } finally {
       setLoading(false);

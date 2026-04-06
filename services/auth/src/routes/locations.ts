@@ -21,7 +21,8 @@ const createLocationSchema = z.object({
   timezone: z.string().max(100).default('Australia/Sydney'),
   type: z.enum(['retail', 'warehouse', 'kitchen']).default('retail'),
   settings: z.record(z.unknown()).optional().default({}),
-  managerEmail: z.string().email().optional(),
+  managerName: z.string().max(255).optional(),
+  managerEmail: z.string().email().optional().or(z.literal('')),
 });
 
 const updateLocationSchema = z.object({
@@ -34,7 +35,9 @@ const updateLocationSchema = z.object({
   timezone: z.string().max(100).optional(),
   type: z.enum(['retail', 'warehouse', 'kitchen']).optional(),
   settings: z.record(z.unknown()).optional(),
-  managerEmail: z.string().email().optional(),
+  managerName: z.string().max(255).optional(),
+  managerEmail: z.string().email().optional().or(z.literal('')),
+  isActive: z.boolean().optional(),
 });
 
 const tradingHoursSchema = z.object({
@@ -130,6 +133,72 @@ export async function locationRoutes(app: FastifyInstance) {
     }
 
     return reply.status(200).send({ data: location });
+  });
+
+  // PUT /:id — alias for PATCH (some frontends use PUT for updates)
+  app.put('/:id', async (request, reply) => {
+    // Forward to the same handler logic as PATCH
+    const { orgId } = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+    const body = updateLocationSchema.safeParse(request.body);
+
+    if (!body.success) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: body.error.message,
+      });
+    }
+
+    const existing = await db.query.locations.findFirst({
+      where: and(eq(schema.locations.id, id), eq(schema.locations.orgId, orgId)),
+    });
+
+    if (!existing) {
+      return reply.status(404).send({
+        type: 'https://elevatedpos.com/errors/not-found',
+        title: 'Not Found',
+        status: 404,
+      });
+    }
+
+    let putAddress: Record<string, unknown> | undefined;
+    if (
+      body.data.address !== undefined ||
+      body.data.suburb !== undefined ||
+      body.data.state !== undefined ||
+      body.data.postcode !== undefined
+    ) {
+      if (typeof body.data.address === 'object' && body.data.address !== null) {
+        putAddress = body.data.address as Record<string, unknown>;
+      } else {
+        const current = (existing.address as Record<string, unknown>) ?? {};
+        putAddress = {
+          street: body.data.address ?? current['street'] ?? '',
+          suburb: body.data.suburb ?? current['suburb'] ?? '',
+          state: body.data.state ?? current['state'] ?? '',
+          postcode: body.data.postcode ?? current['postcode'] ?? '',
+        };
+      }
+    }
+
+    const [updated] = await db
+      .update(schema.locations)
+      .set({
+        ...(body.data.name !== undefined ? { name: body.data.name } : {}),
+        ...(putAddress !== undefined ? { address: putAddress } : {}),
+        ...(body.data.phone !== undefined ? { phone: body.data.phone } : {}),
+        ...(body.data.timezone !== undefined ? { timezone: body.data.timezone } : {}),
+        ...(body.data.type !== undefined ? { type: body.data.type } : {}),
+        ...(body.data.settings !== undefined ? { settings: body.data.settings } : {}),
+        ...(body.data.isActive !== undefined ? { isActive: body.data.isActive } : {}),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(schema.locations.id, id), eq(schema.locations.orgId, orgId)))
+      .returning();
+
+    return reply.status(200).send({ data: updated });
   });
 
   // PATCH /:id — update location

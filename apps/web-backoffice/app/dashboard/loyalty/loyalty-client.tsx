@@ -36,24 +36,18 @@ function ProgramModal({ program, onClose, onSaved }: ProgramModalProps) {
     setError('');
     setSaving(true);
     try {
-      const body = JSON.stringify({ name: name.trim(), earnRate: parseFloat(earnRate) || 1, active: true });
+      const body = JSON.stringify({ name: name.trim(), earnRate: Math.round(parseFloat(earnRate)) || 1, active: true });
       if (isEdit && program) {
-        await apiFetch(`loyalty/programs/${program.id}`, {
-          method: 'PUT',
+        await apiFetch(`programs/${program.id}`, {
+          method: 'PATCH',
           body,
         });
         toast({ title: 'Program updated', description: `"${name.trim()}" has been updated.`, variant: 'success' });
       } else {
-        const res = await fetch('/api/proxy/programs', {
+        await apiFetch('programs', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body,
         });
-        if (!res.ok) {
-          let msg = `HTTP ${res.status}`;
-          try { const b = await res.json(); msg = b.message ?? b.error ?? b.detail ?? msg; } catch { /* ignore */ }
-          throw new Error(msg);
-        }
         toast({ title: 'Program created', description: `"${name.trim()}" has been created.`, variant: 'success' });
       }
       onSaved();

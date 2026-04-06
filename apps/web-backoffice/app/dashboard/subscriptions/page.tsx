@@ -85,8 +85,15 @@ export default function SubscriptionsPage() {
         const err = await res.json() as { error?: string };
         throw new Error(err.error ?? 'Failed to create subscription');
       }
-      const newSub = await res.json() as Subscription;
-      setSubscriptions((prev) => [newSub, ...prev]);
+      await res.json();
+      // Reload the full subscription list from the backend to get complete data
+      if (orgId) {
+        const listRes = await fetch(`/api/proxy/integrations/api/v1/connect/subscriptions/${orgId}`);
+        if (listRes.ok) {
+          const listData = await listRes.json() as { subscriptions: Subscription[] };
+          setSubscriptions(listData.subscriptions ?? []);
+        }
+      }
       setShowNew(false);
       setForm({ customerEmail: '', customerName: '', priceId: '', trialDays: '' });
     } catch (err) {

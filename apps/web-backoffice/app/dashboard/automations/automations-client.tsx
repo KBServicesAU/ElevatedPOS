@@ -23,7 +23,6 @@ const TRIGGER_OPTIONS = [
   { value: 'loyalty_tier_changed', label: 'Loyalty Tier Changed' },
   { value: 'low_stock', label: 'Low Stock' },
   { value: 'birthday', label: 'Birthday' },
-  { value: 'order_refunded', label: 'Order Refunded' },
 ];
 
 const ACTION_OPTIONS = [
@@ -88,16 +87,26 @@ function CreateRuleModal({ initial, onClose, onSaved }: CreateRuleModalProps) {
     e.preventDefault();
     setSaving(true);
     try {
+      // Map frontend form shape to backend schema:
+      // - condition (string) -> conditions (array of records)
+      // - actions (string[]) -> actions (array of records with type key)
+      const apiBody = {
+        name: form.name,
+        trigger: form.trigger,
+        conditions: form.condition ? [{ expression: form.condition }] : [],
+        actions: form.actions.map((a) => ({ type: a })),
+        enabled: form.enabled,
+      };
       if (isEdit && initial?.id) {
-        await apiFetch(`automations/rules/${initial.id}`, {
-          method: 'PUT',
-          body: JSON.stringify(form),
+        await apiFetch(`automations/${initial.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(apiBody),
         });
         toast({ title: 'Rule updated', description: `"${form.name}" has been updated.`, variant: 'success' });
       } else {
-        await apiFetch('automations/rules', {
+        await apiFetch('automations', {
           method: 'POST',
-          body: JSON.stringify(form),
+          body: JSON.stringify(apiBody),
         });
         toast({ title: 'Rule created', description: `"${form.name}" has been created.`, variant: 'success' });
       }
@@ -249,7 +258,7 @@ export function AutomationsClient() {
   async function handleRun(rule: AutomationRule) {
     setRunningId(rule.id);
     try {
-      await apiFetch(`automation-rules/${rule.id}/run`, { method: 'POST' });
+      await apiFetch(`automations/${rule.id}/trigger`, { method: 'POST' });
       toast({ title: 'Rule triggered', description: `"${rule.name}" ran successfully.`, variant: 'success' });
     } catch (err) {
       const msg = getErrorMessage(err, 'Failed to run rule.');
@@ -273,7 +282,7 @@ export function AutomationsClient() {
   async function handleDelete(rule: AutomationRule) {
     if (!confirm(`Delete rule "${rule.name}"? This cannot be undone.`)) return;
     try {
-      await apiFetch(`automations/rules/${rule.id}`, { method: 'DELETE' });
+      await apiFetch(`automations/${rule.id}`, { method: 'DELETE' });
       toast({ title: 'Rule deleted', description: `"${rule.name}" has been deleted.`, variant: 'success' });
       void refetch?.();
     } catch (err) {

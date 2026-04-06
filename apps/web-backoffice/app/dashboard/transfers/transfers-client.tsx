@@ -57,8 +57,8 @@ export function TransfersClient() {
   const [saving, setSaving] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
 
-  const [fromLocation, setFromLocation] = useState('');
-  const [toLocation, setToLocation] = useState('');
+  const [fromLocationId, setFromLocationId] = useState('');
+  const [toLocationId, setToLocationId] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<TransferItem[]>([{ productName: '', qty: 1 }]);
 
@@ -70,8 +70,8 @@ export function TransfersClient() {
         const list: Location[] = Array.isArray(json) ? json : (json?.locations ?? json?.data ?? []);
         if (list.length > 0) {
           setLocations(list);
-          setFromLocation(list[0].name);
-          setToLocation(list[1]?.name ?? list[0].name);
+          setFromLocationId(list[0].id);
+          setToLocationId(list[1]?.id ?? list[0].id);
         }
       })
       .catch(() => {});
@@ -105,15 +105,19 @@ export function TransfersClient() {
   }
 
   function openModal() {
-    setFromLocation(locations[0]?.name ?? '');
-    setToLocation(locations[1]?.name ?? locations[0]?.name ?? '');
+    setFromLocationId(locations[0]?.id ?? '');
+    setToLocationId(locations[1]?.id ?? locations[0]?.id ?? '');
     setNotes('');
     setItems([{ productName: '', qty: 1 }]);
     setShowModal(true);
   }
 
+  function locationName(id: string) {
+    return locations.find((l) => l.id === id)?.name ?? id;
+  }
+
   async function handleSave() {
-    if (fromLocation === toLocation) {
+    if (fromLocationId === toLocationId) {
       toast({ title: 'Invalid transfer', description: 'Source and destination must be different', variant: 'destructive' });
       return;
     }
@@ -124,26 +128,43 @@ export function TransfersClient() {
     }
     setSaving(true);
     try {
-      const payload = { fromLocation, toLocation, notes, items };
+      const payload = {
+        fromLocationId,
+        toLocationId,
+        notes,
+        lines: items.map((i) => ({
+          productId: '00000000-0000-0000-0000-000000000000',
+          productName: i.productName,
+          sku: i.productName.toLowerCase().replace(/\s+/g, '-'),
+          requestedQty: i.qty,
+        })),
+      };
       const res = await fetch('/api/proxy/transfers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const created: Transfer = await res.json().catch(() => ({
-        id: String(Date.now()),
-        transferNumber: `TRF-${String(transfers.length + 1).padStart(4, '0')}`,
-        fromLocation,
-        toLocation,
-        status: 'pending' as const,
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.detail ?? errBody.error ?? `HTTP ${res.status}`);
+      }
+      const json = await res.json();
+      const data = json.data ?? json;
+      const created: Transfer = {
+        id: data.id ?? String(Date.now()),
+        transferNumber: data.transferNumber ?? `TRF-${String(transfers.length + 1).padStart(4, '0')}`,
+        fromLocation: locationName(fromLocationId),
+        toLocation: locationName(toLocationId),
+        status: data.status ?? 'pending',
         itemsCount: items.length,
-        requestedBy: 'Current User',
-        createdAt: new Date().toISOString(),
+        requestedBy: data.requestedBy ?? 'Current User',
+        createdAt: data.createdAt ?? new Date().toISOString(),
         notes,
-      }));
+      };
       setTransfers((prev) => [created, ...prev]);
-    } catch {
-      // no-op
+      toast({ title: 'Transfer created', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Failed to create transfer', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setSaving(false);
       setShowModal(false);
@@ -258,26 +279,26 @@ export function TransfersClient() {
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">From Location</label>
                   <select
-                    value={fromLocation}
-                    onChange={(e) => setFromLocation(e.target.value)}
+                    value={fromLocationId}
+                    onChange={(e) => setFromLocationId(e.target.value)}
                     className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   >
                     {locations.length === 0 && <option value="">No locations configured</option>}
                     {locations.map((l) => (
-                      <option key={l.id} value={l.name}>{l.name}</option>
+                      <option key={l.id} value={l.id}>{l.name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">To Location</label>
                   <select
-                    value={toLocation}
-                    onChange={(e) => setToLocation(e.target.value)}
+                    value={toLocationId}
+                    onChange={(e) => setToLocationId(e.target.value)}
                     className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   >
                     {locations.length === 0 && <option value="">No locations configured</option>}
                     {locations.map((l) => (
-                      <option key={l.id} value={l.name}>{l.name}</option>
+                      <option key={l.id} value={l.id}>{l.name}</option>
                     ))}
                   </select>
                 </div>
@@ -345,7 +366,7 @@ export function TransfersClient() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || items.every((i) => !i.productName) || fromLocation === toLocation}
+                disabled={saving || items.every((i) => !i.productName) || fromLocationId === toLocationId}
                 className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
               >
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}

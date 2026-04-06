@@ -25,7 +25,8 @@ interface Webhook {
   url: string;
   events: string[];
   active: boolean;
-  lastDelivery: string | null;
+  status: 'active' | 'inactive' | 'suspended';
+  lastDelivery: { id: string; event: string; status: string; responseCode: number; createdAt: string } | null;
   successRate: number;
   deliveryLogs: DeliveryLog[];
 }
@@ -419,7 +420,8 @@ export function WebhooksClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const json = await res.json().catch(() => ({})) as Partial<Webhook>;
+      const raw = await res.json().catch(() => ({})) as { data?: Partial<Webhook> } & Partial<Webhook>;
+      const json = raw.data ?? raw;
       const created: Webhook = {
         lastDelivery: null,
         successRate: 100,
@@ -428,7 +430,8 @@ export function WebhooksClient() {
         id: json.id ?? String(Date.now()),
         url: newUrl,
         events: selectedEvents,
-        active: json.active ?? true,
+        active: json.active !== false,
+        status: json.status ?? 'active',
       };
       setWebhooks((prev) => [...prev, created]);
       toast({ title: 'Webhook created', description: `Endpoint registered for ${selectedEvents.length} event(s).`, variant: 'success' });
@@ -466,18 +469,19 @@ export function WebhooksClient() {
   async function handleToggle(id: string) {
     const webhook = webhooks.find((w) => w.id === id);
     if (!webhook) return;
-    const newActive = !webhook.active;
-    setWebhooks((prev) => prev.map((w) => (w.id === id ? { ...w, active: newActive } : w)));
-    if (drawerWebhook?.id === id) setDrawerWebhook((prev) => prev ? { ...prev, active: newActive } : prev);
+    const newStatus = webhook.status === 'active' ? 'inactive' : 'active';
+    setWebhooks((prev) => prev.map((w) => (w.id === id ? { ...w, status: newStatus as 'active' | 'inactive' | 'suspended' } : w)));
+    if (drawerWebhook?.id === id) setDrawerWebhook((prev) => prev ? { ...prev, status: newStatus as 'active' | 'inactive' | 'suspended' } : prev);
     try {
       await fetch(`/api/proxy/webhooks/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active: newActive }),
+        body: JSON.stringify({ status: newStatus }),
       });
     } catch {
-      setWebhooks((prev) => prev.map((w) => (w.id === id ? { ...w, active: !newActive } : w)));
-      if (drawerWebhook?.id === id) setDrawerWebhook((prev) => prev ? { ...prev, active: !newActive } : prev);
+      const revertStatus = newStatus === 'active' ? 'inactive' : 'active';
+      setWebhooks((prev) => prev.map((w) => (w.id === id ? { ...w, status: revertStatus as 'active' | 'inactive' | 'suspended' } : w)));
+      if (drawerWebhook?.id === id) setDrawerWebhook((prev) => prev ? { ...prev, status: revertStatus as 'active' | 'inactive' | 'suspended' } : prev);
       toast({ title: 'Update failed', description: 'Could not update webhook status.', variant: 'destructive' });
     }
   }
@@ -554,16 +558,16 @@ export function WebhooksClient() {
                     <td className="px-5 py-4">
                       <span
                         className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          wh.active
+                          wh.status === 'active'
                             ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                             : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
                         }`}
                       >
-                        {wh.active ? 'Active' : 'Inactive'}
+                        {wh.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-sm text-gray-500 dark:text-gray-400">
-                      {wh.lastDelivery ? formatTimestamp(wh.lastDelivery) : '—'}
+                      {wh.lastDelivery?.createdAt ? formatTimestamp(wh.lastDelivery.createdAt) : '—'}
                     </td>
                     <td className="px-5 py-4">
                       <span
@@ -597,10 +601,10 @@ export function WebhooksClient() {
                         </button>
                         <button
                           onClick={() => handleToggle(wh.id)}
-                          title={wh.active ? 'Deactivate' : 'Activate'}
+                          title={wh.status === 'active' ? 'Deactivate' : 'Activate'}
                           className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
                         >
-                          {wh.active ? 'Disable' : 'Enable'}
+                          {wh.status === 'active' ? 'Disable' : 'Enable'}
                         </button>
                         <button
                           onClick={() => handleDelete(wh.id)}
@@ -789,18 +793,18 @@ export function WebhooksClient() {
                     <div className="flex items-center gap-3">
                       <span
                         className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          drawerWebhook.active
+                          drawerWebhook.status === 'active'
                             ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                             : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
                         }`}
                       >
-                        {drawerWebhook.active ? 'Active' : 'Inactive'}
+                        {drawerWebhook.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
                       <button
                         onClick={() => handleToggle(drawerWebhook.id)}
                         className="rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
                       >
-                        {drawerWebhook.active ? 'Disable' : 'Enable'}
+                        {drawerWebhook.status === 'active' ? 'Disable' : 'Enable'}
                       </button>
                     </div>
                   </div>

@@ -49,7 +49,8 @@ function TopUpModal({
     if (!num || num <= 0) return;
     setLoading(true);
     try {
-      await apiFetch(`gift-cards/${card.id}/top-up`, {
+      // Backend uses /:code/topup endpoint (by code, no hyphen)
+      await apiFetch(`gift-cards/${card.code}/topup`, {
         method: 'POST',
         body: JSON.stringify({ amount: num }),
       });
@@ -259,8 +260,27 @@ export default function GiftCardsClient() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch<GiftCardsResponse>('gift-cards');
-      setItems(res.data ?? []);
+      const res = await apiFetch<{ data: Record<string, unknown>[] }>('gift-cards');
+      // Map backend DB field names to frontend GiftCard interface
+      const mapped: GiftCard[] = (res.data ?? []).map((raw) => ({
+        id: String(raw.id ?? ''),
+        code: String(raw.code ?? ''),
+        balance: Number(raw.currentBalance ?? raw.balance ?? 0),
+        originalAmount: Number(raw.originalAmount ?? 0),
+        issuedTo: String(raw.issuedTo ?? raw.customerName ?? raw.customerId ?? ''),
+        issuedDate: raw.issuedDate
+          ? String(raw.issuedDate)
+          : raw.createdAt
+            ? new Date(String(raw.createdAt)).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+            : '',
+        expiryDate: raw.expiryDate
+          ? String(raw.expiryDate)
+          : raw.expiresAt
+            ? new Date(String(raw.expiresAt)).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+            : null,
+        status: (String(raw.status ?? 'active') as GiftCard['status']),
+      }));
+      setItems(mapped);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load gift cards');
       setItems([]);
@@ -277,7 +297,11 @@ export default function GiftCardsClient() {
     setCancellingId(card.id);
     setConfirmCancelId(null);
     try {
-      await apiFetch(`gift-cards/${card.id}/cancel`, { method: 'POST' });
+      // Backend uses /:code/void endpoint (by code, not id)
+      await apiFetch(`gift-cards/${card.code}/void`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'Cancelled from backoffice' }),
+      });
       setItems((prev) => prev.map((c) => c.id === card.id ? { ...c, status: 'cancelled' as const } : c));
       toast({ title: 'Gift card cancelled', description: `${card.code} has been cancelled.`, variant: 'default' });
     } catch (err) {
@@ -292,23 +316,27 @@ export default function GiftCardsClient() {
     if (!form.amount || !form.customerName) return;
     setIssuing(true);
     try {
-      const res = await apiFetch<Partial<GiftCard>>('gift-cards', {
+      // Backend schema: { amount, currency?, customerId?, expiresAt?, notes? }
+      const res = await apiFetch<Record<string, unknown>>('gift-cards', {
         method: 'POST',
         body: JSON.stringify({
           amount: Number(form.amount),
-          customerName: form.customerName,
-          expiryDate: form.expiryDate || null,
+          expiresAt: form.expiryDate || undefined,
+          notes: `Issued to ${form.customerName}`,
         }),
       });
+      // Map backend response (which wraps in { data: {...} }) to frontend GiftCard
+      const raw = (res as Record<string, unknown>).data ?? res;
+      const r = raw as Record<string, unknown>;
       const newCard: GiftCard = {
-        id: res.id ?? `gc${Date.now()}`,
-        code: res.code ?? `GIFT-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
-        balance: res.balance ?? Number(form.amount),
-        originalAmount: res.originalAmount ?? Number(form.amount),
-        issuedTo: res.issuedTo ?? form.customerName,
-        issuedDate: res.issuedDate ?? new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
-        expiryDate: res.expiryDate ?? (form.expiryDate || null),
-        status: res.status ?? 'active',
+        id: String(r.id ?? `gc${Date.now()}`),
+        code: String(r.code ?? `GIFT-${Math.random().toString(36).substring(2, 6).toUpperCase()}`),
+        balance: Number(r.currentBalance ?? r.balance ?? form.amount),
+        originalAmount: Number(r.originalAmount ?? form.amount),
+        issuedTo: form.customerName,
+        issuedDate: new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
+        expiryDate: form.expiryDate || null,
+        status: 'active',
       };
       setItems((prev) => [newCard, ...prev]);
 

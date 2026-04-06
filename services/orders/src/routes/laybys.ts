@@ -4,11 +4,16 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { publishEvent } from '../lib/kafka';
 
-let laybyCounter = 1;
 function generateAgreementNumber(): string {
-  const year = new Date().getFullYear();
-  const seq = String(laybyCounter++).padStart(6, '0');
-  return `LAY-${year}-${seq}`;
+  const now = new Date();
+  const year = now.getFullYear();
+  // Timestamp-based sequence: MMDD + milliseconds-of-day to avoid collisions
+  // without relying on in-memory state that resets on restart.
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const msOfDay = (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) * 1000 + now.getMilliseconds();
+  const seq = String(msOfDay).padStart(8, '0');
+  return `LAY-${year}-${month}${day}${seq}`;
 }
 
 const paymentScheduleItemSchema = z.object({
@@ -31,18 +36,26 @@ const laybyItemSchema = z.object({
 });
 
 const createLaybySchema = z.object({
-  locationId: z.string().uuid(),
-  customerId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
+  customerId: z.string().uuid().optional(),
   orderId: z.string().uuid().optional(),
   customerName: z.string().min(1),
-  customerAddress: z.string().min(1),
-  totalAmount: z.number().positive(),
+  customerAddress: z.string().optional().default(''),
+  // Accept both "totalAmount" (API/POS) and "total" (backoffice form)
+  totalAmount: z.number().positive().optional(),
+  total: z.number().positive().optional(),
   depositAmount: z.number().positive(),
   paymentSchedule: z.array(paymentScheduleItemSchema).default([]),
-  items: z.array(laybyItemSchema).min(1),
+  items: z.array(laybyItemSchema).default([]),
   cancellationPolicy: z.string().optional(),
   notes: z.string().optional(),
-});
+  // Backoffice quick-create fields
+  itemsSummary: z.string().optional(),
+  installmentCount: z.number().int().positive().optional(),
+}).refine(
+  (d) => (d.totalAmount ?? d.total) !== undefined,
+  { message: 'Either totalAmount or total is required', path: ['totalAmount'] },
+);
 
 const recordPaymentSchema = z.object({
   amount: z.number().positive(),
@@ -66,7 +79,9 @@ export async function laybyRoutes(app: FastifyInstance) {
       return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
-    const { totalAmount, depositAmount } = body.data;
+    // Accept both "totalAmount" (API/POS) and "total" (backoffice form)
+    const totalAmount = body.data.totalAmount ?? body.data.total!;
+    const { depositAmount } = body.data;
 
     // AU Consumer Law: deposit must be >= 10% of total
     const minDeposit = totalAmount * 0.1;
@@ -81,10 +96,28 @@ export async function laybyRoutes(app: FastifyInstance) {
 
     const balanceOwing = totalAmount - depositAmount;
 
+    // Build items array: use provided items, or generate from itemsSummary
+    const items = body.data.items.length > 0
+      ? body.data.items
+      : [{
+          productId: '00000000-0000-0000-0000-000000000000',
+          name: body.data.itemsSummary ?? 'Lay-by items',
+          sku: 'LAYBY',
+          quantity: 1,
+          unitPrice: totalAmount,
+          taxRate: 0,
+          discountAmount: 0,
+          lineTotal: totalAmount,
+        }];
+
+    // DB requires non-null locationId/customerId; use a placeholder UUID for
+    // quick-create from the backoffice which doesn't collect these.
+    const PLACEHOLDER_UUID = '00000000-0000-0000-0000-000000000000';
+
     const agreementRows = await db.insert(schema.laybyAgreements).values({
       orgId,
-      locationId: body.data.locationId,
-      customerId: body.data.customerId,
+      locationId: body.data.locationId ?? PLACEHOLDER_UUID,
+      customerId: body.data.customerId ?? PLACEHOLDER_UUID,
       orderId: body.data.orderId ?? null,
       agreementNumber: generateAgreementNumber(),
       status: 'active',
@@ -93,9 +126,9 @@ export async function laybyRoutes(app: FastifyInstance) {
       balanceOwing: String(balanceOwing.toFixed(4)),
       cancellationFee: '0',
       paymentSchedule: body.data.paymentSchedule,
-      items: body.data.items,
+      items,
       customerName: body.data.customerName,
-      customerAddress: body.data.customerAddress,
+      customerAddress: body.data.customerAddress ?? '',
       cancellationPolicy: body.data.cancellationPolicy ?? null,
       notes: body.data.notes ?? null,
       activatedAt: new Date(),

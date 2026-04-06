@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Plus, ChevronRight, X, Check, Eye, Pencil, Truck,
   XCircle, Trash2, ChevronLeft, Mail, Printer, Sparkles,
@@ -704,6 +705,7 @@ type FilterTab = 'all' | 'draft' | 'confirmed' | 'sent' | 'received';
 
 export function PurchaseOrdersClient() {
   const { toast } = useToast();
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
@@ -713,6 +715,13 @@ export function PurchaseOrdersClient() {
   const [receiveTarget, setReceiveTarget] = useState<PurchaseOrder | null>(null);
   const [emailingId, setEmailingId] = useState<string | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
+
+  // Auto-open create modal when navigated with ?action=new (e.g. from Inventory "Create PO")
+  useEffect(() => {
+    if (searchParams.get('action') === 'new') {
+      setShowNewModal(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     async function load() {

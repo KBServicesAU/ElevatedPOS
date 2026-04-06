@@ -301,7 +301,7 @@ export function LocationsClient() {
     try {
       if (editTarget) {
         await apiFetch(`locations/${editTarget.id}`, {
-          method: 'PUT',
+          method: 'PATCH',
           body: JSON.stringify(form),
         });
         setLocations((prev) =>
