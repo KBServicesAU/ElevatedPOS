@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useToast } from '@/lib/use-toast';
 
 interface BillingDetails {
   name?: string | null;
@@ -50,6 +51,7 @@ function calcPlatformFee(amount: number, fees: PaymentFeeSettings): number | nul
 }
 
 export default function TransactionsPage() {
+  const { toast } = useToast();
   const [orgId, setOrgId] = useState<string | null>(null);
   const [charges, setCharges] = useState<Charge[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,7 +85,10 @@ export default function TransactionsPage() {
             .catch(() => { /* keep defaults */ }),
           loadChargesPage(id, 0)
             .then((page) => { setCharges(page); setHasMore(page.length === 50); })
-            .catch(() => null),
+            .catch(() => {
+              setCharges([]);
+              toast({ title: 'Error', description: 'Failed to load transactions. Please try refreshing the page.', variant: 'destructive' });
+            }),
         ]);
         void chargesResult;
         setLoading(false);

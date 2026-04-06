@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useToast } from '@/lib/use-toast';
 
 interface BalanceAmount {
   amount: number;
@@ -38,6 +39,7 @@ function formatDate(ts: number): string {
 }
 
 export default function PayoutsPage() {
+  const { toast } = useToast();
   const [orgId, setOrgId] = useState<string | null>(null);
   const [balance, setBalance] = useState<Balance | null>(null);
   const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -55,7 +57,9 @@ export default function PayoutsPage() {
           fetch(`/api/proxy/integrations/api/v1/connect/balance/${id}`)
             .then((r) => (r.ok ? r.json() : null))
             .then((data: Balance | null) => { if (data) setBalance(data); })
-            .catch(() => null),
+            .catch(() => {
+              toast({ title: 'Error', description: 'Failed to load account balance.', variant: 'destructive' });
+            }),
           fetch(`/api/proxy/integrations/api/v1/connect/payouts/${id}`)
             .then((r) => (r.ok ? r.json() : null))
             .then((data: Payout[] | { data?: Payout[] } | null) => {
@@ -63,7 +67,10 @@ export default function PayoutsPage() {
               if (Array.isArray(data)) setPayouts(data);
               else if (data.data) setPayouts(data.data);
             })
-            .catch(() => null),
+            .catch(() => {
+              setPayouts([]);
+              toast({ title: 'Error', description: 'Failed to load payouts data.', variant: 'destructive' });
+            }),
         ]);
         setLoading(false);
       })

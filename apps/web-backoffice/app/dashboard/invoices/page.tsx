@@ -71,7 +71,10 @@ export default function InvoicesPage() {
         return fetch(`/api/proxy/integrations/api/v1/connect/invoices/${id}`)
           .then((r) => r.json())
           .then((data: { invoices: Invoice[] }) => setInvoices(data.invoices ?? []))
-          .catch(() => setInvoices([]))
+          .catch(() => {
+            setInvoices([]);
+            toast({ title: 'Error', description: 'Failed to load invoices. Please try refreshing the page.', variant: 'destructive' });
+          })
           .finally(() => setLoading(false));
       })
       .catch(() => { setOrgId(null); setLoading(false); });
@@ -171,7 +174,7 @@ export default function InvoicesPage() {
         window.open(inv.invoicePdf, '_blank');
         return;
       }
-      const res = await fetch(`/api/proxy/invoices/${inv.id}/pdf`);
+      const res = await fetch(`/api/proxy/integrations/api/v1/connect/invoices/${inv.id}/pdf`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(body.error ?? `HTTP ${res.status}`);

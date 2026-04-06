@@ -6,6 +6,7 @@ import {
   Search, X, Check,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/formatting';
+import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -239,6 +240,7 @@ interface AddOverrideModalProps {
 interface ApiProduct { id: string; name: string; sku?: string; basePrice?: number; }
 
 function AddOverrideModal({ priceListId, onClose, onAdd }: AddOverrideModalProps) {
+  const { toast } = useToast();
   const [productSearch, setProductSearch] = useState('');
   const [overridePrice, setOverridePrice] = useState('');
   const [products, setProducts] = useState<ApiProduct[]>([]);
@@ -256,7 +258,10 @@ function AddOverrideModal({ priceListId, onClose, onAdd }: AddOverrideModalProps
           const items = Array.isArray(json) ? json : (json.data ?? []);
           setProducts(items);
         })
-        .catch(() => setProducts([]))
+        .catch(() => {
+          setProducts([]);
+          toast({ title: 'Error', description: 'Failed to search products. Please try again.', variant: 'destructive' });
+        })
         .finally(() => setSearchLoading(false));
     }, 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
