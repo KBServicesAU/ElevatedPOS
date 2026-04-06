@@ -19,7 +19,10 @@ export default function CartScreen() {
   const { cartItems, updateCartQty, removeFromCart, dineIn, setDineIn, customerName, setCustomerName } = useKioskStore();
   const [nameInput, setNameInput] = useState(customerName);
 
-  const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const subtotal = cartItems.reduce((sum, item) => {
+    const modifierTotal = item.modifiers.reduce((ms, m) => ms + m.priceAdjustment, 0);
+    return sum + (item.price + modifierTotal) * item.qty;
+  }, 0);
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
 
@@ -100,7 +103,14 @@ export default function CartScreen() {
             ) : null}
             <View style={styles.itemInfo}>
               <Text style={styles.itemName}>{item.name}</Text>
-              <Text style={styles.itemPrice}>${(item.price * item.qty).toFixed(2)}</Text>
+              {item.modifiers.length > 0 && (
+                <Text style={styles.itemModifiers}>
+                  {item.modifiers.map((m) => m.optionName).join(', ')}
+                </Text>
+              )}
+              <Text style={styles.itemPrice}>
+                ${((item.price + item.modifiers.reduce((s, m) => s + m.priceAdjustment, 0)) * item.qty).toFixed(2)}
+              </Text>
             </View>
             <View style={styles.qtyRow}>
               <TouchableOpacity style={styles.qtyBtn} onPress={() => handleQty(item.id, -1)}>
@@ -162,6 +172,7 @@ const styles = StyleSheet.create({
   cartItemImage: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#111' },
   itemInfo: { flex: 1 },
   itemName: { fontSize: 16, fontWeight: '600', color: '#fff', marginBottom: 2 },
+  itemModifiers: { fontSize: 12, color: '#666', marginBottom: 2 },
   itemPrice: { fontSize: 14, color: '#888' },
   qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   qtyBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center' },

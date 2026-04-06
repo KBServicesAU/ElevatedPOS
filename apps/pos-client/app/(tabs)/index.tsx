@@ -1,7 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, TextInput,
-  SafeAreaView, Modal, Switch, Image, Alert,
+  SafeAreaView, Modal, Switch, Image, Alert, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,7 @@ import ProductSearch from '../../components/ProductSearch';
 import type { Product, ModifierGroup } from '../../components/ProductSearch';
 import type { SelectedModifiers } from '../../components/ModifierModal';
 import { useAuthStore } from '../../store/auth';
+import { useProductsStore } from '../../store/products';
 import type { DiscountType, Discount } from '../../store/cart';
 import { computeItemDiscount } from '../../store/cart';
 
@@ -37,21 +38,7 @@ interface CartItem extends LocalProduct {
   discount?: Discount;
 }
 
-// TODO: Replace hardcoded product catalogue with API call to GET /api/v1/catalog/products
-// ─── Static catalogue (fallback / offline) ────────────────────────────────────
-
-const PRODUCTS: LocalProduct[] = [
-  { id: 'p1', name: 'Flat White',     price: 5.50,  category: 'Coffee',   emoji: '☕' },
-  { id: 'p2', name: 'Iced Latte',     price: 6.00,  category: 'Coffee',   emoji: '🥤' },
-  { id: 'p3', name: 'Cold Brew',      price: 5.00,  category: 'Coffee',   emoji: '🧊' },
-  { id: 'p4', name: 'Pour Over',      price: 8.00,  category: 'Coffee',   emoji: '☕' },
-  { id: 'p5', name: 'Croissant',      price: 4.00,  category: 'Pastries', emoji: '🥐' },
-  { id: 'p6', name: 'Banana Bread',   price: 4.50,  category: 'Pastries', emoji: '🍞' },
-  { id: 'p7', name: 'Avocado Toast',  price: 14.50, category: 'Food',     emoji: '🥑' },
-  { id: 'p8', name: 'Eggs Benedict',  price: 18.00, category: 'Food',     emoji: '🍳' },
-];
-
-const CATEGORIES = ['All', 'Coffee', 'Pastries', 'Food'];
+// ─── Product catalogue is now loaded from the API via useProductsStore ───────
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -146,6 +133,17 @@ export default function SellScreen() {
   const employee = useAuthStore((s) => s.employee);
   const canUseWholesale = employee?.role === 'admin' || employee?.role === 'manager';
 
+  // Products store — live API data with offline fallback
+  const storeProducts = useProductsStore((s) => s.products);
+  const storeCategories = useProductsStore((s) => s.categories);
+  const productsLoading = useProductsStore((s) => s.loading);
+  const productsOffline = useProductsStore((s) => s.offline);
+  const fetchProducts = useProductsStore((s) => s.fetchProducts);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
   // ── Discount state ──────────────────────────────────────────────────────────
   const [itemDiscountModalVisible, setItemDiscountModalVisible] = useState(false);
   const [itemDiscountIndex, setItemDiscountIndex] = useState<number | null>(null);
@@ -162,10 +160,11 @@ export default function SellScreen() {
   const [noteModalVisible, setNoteModalVisible] = useState(false);
   const [noteInput, setNoteInput] = useState('');
 
-  const filtered = PRODUCTS.filter(
+  const filtered = storeProducts.filter(
     (p) =>
       (category === 'All' || p.category === category) &&
-      p.name.toLowerCase().includes(search.toLowerCase()),
+      (p.name.toLowerCase().includes(search.toLowerCase()) ||
+       (p.sku && p.sku.toLowerCase().includes(search.toLowerCase()))),
   );
 
   const addLocalProductToCart = (product: LocalProduct) => {
@@ -433,9 +432,17 @@ export default function SellScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Offline indicator */}
+          {productsOffline && (
+            <View style={styles.offlineBanner}>
+              <Ionicons name="cloud-offline-outline" size={14} color="#f59e0b" />
+              <Text style={styles.offlineBannerText}>Offline Mode</Text>
+            </View>
+          )}
+
           {/* Categories */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll}>
-            {CATEGORIES.map((cat) => (
+            {storeCategories.map((cat) => (
               <TouchableOpacity
                 key={cat}
                 onPress={() => setCategory(cat)}

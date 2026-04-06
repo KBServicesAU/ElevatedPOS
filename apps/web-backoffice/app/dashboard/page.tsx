@@ -68,9 +68,9 @@ const PERIOD_COMPARISON_LABEL: Record<string, string> = {
   month: 'vs last month',
 };
 
-function StatCard({ label, value, change, trend, icon: Icon, color, loading, period }: {
+function StatCard({ label, value, change, trend, context, icon: Icon, color, loading, period }: {
   label: string; value: string; change?: string; trend?: 'up' | 'down';
-  icon: React.ElementType; color: string; loading?: boolean; period?: string;
+  context?: string; icon: React.ElementType; color: string; loading?: boolean; period?: string;
 }) {
   const comparisonLabel = PERIOD_COMPARISON_LABEL[period ?? 'today'] ?? 'vs yesterday';
   return (
@@ -91,6 +91,11 @@ function StatCard({ label, value, change, trend, icon: Icon, color, loading, per
           {trend === 'up' ? <TrendingUp className="h-4 w-4 text-green-500" /> : <TrendingDown className="h-4 w-4 text-red-500" />}
           <span className={`text-sm font-medium ${trend === 'up' ? 'text-green-600' : 'text-red-600'}`}>{change}</span>
           <span className="text-sm text-gray-400">{comparisonLabel}</span>
+        </div>
+      )}
+      {context && !change && (
+        <div className="mt-3 flex items-center gap-1.5">
+          <span className="text-sm text-gray-400">{context}</span>
         </div>
       )}
     </div>
@@ -171,7 +176,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const totalCustomers = customersResult?.pagination?.total ?? null;
 
   // Staff on duty
-  const staffOnDuty = (employeesResult?.data ?? []).filter((e) => e.clockedIn).length;
+  const allStaff = employeesResult?.data ?? [];
+  const staffOnDuty = allStaff.filter((e) => e.clockedIn).length;
+  const totalStaff = allStaff.length;
 
   // Active products
   const activeProducts = productsResult?.pagination?.total ?? null;
@@ -232,7 +239,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <DashboardControls period={period} />
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <StatCard
           label="Revenue Today"
           value={revenue > 0 ? formatCurrency(revenue) : '$0.00'}
@@ -268,17 +275,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           color="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400"
           period={period}
         />
+        <StatCard
+          label="Staff on Duty"
+          value={staffOnDuty.toString()}
+          icon={UserCircle}
+          color="bg-teal-50 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400"
+          context={totalStaff > 0 ? `of ${totalStaff} total` : undefined}
+        />
       </div>
-
-      {/* Secondary KPIs */}
-      {staffOnDuty > 0 && (
-        <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-5 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-          <UserCircle className="h-5 w-5 text-indigo-500" />
-          <span className="text-sm text-gray-600 dark:text-gray-400">
-            <span className="font-semibold text-gray-900 dark:text-white">{staffOnDuty}</span> staff on duty right now
-          </span>
-        </div>
-      )}
 
       {/* AI Insights Card */}
       <div className="overflow-hidden rounded-xl border border-purple-200 bg-white shadow-sm dark:border-purple-900 dark:bg-gray-900">

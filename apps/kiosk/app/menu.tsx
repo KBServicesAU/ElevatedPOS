@@ -15,8 +15,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ModifierModal from '../components/ModifierModal';
 import UpsellModal from '../components/UpsellModal';
-import { useKioskStore } from '../store/kiosk';
+import { type ModifierGroup, useKioskStore } from '../store/kiosk';
 
 const CATEGORIES = ['All', 'Food', 'Drinks', 'Desserts', 'Extras'] as const;
 
@@ -39,6 +40,7 @@ interface Product {
   description: string;
   ageRestricted: boolean;
   imageUrl?: string;
+  modifierGroups?: ModifierGroup[];
 }
 
 // TODO: Replace hardcoded product data with API call to GET /api/v1/catalog/products?channel=kiosk
@@ -52,6 +54,18 @@ const MOCK_PRODUCTS: Product[] = [
     emoji: '🍔',
     description: 'Beef patty, lettuce, tomato, special sauce',
     ageRestricted: false,
+    modifierGroups: [
+      {
+        name: 'Extras',
+        required: false,
+        maxSelections: 3,
+        options: [
+          { name: 'Avocado', price: 3.50 },
+          { name: 'Bacon', price: 3.00 },
+          { name: 'Extra Egg', price: 2.50 },
+        ],
+      },
+    ],
   },
   {
     id: '2',
@@ -72,6 +86,18 @@ const MOCK_PRODUCTS: Product[] = [
     emoji: '🍗',
     description: 'Free-range chicken, seasonal greens, aioli',
     ageRestricted: false,
+    modifierGroups: [
+      {
+        name: 'Extras',
+        required: false,
+        maxSelections: 3,
+        options: [
+          { name: 'Avocado', price: 3.50 },
+          { name: 'Bacon', price: 3.00 },
+          { name: 'Extra Egg', price: 2.50 },
+        ],
+      },
+    ],
   },
   {
     id: '4',
@@ -92,6 +118,18 @@ const MOCK_PRODUCTS: Product[] = [
     emoji: '🥗',
     description: 'Cos lettuce, parmesan, croutons, caesar dressing',
     ageRestricted: false,
+    modifierGroups: [
+      {
+        name: 'Extras',
+        required: false,
+        maxSelections: 3,
+        options: [
+          { name: 'Avocado', price: 3.50 },
+          { name: 'Bacon', price: 3.00 },
+          { name: 'Extra Egg', price: 2.50 },
+        ],
+      },
+    ],
   },
   {
     id: '6',
@@ -102,6 +140,29 @@ const MOCK_PRODUCTS: Product[] = [
     emoji: '☕',
     description: 'Single origin espresso, steamed milk',
     ageRestricted: false,
+    modifierGroups: [
+      {
+        name: 'Size',
+        required: true,
+        maxSelections: 1,
+        options: [
+          { name: 'Small', price: 0 },
+          { name: 'Regular', price: 0.50 },
+          { name: 'Large', price: 1.00 },
+        ],
+      },
+      {
+        name: 'Milk',
+        required: true,
+        maxSelections: 1,
+        options: [
+          { name: 'Full Cream', price: 0 },
+          { name: 'Oat', price: 0.70 },
+          { name: 'Almond', price: 0.70 },
+          { name: 'Soy', price: 0.50 },
+        ],
+      },
+    ],
   },
   {
     id: '7',
@@ -112,6 +173,18 @@ const MOCK_PRODUCTS: Product[] = [
     emoji: '🍋',
     description: 'House-brewed iced tea with fresh lemon',
     ageRestricted: false,
+    modifierGroups: [
+      {
+        name: 'Size',
+        required: true,
+        maxSelections: 1,
+        options: [
+          { name: 'Small', price: 0 },
+          { name: 'Regular', price: 0.50 },
+          { name: 'Large', price: 1.00 },
+        ],
+      },
+    ],
   },
   {
     id: '8',
@@ -236,6 +309,10 @@ export default function MenuScreen() {
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
   }
 
+  // Modifier modal state
+  const [modifierVisible, setModifierVisible] = useState(false);
+  const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
+
   // Upsell modal state
   const [upsellVisible, setUpsellVisible] = useState(false);
   const [lastAddedProductId, setLastAddedProductId] = useState<string | null>(null);
@@ -248,14 +325,16 @@ export default function MenuScreen() {
     });
   }, [activeCategory, search]);
 
-  const cartTotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const cartTotal = cartItems.reduce((sum, item) => {
+    const modTotal = item.modifiers.reduce((ms, m) => ms + m.priceAdjustment, 0);
+    return sum + (item.price + modTotal) * item.qty;
+  }, 0);
   const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
 
   function handleAdd(product: Product) {
     // Age restriction gate
     if (product.ageRestricted && !ageVerified) {
       setPendingAgeRestrictedProductId(product.id);
-      // Pre-add to cart so removal on that screen is possible; mark as pending
       addToCart({
         id: product.id,
         cartKey: `${product.id}_${Date.now()}`,
@@ -266,6 +345,13 @@ export default function MenuScreen() {
         ...(product.imageUrl ? { imageUrl: product.imageUrl } : {}),
       });
       router.push('/age-verification');
+      return;
+    }
+
+    // Products with modifier groups open the customisation modal
+    if (product.modifierGroups && product.modifierGroups.length > 0) {
+      setModifierProduct(product);
+      setModifierVisible(true);
       return;
     }
 
@@ -283,6 +369,27 @@ export default function MenuScreen() {
     const currentCount = cartItems.reduce((sum, i) => sum + i.qty, 0) + 1;
     if (currentCount <= 3) {
       setLastAddedProductId(product.id);
+      setUpsellVisible(true);
+    }
+  }
+
+  function handleModifierAdd(modifiers: import('../store/kiosk').SelectedModifier[]) {
+    if (!modifierProduct) return;
+    addToCart({
+      id: modifierProduct.id,
+      cartKey: `${modifierProduct.id}_${Date.now()}`,
+      name: modifierProduct.name,
+      price: modifierProduct.price,
+      qty: 1,
+      modifiers,
+      ...(modifierProduct.imageUrl ? { imageUrl: modifierProduct.imageUrl } : {}),
+    });
+    setModifierVisible(false);
+    setModifierProduct(null);
+
+    const currentCount = cartItems.reduce((sum, i) => sum + i.qty, 0) + 1;
+    if (currentCount <= 3) {
+      setLastAddedProductId(modifierProduct.id);
       setUpsellVisible(true);
     }
   }
@@ -432,6 +539,19 @@ export default function MenuScreen() {
           <Text style={styles.cartBarTotal}>${cartTotal.toFixed(2)}</Text>
         </TouchableOpacity>
       )}
+
+      {/* Modifier customisation modal */}
+      <ModifierModal
+        visible={modifierVisible}
+        product={modifierProduct ? {
+          id: modifierProduct.id,
+          name: modifierProduct.name,
+          price: modifierProduct.price,
+          modifierGroups: modifierProduct.modifierGroups!,
+        } : null}
+        onAddToCart={handleModifierAdd}
+        onDismiss={() => { setModifierVisible(false); setModifierProduct(null); }}
+      />
 
       {/* Upsell modal */}
       <UpsellModal

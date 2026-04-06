@@ -1,5 +1,17 @@
 import { create } from 'zustand';
 
+export interface ModifierOption {
+  name: string;
+  price: number;
+}
+
+export interface ModifierGroup {
+  name: string;
+  required: boolean;
+  maxSelections: number;
+  options: ModifierOption[];
+}
+
 export interface SelectedModifier {
   groupId: string;
   groupName: string;
