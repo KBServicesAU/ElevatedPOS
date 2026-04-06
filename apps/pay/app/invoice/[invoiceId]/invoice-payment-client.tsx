@@ -45,7 +45,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function PaymentForm({ invoice, orgId }: { invoice: PublicInvoice; orgId: string }) {
+function PaymentForm({ invoice }: { invoice: PublicInvoice }) {
   const stripe = useStripe();
   const elements = useElements();
   const [paying, setPaying] = useState(false);
@@ -60,23 +60,10 @@ function PaymentForm({ invoice, orgId }: { invoice: PublicInvoice; orgId: string
     const { error: submitErr } = await elements.submit();
     if (submitErr) { setError(submitErr.message ?? 'Payment failed'); setPaying(false); return; }
 
-    const res = await fetch(`/api/pay-intent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ invoiceId: invoice.id, orgId }),
-    });
-
-    if (!res.ok) {
-      setError('Failed to initialise payment. Please try again.');
-      setPaying(false);
-      return;
-    }
-
-    const { clientSecret } = await res.json() as { clientSecret: string };
-
+    // The clientSecret is already provided to <Elements> by the parent component.
+    // Just confirm the payment -- no need to create a second PaymentIntent.
     const { error: confirmErr } = await stripe.confirmPayment({
       elements,
-      clientSecret,
       confirmParams: {
         return_url: `${window.location.origin}/invoice/${invoice.id}/success`,
       },
@@ -241,7 +228,7 @@ export function InvoicePaymentClient({
           <div className="bg-white rounded-2xl border border-zinc-200 p-6">
             <h2 className="font-semibold text-zinc-900 mb-4">Payment details</h2>
             <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'stripe', variables: { colorPrimary: '#18181b' } } }}>
-              <PaymentForm invoice={invoice} orgId={orgId} />
+              <PaymentForm invoice={invoice} />
             </Elements>
           </div>
         ) : null}

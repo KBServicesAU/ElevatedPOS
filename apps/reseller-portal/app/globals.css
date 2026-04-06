@@ -5,8 +5,29 @@
 @layer base {
   :root {
     --radius: 0.5rem;
+    --background: 255 255 255;
+    --foreground: 17 24 39;
+    --muted: 107 114 128;
+    --border: 229 231 235;
   }
+
+  .dark {
+    --background: 17 24 39;
+    --foreground: 243 244 246;
+    --muted: 156 163 175;
+    --border: 55 65 81;
+  }
+
   body {
     @apply antialiased;
+  }
+
+  /* Prevent flash of wrong theme - inline script sets class before paint */
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
   }
 }

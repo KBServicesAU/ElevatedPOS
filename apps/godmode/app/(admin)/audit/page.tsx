@@ -35,6 +35,7 @@ export default function AuditPage() {
   const [filterResourceType, setFilterResourceType] = useState('');
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const offsetRef = useRef(0);
 
   const load = useCallback(async (currentOffset: number) => {
     setLoading(true);
@@ -50,7 +51,8 @@ export default function AuditPage() {
       const data = (await platformFetch(`platform/audit-logs?${params.toString()}`)) as AuditLogsResponse;
       setLogs(data.data ?? []);
       setTotal(data.total ?? 0);
-    } catch {
+    } catch (err) {
+      console.error('Failed to load audit logs:', err);
       setLogs([]);
       setTotal(0);
     } finally {

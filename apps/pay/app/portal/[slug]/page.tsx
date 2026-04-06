@@ -11,8 +11,9 @@ async function getOrgBySlug(slug: string) {
   } catch { return null; }
 }
 
-export default async function PortalPage({ params }: { params: { slug: string } }) {
-  const org = await getOrgBySlug(params.slug);
+export default async function PortalPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const org = await getOrgBySlug(slug);
   if (!org) notFound();
 
   return (

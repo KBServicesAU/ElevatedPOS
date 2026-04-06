@@ -84,7 +84,7 @@ export default function DevPortalHome() {
       {/* Top nav */}
       <nav className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-7 h-7 bg-indigo-600 rounded flex items-center justify-center text-xs font-bold text-white">N</div>
+          <div className="w-7 h-7 bg-indigo-600 rounded flex items-center justify-center text-xs font-bold text-white">E</div>
           <span className="text-sm font-semibold text-gray-200">ElevatedPOS</span>
           <span className="text-gray-600">/</span>
           <span className="text-sm text-gray-400">Developers</span>
@@ -136,13 +136,13 @@ export default function DevPortalHome() {
               <span className="text-gray-500"># Install the SDK</span>{'\n'}
               <span className="text-emerald-400">npm</span>
               <span className="text-gray-300"> install </span>
-              <span className="text-amber-300">@nexus/sdk</span>
+              <span className="text-amber-300">@elevatedpos/sdk</span>
               {'\n\n'}
               <span className="text-gray-500">// Initialize and list products</span>{'\n'}
               <span className="text-sky-400">import</span>
               <span className="text-gray-300">{' { createClient } '}</span>
               <span className="text-sky-400">from</span>
-              <span className="text-amber-300"> &apos;@nexus/sdk&apos;</span>
+              <span className="text-amber-300"> &apos;@elevatedpos/sdk&apos;</span>
               {'\n'}
               <span className="text-sky-400">const</span>
               <span className="text-gray-300"> client = createClient({'{'} apiKey: </span>
@@ -200,7 +200,7 @@ export default function DevPortalHome() {
 
       {/* Footer */}
       <footer className="border-t border-gray-800 px-6 py-6 text-center text-xs text-gray-600">
-        © 2024 ElevatedPOS. Developer Platform — API v1.2.0
+        © 2026 ElevatedPOS. Developer Platform — API v1.2.0
       </footer>
     </div>
   );

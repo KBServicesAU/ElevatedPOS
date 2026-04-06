@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { ElevatedPOSAppBar } from '@/components/elevatedpos-app-bar';
 
 export const metadata: Metadata = {
   title: 'ElevatedPOS KDS',
@@ -10,10 +9,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="flex flex-col min-h-screen">
-        <ElevatedPOSAppBar currentApp="kds" appLabel="KDS Display" />
-        {children}
-      </body>
+      {/*
+       * KDS is a fullscreen kitchen/status display — no app-switcher bar.
+       * The body must NOT have overflow:hidden here (globals.css handles it)
+       * and must not constrain height so the child pages can use h-screen freely.
+       */}
+      <body>{children}</body>
     </html>
   );
 }

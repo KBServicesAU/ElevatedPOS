@@ -32,6 +32,9 @@ const DEFAULT_FORM: FormState = {
   plan: 'starter',
 };
 
+const inputClass =
+  'w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm';
+
 export default function AddMerchantPage() {
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [loading, setLoading] = useState(false);
@@ -74,25 +77,25 @@ export default function AddMerchantPage() {
   if (success) {
     return (
       <div className="max-w-xl mx-auto">
-        <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 text-center">
           <CheckCircle size={48} className="mx-auto text-emerald-500 mb-4" />
-          <h2 className="text-xl font-semibold text-gray-900 mb-1">Merchant Added!</h2>
-          <p className="text-sm text-gray-500 mb-6">
-            <strong>{success.businessName}</strong> has been registered successfully.
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-1">Merchant Added!</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+            <strong className="text-gray-700 dark:text-gray-200">{success.businessName}</strong> has been registered successfully.
           </p>
 
-          <dl className="text-left space-y-2 mb-6 bg-gray-50 rounded-xl p-4 text-sm">
+          <dl className="text-left space-y-2 mb-6 bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 text-sm">
             <div className="flex justify-between">
-              <dt className="text-gray-500">Organisation ID</dt>
-              <dd className="font-mono text-gray-800">{success.orgId}</dd>
+              <dt className="text-gray-500 dark:text-gray-400">Organisation ID</dt>
+              <dd className="font-mono text-gray-800 dark:text-gray-200">{success.orgId}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">Email</dt>
-              <dd className="text-gray-800">{success.email}</dd>
+              <dt className="text-gray-500 dark:text-gray-400">Email</dt>
+              <dd className="text-gray-800 dark:text-gray-200">{success.email}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">Business Name</dt>
-              <dd className="text-gray-800">{success.businessName}</dd>
+              <dt className="text-gray-500 dark:text-gray-400">Business Name</dt>
+              <dd className="text-gray-800 dark:text-gray-200">{success.businessName}</dd>
             </div>
           </dl>
 
@@ -108,7 +111,7 @@ export default function AddMerchantPage() {
             </a>
             <button
               onClick={() => setSuccess(null)}
-              className="px-4 py-2 border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition-colors font-medium"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors font-medium"
             >
               Add another
             </button>
@@ -121,46 +124,46 @@ export default function AddMerchantPage() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Add Merchant</h1>
-        <p className="text-sm text-gray-500 mt-1">Register a new merchant under your reseller account</p>
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Add Merchant</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Register a new merchant under your reseller account</p>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Business Info */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3 pb-2 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 pb-2 border-b border-gray-100 dark:border-gray-700">
               Business Information
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Business Name *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Business Name *</label>
                 <input
                   type="text"
                   required
                   value={form.businessName}
                   onChange={update('businessName')}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className={inputClass}
                   placeholder="Acme Cafe Pty Ltd"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">ABN (optional)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ABN (optional)</label>
                 <input
                   type="text"
                   value={form.abn}
                   onChange={update('abn')}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className={inputClass}
                   placeholder="12 345 678 901"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Plan *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Plan *</label>
                 <select
                   required
                   value={form.plan}
                   onChange={update('plan')}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
+                  className={inputClass}
                 >
                   <option value="starter">Starter</option>
                   <option value="growth">Growth</option>
@@ -171,62 +174,62 @@ export default function AddMerchantPage() {
 
           {/* Owner Info */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3 pb-2 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 pb-2 border-b border-gray-100 dark:border-gray-700">
               Owner / Admin Account
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">First Name *</label>
                 <input
                   type="text"
                   required
                   value={form.firstName}
                   onChange={update('firstName')}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className={inputClass}
                   placeholder="Jane"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Last Name *</label>
                 <input
                   type="text"
                   required
                   value={form.lastName}
                   onChange={update('lastName')}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className={inputClass}
                   placeholder="Smith"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email *</label>
                 <input
                   type="email"
                   required
                   value={form.email}
                   onChange={update('email')}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className={inputClass}
                   placeholder="jane@acmecafe.com.au"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
                 <input
                   type="tel"
                   value={form.phone}
                   onChange={update('phone')}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className={inputClass}
                   placeholder="+61 4XX XXX XXX"
                 />
               </div>
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password *</label>
                 <input
                   type="password"
                   required
                   minLength={8}
                   value={form.password}
                   onChange={update('password')}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className={inputClass}
                   placeholder="Min. 8 characters"
                 />
               </div>
@@ -234,7 +237,7 @@ export default function AddMerchantPage() {
           </div>
 
           {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-400">
               {error}
             </div>
           )}
@@ -242,7 +245,7 @@ export default function AddMerchantPage() {
           <div className="flex justify-end gap-3 pt-2">
             <Link
               href="/dashboard/merchants"
-              className="px-5 py-2.5 border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition-colors font-medium"
+              className="px-5 py-2.5 border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors font-medium"
             >
               Cancel
             </Link>

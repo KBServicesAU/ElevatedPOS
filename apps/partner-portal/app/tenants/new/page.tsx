@@ -102,15 +102,15 @@ export default function NewTenantPage() {
         <Sidebar />
         <main className="flex-1 overflow-y-auto flex items-center justify-center">
           <div className="text-center max-w-md">
-            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-5">
-              <Check className="w-8 h-8 text-emerald-600" />
+            <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950 rounded-full flex items-center justify-center mx-auto mb-5">
+              <Check className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">Tenant Provisioned!</h2>
-            <p className="text-slate-500 mb-2">
-              <strong>{stepOne.businessName}</strong> has been successfully set up on the{' '}
-              <strong>{selectedPlan}</strong> plan.
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Tenant Provisioned!</h2>
+            <p className="text-slate-500 dark:text-slate-400 mb-2">
+              <strong className="dark:text-white">{stepOne.businessName}</strong> has been successfully set up on the{' '}
+              <strong className="dark:text-white">{selectedPlan}</strong> plan.
             </p>
-            <p className="text-sm text-slate-400 mb-8">
+            <p className="text-sm text-slate-400 dark:text-slate-500 mb-8">
               A welcome email has been sent to {stepOne.email} with login credentials.
             </p>
             <button
@@ -126,13 +126,13 @@ export default function NewTenantPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-gray-50 dark:bg-slate-950">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
         {/* Header */}
-        <header className="bg-white border-b border-slate-200 px-8 py-4">
-          <h1 className="text-xl font-bold text-slate-900">Provision New Tenant</h1>
-          <p className="text-sm text-slate-500">Set up a new tenant on the ElevatedPOS platform</p>
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-8 py-4">
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Provision New Tenant</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Set up a new tenant on the ElevatedPOS platform</p>
         </header>
 
         <div className="p-8 max-w-3xl">
@@ -146,22 +146,22 @@ export default function NewTenantPage() {
                       step > id
                         ? 'bg-indigo-600 border-indigo-600 text-white'
                         : step === id
-                        ? 'border-indigo-600 text-indigo-600 bg-white'
-                        : 'border-slate-200 text-slate-400 bg-white'
+                        ? 'border-indigo-600 text-indigo-600 bg-white dark:bg-slate-900'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-400 bg-white dark:bg-slate-900'
                     }`}
                   >
-                    {step > id ? <Check className="w-5 h-5" /> : <Icon className="w-4.5 h-4.5" />}
+                    {step > id ? <Check className="w-5 h-5" /> : <Icon className="w-4 h-4" />}
                   </div>
                   <span
                     className={`mt-2 text-xs font-medium whitespace-nowrap ${
-                      step >= id ? 'text-slate-700' : 'text-slate-400'
+                      step >= id ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'
                     }`}
                   >
                     {label}
                   </span>
                 </div>
                 {idx < STEP_META.length - 1 && (
-                  <div className={`flex-1 h-0.5 mb-5 mx-2 ${step > id ? 'bg-indigo-600' : 'bg-slate-200'}`} />
+                  <div className={`flex-1 h-0.5 mb-5 mx-2 ${step > id ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`} />
                 )}
               </div>
             ))}
@@ -169,38 +169,38 @@ export default function NewTenantPage() {
 
           {/* Step 1 — Business Details */}
           {step === 1 && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-              <div className="px-6 py-4 border-b border-slate-100">
-                <h2 className="text-sm font-semibold text-slate-700">Business Details</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Provide the new tenant&apos;s business information</p>
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Business Details</h2>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Provide the new tenant&apos;s business information</p>
               </div>
               <div className="p-6 grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Business Name <span className="text-red-500">*</span></label>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Business Name <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     placeholder="e.g. Coastal Café Pty Ltd"
                     value={stepOne.businessName}
                     onChange={(e) => setStepOne({ ...stepOne, businessName: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-200 dark:bg-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">ABN</label>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">ABN</label>
                   <input
                     type="text"
                     placeholder="e.g. 51 824 753 556"
                     value={stepOne.abn}
                     onChange={(e) => setStepOne({ ...stepOne, abn: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-200 dark:bg-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Business Type <span className="text-red-500">*</span></label>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Business Type <span className="text-red-500">*</span></label>
                   <select
                     value={stepOne.businessType}
                     onChange={(e) => setStepOne({ ...stepOne, businessType: e.target.value as BusinessType })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500 bg-white"
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 bg-white dark:bg-slate-800"
                   >
                     <option value="">Select type...</option>
                     <option value="retail">Retail</option>
@@ -209,33 +209,33 @@ export default function NewTenantPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Owner Name <span className="text-red-500">*</span></label>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Owner Name <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     placeholder="e.g. Sarah Thompson"
                     value={stepOne.ownerName}
                     onChange={(e) => setStepOne({ ...stepOne, ownerName: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-200 dark:bg-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Email <span className="text-red-500">*</span></label>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Email <span className="text-red-500">*</span></label>
                   <input
                     type="email"
                     placeholder="e.g. owner@business.com"
                     value={stepOne.email}
                     onChange={(e) => setStepOne({ ...stepOne, email: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-200 dark:bg-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Phone</label>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Phone</label>
                   <input
                     type="tel"
                     placeholder="e.g. +61 2 9000 1234"
                     value={stepOne.phone}
                     onChange={(e) => setStepOne({ ...stepOne, phone: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-200 dark:bg-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
               </div>
@@ -262,9 +262,9 @@ export default function NewTenantPage() {
                     onClick={() => setSelectedPlan(plan.id)}
                     className={`relative text-left rounded-xl border-2 p-5 transition-all ${
                       selectedPlan === plan.id
-                        ? 'border-indigo-600 bg-indigo-50'
-                        : 'border-slate-200 bg-white hover:border-slate-300'
-                    } ${plan.highlight ? 'ring-1 ring-indigo-400 ring-offset-1' : ''}`}
+                        ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/30'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-600'
+                    } ${plan.highlight ? 'ring-1 ring-indigo-400 ring-offset-1 dark:ring-offset-slate-950' : ''}`}
                   >
                     {plan.highlight && (
                       <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-xs bg-indigo-600 text-white px-2.5 py-0.5 rounded-full font-medium">
@@ -276,11 +276,11 @@ export default function NewTenantPage() {
                         <Check className="w-3 h-3 text-white" />
                       </div>
                     )}
-                    <h3 className="font-bold text-slate-900 mb-1">{plan.id}</h3>
-                    <p className="text-2xl font-bold text-slate-900 mb-0.5">${plan.price}<span className="text-sm font-normal text-slate-500">/mo</span></p>
+                    <h3 className="font-bold text-slate-900 dark:text-white mb-1">{plan.id}</h3>
+                    <p className="text-2xl font-bold text-slate-900 dark:text-white mb-0.5">${plan.price}<span className="text-sm font-normal text-slate-500 dark:text-slate-400">/mo</span></p>
                     <ul className="mt-4 space-y-1.5">
                       {plan.features.map((f) => (
-                        <li key={f} className="flex items-center gap-2 text-xs text-slate-600">
+                        <li key={f} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
                           <Check className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
                           {f}
                         </li>
@@ -292,7 +292,7 @@ export default function NewTenantPage() {
               <div className="flex justify-between">
                 <button
                   onClick={() => setStep(1)}
-                  className="px-5 py-2.5 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+                  className="px-5 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                 >
                   Back
                 </button>
@@ -311,10 +311,10 @@ export default function NewTenantPage() {
           {/* Step 3 — Confirmation */}
           {step === 3 && selectedPlan && (
             <div>
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-5">
-                <div className="px-6 py-4 border-b border-slate-100">
-                  <h2 className="text-sm font-semibold text-slate-700">Provisioning Summary</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">Review the details before creating the tenant</p>
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm mb-5">
+                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                  <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Provisioning Summary</h2>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Review the details before creating the tenant</p>
                 </div>
                 <div className="p-6 grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
                   {[
@@ -328,21 +328,21 @@ export default function NewTenantPage() {
                     { label: 'Phone', value: stepOne.phone || '—' },
                   ].map(({ label, value }) => (
                     <div key={label}>
-                      <p className="text-xs text-slate-400 mb-0.5">{label}</p>
-                      <p className="font-medium text-slate-800">{value}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 mb-0.5">{label}</p>
+                      <p className="font-medium text-slate-800 dark:text-slate-200">{value}</p>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-sm text-amber-700">
+              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-4 mb-6 text-sm text-amber-700 dark:text-amber-300">
                 Provisioning will create the tenant environment, send a welcome email to <strong>{stepOne.email}</strong>, and begin the first billing cycle immediately.
               </div>
 
               <div className="flex justify-between">
                 <button
                   onClick={() => setStep(2)}
-                  className="px-5 py-2.5 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+                  className="px-5 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                 >
                   Back
                 </button>

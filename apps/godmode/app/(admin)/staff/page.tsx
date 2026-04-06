@@ -69,13 +69,16 @@ export default function StaffPage() {
 
   // Toggle active state
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [confirmAction, setConfirmAction] = useState<{ type: 'delete' | 'toggle'; staff: PlatformStaff } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = (await platformFetch('platform/staff')) as StaffResponse;
       setStaff(data.data);
-    } catch {
+    } catch (err) {
+      console.error('Failed to load staff:', err);
       setStaff([]);
     } finally {
       setLoading(false);
@@ -104,13 +107,18 @@ export default function StaffPage() {
     }
   }
 
+  function requestDelete(s: PlatformStaff) {
+    setConfirmAction({ type: 'delete', staff: s });
+  }
+
   async function handleDeactivate(id: string) {
-    if (!confirm('Deactivate this staff member?')) return;
+    setActionError('');
     try {
       await platformFetch(`platform/staff/${id}`, { method: 'DELETE' });
       await load();
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('Failed to delete staff member:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to delete staff member.');
     }
   }
 
@@ -151,18 +159,23 @@ export default function StaffPage() {
     }
   }
 
+  function requestToggleActive(s: PlatformStaff) {
+    setConfirmAction({ type: 'toggle', staff: s });
+  }
+
   async function handleToggleActive(s: PlatformStaff) {
     const action = s.isActive ? 'Deactivate' : 'Activate';
-    if (!confirm(`${action} ${s.firstName} ${s.lastName}?`)) return;
     setTogglingId(s.id);
+    setActionError('');
     try {
       await platformFetch(`platform/staff/${s.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive: !s.isActive }),
       });
       await load();
-    } catch {
-      alert(`Failed to ${action.toLowerCase()} staff member.`);
+    } catch (err) {
+      console.error(`Failed to ${action.toLowerCase()} staff member:`, err);
+      setActionError(err instanceof Error ? err.message : `Failed to ${action.toLowerCase()} staff member.`);
     } finally {
       setTogglingId(null);
     }
@@ -183,6 +196,12 @@ export default function StaffPage() {
           Add Staff Member
         </button>
       </div>
+
+      {actionError && (
+        <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+          {actionError}
+        </div>
+      )}
 
       <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg overflow-hidden">
         <table className="w-full text-sm">
@@ -238,7 +257,7 @@ export default function StaffPage() {
                         <>
                           {s.isActive ? (
                             <button
-                              onClick={() => handleToggleActive(s)}
+                              onClick={() => requestToggleActive(s)}
                               disabled={togglingId === s.id}
                               className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/30 rounded text-xs hover:bg-red-600/30 disabled:opacity-50 transition-colors"
                             >
@@ -246,7 +265,7 @@ export default function StaffPage() {
                             </button>
                           ) : (
                             <button
-                              onClick={() => handleToggleActive(s)}
+                              onClick={() => requestToggleActive(s)}
                               disabled={togglingId === s.id}
                               className="px-3 py-1 bg-green-600/20 text-green-400 border border-green-600/30 rounded text-xs hover:bg-green-600/30 disabled:opacity-50 transition-colors"
                             >
@@ -254,7 +273,7 @@ export default function StaffPage() {
                             </button>
                           )}
                           <button
-                            onClick={() => handleDeactivate(s.id)}
+                            onClick={() => requestDelete(s)}
                             className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/30 rounded text-xs hover:bg-red-600/30 transition-colors"
                           >
                             Delete
@@ -452,6 +471,48 @@ export default function StaffPage() {
                 className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm rounded transition-colors"
               >
                 {editSubmitting ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-white font-semibold mb-3">
+              {confirmAction.type === 'delete' ? 'Delete Staff Member' : (confirmAction.staff.isActive ? 'Deactivate' : 'Activate') + ' Staff Member'}
+            </h3>
+            <p className="text-gray-400 text-sm mb-6">
+              {confirmAction.type === 'delete'
+                ? `Permanently delete ${confirmAction.staff.firstName} ${confirmAction.staff.lastName}? This cannot be undone.`
+                : `${confirmAction.staff.isActive ? 'Deactivate' : 'Activate'} ${confirmAction.staff.firstName} ${confirmAction.staff.lastName}?`}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmAction(null)}
+                className="flex-1 px-4 py-2.5 border border-[#1e1e2e] text-gray-400 text-sm rounded hover:bg-[#1e1e2e] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const s = confirmAction.staff;
+                  setConfirmAction(null);
+                  if (confirmAction.type === 'delete') {
+                    await handleDeactivate(s.id);
+                  } else {
+                    await handleToggleActive(s);
+                  }
+                }}
+                className={`flex-1 px-4 py-2.5 text-white text-sm rounded transition-colors ${
+                  confirmAction.type === 'delete' || confirmAction.staff.isActive
+                    ? 'bg-red-600 hover:bg-red-500'
+                    : 'bg-green-600 hover:bg-green-500'
+                }`}
+              >
+                {confirmAction.type === 'delete' ? 'Delete' : (confirmAction.staff.isActive ? 'Deactivate' : 'Activate')}
               </button>
             </div>
           </div>

@@ -77,7 +77,8 @@ export const useAuthStore = create<AuthStore>((set) => ({
         set({ token, accessToken: token, employee, org: org ?? null, isAuthenticated: true });
       }
     } catch {
-      // corrupted storage — leave unauthenticated
+      // Corrupted storage — clear it and leave unauthenticated
+      await AsyncStorage.removeItem(STORAGE_KEY).catch(() => undefined);
     }
   },
 }));

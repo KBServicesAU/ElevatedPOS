@@ -49,6 +49,7 @@ const STATUS_CFG: Record<OrderStatus, { label: string; bg: string; text: string;
 
 const FILTER_TABS: Array<'all' | OrderStatus> = ['all', 'open', 'complete', 'refunded', 'voided'];
 
+// TODO: Remove mock seed data once GET /api/v1/orders is reliably deployed
 // ─── Mock seed data (replaces API when offline / for demo) ────────────────────
 
 function makeMockOrders(): Order[] {
@@ -435,8 +436,10 @@ export default function OrdersScreen() {
       const res = await posApiFetch<{ data: Order[] }>('/api/v1/orders?date=today&limit=50');
       setOrders(res.data ?? []);
     } catch {
+      // TODO: Replace mock fallback with real API data when orders service is deployed
       // Fallback to mock data so the screen is functional offline/in dev
       setOrders(makeMockOrders());
+      Alert.alert('Offline Mode', 'Could not load orders from server. Showing demo data.');
     } finally {
       setLoading(false);
     }

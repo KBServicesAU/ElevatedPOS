@@ -62,6 +62,8 @@ export default function SystemPage() {
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [confirmService, setConfirmService] = useState<string | null>(null);
+  const [restartingService, setRestartingService] = useState<string | null>(null);
+  const [restartMessage, setRestartMessage] = useState('');
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -71,8 +73,9 @@ export default function SystemPage() {
       const data = (await res.json()) as HealthResponse;
       setServices(data.data ?? []);
       setLastRefresh(new Date());
-    } catch {
-      // keep existing data
+    } catch (err) {
+      console.error('Failed to load service health:', err);
+      // keep existing data on error
     } finally {
       setLoading(false);
     }
@@ -175,8 +178,9 @@ export default function SystemPage() {
                   )}
                   <div className="flex gap-2">
                     <button
-                      onClick={() => alert('Log viewer coming soon')}
-                      className="flex-1 px-3 py-1.5 bg-[#1e1e2e] hover:bg-[#2a2a3e] text-gray-400 text-xs rounded transition-colors"
+                      disabled
+                      title="Log viewer coming soon"
+                      className="flex-1 px-3 py-1.5 bg-[#1e1e2e] text-gray-600 text-xs rounded cursor-not-allowed"
                     >
                       View Logs
                     </button>
@@ -199,24 +203,36 @@ export default function SystemPage() {
             <h3 className="text-white font-semibold mb-3">
               Restart {SERVICE_DISPLAY[confirmService] ?? confirmService}?
             </h3>
-            <p className="text-gray-400 text-sm mb-6">
-              This will restart the service. Active connections will be interrupted. This action is currently a placeholder.
+            <p className="text-gray-400 text-sm mb-4">
+              This will restart the service. Active connections will be interrupted.
             </p>
+            <p className="text-yellow-500/70 text-xs mb-6">
+              Service restart is a placeholder -- the integration is not yet wired up.
+            </p>
+            {restartMessage && (
+              <div className="mb-4 bg-yellow-500/10 border border-yellow-500/30 rounded px-4 py-3 text-yellow-400 text-sm">
+                {restartMessage}
+              </div>
+            )}
             <div className="flex gap-3">
               <button
-                onClick={() => setConfirmService(null)}
+                onClick={() => { setConfirmService(null); setRestartMessage(''); }}
                 className="flex-1 px-4 py-2.5 border border-[#1e1e2e] text-gray-400 text-sm rounded hover:bg-[#1e1e2e] transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => {
-                  alert(`Restart ${confirmService} — not yet implemented`);
-                  setConfirmService(null);
+                  setRestartingService(confirmService);
+                  setRestartMessage(`Restart ${confirmService} -- not yet implemented. This will be wired up to the orchestration API.`);
+                  setTimeout(() => {
+                    setRestartingService(null);
+                  }, 1500);
                 }}
-                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded transition-colors"
+                disabled={restartingService !== null}
+                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm rounded transition-colors"
               >
-                Restart
+                {restartingService ? 'Restarting...' : 'Restart'}
               </button>
             </div>
           </div>

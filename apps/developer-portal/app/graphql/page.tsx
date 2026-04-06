@@ -211,7 +211,7 @@ export default function GraphQLPage() {
       <nav className="border-b border-gray-800 px-6 py-4 flex items-center justify-between sticky top-0 bg-gray-950/95 backdrop-blur z-10">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 bg-indigo-600 rounded flex items-center justify-center text-xs font-bold text-white">
-            N
+            E
           </div>
           <span className="text-sm font-semibold text-gray-200">ElevatedPOS</span>
           <span className="text-gray-600">/</span>
@@ -570,7 +570,7 @@ export default function GraphQLPage() {
       </div>
 
       <footer className="border-t border-gray-800 px-6 py-6 text-center text-xs text-gray-600 mt-8">
-        © 2024 ElevatedPOS. Developer Platform — API v1.2.0
+        © 2026 ElevatedPOS. Developer Platform — API v1.2.0
       </footer>
     </div>
   );

@@ -85,6 +85,8 @@ export default function SignupLinksPage() {
   const [createdLink, setCreatedLink] = useState<SignupLink | null>(null);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [confirmDeactivateId, setConfirmDeactivateId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,7 +97,8 @@ export default function SignupLinksPage() {
       ]);
       setLinks(linksData.data ?? []);
       setPlans(plansData.data ?? []);
-    } catch {
+    } catch (err) {
+      console.error('Failed to load signup links:', err);
       setLinks([]);
     } finally {
       setLoading(false);
@@ -135,15 +138,16 @@ export default function SignupLinksPage() {
   }
 
   async function handleDeactivate(id: string) {
-    if (!confirm('Deactivate this signup link?')) return;
+    setActionError('');
     try {
       await platformFetch(`platform/signup-links/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ expiresAt: new Date().toISOString() }),
       });
       await load();
-    } catch {
-      alert('Failed to deactivate link.');
+    } catch (err) {
+      console.error('Failed to deactivate link:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to deactivate link.');
     }
   }
 
@@ -173,6 +177,12 @@ export default function SignupLinksPage() {
           Create Link
         </button>
       </div>
+
+      {actionError && (
+        <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+          {actionError}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-2 mb-4">
@@ -255,7 +265,7 @@ export default function SignupLinksPage() {
                         </button>
                         {status === 'active' && (
                           <button
-                            onClick={() => handleDeactivate(link.id)}
+                            onClick={() => setConfirmDeactivateId(link.id)}
                             className="px-2.5 py-1 bg-red-600/20 text-red-400 border border-red-600/30 rounded text-xs hover:bg-red-600/30 transition-colors"
                           >
                             Expire
@@ -421,6 +431,36 @@ export default function SignupLinksPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Deactivate Confirmation Modal */}
+      {confirmDeactivateId && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-white font-semibold mb-3">Deactivate Signup Link</h3>
+            <p className="text-gray-400 text-sm mb-6">
+              Deactivate this signup link? It will immediately expire and can no longer be used.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmDeactivateId(null)}
+                className="flex-1 px-4 py-2.5 border border-[#1e1e2e] text-gray-400 text-sm rounded hover:bg-[#1e1e2e] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const id = confirmDeactivateId;
+                  setConfirmDeactivateId(null);
+                  await handleDeactivate(id);
+                }}
+                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded transition-colors"
+              >
+                Deactivate
+              </button>
+            </div>
           </div>
         </div>
       )}

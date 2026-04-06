@@ -24,6 +24,7 @@ type WsMessage =
 const ORDERS_API = process.env['NEXT_PUBLIC_ORDERS_API_URL'] ?? 'http://localhost:4004';
 const READY_TTL_MS = 3 * 60 * 1000; // 3 minutes
 const FLASH_DURATION_MS = 3000;
+const STORAGE_KEY = 'kds_status_board_location';
 
 // ─── Connect screen ───────────────────────────────────────────────────────────
 
@@ -75,7 +76,12 @@ export default function StatusBoardPage() {
   const [locationId, setLocationId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      return params.get('locationId') ?? process.env['NEXT_PUBLIC_LOCATION_ID'] ?? null;
+      return (
+        params.get('locationId') ??
+        localStorage.getItem(STORAGE_KEY) ??
+        process.env['NEXT_PUBLIC_LOCATION_ID'] ??
+        null
+      );
     }
     return null;
   });
@@ -86,6 +92,16 @@ export default function StatusBoardPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryDelay = useRef(1000);
+
+  // Persist locationId whenever it changes
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (locationId) {
+      localStorage.setItem(STORAGE_KEY, locationId);
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, [locationId]);
 
   // Tick clock every second; purge stale ready orders
   useEffect(() => {
@@ -156,8 +172,22 @@ export default function StatusBoardPage() {
     };
   }, [locationId, connect]);
 
+  const handleDisconnect = () => {
+    if (retryRef.current) clearTimeout(retryRef.current);
+    if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
+    setOrders([]);
+    setConnected(false);
+    setLocationId(null);
+  };
+
   if (!locationId) {
-    return <ConnectScreen onConnect={setLocationId} />;
+    return (
+      <ConnectScreen
+        onConnect={(locId) => {
+          setLocationId(locId);
+        }}
+      />
+    );
   }
 
   const preparing = orders.filter((o) => o.status === 'preparing');
@@ -168,12 +198,18 @@ export default function StatusBoardPage() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-800 px-8 py-4">
         <h1 className="text-2xl font-extrabold tracking-widest text-white">ORDER STATUS</h1>
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-4 text-sm">
           {connected ? (
             <><Wifi className="h-4 w-4 text-green-400" /><span className="text-green-400">Live</span></>
           ) : (
             <><WifiOff className="h-4 w-4 text-red-400 animate-pulse" /><span className="text-red-400">Reconnecting…</span></>
           )}
+          <button
+            onClick={handleDisconnect}
+            className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+          >
+            Change Location
+          </button>
         </div>
       </div>
 
@@ -182,12 +218,14 @@ export default function StatusBoardPage() {
         {/* Preparing */}
         <div className="flex flex-1 flex-col border-r border-gray-800">
           <div className="border-b border-gray-800 bg-gray-900 px-6 py-4 text-center">
-            <p className="text-sm font-bold uppercase tracking-widest text-gray-400">Preparing</p>
-            {preparing.length > 0 && (
-              <span className="ml-2 inline-block rounded-full bg-gray-700 px-2 text-xs font-bold text-white">
-                {preparing.length}
-              </span>
-            )}
+            <p className="text-sm font-bold uppercase tracking-widest text-gray-400">
+              Preparing
+              {preparing.length > 0 && (
+                <span className="ml-2 inline-block rounded-full bg-gray-700 px-2 text-xs font-bold text-white">
+                  {preparing.length}
+                </span>
+              )}
+            </p>
           </div>
           <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-3 content-start">
             {preparing.map((o) => (
@@ -204,12 +242,14 @@ export default function StatusBoardPage() {
         {/* Ready for Pickup */}
         <div className="flex flex-1 flex-col">
           <div className="border-b border-gray-800 bg-green-950 px-6 py-4 text-center">
-            <p className="text-sm font-bold uppercase tracking-widest text-green-400">Ready for Pickup</p>
-            {ready.length > 0 && (
-              <span className="ml-2 inline-block rounded-full bg-green-800 px-2 text-xs font-bold text-white">
-                {ready.length}
-              </span>
-            )}
+            <p className="text-sm font-bold uppercase tracking-widest text-green-400">
+              Ready for Pickup
+              {ready.length > 0 && (
+                <span className="ml-2 inline-block rounded-full bg-green-800 px-2 text-xs font-bold text-white">
+                  {ready.length}
+                </span>
+              )}
+            </p>
           </div>
           <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-3 content-start">
             {ready.map((o) => (

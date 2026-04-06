@@ -7,6 +7,7 @@ import {
   StyleSheet,
   TextInput,
   SafeAreaView,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -24,6 +25,7 @@ interface Customer {
   totalSpend: number;
 }
 
+// TODO: Replace hardcoded customer data with API call to GET /api/v1/customers
 const CUSTOMERS: Customer[] = [
   {
     id: 'c1', name: 'Sarah Mitchell', email: 'sarah.m@email.com', phone: '(555) 012-3456',
@@ -133,11 +135,35 @@ export default function CustomersScreen() {
 
           {/* Actions */}
           <View style={styles.actionSection}>
-            <TouchableOpacity style={styles.actionBtn}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() =>
+                Alert.alert(
+                  'Link Customer',
+                  `Link ${selected.name} to the current order?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Link',
+                      onPress: () =>
+                        Alert.alert('Linked', `${selected.name} has been linked to the current order.`),
+                    },
+                  ],
+                )
+              }
+            >
               <Ionicons name="add-circle-outline" size={18} color="#818cf8" />
               <Text style={styles.actionBtnText}>Add to Current Order</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionBtn, styles.actionBtnSecondary]}>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.actionBtnSecondary]}
+              onPress={() =>
+                Alert.alert(
+                  'Redeem Points',
+                  `${selected.name} has ${selected.points.toLocaleString()} points.\nPoint redemption will be available in a future update.`,
+                )
+              }
+            >
               <Ionicons name="gift-outline" size={18} color="#fbbf24" />
               <Text style={[styles.actionBtnText, { color: '#fbbf24' }]}>Redeem Points</Text>
             </TouchableOpacity>

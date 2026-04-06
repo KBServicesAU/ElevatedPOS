@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Building2, DollarSign, TrendingUp, RefreshCw, Plus } from 'lucide-react';
+import { Building2, DollarSign, TrendingUp, RefreshCw, Plus, AlertCircle } from 'lucide-react';
 
 interface Organisation {
   id: string;
@@ -20,10 +20,19 @@ interface ApiResponse {
 export default function ResellerDashboardPage() {
   const [orgs, setOrgs] = useState<Organisation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  useEffect(() => {
+  function loadOrgs() {
+    setLoading(true);
+    setError('');
     fetch('/api/proxy/platform/organisations')
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({})) as { error?: string };
+          throw new Error(body.error ?? `Server error ${r.status}`);
+        }
+        return r.json();
+      })
       .then((data: ApiResponse | Organisation[]) => {
         if (Array.isArray(data)) {
           setOrgs(data);
@@ -31,10 +40,20 @@ export default function ResellerDashboardPage() {
           setOrgs(data.organisations);
         } else if (data && 'data' in data && Array.isArray(data.data)) {
           setOrgs(data.data);
+        } else {
+          setOrgs([]);
         }
       })
-      .catch(() => {})
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'Failed to load merchants');
+        setOrgs([]);
+      })
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadOrgs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -42,8 +61,8 @@ export default function ResellerDashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">Welcome back — your reseller overview</p>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Dashboard</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Welcome back — your reseller overview</p>
         </div>
         <Link
           href="/dashboard/add-merchant"
@@ -60,42 +79,56 @@ export default function ResellerDashboardPage() {
           icon={<Building2 size={20} className="text-emerald-600" />}
           label="My Merchants"
           value={loading ? '—' : orgs.length.toString()}
-          bg="bg-emerald-50"
+          bg="bg-emerald-50 dark:bg-emerald-900/20"
         />
         <KpiCard
           icon={<DollarSign size={20} className="text-blue-600" />}
           label="Monthly Revenue"
           value="$0"
-          bg="bg-blue-50"
+          bg="bg-blue-50 dark:bg-blue-900/20"
         />
         <KpiCard
           icon={<TrendingUp size={20} className="text-purple-600" />}
           label="Commission Earned"
           value="$0"
-          bg="bg-purple-50"
+          bg="bg-purple-50 dark:bg-purple-900/20"
         />
         <KpiCard
           icon={<RefreshCw size={20} className="text-amber-500" />}
           label="Trial Conversions"
           value="0"
-          bg="bg-amber-50"
+          bg="bg-amber-50 dark:bg-amber-900/20"
         />
       </div>
 
+      {/* Error state */}
+      {error && (
+        <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 flex items-center gap-3">
+          <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+          <span className="text-sm text-red-700 dark:text-red-400">{error}</span>
+          <button
+            onClick={loadOrgs}
+            className="ml-auto text-sm font-medium text-red-700 dark:text-red-400 hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Recent merchants */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="font-semibold text-gray-800">Recent Merchants</h2>
-          <Link href="/dashboard/merchants" className="text-sm text-emerald-600 hover:text-emerald-700 font-medium">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+          <h2 className="font-semibold text-gray-800 dark:text-gray-100">Recent Merchants</h2>
+          <Link href="/dashboard/merchants" className="text-sm text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 font-medium">
             View all
           </Link>
         </div>
         {loading ? (
-          <div className="px-5 py-8 text-center text-sm text-gray-400">Loading…</div>
-        ) : orgs.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Loading…</div>
+        ) : orgs.length === 0 && !error ? (
           <div className="px-5 py-10 text-center">
-            <Building2 size={36} className="mx-auto text-gray-200 mb-3" />
-            <p className="text-sm text-gray-500 mb-3">No merchants yet</p>
+            <Building2 size={36} className="mx-auto text-gray-200 dark:text-gray-600 mb-3" />
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">No merchants yet</p>
             <Link
               href="/dashboard/add-merchant"
               className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors"
@@ -104,36 +137,36 @@ export default function ResellerDashboardPage() {
               Add your first merchant
             </Link>
           </div>
-        ) : (
-          <table className="min-w-full divide-y divide-gray-100">
-            <thead className="bg-gray-50">
+        ) : !error ? (
+          <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-700">
+            <thead className="bg-gray-50 dark:bg-gray-700/50">
               <tr>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Business Name
                 </th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Plan
                 </th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Joined
                 </th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {orgs.slice(0, 10).map((org) => (
-                <tr key={org.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-5 py-3 text-sm font-medium text-gray-900">{org.businessName}</td>
-                  <td className="px-5 py-3 text-sm text-gray-600">
+                <tr key={org.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">
+                  <td className="px-5 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{org.businessName}</td>
+                  <td className="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">
                     {org.plan ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 capitalize">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 capitalize">
                         {org.plan}
                       </span>
                     ) : (
                       '—'
                     )}
                   </td>
-                  <td className="px-5 py-3 text-sm text-gray-500">
+                  <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">
                     {org.createdAt ? new Date(org.createdAt).toLocaleDateString() : '—'}
                   </td>
                   <td className="px-5 py-3 text-right">
@@ -141,7 +174,7 @@ export default function ResellerDashboardPage() {
                       href={`https://organisation.elevatedpos.com.au/dashboard/merchants/${org.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm text-emerald-600 hover:text-emerald-800 font-medium"
+                      className="text-sm text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-200 font-medium"
                     >
                       Support
                     </a>
@@ -150,7 +183,7 @@ export default function ResellerDashboardPage() {
               ))}
             </tbody>
           </table>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -171,8 +204,8 @@ function KpiCard({
     <div className={`${bg} rounded-xl p-5 flex items-center gap-4`}>
       <div className="flex-shrink-0">{icon}</div>
       <div>
-        <p className="text-sm text-gray-600">{label}</p>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-300">{label}</p>
+        <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
       </div>
     </div>
   );

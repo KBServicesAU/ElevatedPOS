@@ -14,7 +14,10 @@ import {
   Users,
   ShoppingCart,
   Link2,
+  Sun,
+  Moon,
 } from 'lucide-react';
+import { useTheme } from '../theme-provider';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -36,6 +39,7 @@ interface JwtUser {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { theme, toggle } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState<JwtUser>({});
 
@@ -69,7 +73,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const roleLabel = user.role ?? 'support';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
@@ -80,18 +84,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-64 flex flex-col bg-blue-900 transform transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-30 w-64 flex flex-col bg-blue-900 dark:bg-gray-900 border-r border-transparent dark:border-gray-800 transform transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         {/* Branding */}
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-blue-800">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-sm font-bold">S</span>
+        <div className="flex items-center gap-3 px-6 py-5 border-b border-blue-800 dark:border-gray-800">
+          <div className="w-8 h-8 rounded-lg bg-blue-600 dark:bg-blue-700 flex items-center justify-center flex-shrink-0">
+            <span className="text-white text-sm font-bold">E</span>
           </div>
           <div>
             <p className="text-white font-semibold text-sm leading-tight">Support Portal</p>
-            <p className="text-blue-300 text-xs">ElevatedPOS</p>
+            <p className="text-blue-300 dark:text-gray-400 text-xs">ElevatedPOS</p>
           </div>
         </div>
 
@@ -108,8 +112,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 onClick={() => setSidebarOpen(false)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   active
-                    ? 'bg-blue-600 text-white'
-                    : 'text-blue-200 hover:bg-blue-800 hover:text-white'
+                    ? 'bg-blue-600 dark:bg-blue-800 text-white'
+                    : 'text-blue-200 dark:text-gray-400 hover:bg-blue-800 dark:hover:bg-gray-800 hover:text-white dark:hover:text-white'
                 }`}
               >
                 <Icon size={18} />
@@ -120,19 +124,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
 
         {/* User section */}
-        <div className="px-3 py-4 border-t border-blue-800">
+        <div className="px-3 py-4 border-t border-blue-800 dark:border-gray-800">
           <div className="flex items-center gap-3 px-3 py-2 mb-1">
-            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-blue-600 dark:bg-blue-700 flex items-center justify-center flex-shrink-0">
               <span className="text-white text-xs font-semibold">{initials}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">{displayName}</p>
-              <p className="text-blue-300 text-xs truncate capitalize">{roleLabel}</p>
+              <p className="text-blue-300 dark:text-gray-400 text-xs truncate capitalize">{roleLabel}</p>
             </div>
           </div>
           <button
+            onClick={toggle}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-blue-200 dark:text-gray-400 hover:bg-blue-800 dark:hover:bg-gray-800 hover:text-white dark:hover:text-white transition-colors"
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          </button>
+          <button
             onClick={handleLogout}
-            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-blue-200 hover:bg-blue-800 hover:text-white transition-colors"
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-blue-200 dark:text-gray-400 hover:bg-blue-800 dark:hover:bg-gray-800 hover:text-white dark:hover:text-white transition-colors"
           >
             <LogOut size={18} />
             Sign out
@@ -143,17 +155,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile topbar */}
-        <header className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
+        <header className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="text-gray-500 hover:text-gray-700"
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
           >
             <Menu size={22} />
           </button>
-          <span className="font-semibold text-gray-800 text-sm">Support Portal</span>
+          <span className="font-semibold text-gray-800 dark:text-white text-sm">Support Portal</span>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="ml-auto text-gray-400 hover:text-gray-600"
+            className="ml-auto text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
           >
             <X size={20} />
           </button>

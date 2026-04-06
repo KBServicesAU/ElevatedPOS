@@ -84,7 +84,7 @@ function StatusBadge({ emp }: { emp: OrgEmployee }) {
   const status = getStatus(emp);
   if (status === 'active') {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400">
         <CheckCircle size={11} />
         Active
       </span>
@@ -92,7 +92,7 @@ function StatusBadge({ emp }: { emp: OrgEmployee }) {
   }
   if (status === 'locked') {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400">
         <Lock size={11} />
         Locked
         {emp.failedLoginAttempts > 0 && (
@@ -102,7 +102,7 @@ function StatusBadge({ emp }: { emp: OrgEmployee }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
       Inactive
     </span>
   );
@@ -160,28 +160,28 @@ function EditModal({ emp, orgId, onClose, onSaved }: EditModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-base font-semibold text-gray-900">Edit Employee</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md border border-gray-100 dark:border-gray-800">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Edit Employee</h2>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
             <X size={20} />
           </button>
         </div>
         <form onSubmit={handleSave} className="px-6 py-4 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">First Name</label>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">First Name</label>
               <input
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 required
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Last Name</label>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Last Name</label>
               <input
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 required
@@ -190,10 +190,10 @@ function EditModal({ emp, orgId, onClose, onSaved }: EditModalProps) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
             <input
               type="email"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -201,11 +201,11 @@ function EditModal({ emp, orgId, onClose, onSaved }: EditModalProps) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Role ID <span className="text-gray-400 font-normal">(optional)</span>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Role ID <span className="text-gray-400 dark:text-gray-500 font-normal">(optional)</span>
             </label>
             <input
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
               value={roleId}
               onChange={(e) => setRoleId(e.target.value)}
               placeholder="Leave blank to keep current"
@@ -213,12 +213,12 @@ function EditModal({ emp, orgId, onClose, onSaved }: EditModalProps) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              New Password <span className="text-gray-400 font-normal">(optional — leave blank to keep current)</span>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+              New Password <span className="text-gray-400 dark:text-gray-500 font-normal">(optional — leave blank to keep current)</span>
             </label>
             <input
               type="password"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               minLength={password.length > 0 ? 8 : undefined}
@@ -227,7 +227,7 @@ function EditModal({ emp, orgId, onClose, onSaved }: EditModalProps) {
           </div>
 
           {error && (
-            <p className="flex items-center gap-1.5 text-sm text-red-600">
+            <p className="flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
               <AlertCircle size={14} />
               {error}
             </p>
@@ -237,7 +237,7 @@ function EditModal({ emp, orgId, onClose, onSaved }: EditModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
               Cancel
             </button>
@@ -296,26 +296,26 @@ function ResetPasswordModal({ emp, orgId, onClose, onSaved }: ResetPasswordModal
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-base font-semibold text-gray-900">Reset Password</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-sm border border-gray-100 dark:border-gray-800">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Reset Password</h2>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
             <X size={20} />
           </button>
         </div>
         <form onSubmit={handleReset} className="px-6 py-4 space-y-4">
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Setting a new password for{' '}
-            <span className="font-medium text-gray-800">
+            <span className="font-medium text-gray-800 dark:text-gray-200">
               {emp.firstName} {emp.lastName}
             </span>
             .
           </p>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">New Password</label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">New Password</label>
             <input
               type="password"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               minLength={8}
@@ -325,7 +325,7 @@ function ResetPasswordModal({ emp, orgId, onClose, onSaved }: ResetPasswordModal
             />
           </div>
           {error && (
-            <p className="flex items-center gap-1.5 text-sm text-red-600">
+            <p className="flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
               <AlertCircle size={14} />
               {error}
             </p>
@@ -334,7 +334,7 @@ function ResetPasswordModal({ emp, orgId, onClose, onSaved }: ResetPasswordModal
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
               Cancel
             </button>
@@ -409,27 +409,27 @@ function EmployeeRow({ emp, orgId, onAction }: EmployeeRowProps) {
 
   return (
     <>
-      <tr className="hover:bg-gray-50 transition-colors">
-        <td className="px-5 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
+      <tr className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+        <td className="px-5 py-3 text-sm font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">
           {emp.firstName} {emp.lastName}
         </td>
-        <td className="px-5 py-3 text-sm text-gray-500">{emp.email}</td>
-        <td className="px-5 py-3 text-sm text-gray-500">{emp.roleId ?? '—'}</td>
+        <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{emp.email}</td>
+        <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{emp.roleId ?? '—'}</td>
         <td className="px-5 py-3">
           <StatusBadge emp={emp} />
         </td>
-        <td className="px-5 py-3 text-sm text-gray-500 text-center">
+        <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
           {emp.failedLoginAttempts > 0 ? (
-            <span className={emp.failedLoginAttempts >= 5 ? 'text-red-600 font-medium' : ''}>
+            <span className={emp.failedLoginAttempts >= 5 ? 'text-red-600 dark:text-red-400 font-medium' : ''}>
               {emp.failedLoginAttempts}
             </span>
           ) : (
             '—'
           )}
         </td>
-        <td className="px-5 py-3 text-sm text-gray-500 whitespace-nowrap">
+        <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
           {emp.lockedUntil ? (
-            <span className={new Date(emp.lockedUntil) > new Date() ? 'text-red-600' : 'text-gray-400'}>
+            <span className={new Date(emp.lockedUntil) > new Date() ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}>
               {new Date(emp.lockedUntil).toLocaleString()}
             </span>
           ) : (
@@ -439,7 +439,7 @@ function EmployeeRow({ emp, orgId, onAction }: EmployeeRowProps) {
         <td className="px-5 py-3">
           <div className="flex items-center gap-2 flex-wrap justify-end">
             {actionError && (
-              <span className="text-xs text-red-600 flex items-center gap-1">
+              <span className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                 <AlertCircle size={12} />
                 {actionError}
               </span>
@@ -451,7 +451,7 @@ function EmployeeRow({ emp, orgId, onAction }: EmployeeRowProps) {
                 onClick={handleUnlock}
                 disabled={actionLoading === 'unlock'}
                 title="Unlock account"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-colors disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/40 border border-green-200 dark:border-green-800 rounded-lg transition-colors disabled:opacity-60"
               >
                 {actionLoading === 'unlock' ? (
                   <Loader2 size={12} className="animate-spin" />
@@ -468,7 +468,7 @@ function EmployeeRow({ emp, orgId, onAction }: EmployeeRowProps) {
                 onClick={handleLock}
                 disabled={actionLoading === 'lock'}
                 title="Lock account"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800 rounded-lg transition-colors disabled:opacity-60"
               >
                 {actionLoading === 'lock' ? (
                   <Loader2 size={12} className="animate-spin" />
@@ -483,7 +483,7 @@ function EmployeeRow({ emp, orgId, onAction }: EmployeeRowProps) {
             <button
               onClick={() => setShowReset(true)}
               title="Reset password"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg transition-colors"
             >
               <KeyRound size={12} />
               Reset PW
@@ -493,7 +493,7 @@ function EmployeeRow({ emp, orgId, onAction }: EmployeeRowProps) {
             <button
               onClick={() => setShowEdit(true)}
               title="Edit employee"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 border border-blue-200 dark:border-blue-800 rounded-lg transition-colors"
             >
               <Pencil size={12} />
               Edit
@@ -568,13 +568,13 @@ function OrgNameSearch({ onSelect }: OrgSearchProps) {
     <div className="space-y-3">
       <form onSubmit={handleNameSearch} className="flex gap-3 max-w-xl">
         <div className="relative flex-1">
-          <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+          <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" size={16} />
           <input
             type="text"
             placeholder="Search by org name…"
             value={nameQuery}
             onChange={(e) => setNameQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+            className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
           />
         </div>
         <button
@@ -587,14 +587,14 @@ function OrgNameSearch({ onSelect }: OrgSearchProps) {
       </form>
 
       {searchError && (
-        <p className="text-xs text-red-500 flex items-center gap-1">
+        <p className="text-xs text-red-500 dark:text-red-400 flex items-center gap-1">
           <AlertCircle size={12} />
           {searchError}
         </p>
       )}
 
       {results.length > 0 && (
-        <div className="border border-gray-200 rounded-lg overflow-hidden max-w-xl">
+        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden max-w-xl">
           {results.map((org) => (
             <button
               key={org.id}
@@ -603,10 +603,10 @@ function OrgNameSearch({ onSelect }: OrgSearchProps) {
                 setResults([]);
                 setNameQuery('');
               }}
-              className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-left hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-0"
+              className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-left hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0"
             >
-              <span className="font-medium text-gray-900">{org.businessName}</span>
-              <span className="text-xs font-mono text-gray-400 truncate ml-3">{org.id}</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{org.businessName}</span>
+              <span className="text-xs font-mono text-gray-400 dark:text-gray-500 truncate ml-3">{org.id}</span>
             </button>
           ))}
         </div>
@@ -712,11 +712,11 @@ function StaffContent() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-            <Users size={24} className="text-blue-700" />
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <Users size={24} className="text-blue-700 dark:text-blue-400" />
             Staff Management
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             View and manage employees for any organisation
           </p>
         </div>
@@ -724,7 +724,7 @@ function StaffContent() {
           <button
             onClick={handleRefresh}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-60"
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-60"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             Refresh
@@ -733,29 +733,29 @@ function StaffContent() {
       </div>
 
       {/* Org picker */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
             Organisation
           </p>
           {/* Toggle between ID and name search */}
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+          <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-xs">
             <button
               onClick={() => setSearchMode('id')}
               className={`px-3 py-1.5 font-medium transition-colors ${
                 searchMode === 'id'
                   ? 'bg-blue-900 text-white'
-                  : 'text-gray-600 hover:bg-gray-50'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               By ID
             </button>
             <button
               onClick={() => setSearchMode('name')}
-              className={`px-3 py-1.5 font-medium transition-colors border-l border-gray-200 ${
+              className={`px-3 py-1.5 font-medium transition-colors border-l border-gray-200 dark:border-gray-700 ${
                 searchMode === 'name'
                   ? 'bg-blue-900 text-white'
-                  : 'text-gray-600 hover:bg-gray-50'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               By Name
@@ -766,13 +766,13 @@ function StaffContent() {
         {searchMode === 'id' ? (
           <form onSubmit={handleLoad} className="flex gap-3 max-w-xl">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" size={16} />
               <input
                 type="text"
                 placeholder="Enter Organisation UUID…"
                 value={orgIdInput}
                 onChange={(e) => setOrgIdInput(e.target.value)}
-                className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent font-mono"
+                className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent font-mono"
                 spellCheck={false}
               />
             </div>
@@ -789,16 +789,16 @@ function StaffContent() {
         )}
 
         {activeOrgId && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-400 dark:text-gray-500">
             {activeOrgName ? (
               <>
                 Loaded:{' '}
-                <span className="font-medium text-gray-700">{activeOrgName}</span>{' '}
-                <span className="font-mono text-gray-400">({activeOrgId})</span>
+                <span className="font-medium text-gray-700 dark:text-gray-300">{activeOrgName}</span>{' '}
+                <span className="font-mono text-gray-400 dark:text-gray-500">({activeOrgId})</span>
               </>
             ) : (
               <>
-                Loaded: <span className="font-mono text-gray-600">{activeOrgId}</span>
+                Loaded: <span className="font-mono text-gray-600 dark:text-gray-400">{activeOrgId}</span>
               </>
             )}
           </p>
@@ -807,12 +807,12 @@ function StaffContent() {
 
       {/* Employee table */}
       {activeOrgId && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
           {/* Search bar inside table header */}
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+          <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
             <div className="relative flex-1 max-w-sm">
               <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
                 size={16}
               />
               <input
@@ -820,11 +820,11 @@ function StaffContent() {
                 placeholder="Filter by name or email…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent bg-white"
+                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
               />
             </div>
             {!loading && employees.length > 0 && (
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-400 dark:text-gray-500">
                 {filtered.length} of {employees.length} employee{employees.length !== 1 ? 's' : ''}
               </span>
             )}
@@ -832,54 +832,57 @@ function StaffContent() {
 
           {/* Content */}
           {loading ? (
-            <div className="flex items-center justify-center gap-2 py-14 text-sm text-gray-400">
+            <div className="flex items-center justify-center gap-2 py-14 text-sm text-gray-400 dark:text-gray-500">
               <Loader2 size={18} className="animate-spin" />
               Loading employees…
             </div>
           ) : fetchError ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-14 text-sm text-red-500">
+            <div className="flex flex-col items-center justify-center gap-2 py-14 text-sm text-red-500 dark:text-red-400">
               <AlertCircle size={20} />
               <span>{fetchError}</span>
               <button
                 onClick={handleRefresh}
-                className="mt-1 text-xs text-blue-600 hover:underline"
+                className="mt-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
               >
                 Retry
               </button>
             </div>
           ) : filtered.length === 0 ? (
-            <div className="py-14 text-center text-sm text-gray-400">
-              {employees.length === 0 ? 'No employees found for this organisation.' : 'No employees match your filter.'}
+            <div className="py-14 text-center">
+              <Users size={36} className="mx-auto text-gray-200 dark:text-gray-700 mb-3" />
+              <p className="text-sm text-gray-400 dark:text-gray-500">
+                {employees.length === 0 ? 'No employees found for this organisation.' : 'No employees match your filter.'}
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-100">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
+                <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Name
                     </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Email
                     </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Role
                     </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-5 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-5 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Failed Attempts
                     </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Locked Until
                     </th>
-                    <th className="px-5 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-5 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                   {filtered.map((emp) => (
                     <EmployeeRow
                       key={emp.id}
@@ -897,7 +900,7 @@ function StaffContent() {
 
       {/* Empty state before loading any org */}
       {!activeOrgId && (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-400 gap-3">
+        <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500 gap-3">
           <Users size={40} className="opacity-30" />
           <p className="text-sm">Enter an organisation ID or search by name above to load its employees.</p>
         </div>
@@ -912,7 +915,7 @@ function StaffContent() {
 
 export default function StaffPage() {
   return (
-    <Suspense fallback={<div className="text-sm text-gray-400 p-6">Loading…</div>}>
+    <Suspense fallback={<div className="text-sm text-gray-400 dark:text-gray-500 p-6">Loading…</div>}>
       <StaffContent />
     </Suspense>
   );

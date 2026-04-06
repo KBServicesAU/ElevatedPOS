@@ -1,5 +1,5 @@
 {
-  "name": "@nexus/storefront",
+  "name": "@elevatedpos/storefront",
   "version": "1.0.0",
   "private": true,
   "scripts": {

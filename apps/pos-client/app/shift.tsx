@@ -76,9 +76,12 @@ export default function ShiftScreen() {
     try {
       const data = await posApiFetch<ShiftResponse>('/api/v1/time-clock/shifts/current');
       setCurrentShift(data);
-    } catch {
-      // 404 means not clocked in — treat as null shift
+    } catch (err) {
+      // 404 means not clocked in — treat as null shift; log other errors
       setCurrentShift(null);
+      if (err instanceof Error && !err.message.includes('404')) {
+        Alert.alert('Shift Error', 'Could not check shift status. You may be offline.');
+      }
     } finally {
       setLoading(false);
     }

@@ -10,8 +10,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="bg-slate-50 text-slate-900 min-h-screen antialiased flex flex-col">
+    <html lang="en" suppressHydrationWarning>
+      <body className="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 min-h-screen antialiased flex flex-col">
         <ElevatedPOSAppBar currentApp="partner" appLabel="Partner Portal" />
         {children}
       </body>

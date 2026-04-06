@@ -26,6 +26,7 @@ interface CartItem extends LocalProduct {
   cartKey: string;
 }
 
+// TODO: Replace hardcoded product catalogue with API call to GET /api/v1/catalog/products
 // ─── Static catalogue (fallback / offline) ────────────────────────────────────
 
 const PRODUCTS: LocalProduct[] = [

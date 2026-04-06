@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -10,7 +10,10 @@ import {
   BadgeDollarSign,
   LogOut,
   Menu,
+  Moon,
+  Sun,
 } from 'lucide-react';
+import { useTheme } from '@/components/ThemeProvider';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -21,18 +24,59 @@ const navItems = [
 
 const NAV_BG = '#0d2818';
 
+interface ResellerUser {
+  name?: string;
+  email?: string;
+}
+
+function getInitials(name?: string): string {
+  if (!name) return 'RS';
+  return name
+    .split(' ')
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .slice(0, 2)
+    .join('');
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { theme, toggle: toggleTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [user, setUser] = useState<ResellerUser>({ name: 'Reseller', email: '' });
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('reseller_user');
+      if (stored) {
+        const parsed = JSON.parse(stored) as ResellerUser;
+        setUser(parsed);
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, []);
 
   async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // best-effort logout
+    }
+    try {
+      localStorage.removeItem('reseller_user');
+    } catch {
+      // ignore
+    }
     router.push('/login');
   }
 
+  const displayName = user.name ?? 'Reseller';
+  const displayEmail = user.email ?? '';
+  const initials = getInitials(user.name);
+
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -87,13 +131,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="px-3 py-4 border-t border-emerald-900">
           <div className="flex items-center gap-3 px-3 py-2 mb-1">
             <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center flex-shrink-0">
-              <span className="text-white text-xs font-semibold">RS</span>
+              <span className="text-white text-xs font-semibold">{initials}</span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-medium truncate">Reseller</p>
-              <p className="text-emerald-400 text-xs truncate">reseller</p>
+              <p className="text-white text-sm font-medium truncate">{displayName}</p>
+              {displayEmail && (
+                <p className="text-emerald-400 text-xs truncate">{displayEmail}</p>
+              )}
             </div>
           </div>
+
+          {/* Dark mode toggle */}
+          <button
+            onClick={toggleTheme}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-emerald-200 hover:bg-emerald-900 hover:text-white transition-colors mb-0.5"
+            aria-label="Toggle dark mode"
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          </button>
+
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-emerald-200 hover:bg-emerald-900 hover:text-white transition-colors"
@@ -107,14 +164,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile topbar */}
-        <header className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
+        <header className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="text-gray-500 hover:text-gray-700"
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            aria-label="Open menu"
           >
             <Menu size={22} />
           </button>
-          <span className="font-semibold text-gray-800 text-sm">Reseller Portal</span>
+          <span className="font-semibold text-gray-800 dark:text-gray-100 text-sm">Reseller Portal</span>
         </header>
 
         <main className="flex-1 overflow-y-auto p-6">

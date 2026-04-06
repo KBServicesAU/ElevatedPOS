@@ -27,6 +27,7 @@ interface EodSummary {
   cashExpected: string;
 }
 
+// TODO: Remove mock summary once GET /api/v1/orders/eod-summary is deployed
 const MOCK_SUMMARY: EodSummary = {
   totalSales: '$4,287.50',
   transactionCount: 63,
@@ -57,8 +58,10 @@ export default function EodScreen() {
       const data = await posApiFetch<EodSummary>('/api/v1/orders/eod-summary');
       setSummary(data);
     } catch {
+      // TODO: Replace mock fallback with real EOD summary API when deployed
       // Endpoint may not exist yet — use mock data
       setSummary(MOCK_SUMMARY);
+      Alert.alert('Offline Mode', 'Could not load EOD summary from server. Showing demo data.');
     } finally {
       setLoading(false);
     }
@@ -91,7 +94,7 @@ export default function EodScreen() {
                 body: JSON.stringify({ countedCash }),
               });
             } catch {
-              // Optimistic — endpoint may not exist yet
+              Alert.alert('Warning', 'EOD report could not be submitted to the server, but has been closed locally.');
             } finally {
               setClosing(false);
             }

@@ -1,7 +1,7 @@
-import Link from 'next/link';
 import { PayHeader } from '@/components/pay-header';
 
-export default function InvoiceSuccessPage({ params }: { params: { invoiceId: string } }) {
+export default async function InvoiceSuccessPage({ params }: { params: Promise<{ invoiceId: string }> }) {
+  const { invoiceId } = await params;
   return (
     <div className="min-h-screen bg-zinc-50">
       <PayHeader />
@@ -14,7 +14,7 @@ export default function InvoiceSuccessPage({ params }: { params: { invoiceId: st
           </div>
           <h1 className="text-2xl font-bold text-zinc-900 mb-2">Payment successful!</h1>
           <p className="text-zinc-500">Your payment has been processed and a receipt will be sent to your email address.</p>
-          <p className="text-xs text-zinc-400 mt-6">Invoice {params.invoiceId.slice(0, 16)}&hellip;</p>
+          <p className="text-xs text-zinc-400 mt-6">Invoice {invoiceId.slice(0, 16)}&hellip;</p>
         </div>
         <p className="text-xs text-zinc-400 mt-6">Powered by ElevatedPOS &middot; Secured by Stripe</p>
       </div>

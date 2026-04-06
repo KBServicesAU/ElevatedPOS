@@ -201,13 +201,15 @@ export default function MoreScreen() {
         router.push('/eod');
         break;
       case 'reports':
-        Alert.alert('Reports', 'This would open the back-office dashboard at port 3000.');
+        // TODO: Implement deep link to back-office dashboard
+        Alert.alert('Reports', 'The back-office reporting dashboard is not yet available on this device. Please visit the web dashboard for detailed reports.');
         break;
       case 'settings':
         router.push('/settings');
         break;
       case 'discounts':
-        Alert.alert('Discounts', 'Discount management coming soon.');
+        // TODO: Implement discount management screen
+        Alert.alert('Coming Soon', 'Discount and promotion management will be available in a future update.');
         break;
       case 'signout':
         Alert.alert('Sign Out', `Sign out as ${displayName}?`, [

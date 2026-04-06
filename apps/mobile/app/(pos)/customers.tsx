@@ -2,12 +2,16 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+// TODO: Implement customer lookup with API call to GET /api/v1/customers
 export default function CustomersScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
+        <Text style={styles.icon}>👥</Text>
         <Text style={styles.title}>Customers</Text>
-        <Text style={styles.subtitle}>Customer lookup coming soon</Text>
+        <Text style={styles.subtitle}>
+          Customer lookup is not yet available on this device. Visit the back-office dashboard for customer management.
+        </Text>
       </View>
     </SafeAreaView>
   );
@@ -15,7 +19,8 @@ export default function CustomersScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d14' },
-  content: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  content: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  icon: { fontSize: 48, marginBottom: 16 },
   title: { fontSize: 24, fontWeight: '800', color: '#fff', marginBottom: 8 },
-  subtitle: { fontSize: 16, color: '#666' },
+  subtitle: { fontSize: 15, color: '#666', textAlign: 'center', lineHeight: 22 },
 });

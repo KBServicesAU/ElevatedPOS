@@ -37,18 +37,34 @@ export async function POST(request: NextRequest) {
     if (role !== 'sales_agent' && role !== 'superadmin') {
       return NextResponse.json(
         { error: 'Not authorized for this portal' },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
     const response = NextResponse.json({ ok: true, user }, { status: 200 });
 
+    // HttpOnly token — not readable by JS, protects the bearer token
     response.cookies.set('sales_token', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
       maxAge: 60 * 60 * 8, // 8 hours
+    });
+
+    // Client-readable cookie carrying display name + email for the UI.
+    // Does NOT contain the bearer token — safe to be non-httpOnly.
+    const userInfo = JSON.stringify({
+      name: user?.name ?? '',
+      email: user?.email ?? '',
+      role: user?.role ?? '',
+    });
+    response.cookies.set('sales_user', userInfo, {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 8,
     });
 
     return response;

@@ -36,8 +36,9 @@ async function getInvoice(invoiceId: string): Promise<{ invoice: PublicInvoice; 
   }
 }
 
-export default async function InvoicePage({ params }: { params: { invoiceId: string } }) {
-  const data = await getInvoice(params.invoiceId);
+export default async function InvoicePage({ params }: { params: Promise<{ invoiceId: string }> }) {
+  const { invoiceId } = await params;
+  const data = await getInvoice(invoiceId);
   if (!data) notFound();
 
   const stripeKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '';

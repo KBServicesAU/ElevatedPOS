@@ -63,7 +63,11 @@ export default function LoginScreen() {
       );
       router.replace('/(tabs)');
     } catch {
-      // Auth service unavailable during dev — use demo login
+      // Auth service unavailable — fall back to demo login
+      Alert.alert(
+        'Offline Mode',
+        'Could not reach the authentication server. Logging in with demo credentials.',
+      );
       login(
         { id: 'demo', name: 'Demo Staff', role: 'cashier', orgId: 'demo-org' },
         'demo-token',

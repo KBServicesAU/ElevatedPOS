@@ -307,7 +307,7 @@ export default function SandboxPage() {
         });
         status = res.status;
         bodyText = await res.text();
-        try { bodyText = JSON.stringify(JSON.parse(bodyText), null, 2); } catch { /* leave as-is */ }
+        try { bodyText = JSON.stringify(JSON.parse(bodyText), null, 2); } catch { /* Response is not valid JSON — display raw text as received */ }
       }
 
       const elapsed = Math.round(performance.now() - start);

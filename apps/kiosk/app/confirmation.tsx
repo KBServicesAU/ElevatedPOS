@@ -66,6 +66,7 @@ export default function ConfirmationScreen() {
       </View>
 
       {/* Loyalty earned */}
+      {/* TODO: Replace hardcoded +25 points with actual points earned from order response */}
       {loyaltyAccount && (
         <View style={styles.pointsCard}>
           <Text style={styles.pointsText}>
@@ -75,7 +76,7 @@ export default function ConfirmationScreen() {
         </View>
       )}
 
-      {/* QR receipt placeholder */}
+      {/* TODO: Generate actual QR code using receipt URL from POST /api/v1/orders response */}
       <View style={styles.qrPlaceholder}>
         <Text style={styles.qrText}>⬛ QR Receipt</Text>
         <Text style={styles.qrSub}>Scan to get a digital receipt</Text>

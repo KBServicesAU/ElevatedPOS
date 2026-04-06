@@ -353,14 +353,19 @@ export default function PlansPage() {
 
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [reorderingId, setReorderingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const data = (await platformFetch('platform/plans')) as PlansResponse;
       const sorted = [...(data.data ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
       setPlans(sorted);
-    } catch {
+    } catch (err) {
+      console.error('Failed to load plans:', err);
+      setLoadError(err instanceof Error ? err.message : 'Failed to load plans');
       setPlans([]);
     } finally {
       setLoading(false);
@@ -415,14 +420,16 @@ export default function PlansPage() {
 
   async function handleToggleActive(plan: Plan) {
     setTogglingId(plan.id);
+    setActionError('');
     try {
       await platformFetch(`platform/plans/${plan.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive: !plan.isActive }),
       });
       await load();
-    } catch {
-      alert('Failed to toggle plan status.');
+    } catch (err) {
+      console.error('Failed to toggle plan status:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to toggle plan status.');
     } finally {
       setTogglingId(null);
     }
@@ -449,8 +456,9 @@ export default function PlansPage() {
         }),
       ]);
       await load();
-    } catch {
-      alert('Failed to reorder plans.');
+    } catch (err) {
+      console.error('Failed to reorder plans:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to reorder plans.');
     } finally {
       setReorderingId(null);
     }
@@ -471,6 +479,12 @@ export default function PlansPage() {
           Add Plan
         </button>
       </div>
+
+      {(loadError || actionError) && (
+        <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+          {loadError || actionError}
+        </div>
+      )}
 
       {loading ? (
         <div className="text-gray-500 text-sm">Loading...</div>

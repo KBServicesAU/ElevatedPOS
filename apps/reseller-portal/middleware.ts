@@ -4,8 +4,11 @@ function isPublicPath(pathname: string): boolean {
   return (
     pathname === '/login' ||
     pathname.startsWith('/api/auth/') ||
+    pathname.startsWith('/api/onboard/') ||
+    pathname === '/api/health' ||
     pathname.startsWith('/_next/') ||
-    pathname === '/favicon.ico'
+    pathname === '/favicon.ico' ||
+    pathname === '/favicon.svg'
   );
 }
 
@@ -26,5 +29,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|favicon.svg).*)'],
 };

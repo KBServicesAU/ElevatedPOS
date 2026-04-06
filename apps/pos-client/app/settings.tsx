@@ -17,7 +17,7 @@ const STORAGE_KEY = 'elevatedpos_settings';
 
 type FontSize = 'small' | 'medium' | 'large';
 
-interface NexusSettings {
+interface AppSettings {
   // Hardware
   printerHost: string;
   printerPort: string;
@@ -29,7 +29,7 @@ interface NexusSettings {
   // About / endpoints (read-only)
 }
 
-const DEFAULT_SETTINGS: NexusSettings = {
+const DEFAULT_SETTINGS: AppSettings = {
   printerHost: '192.168.1.100',
   printerPort: '9100',
   cashDrawerPort: '/dev/ttyUSB0',
@@ -42,7 +42,7 @@ const FONT_SIZE_OPTIONS: FontSize[] = ['small', 'medium', 'large'];
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const [settings, setSettings] = useState<NexusSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [lastSync, setLastSync] = useState<string>('Never');
   const [pendingItems, setPendingItems] = useState<number>(0);
   const [syncing, setSyncing] = useState(false);
@@ -57,11 +57,11 @@ export default function SettingsScreen() {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as Partial<NexusSettings>;
+        const parsed = JSON.parse(raw) as Partial<AppSettings>;
         setSettings((prev) => ({ ...prev, ...parsed }));
       }
     } catch {
-      // use defaults
+      Alert.alert('Settings Error', 'Could not load saved settings. Using defaults.');
     }
   }
 
@@ -72,11 +72,11 @@ export default function SettingsScreen() {
       const pending = await AsyncStorage.getItem('elevatedpos_pending_count');
       if (pending) setPendingItems(Number(pending));
     } catch {
-      // ignore
+      // Non-critical: sync metadata read failed; leave defaults
     }
   }
 
-  async function saveSettings(next: NexusSettings) {
+  async function saveSettings(next: AppSettings) {
     setSettings(next);
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -87,11 +87,12 @@ export default function SettingsScreen() {
     }
   }
 
-  function update<K extends keyof NexusSettings>(key: K, value: NexusSettings[K]) {
+  function update<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     const next = { ...settings, [key]: value };
     void saveSettings(next);
   }
 
+  // TODO: Replace simulated sync with actual offline queue flush (offlineQueue.ts → syncService.ts)
   async function handleSyncNow() {
     setSyncing(true);
     try {
@@ -260,11 +261,11 @@ export default function SettingsScreen() {
           {[
             ['Version', '1.0.0'],
             ['Build', '20260323-001'],
-            ['Auth Service', 'http://localhost:4000'],
-            ['Orders Service', 'http://localhost:4001'],
-            ['Catalog Service', 'http://localhost:4002'],
-            ['Inventory Service', 'http://localhost:4003'],
-            ['Hardware Bridge', 'http://127.0.0.1:9999'],
+            ['Auth Service', process.env.EXPO_PUBLIC_AUTH_API_URL ?? 'http://localhost:4000'],
+            ['Orders Service', process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4001'],
+            ['Catalog Service', process.env.EXPO_PUBLIC_CATALOG_API_URL ?? 'http://localhost:4002'],
+            ['Inventory Service', process.env.EXPO_PUBLIC_INVENTORY_API_URL ?? 'http://localhost:4003'],
+            ['Hardware Bridge', process.env.EXPO_PUBLIC_HARDWARE_BRIDGE_URL ?? 'http://127.0.0.1:9999'],
           ].map(([label, value], i, arr) => (
             <View key={label}>
               <View style={styles.aboutRow}>

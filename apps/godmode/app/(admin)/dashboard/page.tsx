@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { platformFetch } from '@/lib/api';
-import { Building2, CheckCircle, DollarSign, Activity, ScrollText } from 'lucide-react';
+import { Building2, CheckCircle, DollarSign, Activity, ScrollText, AlertTriangle, XCircle } from 'lucide-react';
 
 interface Org {
   id: string;
@@ -31,6 +31,15 @@ interface AuditLogsResponse {
   data: AuditLog[];
 }
 
+interface ServiceHealth {
+  service: string;
+  status: 'healthy' | 'degraded' | 'down';
+}
+
+interface HealthResponse {
+  data: ServiceHealth[];
+}
+
 function planBadgeColor(plan: string): string {
   if (plan === 'enterprise') return 'bg-yellow-500/20 text-yellow-400';
   if (plan === 'growth') return 'bg-indigo-500/20 text-indigo-400';
@@ -57,12 +66,28 @@ function formatActivityLine(log: AuditLog): { event: string; detail: string } {
   return { event, detail: resource };
 }
 
+function deriveSystemStatus(services: ServiceHealth[]): {
+  label: string;
+  color: string;
+  Icon: React.ComponentType<{ className?: string | undefined }>;
+} {
+  if (services.length === 0) return { label: 'Unknown', color: 'text-gray-400', Icon: Activity };
+  const downCount = services.filter((s) => s.status === 'down').length;
+  const degradedCount = services.filter((s) => s.status === 'degraded').length;
+  if (downCount > 0) return { label: `${downCount} Down`, color: 'text-red-400', Icon: XCircle };
+  if (degradedCount > 0) return { label: `${degradedCount} Degraded`, color: 'text-yellow-400', Icon: AlertTriangle };
+  return { label: 'All Operational', color: 'text-green-400', Icon: CheckCircle };
+}
+
 export default function DashboardPage() {
   const [total, setTotal] = useState<number | null>(null);
   const [recentOrgs, setRecentOrgs] = useState<Org[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [activityLogs, setActivityLogs] = useState<AuditLog[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const [services, setServices] = useState<ServiceHealth[]>([]);
+  const [healthLoading, setHealthLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
@@ -70,8 +95,8 @@ export default function DashboardPage() {
         const data = (await platformFetch('platform/organisations?limit=10')) as OrgsResponse;
         setTotal(data.total);
         setRecentOrgs(data.data);
-      } catch {
-        // ignore
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : 'Failed to load merchants');
       } finally {
         setLoading(false);
       }
@@ -85,7 +110,8 @@ export default function DashboardPage() {
       try {
         const data = (await platformFetch('platform/audit-logs?limit=10')) as AuditLogsResponse;
         setActivityLogs(data.data ?? []);
-      } catch {
+      } catch (err) {
+        console.error('Failed to load activity logs:', err);
         setActivityLogs([]);
       } finally {
         setActivityLoading(false);
@@ -94,34 +120,58 @@ export default function DashboardPage() {
     void loadActivity();
   }, []);
 
+  useEffect(() => {
+    async function loadHealth() {
+      setHealthLoading(true);
+      try {
+        const res = await fetch('/api/services-health', { cache: 'no-store' });
+        const data = (await res.json()) as HealthResponse;
+        setServices(data.data ?? []);
+      } catch (err) {
+        console.error('Failed to load service health:', err);
+        setServices([]);
+      } finally {
+        setHealthLoading(false);
+      }
+    }
+    void loadHealth();
+  }, []);
+
+  const systemStatus = deriveSystemStatus(services);
+  const SystemIcon = systemStatus.Icon;
+
   const kpis = [
     {
       label: 'Total Merchants',
-      value: loading ? '...' : String(total ?? 0),
+      value: loading ? '...' : loadError ? 'Error' : String(total ?? 0),
       Icon: Building2,
       color: 'text-indigo-400',
       bg: 'bg-indigo-500/10',
     },
     {
       label: 'Active Subscriptions',
-      value: loading ? '...' : String(total ?? 0),
+      value: loading ? '...' : loadError ? 'Error' : String(recentOrgs.filter((o) => o.onboardingStep === 'complete').length),
       Icon: CheckCircle,
       color: 'text-green-400',
       bg: 'bg-green-500/10',
     },
     {
       label: 'Platform Revenue',
-      value: '$0',
+      value: '—',
       Icon: DollarSign,
       color: 'text-yellow-400',
       bg: 'bg-yellow-500/10',
     },
     {
       label: 'System Status',
-      value: 'Operational',
-      Icon: Activity,
-      color: 'text-green-400',
-      bg: 'bg-green-500/10',
+      value: healthLoading ? '...' : systemStatus.label,
+      Icon: healthLoading ? Activity : SystemIcon,
+      color: healthLoading ? 'text-gray-400' : systemStatus.color,
+      bg: healthLoading ? 'bg-gray-500/10' : services.some((s) => s.status === 'down')
+        ? 'bg-red-500/10'
+        : services.some((s) => s.status === 'degraded')
+        ? 'bg-yellow-500/10'
+        : 'bg-green-500/10',
     },
   ];
 
@@ -131,6 +181,12 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold text-white">Platform Dashboard</h1>
         <p className="text-gray-500 text-sm mt-1">Mission control for ElevatedPOS</p>
       </div>
+
+      {loadError && (
+        <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+          {loadError}
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-4 gap-4 mb-8">

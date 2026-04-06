@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { PricingSection } from '@/components/pricing-section';
 
 export default function HomePage() {
   return (
@@ -204,107 +205,7 @@ export default function HomePage() {
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="bg-white py-24">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">Simple, honest pricing</h2>
-            <p className="text-lg text-gray-500">No lock-in contracts. Cancel any time.</p>
-            <div className="inline-flex items-center gap-3 mt-6 bg-gray-100 rounded-full p-1">
-              <button className="px-4 py-2 rounded-full bg-white shadow text-sm font-medium text-gray-900">Monthly</button>
-              <button className="px-4 py-2 rounded-full text-sm font-medium text-gray-500 hover:text-gray-700">
-                Annual <span className="text-emerald-600 text-xs font-semibold ml-1">Save 2 months</span>
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {/* Starter */}
-            <div className="border border-gray-200 rounded-2xl p-8 flex flex-col">
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">Starter</h3>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-extrabold text-gray-900">$49</span>
-                  <span className="text-gray-500">/mo</span>
-                </div>
-                <p className="text-sm text-gray-500 mt-1">For small and growing businesses</p>
-              </div>
-              <ul className="space-y-3 flex-1 mb-8">
-                {['1 location', '2 devices', 'POS + Kiosk', 'Email support', 'Basic reports'].map((f) => (
-                  <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
-                    <svg className="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                    </svg>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/onboard"
-                className="block text-center text-sm font-semibold border border-gray-300 hover:border-indigo-400 hover:text-indigo-600 text-gray-700 px-6 py-3 rounded-xl transition-colors"
-              >
-                Get started
-              </Link>
-            </div>
-
-            {/* Growth — Featured */}
-            <div className="border-2 border-indigo-500 rounded-2xl p-8 flex flex-col relative shadow-xl shadow-indigo-100">
-              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                <span className="bg-indigo-600 text-white text-xs font-semibold px-3 py-1 rounded-full">Most popular</span>
-              </div>
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">Growth</h3>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-extrabold text-gray-900">$149</span>
-                  <span className="text-gray-500">/mo</span>
-                </div>
-                <p className="text-sm text-gray-500 mt-1">For multi-location businesses</p>
-              </div>
-              <ul className="space-y-3 flex-1 mb-8">
-                {['3 locations', '10 devices', 'Everything in Starter', 'Kitchen Display (KDS)', 'Phone support', 'Advanced analytics', 'Loyalty programs'].map((f) => (
-                  <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
-                    <svg className="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                    </svg>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/onboard"
-                className="block text-center text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl transition-colors shadow-md shadow-indigo-200"
-              >
-                Get started
-              </Link>
-            </div>
-
-            {/* Enterprise */}
-            <div className="border border-gray-200 rounded-2xl p-8 flex flex-col">
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">Enterprise</h3>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-extrabold text-gray-900">Custom</span>
-                </div>
-                <p className="text-sm text-gray-500 mt-1">For enterprise and franchise groups</p>
-              </div>
-              <ul className="space-y-3 flex-1 mb-8">
-                {['Unlimited locations & devices', 'Dedicated account manager', 'Custom integrations', 'SLA guarantee', 'Priority support'].map((f) => (
-                  <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
-                    <svg className="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                    </svg>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <a
-                href="mailto:sales@elevatedpos.com.au"
-                className="block text-center text-sm font-semibold border border-gray-300 hover:border-indigo-400 hover:text-indigo-600 text-gray-700 px-6 py-3 rounded-xl transition-colors"
-              >
-                Contact us
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
+      <PricingSection />
 
       {/* Testimonials */}
       <section className="bg-gray-900 py-24">
@@ -380,27 +281,25 @@ export default function HomePage() {
             <div>
               <h4 className="text-white font-semibold text-sm mb-4">Product</h4>
               <ul className="space-y-2">
-                {['Features', 'Pricing', 'Demo'].map((l) => (
-                  <li key={l}>
-                    <a href={l === 'Features' ? '#features' : l === 'Pricing' ? '#pricing' : '#'} className="text-gray-400 hover:text-white text-sm transition-colors">{l}</a>
-                  </li>
-                ))}
+                <li><a href="#features" className="text-gray-400 hover:text-white text-sm transition-colors">Features</a></li>
+                <li><a href="#pricing" className="text-gray-400 hover:text-white text-sm transition-colors">Pricing</a></li>
+                <li><a href="https://app.elevatedpos.com.au/demo" className="text-gray-400 hover:text-white text-sm transition-colors">Demo</a></li>
               </ul>
             </div>
             <div>
               <h4 className="text-white font-semibold text-sm mb-4">Company</h4>
               <ul className="space-y-2">
-                {['About', 'Blog', 'Careers'].map((l) => (
-                  <li key={l}><a href="#" className="text-gray-400 hover:text-white text-sm transition-colors">{l}</a></li>
-                ))}
+                <li><a href="#about" className="text-gray-400 hover:text-white text-sm transition-colors">About</a></li>
+                <li><a href="https://blog.elevatedpos.com.au" className="text-gray-400 hover:text-white text-sm transition-colors">Blog</a></li>
+                <li><a href="mailto:careers@elevatedpos.com.au" className="text-gray-400 hover:text-white text-sm transition-colors">Careers</a></li>
               </ul>
             </div>
             <div>
               <h4 className="text-white font-semibold text-sm mb-4">Support</h4>
               <ul className="space-y-2">
-                {['Help Centre', 'Contact', 'Status'].map((l) => (
-                  <li key={l}><a href="#" className="text-gray-400 hover:text-white text-sm transition-colors">{l}</a></li>
-                ))}
+                <li><a href="https://help.elevatedpos.com.au" className="text-gray-400 hover:text-white text-sm transition-colors">Help Centre</a></li>
+                <li><a href="mailto:support@elevatedpos.com.au" className="text-gray-400 hover:text-white text-sm transition-colors">Contact</a></li>
+                <li><a href="https://status.elevatedpos.com.au" className="text-gray-400 hover:text-white text-sm transition-colors">Status</a></li>
               </ul>
               <h4 className="text-white font-semibold text-sm mb-4 mt-6">Legal</h4>
               <ul className="space-y-2">

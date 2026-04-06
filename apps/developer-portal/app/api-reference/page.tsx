@@ -163,7 +163,7 @@ export default function ApiReferencePage() {
       {/* Sidebar */}
       <aside className="w-60 flex-shrink-0 border-r border-gray-800 sticky top-0 h-screen overflow-y-auto py-6 px-4">
         <Link href="/" className="flex items-center gap-2 mb-6 px-2">
-          <div className="w-6 h-6 bg-indigo-600 rounded flex items-center justify-center text-xs font-bold text-white">N</div>
+          <div className="w-6 h-6 bg-indigo-600 rounded flex items-center justify-center text-xs font-bold text-white">E</div>
           <span className="text-sm font-semibold text-gray-300">API Reference</span>
         </Link>
         <nav className="space-y-0.5">

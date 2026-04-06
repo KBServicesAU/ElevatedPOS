@@ -35,28 +35,28 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
       <div className="w-full max-w-md">
-        <div className="bg-white rounded-2xl shadow-lg p-8">
+        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg p-8 border border-gray-100 dark:border-gray-800">
           {/* Logo */}
           <div className="mb-8 text-center">
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-blue-900 mb-4">
-              <span className="text-white text-xl font-bold">S</span>
+              <span className="text-white text-xl font-bold">E</span>
             </div>
-            <h1 className="text-2xl font-semibold text-gray-900">Reset your password</h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Reset your password</h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Enter your email and we&apos;ll send you a reset link
             </p>
           </div>
 
           {status === 'success' ? (
             <div className="text-center space-y-4">
-              <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-4 text-sm text-green-700">
+              <div className="rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-4 py-4 text-sm text-green-700 dark:text-green-400">
                 If an account with that email exists, you&apos;ll receive a password reset link shortly.
               </div>
               <Link
                 href="/login"
-                className="block text-sm text-blue-600 hover:text-blue-800 font-medium"
+                className="block text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
               >
                 Back to sign in
               </Link>
@@ -64,7 +64,7 @@ export default function ForgotPasswordPage() {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Email address
                 </label>
                 <input
@@ -74,13 +74,13 @@ export default function ForgotPasswordPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-sm"
+                  className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-sm"
                   placeholder="support@elevatedpos.com.au"
                 />
               </div>
 
               {status === 'error' && errorMsg && (
-                <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                <div className="rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-400">
                   {errorMsg}
                 </div>
               )}
@@ -96,7 +96,7 @@ export default function ForgotPasswordPage() {
               <div className="text-center">
                 <Link
                   href="/login"
-                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                  className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
                 >
                   Back to sign in
                 </Link>
@@ -104,7 +104,7 @@ export default function ForgotPasswordPage() {
             </form>
           )}
         </div>
-        <p className="mt-4 text-center text-xs text-gray-400">
+        <p className="mt-4 text-center text-xs text-gray-400 dark:text-gray-600">
           ElevatedPOS Support — Restricted access
         </p>
       </div>

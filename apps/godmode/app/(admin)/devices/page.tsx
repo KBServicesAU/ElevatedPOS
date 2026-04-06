@@ -29,6 +29,8 @@ export default function DevicesPage() {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -38,7 +40,8 @@ export default function DevicesPage() {
       if (statusFilter) params.set('status', statusFilter);
       const data = (await platformFetch(`platform/devices?${params.toString()}`)) as DevicesResponse;
       setDevices(data.data);
-    } catch {
+    } catch (err) {
+      console.error('Failed to load devices:', err);
       setDevices([]);
     } finally {
       setLoading(false);
@@ -50,13 +53,14 @@ export default function DevicesPage() {
   }, [load]);
 
   async function handleRevoke(id: string) {
-    if (!confirm('Revoke this device? It will no longer be able to connect.')) return;
     setRevoking(id);
+    setActionError('');
     try {
       await platformFetch(`platform/devices/${id}`, { method: 'DELETE' });
       await load();
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('Failed to revoke device:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to revoke device.');
     } finally {
       setRevoking(null);
     }
@@ -68,6 +72,12 @@ export default function DevicesPage() {
         <h1 className="text-2xl font-bold text-white">Devices</h1>
         <p className="text-gray-500 text-sm mt-1">All devices across the platform</p>
       </div>
+
+      {actionError && (
+        <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+          {actionError}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-3 mb-6">
@@ -135,7 +145,7 @@ export default function DevicesPage() {
                   <td className="px-6 py-3">
                     {d.status === 'active' && (
                       <button
-                        onClick={() => handleRevoke(d.id)}
+                        onClick={() => setConfirmRevokeId(d.id)}
                         disabled={revoking === d.id}
                         className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/30 rounded text-xs hover:bg-red-600/30 transition-colors disabled:opacity-40"
                       >
@@ -149,6 +159,36 @@ export default function DevicesPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Revoke Confirmation Modal */}
+      {confirmRevokeId && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-white font-semibold mb-3">Revoke Device</h3>
+            <p className="text-gray-400 text-sm mb-6">
+              Revoke this device? It will no longer be able to connect.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmRevokeId(null)}
+                className="flex-1 px-4 py-2.5 border border-[#1e1e2e] text-gray-400 text-sm rounded hover:bg-[#1e1e2e] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const id = confirmRevokeId;
+                  setConfirmRevokeId(null);
+                  await handleRevoke(id);
+                }}
+                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded transition-colors"
+              >
+                Revoke
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

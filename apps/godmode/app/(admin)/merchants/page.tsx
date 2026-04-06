@@ -36,12 +36,14 @@ export default function MerchantsPage() {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [plan, setPlan] = useState('');
   const [page, setPage] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const params = new URLSearchParams({
         limit: String(LIMIT),
@@ -53,8 +55,9 @@ export default function MerchantsPage() {
       const data = (await platformFetch(`platform/organisations?${params.toString()}`)) as OrgsResponse;
       setOrgs(data.data);
       setTotal(data.total);
-    } catch {
-      // ignore
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load merchants');
+      setOrgs([]);
     } finally {
       setLoading(false);
     }
@@ -72,6 +75,12 @@ export default function MerchantsPage() {
         <h1 className="text-2xl font-bold text-white">Merchants</h1>
         <p className="text-gray-500 text-sm mt-1">{total} total organisations</p>
       </div>
+
+      {loadError && (
+        <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+          {loadError}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-3 mb-6">

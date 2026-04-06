@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Users,
@@ -15,12 +18,19 @@ const navItems = [
 ];
 
 export function Sidebar() {
+  const pathname = usePathname();
+
+  function isActive(href: string): boolean {
+    if (href === '/') return pathname === '/';
+    return pathname.startsWith(href);
+  }
+
   return (
     <aside className="w-56 flex-shrink-0 bg-slate-900 min-h-screen flex flex-col">
       {/* Logo */}
       <div className="px-5 py-5 border-b border-slate-800">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 bg-indigo-600 rounded flex items-center justify-center text-xs font-bold text-white">N</div>
+          <div className="w-7 h-7 bg-indigo-600 rounded flex items-center justify-center text-xs font-bold text-white">E</div>
           <div>
             <div className="text-sm font-bold text-white">ElevatedPOS</div>
             <div className="text-xs text-slate-500">Partner Portal</div>
@@ -34,7 +44,11 @@ export function Sidebar() {
           <Link
             key={href}
             href={href}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-sm"
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors text-sm ${
+              isActive(href)
+                ? 'bg-indigo-600 text-white'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
           >
             <Icon className="w-4 h-4" />
             {label}

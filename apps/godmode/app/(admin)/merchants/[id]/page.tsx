@@ -149,6 +149,19 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
   const [editEmployeeError, setEditEmployeeError] = useState('');
   const [editEmployeeSubmitting, setEditEmployeeSubmitting] = useState(false);
 
+  // Missing state declarations (previously undeclared)
+  const [noteError, setNoteError] = useState('');
+  const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
+  const [editError, setEditError] = useState('');
+  const [impersonateError, setImpersonateError] = useState('');
+  const [employeeToLock, setEmployeeToLock] = useState<OrgEmployee | null>(null);
+  const [employeeActionError, setEmployeeActionError] = useState('');
+
+  // Suspend / reactivate inline UI state
+  const [suspendConfirm, setSuspendConfirm] = useState<'suspend' | 'reactivate' | null>(null);
+  const [suspendError, setSuspendError] = useState('');
+  const [suspendLoading, setSuspendLoading] = useState(false);
+
   useEffect(() => {
     async function loadOrg() {
       try {
@@ -159,8 +172,8 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
           maxLocations: data.data.maxLocations,
           maxDevices: data.data.maxDevices,
         });
-      } catch {
-        // ignore
+      } catch (err) {
+        console.error('Failed to load organisation:', err);
       } finally {
         setLoading(false);
       }
@@ -173,7 +186,8 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
     try {
       const data = (await platformFetch(`platform/support-notes?orgId=${id}`)) as SupportNotesResponse;
       setSupportNotes(data.data ?? []);
-    } catch {
+    } catch (err) {
+      console.error('Failed to load support notes:', err);
       setSupportNotes([]);
     } finally {
       setNotesLoading(false);
@@ -186,7 +200,8 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
         try {
           const data = (await platformFetch(`platform/organisations/${id}/devices`)) as { data: Device[] };
           setDevices(data.data);
-        } catch {
+        } catch (err) {
+          console.error('Failed to load devices:', err);
           setDevices([]);
         }
       })();
@@ -211,7 +226,8 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
     try {
       const data = (await platformFetch(`platform/organisations/${id}/employees`)) as { data: OrgEmployee[] };
       setEmployees(data.data);
-    } catch {
+    } catch (err) {
+      console.error('Failed to load employees:', err);
       setEmployees([]);
     } finally {
       setEmployeesLoading(false);
@@ -229,21 +245,28 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
       });
       setNewNoteBody('');
       await loadNotes();
-    } catch {
-      alert('Failed to add note.');
+    } catch (err) {
+      console.error('Failed to add note:', err);
+      setNoteError(err instanceof Error ? err.message : 'Failed to add note.');
     } finally {
       setNoteSubmitting(false);
     }
   }
 
   async function handleDeleteNote(noteId: string) {
-    if (!confirm('Delete this note?')) return;
-    setDeletingNoteId(noteId);
+    setNoteToDelete(noteId);
+  }
+
+  async function confirmDeleteNote() {
+    if (!noteToDelete) return;
+    setDeletingNoteId(noteToDelete);
+    setNoteToDelete(null);
     try {
-      await platformFetch(`platform/support-notes/${noteId}`, { method: 'DELETE' });
+      await platformFetch(`platform/support-notes/${noteToDelete}`, { method: 'DELETE' });
       await loadNotes();
-    } catch {
-      alert('Failed to delete note.');
+    } catch (err) {
+      console.error('Failed to delete note:', err);
+      setNoteError(err instanceof Error ? err.message : 'Failed to delete note.');
     } finally {
       setDeletingNoteId(null);
     }
@@ -251,6 +274,7 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
 
   async function handleSaveEdit() {
     setSaving(true);
+    setEditError('');
     try {
       const data = (await platformFetch(`platform/organisations/${id}`, {
         method: 'PATCH',
@@ -258,8 +282,9 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
       })) as { data: OrgDetail };
       setOrg(data.data);
       setShowEditModal(false);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('Failed to update organisation:', err);
+      setEditError(err instanceof Error ? err.message : 'Failed to update organisation.');
     } finally {
       setSaving(false);
     }
@@ -284,6 +309,7 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
 
   async function handleImpersonate() {
     setImpersonating(true);
+    setImpersonateError('');
     try {
       const data = (await platformFetch(`platform/organisations/${id}/impersonate`, {
         method: 'POST',
@@ -291,8 +317,9 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
       setImpersonationToken(data.accessToken);
       const loginUrl = `https://app.elevatedpos.com.au/login?impersonate=${encodeURIComponent(data.accessToken)}`;
       setImpersonationLoginUrl(loginUrl);
-    } catch {
-      alert('Failed to generate impersonation token. Check auth service logs.');
+    } catch (err) {
+      console.error('Failed to generate impersonation token:', err);
+      setImpersonateError(err instanceof Error ? err.message : 'Failed to generate impersonation token. Check auth service logs.');
     } finally {
       setImpersonating(false);
     }
@@ -306,15 +333,22 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
   }
 
   async function handleLockEmployee(emp: OrgEmployee) {
-    if (!confirm(`Lock ${emp.firstName} ${emp.lastName}? They will be unable to log in.`)) return;
+    setEmployeeToLock(emp);
+  }
+
+  async function confirmLockEmployee() {
+    if (!employeeToLock) return;
+    const emp = employeeToLock;
+    setEmployeeToLock(null);
     try {
       await platformFetch(`platform/organisations/${id}/employees/${emp.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive: false }),
       });
       await loadEmployees();
-    } catch {
-      alert('Failed to lock employee.');
+    } catch (err) {
+      console.error('Failed to lock employee:', err);
+      setEmployeeActionError(err instanceof Error ? err.message : 'Failed to lock employee.');
     }
   }
 
@@ -325,8 +359,9 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
         body: JSON.stringify({ isActive: true, failedLoginAttempts: 0, lockedUntil: null }),
       });
       await loadEmployees();
-    } catch {
-      alert('Failed to unlock employee.');
+    } catch (err) {
+      console.error('Failed to unlock employee:', err);
+      setEmployeeActionError(err instanceof Error ? err.message : 'Failed to unlock employee.');
     }
   }
 
@@ -368,13 +403,13 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
   }
 
   async function handleAddEmployee() {
+    if (addEmployeeForm.password.length < 8) {
+      setAddEmployeeError('Password must be at least 8 characters.');
+      return;
+    }
     setAddEmployeeSubmitting(true);
     setAddEmployeeError('');
     try {
-      if (addEmployeeForm.password.length < 8) {
-        setAddEmployeeError('Password must be at least 8 characters.');
-        return;
-      }
       const payload: Record<string, string> = {
         firstName: addEmployeeForm.firstName,
         lastName: addEmployeeForm.lastName,
@@ -474,6 +509,13 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
               Open Merchant Dashboard
             </a>
           )}
+        </div>
+      )}
+
+      {/* Impersonation error banner */}
+      {impersonateError && (
+        <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+          {impersonateError}
         </div>
       )}
 
@@ -623,6 +665,11 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
 
       {activeTab === 'employees' && (
         <div>
+          {employeeActionError && (
+            <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+              {employeeActionError}
+            </div>
+          )}
           <div className="flex items-center justify-between mb-4">
             <p className="text-gray-500 text-sm">{employees.length} employee{employees.length !== 1 ? 's' : ''}</p>
             <button
@@ -802,35 +849,73 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
               Suspending an org blocks all logins for that merchant immediately.
               Setting planStatus to <code className="text-red-400">suspended</code> triggers the auth service to reject tokens.
             </p>
-            <div className="flex gap-2">
-              <button
-                onClick={async () => {
-                  if (!confirm(`Suspend ${org.name}? All logins will be blocked immediately.`)) return;
-                  await platformFetch(`platform/organisations/${id}`, {
-                    method: 'PATCH',
-                    body: JSON.stringify({ planStatus: 'suspended' }),
-                  }).catch(() => null);
-                  window.location.reload();
-                }}
-                disabled={org.planStatus === 'suspended'}
-                className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded transition-colors"
-              >
-                Suspend Account
-              </button>
-              <button
-                onClick={async () => {
-                  await platformFetch(`platform/organisations/${id}`, {
-                    method: 'PATCH',
-                    body: JSON.stringify({ planStatus: 'active' }),
-                  }).catch(() => null);
-                  window.location.reload();
-                }}
-                disabled={org.planStatus === 'active'}
-                className="px-4 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded transition-colors"
-              >
-                Reactivate Account
-              </button>
-            </div>
+            {suspendError && (
+              <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+                {suspendError}
+              </div>
+            )}
+            {suspendConfirm ? (
+              <div className="bg-red-500/10 border border-red-500/30 rounded p-4 mb-2">
+                <p className="text-red-300 text-sm mb-3">
+                  {suspendConfirm === 'suspend'
+                    ? `Suspend ${org.name}? All logins will be blocked immediately.`
+                    : `Reactivate ${org.name}?`}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setSuspendConfirm(null); setSuspendError(''); }}
+                    className="px-4 py-2 border border-[#1e1e2e] text-gray-400 text-sm rounded hover:bg-[#1e1e2e] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setSuspendLoading(true);
+                      setSuspendError('');
+                      try {
+                        const newStatus = suspendConfirm === 'suspend' ? 'suspended' : 'active';
+                        const updated = (await platformFetch(`platform/organisations/${id}`, {
+                          method: 'PATCH',
+                          body: JSON.stringify({ planStatus: newStatus }),
+                        })) as { data: OrgDetail };
+                        setOrg(updated.data);
+                        setSuspendConfirm(null);
+                      } catch (err) {
+                        console.error('Failed to update plan status:', err);
+                        setSuspendError(err instanceof Error ? err.message : `Failed to ${suspendConfirm} account.`);
+                      } finally {
+                        setSuspendLoading(false);
+                      }
+                    }}
+                    disabled={suspendLoading}
+                    className={`px-4 py-2 text-white text-sm rounded transition-colors disabled:opacity-50 ${
+                      suspendConfirm === 'suspend'
+                        ? 'bg-red-700 hover:bg-red-600'
+                        : 'bg-green-700 hover:bg-green-600'
+                    }`}
+                  >
+                    {suspendLoading ? 'Processing...' : suspendConfirm === 'suspend' ? 'Yes, Suspend' : 'Yes, Reactivate'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSuspendConfirm('suspend')}
+                  disabled={org.planStatus === 'suspended'}
+                  className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded transition-colors"
+                >
+                  Suspend Account
+                </button>
+                <button
+                  onClick={() => setSuspendConfirm('reactivate')}
+                  disabled={org.planStatus === 'active'}
+                  className="px-4 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded transition-colors"
+                >
+                  Reactivate Account
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -856,6 +941,11 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
             >
               {noteSubmitting ? 'Saving...' : 'Add Note'}
             </button>
+            {noteError && (
+              <div className="mt-3 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+                {noteError}
+              </div>
+            )}
           </div>
 
           {/* Notes list */}
@@ -943,6 +1033,12 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
                   className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500"
                 />
               </div>
+
+              {editError && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
+                  {editError}
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 mt-6">
@@ -1201,6 +1297,58 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
                 <ExternalLink className="w-4 h-4" />
                 Open Backoffice
               </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lock Employee Confirmation Modal */}
+      {employeeToLock && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-white font-semibold mb-3">Lock Employee</h3>
+            <p className="text-gray-400 text-sm mb-6">
+              Lock {employeeToLock.firstName} {employeeToLock.lastName}? They will no longer be able to log in.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setEmployeeToLock(null)}
+                className="flex-1 px-4 py-2.5 border border-[#1e1e2e] text-gray-400 text-sm rounded hover:bg-[#1e1e2e] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmLockEmployee}
+                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded transition-colors"
+              >
+                Lock Employee
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Note Confirmation Modal */}
+      {noteToDelete && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-white font-semibold mb-3">Delete Note</h3>
+            <p className="text-gray-400 text-sm mb-6">
+              Are you sure you want to delete this support note? This cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setNoteToDelete(null)}
+                className="flex-1 px-4 py-2.5 border border-[#1e1e2e] text-gray-400 text-sm rounded hover:bg-[#1e1e2e] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteNote}
+                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded transition-colors"
+              >
+                Delete Note
+              </button>
             </div>
           </div>
         </div>

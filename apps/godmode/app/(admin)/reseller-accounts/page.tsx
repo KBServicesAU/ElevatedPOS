@@ -85,18 +85,22 @@ export default function ResellerAccountsPage() {
     }
   }
 
-  async function handleDeactivate(id: string, name: string) {
-    if (!confirm(`Deactivate ${name}? They will no longer be able to log in to the Reseller Portal.`)) return;
+  const [confirmDeactivate, setConfirmDeactivate] = useState<{ id: string; name: string } | null>(null);
+  const [actionError, setActionError] = useState('');
+
+  async function handleDeactivate(id: string) {
+    setActionError('');
     try {
       await platformFetch(`platform/staff/${id}`, { method: 'DELETE' });
       await load();
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('Failed to deactivate reseller account:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to deactivate reseller account.');
     }
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] p-8">
+    <div className="p-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Reseller Accounts</h1>
@@ -113,9 +117,9 @@ export default function ResellerAccountsPage() {
         </button>
       </div>
 
-      {fetchError && (
+      {(fetchError || actionError) && (
         <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
-          {fetchError}
+          {fetchError || actionError}
         </div>
       )}
 
@@ -179,10 +183,10 @@ export default function ResellerAccountsPage() {
                     {account.isActive && (
                       <button
                         onClick={() =>
-                          handleDeactivate(
-                            account.id,
-                            `${account.firstName} ${account.lastName}`,
-                          )
+                          setConfirmDeactivate({
+                            id: account.id,
+                            name: `${account.firstName} ${account.lastName}`,
+                          })
                         }
                         className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/30 rounded text-xs hover:bg-red-600/30 transition-colors"
                       >
@@ -282,6 +286,36 @@ export default function ResellerAccountsPage() {
                 className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm rounded transition-colors"
               >
                 {submitting ? 'Creating...' : 'Create Account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deactivate Confirmation Modal */}
+      {confirmDeactivate && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-white font-semibold mb-3">Deactivate Reseller Account</h3>
+            <p className="text-gray-400 text-sm mb-6">
+              Deactivate {confirmDeactivate.name}? They will no longer be able to log in to the Reseller Portal.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmDeactivate(null)}
+                className="flex-1 px-4 py-2.5 border border-[#1e1e2e] text-gray-400 text-sm rounded hover:bg-[#1e1e2e] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const id = confirmDeactivate.id;
+                  setConfirmDeactivate(null);
+                  await handleDeactivate(id);
+                }}
+                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded transition-colors"
+              >
+                Deactivate
               </button>
             </div>
           </div>

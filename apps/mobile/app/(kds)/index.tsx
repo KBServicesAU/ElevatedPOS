@@ -150,7 +150,10 @@ export default function KDSScreen() {
           } else if (msg.type === 'ticket_bumped' && msg.ticketId) {
             setTickets((prev) => prev.filter((t) => t.id !== msg.ticketId));
           }
-        } catch { /* ignore parse errors */ }
+        } catch {
+            // Non-critical: failed to parse WebSocket message; skip
+            console.warn('[KDS] Could not parse WebSocket message');
+          }
       };
 
       ws.onclose = () => {
@@ -199,7 +202,10 @@ export default function KDSScreen() {
           Authorization: `Bearer ${identity.deviceToken}`,
         },
       });
-    } catch { /* optimistically remove from UI via WS event */ }
+    } catch {
+      // Bump API call failed — ticket removed optimistically; WS event will confirm
+      console.warn('[KDS] Bump API call failed for ticket', ticketId);
+    }
     // Optimistic removal
     setTickets((prev) => prev.filter((t) => t.id !== ticketId));
   }

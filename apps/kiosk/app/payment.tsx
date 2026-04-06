@@ -67,7 +67,8 @@ export default function PaymentScreen() {
         throw new Error('order api error');
       }
     } catch {
-      // Mock: generate local order number
+      // API unavailable — generate local order number for demo/offline use
+      console.warn('[Kiosk] Order API unreachable, using local order number');
       await new Promise((r) => setTimeout(r, 1800));
       setOrderNumber(`K${Math.floor(100 + Math.random() * 900)}`);
     }

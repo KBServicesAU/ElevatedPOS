@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import Link from 'next/link';
-import { Search } from 'lucide-react';
+import { Search, AlertCircle } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 interface Organisation {
@@ -25,9 +25,11 @@ function MerchantsContent() {
   const [query, setQuery] = useState(searchParams.get('search') ?? '');
   const [orgs, setOrgs] = useState<Organisation[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState('');
 
   const fetchOrgs = useCallback((q: string) => {
     setLoading(true);
+    setFetchError('');
     const url = q
       ? `/api/proxy/platform/organisations?search=${encodeURIComponent(q)}`
       : '/api/proxy/platform/organisations';
@@ -42,7 +44,8 @@ function MerchantsContent() {
           setOrgs(data.data);
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        setFetchError((err as Error).message ?? 'Failed to load merchants');
         setOrgs([]);
       })
       .finally(() => setLoading(false));
@@ -62,20 +65,20 @@ function MerchantsContent() {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Merchants</h1>
-        <p className="text-sm text-gray-500 mt-1">Search and manage merchant accounts</p>
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Merchants</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Search and manage merchant accounts</p>
       </div>
 
       {/* Search */}
       <form onSubmit={handleSearch} className="flex gap-3 max-w-lg">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" size={18} />
           <input
             type="search"
             placeholder="Search by name or email…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-sm bg-white"
+            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-sm"
           />
         </div>
         <button
@@ -87,57 +90,64 @@ function MerchantsContent() {
       </form>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
         {loading ? (
-          <div className="px-5 py-10 text-center text-sm text-gray-400">Loading…</div>
+          <div className="px-5 py-10 text-center text-sm text-gray-400 dark:text-gray-500">Loading…</div>
+        ) : fetchError ? (
+          <div className="px-5 py-10 text-center">
+            <p className="text-sm text-red-500 dark:text-red-400 flex items-center justify-center gap-2">
+              <AlertCircle size={16} />
+              {fetchError}
+            </p>
+          </div>
         ) : orgs.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-gray-400">No merchants found</div>
+          <div className="px-5 py-10 text-center text-sm text-gray-400 dark:text-gray-500">No merchants found</div>
         ) : (
-          <table className="min-w-full divide-y divide-gray-100">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
+            <thead className="bg-gray-50 dark:bg-gray-800/50">
               <tr>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Business Name
                 </th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Email
                 </th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Plan
                 </th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Onboarding
                 </th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Created
                 </th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {orgs.map((org) => (
-                <tr key={org.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-5 py-3 text-sm font-medium text-gray-900">{org.businessName}</td>
-                  <td className="px-5 py-3 text-sm text-gray-500">
+                <tr key={org.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                  <td className="px-5 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{org.businessName}</td>
+                  <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">
                     {org.employees?.[0]?.email ?? '—'}
                   </td>
-                  <td className="px-5 py-3 text-sm text-gray-600">
+                  <td className="px-5 py-3 text-sm text-gray-600 dark:text-gray-400">
                     {org.plan ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 capitalize">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 capitalize">
                         {org.plan}
                       </span>
                     ) : (
                       '—'
                     )}
                   </td>
-                  <td className="px-5 py-3 text-sm text-gray-600">{org.onboardingStep ?? '—'}</td>
-                  <td className="px-5 py-3 text-sm text-gray-500">
+                  <td className="px-5 py-3 text-sm text-gray-600 dark:text-gray-400">{org.onboardingStep ?? '—'}</td>
+                  <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-500">
                     {org.createdAt ? new Date(org.createdAt).toLocaleDateString() : '—'}
                   </td>
                   <td className="px-5 py-3 text-right">
                     <Link
                       href={`/dashboard/merchants/${org.id}`}
-                      className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                      className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
                     >
                       View
                     </Link>
@@ -154,7 +164,7 @@ function MerchantsContent() {
 
 export default function MerchantsPage() {
   return (
-    <Suspense fallback={<div className="text-sm text-gray-400 p-6">Loading…</div>}>
+    <Suspense fallback={<div className="text-sm text-gray-400 dark:text-gray-500 p-6">Loading…</div>}>
       <MerchantsContent />
     </Suspense>
   );

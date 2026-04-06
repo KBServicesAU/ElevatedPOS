@@ -20,7 +20,8 @@
     "allowJs": true,
     "noEmit": true,
     "incremental": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "paths": { "@/*": ["./*"] }
   },
   "include": [
     "**/*.ts",

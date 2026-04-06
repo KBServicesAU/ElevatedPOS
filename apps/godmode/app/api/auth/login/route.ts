@@ -33,7 +33,8 @@ export async function POST(request: NextRequest) {
     });
 
     return response;
-  } catch {
+  } catch (err) {
+    console.error('Godmode login error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

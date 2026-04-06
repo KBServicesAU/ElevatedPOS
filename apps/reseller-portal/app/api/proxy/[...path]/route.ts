@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 const AUTH_API_URL = process.env.AUTH_API_URL ?? 'http://localhost:4001';
 
 async function proxyRequest(request: NextRequest, params: { path: string[] }) {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const token = cookieStore.get('reseller_token')?.value;
 
   if (!token) {
@@ -34,7 +34,19 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     }
   }
 
-  const upstream = await fetch(targetUrl, init);
+  let upstream: Response;
+  try {
+    upstream = await fetch(targetUrl, init);
+  } catch {
+    return NextResponse.json({ error: 'Upstream service unavailable' }, { status: 502 });
+  }
+
+  // If upstream returned 401, clear the stale cookie and signal re-auth
+  if (upstream.status === 401) {
+    const response = NextResponse.json({ error: 'Session expired' }, { status: 401 });
+    response.cookies.set('reseller_token', '', { maxAge: 0, path: '/' });
+    return response;
+  }
 
   let data: unknown;
   try {
@@ -48,35 +60,35 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> },
 ) {
-  return proxyRequest(request, params);
+  return proxyRequest(request, await params);
 }
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> },
 ) {
-  return proxyRequest(request, params);
+  return proxyRequest(request, await params);
 }
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> },
 ) {
-  return proxyRequest(request, params);
+  return proxyRequest(request, await params);
 }
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> },
 ) {
-  return proxyRequest(request, params);
+  return proxyRequest(request, await params);
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> },
 ) {
-  return proxyRequest(request, params);
+  return proxyRequest(request, await params);
 }

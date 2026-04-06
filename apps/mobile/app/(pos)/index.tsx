@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePosStore } from '../../store/pos';
 import { useDeviceStore } from '../../store/device';
 
+// TODO: Replace hardcoded product catalogue with API call to GET /api/v1/catalog/products
 const PRODUCTS = [
   { id: '00000000-0000-0000-0000-000000000001', name: 'Flat White', price: 5.50, emoji: '☕' },
   { id: '00000000-0000-0000-0000-000000000002', name: 'Iced Latte', price: 6.50, emoji: '🧊' },
@@ -60,9 +61,10 @@ export default function PosSellScreen() {
       clearCart();
       Alert.alert('Order Placed', `Order #${orderNum} — $${total.toFixed(2)} charged`, [{ text: 'OK' }]);
     } catch {
+      // API unavailable — generate local order number for demo/offline use
       const orderNum = `P${Math.floor(100 + Math.random() * 900)}`;
       clearCart();
-      Alert.alert('Order Placed', `Order #${orderNum} — $${total.toFixed(2)}`, [{ text: 'OK' }]);
+      Alert.alert('Order Placed (Offline)', `Order #${orderNum} — $${total.toFixed(2)}\nThis order will sync when the server is available.`, [{ text: 'OK' }]);
     } finally {
       setCharging(false);
     }

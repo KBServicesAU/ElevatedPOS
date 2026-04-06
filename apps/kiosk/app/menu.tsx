@@ -28,6 +28,7 @@ const FONT_SCALE: Record<FontSize, number> = {
   large: 1.2,
 };
 
+// TODO: Replace hardcoded product data with API call to GET /api/v1/catalog/products?channel=kiosk
 const MOCK_PRODUCTS = [
   {
     id: '1',
@@ -183,14 +184,20 @@ export default function MenuScreen() {
   // Font size preference (persisted)
   const [fontSize, setFontSize] = useState<FontSize>('medium');
   useEffect(() => {
-    AsyncStorage.getItem(FONT_SIZE_KEY).then((val) => {
-      if (val === 'small' || val === 'medium' || val === 'large') setFontSize(val);
-    });
+    AsyncStorage.getItem(FONT_SIZE_KEY)
+      .then((val) => {
+        if (val === 'small' || val === 'medium' || val === 'large') setFontSize(val);
+      })
+      .catch(() => {
+        // Non-critical: font size preference could not be loaded; use default
+      });
   }, []);
   const changeFontSize = useCallback(
     (size: FontSize) => {
       setFontSize(size);
-      AsyncStorage.setItem(FONT_SIZE_KEY, size);
+      AsyncStorage.setItem(FONT_SIZE_KEY, size).catch(() => {
+        // Non-critical: font size preference could not be saved
+      });
     },
     [],
   );

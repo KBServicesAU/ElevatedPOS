@@ -15,6 +15,7 @@ import { useKioskStore } from '../store/kiosk';
 
 const DIGIT_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '←', '0', '✓'] as const;
 
+// TODO: Remove mock customers once loyalty lookup API (GET /api/v1/loyalty/accounts/lookup) is deployed
 // Demo customers for phone lookup fallback
 const MOCK_CUSTOMERS: Record<string, { name: string; points: number; tier: string }> = {
   '0412345678': { name: 'Alex Chen', points: 1240, tier: 'Gold' },
@@ -132,7 +133,7 @@ export default function LoyaltyScreen() {
           throw new Error('not ok');
         }
       } catch {
-        // Use mock data
+        // API unavailable — fall back to mock data for demo/offline use
         const found = MOCK_CUSTOMERS[phoneNumber];
         if (found) {
           setLookup(found);

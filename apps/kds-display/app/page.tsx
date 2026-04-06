@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ChefHat, CheckCircle, Wifi, WifiOff, Clock } from 'lucide-react';
+import { ChefHat, CheckCircle, Wifi, WifiOff, Clock, AlertTriangle } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,9 +27,29 @@ interface KdsTicket {
   elapsedSeconds: number;
 }
 
+// The WS payload uses a plain string for status (arrives from the server as-is)
+interface WsOrderPayload {
+  orderId: string;
+  orderNumber: string;
+  orderType: string;
+  channel: string;
+  tableId?: string;
+  locationId: string;
+  lines: {
+    name: string;
+    qty: number;
+    modifiers: string[];
+    seatNumber?: number;
+    course?: string;
+    kdsDestination?: string;
+  }[];
+  createdAt: string;
+  status: string;
+}
+
 type WsMessage =
   | { type: 'connected'; locationId: string }
-  | { type: 'new_order'; order: { orderId: string; orderNumber: string; orderType: string; channel: string; tableId?: string; locationId: string; lines: { name: string; qty: number; modifiers: string[]; seatNumber?: number; course?: string; kdsDestination?: string }[]; createdAt: string; status: string } }
+  | { type: 'new_order'; order: WsOrderPayload }
   | { type: 'order_bumped'; orderId: string; locationId: string; timestamp: string };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -42,8 +62,10 @@ function elapsedColor(seconds: number): string {
 }
 
 function elapsedText(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  // Guard against clock skew producing a negative elapsed time
+  const clamped = Math.max(0, seconds);
+  const m = Math.floor(clamped / 60);
+  const s = clamped % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
@@ -71,8 +93,8 @@ function channelLabel(channel: string): string {
 
 function StatsBar({ tickets }: { tickets: KdsTicket[] }) {
   if (tickets.length === 0) return null;
-  const avg = Math.floor(tickets.reduce((s, t) => s + t.elapsedSeconds, 0) / tickets.length / 60);
-  const longest = Math.floor(Math.max(...tickets.map((t) => t.elapsedSeconds)) / 60);
+  const avg = Math.floor(tickets.reduce((s, t) => s + Math.max(0, t.elapsedSeconds), 0) / tickets.length / 60);
+  const longest = Math.floor(Math.max(...tickets.map((t) => Math.max(0, t.elapsedSeconds))) / 60);
   return (
     <div className="flex items-center gap-6 border-b border-[#2a2a2a] bg-[#111] px-6 py-2 text-sm text-gray-400">
       <span className="font-semibold text-white">{tickets.length} ticket{tickets.length !== 1 ? 's' : ''}</span>
@@ -212,6 +234,23 @@ function ConnectScreen({ onConnect }: { onConnect: (locationId: string, station:
   );
 }
 
+// ─── Toast ────────────────────────────────────────────────────────────────────
+
+function BumpErrorToast({ onDismiss }: { onDismiss: () => void }) {
+  useEffect(() => {
+    const id = setTimeout(onDismiss, 4000);
+    return () => clearTimeout(id);
+  }, [onDismiss]);
+
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-xl bg-red-900 border border-red-600 px-5 py-3 shadow-2xl text-white z-50">
+      <AlertTriangle className="h-5 w-5 text-red-400 shrink-0" />
+      <p className="text-sm font-semibold">Bump failed — ticket restored. Check connection and try again.</p>
+      <button onClick={onDismiss} className="ml-2 text-red-300 hover:text-white text-xs underline">Dismiss</button>
+    </div>
+  );
+}
+
 // ─── Main KDS page ────────────────────────────────────────────────────────────
 
 const ORDERS_API = process.env['NEXT_PUBLIC_ORDERS_API_URL'] ?? 'http://localhost:4004';
@@ -232,6 +271,7 @@ export default function KDSPage() {
 
   const [tickets, setTickets] = useState<KdsTicket[]>([]);
   const [connected, setConnected] = useState(false);
+  const [bumpError, setBumpError] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryDelay = useRef(1000);
@@ -247,7 +287,7 @@ export default function KDSPage() {
       setTickets((prev) =>
         prev.map((t) => ({
           ...t,
-          elapsedSeconds: Math.floor((Date.now() - new Date(t.createdAt).getTime()) / 1000),
+          elapsedSeconds: Math.max(0, Math.floor((Date.now() - new Date(t.createdAt).getTime()) / 1000)),
         })),
       );
     }, 1000);
@@ -303,7 +343,7 @@ export default function KDSPage() {
           })),
           createdAt: o.createdAt,
           status: 'new',
-          elapsedSeconds: Math.floor((now - new Date(o.createdAt).getTime()) / 1000),
+          elapsedSeconds: Math.max(0, Math.floor((now - new Date(o.createdAt).getTime()) / 1000)),
         };
         setTickets((prev) => [ticket, ...prev]);
       } else if (msg.type === 'order_bumped') {
@@ -334,15 +374,27 @@ export default function KDSPage() {
   }, [locationId, connect]);
 
   const handleBump = useCallback(async (orderId: string) => {
-    // Optimistic removal
-    setTickets((prev) => prev.filter((t) => t.orderId !== orderId));
+    // Capture the ticket before removing it so we can restore on failure
+    let removedTicket: KdsTicket | undefined;
+    setTickets((prev) => {
+      removedTicket = prev.find((t) => t.orderId === orderId);
+      return prev.filter((t) => t.orderId !== orderId);
+    });
+
     try {
       // Route through the local Next.js proxy so INTERNAL_SECRET is never
-      // exposed to the browser.  The proxy adds the header server-side and
+      // exposed to the browser. The proxy adds the header server-side and
       // forwards the request to the orders service.
-      await fetch(`/api/bump/${encodeURIComponent(orderId)}`, { method: 'POST' });
+      const res = await fetch(`/api/bump/${encodeURIComponent(orderId)}`, { method: 'POST' });
+      if (!res.ok) {
+        throw new Error(`Bump returned ${res.status}`);
+      }
     } catch {
-      // Bump is best-effort from KDS; server will broadcast to all connected KDS
+      // Restore the ticket so it is not silently lost, and notify the operator
+      if (removedTicket) {
+        setTickets((prev) => [removedTicket!, ...prev]);
+      }
+      setBumpError(true);
     }
   }, []);
 
@@ -381,7 +433,7 @@ export default function KDSPage() {
               setLocationId(null);
               setStation('');
             }}
-            className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:border-gray-500"
+            className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
           >
             Change Station
           </button>
@@ -418,6 +470,9 @@ export default function KDSPage() {
           </div>
         </div>
       )}
+
+      {/* Bump error toast */}
+      {bumpError && <BumpErrorToast onDismiss={() => setBumpError(false)} />}
     </div>
   );
 }

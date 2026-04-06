@@ -73,8 +73,8 @@ const resources = [
 
 const keyInterfaces = [
   {
-    name: 'NexusClientConfig',
-    body: `interface NexusClientConfig {
+    name: 'ElevatedPOSClientConfig',
+    body: `interface ElevatedPOSClientConfig {
   apiKey: string;           // required — server-side only
   baseUrl?: string;         // default: https://api.elevatedpos.com.au
   timeout?: number;         // default: 30_000 ms
@@ -172,13 +172,13 @@ export default function SdkPage() {
             Installation
           </h2>
           <p className="text-sm text-gray-500 mb-4">
-            Package name: <code className="font-mono text-indigo-300">@nexus/api-client</code>
+            Package name: <code className="font-mono text-indigo-300">@elevatedpos/api-client</code>
           </p>
           <div className="space-y-3">
             {[
-              { label: 'npm', cmd: 'npm install @nexus/api-client' },
-              { label: 'pnpm', cmd: 'pnpm add @nexus/api-client' },
-              { label: 'yarn', cmd: 'yarn add @nexus/api-client' },
+              { label: 'npm', cmd: 'npm install @elevatedpos/api-client' },
+              { label: 'pnpm', cmd: 'pnpm add @elevatedpos/api-client' },
+              { label: 'yarn', cmd: 'yarn add @elevatedpos/api-client' },
             ].map(({ label, cmd }) => (
               <div key={label} className="bg-gray-900 border border-gray-800 rounded-lg p-3 flex items-center gap-3">
                 <span className="text-xs text-gray-600 w-10 shrink-0">{label}</span>
@@ -204,9 +204,9 @@ export default function SdkPage() {
           {/* API Key */}
           <h3 className="text-sm font-semibold text-gray-300 mb-2">API Key (server-side)</h3>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
-            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { createClient } from '@nexus/api-client';
+            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { createClient } from '@elevatedpos/api-client';
 
-const nexus = createClient({
+const epos = createClient({
   apiKey: process.env.ELEVATEDPOS_API_KEY!,   // never expose this in the browser
   // baseUrl: 'https://sandbox.elevatedpos.com.au', // uncomment to use sandbox
 });`}</pre>
@@ -237,22 +237,22 @@ const nexus = createClient({
             Quick Start
           </h2>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { createClient } from '@nexus/api-client';
+            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { createClient } from '@elevatedpos/api-client';
 
-const nexus = createClient({ apiKey: process.env.ELEVATEDPOS_API_KEY! });
+const epos = createClient({ apiKey: process.env.ELEVATEDPOS_API_KEY! });
 
 // List products with pagination
-const { data: products, meta } = await nexus.catalog.products.list({
+const { data: products, meta } = await epos.catalog.products.list({
   isActive: true,
   limit: 20,
 });
 console.log(\`Showing \${products.length} of \${meta.totalCount} products\`);
 
 // Search customers
-const { data: customers } = await nexus.customers.list({ search: 'Jane' });
+const { data: customers } = await epos.customers.list({ search: 'Jane' });
 
 // Create an order
-const { data: order } = await nexus.orders.create({
+const { data: order } = await epos.orders.create({
   locationId: 'loc_01HXXXXXXXXXX',
   customerId: customers[0].id,
   lines: [
@@ -263,14 +263,14 @@ const { data: order } = await nexus.orders.create({
 console.log('Order created:', order.orderNumber, order.status);
 
 // Adjust inventory after a manual count
-await nexus.inventory.stock.adjust(products[0].id, {
+await epos.inventory.stock.adjust(products[0].id, {
   locationId: 'loc_01HXXXXXXXXXX',
   quantity: -3,
   reason: 'manual_count',
 });
 
 // Accrue loyalty points
-await nexus.loyalty.accounts.accruePoints(customers[0].id, {
+await epos.loyalty.accounts.accruePoints(customers[0].id, {
   orderId: order.id,
   points: 50,
   description: 'Purchase reward',
@@ -319,7 +319,7 @@ await nexus.loyalty.accounts.accruePoints(customers[0].id, {
             Use <code className="font-mono text-indigo-300 text-xs">verifyWebhookSignature</code> to validate incoming requests.
           </p>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6">
-            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { verifyWebhookSignature } from '@nexus/api-client';
+            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { verifyWebhookSignature } from '@elevatedpos/api-client';
 
 // Next.js App Router example
 export async function POST(request: Request) {
@@ -346,7 +346,7 @@ export async function POST(request: Request) {
 
           <h3 className="text-sm font-semibold text-gray-300 mb-2">Register a webhook</h3>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`const { data: webhook } = await nexus.webhooks.create({
+            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`const { data: webhook } = await epos.webhooks.create({
   url: 'https://yourapp.com/api/elevatedpos-webhook',
   events: ['order.completed', 'payment.captured', 'inventory.low_stock'],
   label: 'Production handler',
@@ -356,7 +356,7 @@ export async function POST(request: Request) {
 console.log('Webhook secret:', webhook.secret);
 
 // Later: list deliveries for debugging
-const { data: deliveries } = await nexus.webhooks.deliveries(webhook.id);
+const { data: deliveries } = await epos.webhooks.deliveries(webhook.id);
 deliveries.forEach((d) => {
   console.log(d.event, d.success, d.statusCode, \`\${d.durationMs}ms\`);
 });`}</pre>
@@ -375,12 +375,12 @@ deliveries.forEach((d) => {
             All failed requests throw a typed <code className="font-mono text-indigo-300 text-xs">ElevatedPOSApiError</code>. Network timeouts throw with <code className="font-mono text-indigo-300 text-xs">status === 0</code>.
           </p>
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { createClient, ElevatedPOSApiError } from '@nexus/api-client';
+            <pre className="text-sm text-gray-300 font-mono overflow-x-auto">{`import { createClient, ElevatedPOSApiError } from '@elevatedpos/api-client';
 
-const nexus = createClient({ apiKey: process.env.ELEVATEDPOS_API_KEY! });
+const epos = createClient({ apiKey: process.env.ELEVATEDPOS_API_KEY! });
 
 try {
-  const { data: product } = await nexus.catalog.products.get('nonexistent-id');
+  const { data: product } = await epos.catalog.products.get('nonexistent-id');
 } catch (err) {
   if (err instanceof ElevatedPOSApiError) {
     // Strongly typed properties:
@@ -406,7 +406,7 @@ try {
         <section className="mb-12">
           <h2 className="text-xl font-bold text-white mb-1">TypeScript Types</h2>
           <p className="text-sm text-gray-500 mb-4">
-            All types are exported from <code className="font-mono text-indigo-300 text-xs">@nexus/api-client</code>.
+            All types are exported from <code className="font-mono text-indigo-300 text-xs">@elevatedpos/api-client</code>.
           </p>
           <div className="space-y-4">
             {keyInterfaces.map(({ name, body }) => (

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Sidebar } from '../../components/Sidebar';
-import { ArrowLeft, MapPin, DollarSign, ShoppingCart, Calendar, Edit2 } from 'lucide-react';
+import { ArrowLeft, MapPin, DollarSign, ShoppingCart, Calendar, Edit2, Save, Ban } from 'lucide-react';
 
 // Mock data for a single tenant (in production this would be fetched by id)
 const TENANT = {
@@ -40,27 +40,36 @@ const INVOICES = [
 ];
 
 const PLAN_STYLES = {
-  Starter: 'bg-amber-100 text-amber-700',
-  Growth: 'bg-emerald-100 text-emerald-700',
-  Pro: 'bg-indigo-100 text-indigo-700',
+  Starter: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  Growth: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  Pro: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300',
 };
 
 const STATUS_STYLES = {
-  active: 'bg-emerald-100 text-emerald-700',
-  suspended: 'bg-red-100 text-red-700',
-  trial: 'bg-sky-100 text-sky-700',
+  active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  suspended: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+  trial: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
 };
 
 const INVOICE_STATUS_STYLES: Record<string, string> = {
-  paid: 'bg-emerald-100 text-emerald-700',
-  pending: 'bg-amber-100 text-amber-700',
-  overdue: 'bg-red-100 text-red-700',
+  paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  pending: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  overdue: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
 };
 
 type Tab = 'overview' | 'locations' | 'billing' | 'settings';
 
 export default function TenantDetailPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const [editName, setEditName] = useState(TENANT.name);
+  const [editOwner, setEditOwner] = useState(TENANT.owner);
+  const [editEmail, setEditEmail] = useState(TENANT.email);
+
+  function handleSaveSettings() {
+    setSettingsSaved(true);
+    setTimeout(() => setSettingsSaved(false), 2500);
+  }
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
@@ -70,25 +79,25 @@ export default function TenantDetailPage() {
   ];
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-gray-50 dark:bg-slate-950">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
         {/* Header */}
-        <header className="bg-white border-b border-slate-200 px-8 py-4">
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-8 py-4">
           <div className="flex items-center gap-2 mb-3">
-            <Link href="/tenants" className="text-slate-400 hover:text-slate-600 transition-colors">
+            <Link href="/tenants" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
               <ArrowLeft className="w-4 h-4" />
             </Link>
-            <span className="text-xs text-slate-400">Tenants</span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">Tenants</span>
           </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-lg">
+              <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-lg">
                 {TENANT.name[0]}
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="text-xl font-bold text-slate-900">{TENANT.name}</h1>
+                  <h1 className="text-xl font-bold text-slate-900 dark:text-white">{TENANT.name}</h1>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLAN_STYLES[TENANT.plan]}`}>
                     {TENANT.plan}
                   </span>
@@ -96,10 +105,13 @@ export default function TenantDetailPage() {
                     {TENANT.status}
                   </span>
                 </div>
-                <p className="text-sm text-slate-500">{TENANT.email}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">{TENANT.email}</p>
               </div>
             </div>
-            <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+            <button
+              onClick={() => setActiveTab('settings')}
+              className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+            >
               <Edit2 className="w-4 h-4" />
               Edit
             </button>
@@ -107,21 +119,21 @@ export default function TenantDetailPage() {
         </header>
 
         {/* Stats */}
-        <div className="px-8 py-5 bg-white border-b border-slate-200">
+        <div className="px-8 py-5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
           <div className="grid grid-cols-4 gap-5">
             {[
-              { label: 'MRR', value: `$${TENANT.mrr.toLocaleString()}`, icon: DollarSign, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-              { label: 'Total Orders', value: TENANT.totalOrders.toLocaleString(), icon: ShoppingCart, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-              { label: 'Locations', value: String(TENANT.locations), icon: MapPin, color: 'text-amber-600', bg: 'bg-amber-50' },
-              { label: 'Customer Since', value: TENANT.createdAt, icon: Calendar, color: 'text-purple-600', bg: 'bg-purple-50' },
+              { label: 'MRR', value: `$${TENANT.mrr.toLocaleString()}`, icon: DollarSign, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-950' },
+              { label: 'Total Orders', value: TENANT.totalOrders.toLocaleString(), icon: ShoppingCart, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
+              { label: 'Locations', value: String(TENANT.locations), icon: MapPin, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
+              { label: 'Customer Since', value: TENANT.createdAt, icon: Calendar, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
             ].map(({ label, value, icon: Icon, color, bg }) => (
               <div key={label} className="flex items-center gap-3">
                 <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
-                  <Icon className={`w-4.5 h-4.5 ${color}`} />
+                  <Icon className={`w-4 h-4 ${color}`} />
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500">{label}</p>
-                  <p className="text-sm font-semibold text-slate-900">{value}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white">{value}</p>
                 </div>
               </div>
             ))}
@@ -129,7 +141,7 @@ export default function TenantDetailPage() {
         </div>
 
         {/* Tabs */}
-        <div className="bg-white border-b border-slate-200 px-8">
+        <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-8">
           <nav className="flex gap-1">
             {tabs.map(({ id, label }) => (
               <button
@@ -137,8 +149,8 @@ export default function TenantDetailPage() {
                 onClick={() => setActiveTab(id)}
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === id
-                    ? 'border-indigo-600 text-indigo-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                    : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                 }`}
               >
                 {label}
@@ -152,17 +164,17 @@ export default function TenantDetailPage() {
           {activeTab === 'overview' && (
             <div className="grid grid-cols-3 gap-6">
               {/* Activity Feed */}
-              <div className="col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm">
-                <div className="px-6 py-4 border-b border-slate-100">
-                  <h2 className="text-sm font-semibold text-slate-700">Recent Activity</h2>
+              <div className="col-span-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                  <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Recent Activity</h2>
                 </div>
-                <div className="divide-y divide-slate-50">
+                <div className="divide-y divide-slate-50 dark:divide-slate-800">
                   {ACTIVITY.map((item, i) => (
                     <div key={i} className="px-6 py-3.5 flex items-start gap-4">
                       <div className="text-xs text-slate-400 w-12 flex-shrink-0 mt-0.5">{item.time}</div>
                       <div>
-                        <p className="text-sm font-medium text-slate-800">{item.event}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">{item.detail}</p>
+                        <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{item.event}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{item.detail}</p>
                       </div>
                     </div>
                   ))}
@@ -171,9 +183,9 @@ export default function TenantDetailPage() {
 
               {/* Contact + Plan Details */}
               <div className="space-y-5">
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-                  <div className="px-5 py-4 border-b border-slate-100">
-                    <h2 className="text-sm font-semibold text-slate-700">Contact Info</h2>
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                  <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+                    <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Contact Info</h2>
                   </div>
                   <div className="p-5 space-y-3 text-sm">
                     {[
@@ -191,9 +203,9 @@ export default function TenantDetailPage() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-                  <div className="px-5 py-4 border-b border-slate-100">
-                    <h2 className="text-sm font-semibold text-slate-700">Plan Details</h2>
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                  <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+                    <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Plan Details</h2>
                   </div>
                   <div className="p-5 space-y-2 text-sm">
                     <div className="flex justify-between">
@@ -219,11 +231,11 @@ export default function TenantDetailPage() {
           )}
 
           {activeTab === 'locations' && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-              <div className="px-6 py-4 border-b border-slate-100">
-                <h2 className="text-sm font-semibold text-slate-700">Locations ({TENANT.locations})</h2>
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Locations ({TENANT.locations})</h2>
               </div>
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {[
                   { name: 'Circular Quay', address: '1 Circular Quay East', devices: 4, status: 'active' },
                   { name: 'Darling Harbour', address: '26 Pirrama Rd, Pyrmont', devices: 3, status: 'active' },
@@ -233,13 +245,13 @@ export default function TenantDetailPage() {
                   { name: 'Surry Hills', address: '88 Crown St, Surry Hills', devices: 3, status: 'active' },
                   { name: 'Manly', address: '1 The Corso, Manly', devices: 2, status: 'active' },
                 ].map((loc) => (
-                  <div key={loc.name} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                  <div key={loc.name} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center">
                         <MapPin className="w-4 h-4 text-slate-500" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-slate-800">{loc.name}</p>
+                        <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{loc.name}</p>
                         <p className="text-xs text-slate-400">{loc.address}</p>
                       </div>
                     </div>
@@ -254,9 +266,9 @@ export default function TenantDetailPage() {
           )}
 
           {activeTab === 'billing' && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100">
-                <h2 className="text-sm font-semibold text-slate-700">Invoice History</h2>
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Invoice History</h2>
               </div>
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
@@ -266,9 +278,9 @@ export default function TenantDetailPage() {
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {INVOICES.map((inv) => (
-                    <tr key={inv.num} className="hover:bg-slate-50 transition-colors">
+                    <tr key={inv.num} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-5 py-3.5 font-mono text-xs text-slate-600">{inv.num}</td>
                       <td className="px-5 py-3.5 text-slate-700">{inv.period}</td>
                       <td className="px-5 py-3.5 font-mono font-medium text-slate-900">${inv.amount}</td>
@@ -286,28 +298,54 @@ export default function TenantDetailPage() {
           )}
 
           {activeTab === 'settings' && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm max-w-lg">
-              <div className="px-6 py-4 border-b border-slate-100">
-                <h2 className="text-sm font-semibold text-slate-700">Tenant Settings</h2>
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm max-w-lg">
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Tenant Settings</h2>
               </div>
               <div className="p-6 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Business Name</label>
-                  <input defaultValue={TENANT.name} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500" />
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Business Name</label>
+                  <input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-200 dark:bg-slate-800 focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Owner Name</label>
-                  <input defaultValue={TENANT.owner} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500" />
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Owner Name</label>
+                  <input
+                    value={editOwner}
+                    onChange={(e) => setEditOwner(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-200 dark:bg-slate-800 focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Contact Email</label>
-                  <input defaultValue={TENANT.email} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500" />
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Contact Email</label>
+                  <input
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-200 dark:bg-slate-800 focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                  <button className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors">
-                    Save Changes
-                  </button>
-                  <button className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-sm font-medium rounded-lg transition-colors">
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleSaveSettings}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      Save Changes
+                    </button>
+                    {settingsSaved && (
+                      <span className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">Saved.</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => alert('Tenant suspension would be processed here. In production this calls the partner API.')}
+                    className="flex items-center gap-2 px-4 py-2 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 text-sm font-medium rounded-lg transition-colors"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
                     Suspend Tenant
                   </button>
                 </div>

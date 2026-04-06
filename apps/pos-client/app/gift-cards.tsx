@@ -190,7 +190,7 @@ export default function GiftCardsScreen() {
         title: 'Gift Card Code',
       });
     } catch {
-      // share cancelled
+      // Share dialog dismissed or cancelled by user — no action needed
     }
   };
 

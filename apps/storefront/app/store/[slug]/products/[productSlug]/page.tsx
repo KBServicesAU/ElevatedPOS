@@ -37,9 +37,10 @@ function formatPrice(cents: number): string {
 export default async function ProductPage({
   params,
 }: {
-  params: { slug: string; productSlug: string };
+  params: Promise<{ slug: string; productSlug: string }>;
 }) {
-  const product = await getProduct(params.productSlug);
+  const { slug, productSlug } = await params;
+  const product = await getProduct(productSlug);
   if (!product) notFound();
 
   const images = product.webImages ?? [];
@@ -49,7 +50,7 @@ export default async function ProductPage({
     <main className="min-h-screen">
       <div className="max-w-6xl mx-auto px-4 py-8">
         <Link
-          href={`/store/${params.slug}`}
+          href={`/store/${slug}`}
           className="text-sm text-gray-500 hover:text-gray-900 mb-6 inline-flex items-center gap-1"
         >
           ← Back to store

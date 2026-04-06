@@ -100,8 +100,9 @@ function ProductCard({
   );
 }
 
-export default async function StorefrontPage({ params }: { params: { slug: string } }) {
-  const store = await getStorefront(params.slug);
+export default async function StorefrontPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const store = await getStorefront(slug);
   if (!store) notFound();
 
   const products = await getProducts(store.orgId);
@@ -122,7 +123,7 @@ export default async function StorefrontPage({ params }: { params: { slug: strin
             <span className="font-semibold text-lg">{store.businessName}</span>
           </div>
           <Link
-            href={`/store/${params.slug}/cart`}
+            href={`/store/${slug}/cart`}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white"
             style={{ backgroundColor: store.primaryColor }}
           >
@@ -134,7 +135,7 @@ export default async function StorefrontPage({ params }: { params: { slug: strin
       {/* Hero */}
       <section
         className="py-16 px-4 text-center"
-        style={{ backgroundColor: store.primaryColor + '10' }}
+        style={{ backgroundColor: `${store.primaryColor}1a` }}
       >
         <h1 className="text-4xl font-bold mb-3">{store.businessName}</h1>
         {store.description && (
@@ -151,7 +152,7 @@ export default async function StorefrontPage({ params }: { params: { slug: strin
                 <ProductCard
                   key={product.id}
                   product={product}
-                  slug={params.slug}
+                  slug={slug}
                   primaryColor={store.primaryColor}
                 />
               ))}
@@ -174,7 +175,7 @@ export default async function StorefrontPage({ params }: { params: { slug: strin
                 <ProductCard
                   key={product.id}
                   product={product}
-                  slug={params.slug}
+                  slug={slug}
                   primaryColor={store.primaryColor}
                 />
               ))}

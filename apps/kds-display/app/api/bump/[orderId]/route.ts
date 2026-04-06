@@ -16,31 +16,37 @@ export async function POST(
   { params }: { params: { orderId: string } },
 ) {
   const { orderId } = params;
+
   // ORDERS_SERVICE_URL is the cluster-internal URL injected via ConfigMap.
   // Fall back to ORDERS_API_URL (docker-compose) then localhost for local dev.
   const ordersApiUrl =
     process.env['ORDERS_SERVICE_URL'] ??
     process.env['ORDERS_API_URL'] ??
     'http://localhost:4004';
+
   const internalSecret = process.env['INTERNAL_SECRET'];
 
-  if (!internalSecret) {
+  // In production the secret MUST be configured. In local dev (NODE_ENV ===
+  // 'development') we allow calls without it so the dev server works out-of-
+  // the-box without a full docker-compose stack.
+  if (!internalSecret && process.env['NODE_ENV'] !== 'development') {
     return NextResponse.json(
       { error: 'INTERNAL_SECRET not configured' },
       { status: 500 },
     );
   }
 
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+  };
+  if (internalSecret) {
+    headers['x-internal-secret'] = internalSecret;
+  }
+
   try {
     const upstream = await fetch(
       `${ordersApiUrl}/api/v1/kds/bump/${encodeURIComponent(orderId)}`,
-      {
-        method: 'POST',
-        headers: {
-          'x-internal-secret': internalSecret,
-          'content-type': 'application/json',
-        },
-      },
+      { method: 'POST', headers },
     );
 
     const body = await upstream.text();
