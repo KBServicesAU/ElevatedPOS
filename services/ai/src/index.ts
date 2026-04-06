@@ -191,7 +191,10 @@ const supportSchema = z.object({
 
 async function start() {
   await app.register(helmet);
-  await app.register(cors, { origin: true, credentials: true });
+  await app.register(cors, {
+    origin: process.env['ALLOWED_ORIGINS']?.split(',') ?? ['http://localhost:3000'],
+    credentials: true,
+  });
   await app.register(sensible);
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   await app.register(jwt, {

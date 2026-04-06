@@ -27,7 +27,10 @@ const INTERNAL_SECRET = process.env['INTERNAL_SECRET'] ?? 'internal-dev-secret';
 
 async function start() {
   await app.register(helmet);
-  await app.register(cors, { origin: true, credentials: true });
+  await app.register(cors, {
+    origin: process.env['ALLOWED_ORIGINS']?.split(',') ?? ['http://localhost:3000'],
+    credentials: true,
+  });
   await app.register(sensible);
   await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
   await app.register(jwt, {

@@ -44,11 +44,18 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Build and push Docker images
+      - name: Build and push service images
         run: |
           for service in auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai franchise reporting webhooks; do
-            docker build -t $ECR_REGISTRY/elevatedpos-$service:${{ github.sha }} -f services/$service/Dockerfile .
-            docker push $ECR_REGISTRY/elevatedpos-$service:${{ github.sha }}
+            docker build -t $ECR_REGISTRY/elevatedpos/$service:${{ github.sha }} -f services/$service/Dockerfile .
+            docker push $ECR_REGISTRY/elevatedpos/$service:${{ github.sha }}
+          done
+
+      - name: Build and push app images
+        run: |
+          for app in web-backoffice kds-display storefront godmode org-portal reseller-portal pay sales-portal partner-portal developer-portal; do
+            docker build -t $ECR_REGISTRY/elevatedpos/$app:${{ github.sha }} -f apps/$app/Dockerfile .
+            docker push $ECR_REGISTRY/elevatedpos/$app:${{ github.sha }}
           done
 
       - name: Deploy to EKS
@@ -60,7 +67,20 @@ jobs:
             --set global.environment=staging \
             --wait --timeout 10m
 
+      - name: Apply standalone manifests
+        run: |
+          aws eks update-kubeconfig --name elevatedpos-staging --region ${{ env.AWS_REGION }}
+          find infrastructure/k8s -name "*.yaml" -exec \
+            sed -i "s/ACCOUNT_ID/${{ secrets.AWS_ACCOUNT_ID }}/g" {} +
+          kubectl apply -f infrastructure/k8s/apps/pay.yaml -n elevatedpos-staging
+          kubectl apply -f infrastructure/k8s/apps/sales-portal.yaml -n elevatedpos-staging
+          kubectl apply -f infrastructure/k8s/apps/partner-portal.yaml -n elevatedpos-staging
+          kubectl apply -f infrastructure/k8s/apps/developer-portal.yaml -n elevatedpos-staging
+          kubectl apply -f infrastructure/k8s/ingress/pay-ingress.yaml -n elevatedpos-staging
+          kubectl apply -f infrastructure/k8s/ingress/portals-ingress.yaml -n elevatedpos-staging
+
       - name: Notify deployment
         run: |
           echo "Staging deployment complete for SHA: ${{ github.sha }}"
           echo "Services: auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai franchise reporting webhooks"
+          echo "Apps: web-backoffice kds-display storefront godmode org-portal reseller-portal pay sales-portal partner-portal developer-portal"

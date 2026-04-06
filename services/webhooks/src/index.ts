@@ -21,7 +21,7 @@ const app = Fastify({ logger: true, trustProxy: true });
 async function start() {
   await app.register(helmet);
   await app.register(cors, {
-    origin: process.env['ALLOWED_ORIGINS']?.split(',') ?? true,
+    origin: process.env['ALLOWED_ORIGINS']?.split(',') ?? ['http://localhost:3000'],
     credentials: true,
   });
   await app.register(sensible);

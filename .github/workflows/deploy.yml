@@ -61,6 +61,8 @@ jobs:
           - { name: reseller-portal, context: apps/reseller-portal }
           - { name: godmode,         context: apps/godmode }
           - { name: sales-portal,    context: apps/sales-portal }
+          - { name: partner-portal,  context: apps/partner-portal }
+          - { name: developer-portal, context: apps/developer-portal }
     steps:
       - uses: actions/checkout@v4
 
@@ -176,6 +178,8 @@ jobs:
           kubectl set image deployment/reseller-portal reseller-portal=${{ env.ECR_REGISTRY }}/elevatedpos/reseller-portal:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/godmode godmode=${{ env.ECR_REGISTRY }}/elevatedpos/godmode:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/sales-portal sales-portal=${{ env.ECR_REGISTRY }}/elevatedpos/sales-portal:${{ github.sha }} -n elevatedpos
+          kubectl set image deployment/partner-portal partner-portal=${{ env.ECR_REGISTRY }}/elevatedpos/partner-portal:${{ github.sha }} -n elevatedpos
+          kubectl set image deployment/developer-portal developer-portal=${{ env.ECR_REGISTRY }}/elevatedpos/developer-portal:${{ github.sha }} -n elevatedpos
 
       - name: Wait for rollout
         run: |
@@ -417,6 +421,8 @@ jobs:
           kubectl set image deployment/reseller-portal reseller-portal=${{ env.ECR_REGISTRY }}/elevatedpos/reseller-portal:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/godmode godmode=${{ env.ECR_REGISTRY }}/elevatedpos/godmode:${{ github.sha }} -n elevatedpos
           kubectl set image deployment/sales-portal sales-portal=${{ env.ECR_REGISTRY }}/elevatedpos/sales-portal:${{ github.sha }} -n elevatedpos
+          kubectl set image deployment/partner-portal partner-portal=${{ env.ECR_REGISTRY }}/elevatedpos/partner-portal:${{ github.sha }} -n elevatedpos
+          kubectl set image deployment/developer-portal developer-portal=${{ env.ECR_REGISTRY }}/elevatedpos/developer-portal:${{ github.sha }} -n elevatedpos
 
       - name: Wait for production rollout
         run: |
