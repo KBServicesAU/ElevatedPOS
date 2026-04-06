@@ -19,6 +19,7 @@ import {
   Zap,
   ExternalLink,
   CalendarCheck,
+  CreditCard,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
@@ -40,6 +41,7 @@ interface IntegrationsStatus {
   twilio: { connected: boolean; accountSid?: string; authToken?: string; fromNumber?: string };
   messagebird: { connected: boolean; apiKey?: string; fromName?: string };
   deputy: { connected: boolean; businessId?: string; lastSync?: string };
+  anzWorldline: { connected: boolean; terminalIp?: string; terminalPort?: number };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1929,6 +1931,177 @@ function DeputyCard({
   );
 }
 
+// ─── Payment Terminals: ANZ Worldline ────────────────────────────────────────
+
+function ANZWorldlineCard({ status, onRefresh }: { status: IntegrationsStatus['anzWorldline']; onRefresh: () => void }) {
+  const { toast } = useToast();
+  const [terminalIp, setTerminalIp] = useState(status.terminalIp ?? '');
+  const [terminalPort, setTerminalPort] = useState<string>(String(status.terminalPort ?? 4100));
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  // Fetch existing credentials on mount
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await apiFetch<{ terminalIp?: string; terminalPort?: number }>('terminal/credentials');
+        if (!cancelled && res.terminalIp) {
+          setTerminalIp(res.terminalIp);
+          if (res.terminalPort) setTerminalPort(String(res.terminalPort));
+        }
+      } catch {
+        // No credentials saved yet — ignore
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function handleSave() {
+    if (!terminalIp.trim()) {
+      toast({ title: 'Terminal IP is required', variant: 'destructive' });
+      return;
+    }
+    const port = Number(terminalPort);
+    if (!port || port < 1 || port > 65535) {
+      toast({ title: 'Enter a valid port number (1–65535)', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiFetch('terminal/credentials', {
+        method: 'POST',
+        body: JSON.stringify({ terminalIp: terminalIp.trim(), terminalPort: port }),
+      });
+      toast({ title: 'ANZ Worldline credentials saved', variant: 'success' });
+      onRefresh();
+    } catch (err) {
+      toast({ title: 'Failed to save', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleTest() {
+    setTesting(true);
+    try {
+      await apiFetch('terminal/anz/test', { method: 'POST' });
+      toast({ title: 'Connection successful', description: 'ANZ Worldline terminal is reachable.', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Connection failed', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    setDisconnecting(true);
+    setConfirmDisconnect(false);
+    try {
+      await apiFetch('terminal/credentials', { method: 'DELETE' });
+      toast({ title: 'ANZ Worldline disconnected', variant: 'default' });
+      setTerminalIp('');
+      setTerminalPort('4100');
+      onRefresh();
+    } catch (err) {
+      toast({ title: 'Failed to disconnect', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  return (
+    <>
+      {confirmDisconnect && (
+        <ConfirmModal
+          title="Disconnect ANZ Worldline?"
+          message="The saved terminal credentials will be removed. You can reconfigure at any time."
+          confirmLabel="Disconnect"
+          danger
+          onConfirm={handleDisconnect}
+          onCancel={() => setConfirmDisconnect(false)}
+        />
+      )}
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex items-start justify-between p-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
+              <CreditCard className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900 dark:text-white">ANZ Worldline</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Payment Terminal</p>
+            </div>
+          </div>
+          <StatusBadge connected={status.connected} />
+        </div>
+
+        <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800">
+          <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+            Connect your ANZ Worldline EFTPOS terminal to accept card payments directly from the POS.
+          </p>
+          <div className="space-y-4">
+            <FieldRow label="Terminal IP Address">
+              <input
+                type="text"
+                value={terminalIp}
+                onChange={(e) => setTerminalIp(e.target.value)}
+                placeholder="e.g. 192.168.1.100"
+                className={inputCls()}
+              />
+            </FieldRow>
+            <FieldRow label="Terminal Port">
+              <input
+                type="number"
+                value={terminalPort}
+                onChange={(e) => setTerminalPort(e.target.value)}
+                placeholder="4100"
+                min={1}
+                max={65535}
+                className={inputCls()}
+              />
+            </FieldRow>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 px-5 py-3 dark:border-gray-800">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Save
+          </button>
+          {status.connected && (
+            <button
+              onClick={handleTest}
+              disabled={testing}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 disabled:opacity-60"
+            >
+              {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+              Test Connection
+            </button>
+          )}
+          {status.connected && (
+            <button
+              onClick={() => setConfirmDisconnect(true)}
+              disabled={disconnecting}
+              className="flex items-center gap-1 ml-auto text-xs font-medium text-gray-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
+            >
+              {disconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2Off className="h-3.5 w-3.5" />}
+              Disconnect
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Default status ───────────────────────────────────────────────────────────
 
 const DEFAULT_STATUS: IntegrationsStatus = {
@@ -1945,6 +2118,7 @@ const DEFAULT_STATUS: IntegrationsStatus = {
   twilio: { connected: false },
   messagebird: { connected: false },
   deputy: { connected: false },
+  anzWorldline: { connected: false },
 };
 
 // ─── Root component ───────────────────────────────────────────────────────────
@@ -1983,6 +2157,7 @@ export function IntegrationsClient() {
     status.twilio.connected,
     status.messagebird.connected,
     status.deputy.connected,
+    status.anzWorldline.connected,
   ].filter(Boolean).length;
 
   return (
@@ -2018,6 +2193,18 @@ export function IntegrationsClient() {
           <XeroCard status={status.xero} onRefresh={fetchStatus} />
           <MYOBCard status={status.myob} onRefresh={fetchStatus} />
           <QuickBooksCard status={status.quickbooks} onRefresh={fetchStatus} />
+        </div>
+      </section>
+
+      {/* ── Payment Terminals ──────────────────────────────────────────────── */}
+      <section className="space-y-4">
+        <SectionHeader
+          icon={<CreditCard className="h-5 w-5" />}
+          title="Payment Terminals"
+          description="Connect EFTPOS and card terminals for in-store payments."
+        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <ANZWorldlineCard status={status.anzWorldline} onRefresh={fetchStatus} />
         </div>
       </section>
 

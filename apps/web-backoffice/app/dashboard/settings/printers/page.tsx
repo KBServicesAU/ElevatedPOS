@@ -55,6 +55,12 @@ interface PrinterAssignment {
   copies: number;
 }
 
+interface LocationOption {
+  id: string;
+  name: string;
+  type?: string;
+}
+
 // ─── Toggle component ─────────────────────────────────────────────────────────
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -134,6 +140,35 @@ function AddPrinterModal({ onClose, onSaved }: AddPrinterModalProps) {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Dynamic location loading for "Assigned To" dropdown
+  const [locations, setLocations] = useState<LocationOption[]>([]);
+  const [locationsLoading, setLocationsLoading] = useState(true);
+  const [locationsError, setLocationsError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLocationsLoading(true);
+    fetch('/api/proxy/settings/locations')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Failed to fetch locations'))))
+      .then((json: unknown) => {
+        if (cancelled) return;
+        const parsed = json as { data?: LocationOption[]; locations?: LocationOption[] } | LocationOption[];
+        const list: LocationOption[] = Array.isArray(parsed)
+          ? parsed
+          : (parsed?.data ?? parsed?.locations ?? []);
+        setLocations(list);
+        setLocationsError(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLocationsError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLocationsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const set = <K extends keyof PrinterFormState>(key: K, value: PrinterFormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -338,13 +373,26 @@ function AddPrinterModal({ onClose, onSaved }: AddPrinterModalProps) {
                 <select
                   value={form.assignedTo}
                   onChange={(e) => set('assignedTo', e.target.value)}
-                  className="w-full appearance-none rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 pr-8 text-sm text-white focus:border-indigo-500 focus:outline-none"
+                  disabled={locationsLoading}
+                  className="w-full appearance-none rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 pr-8 text-sm text-white focus:border-indigo-500 focus:outline-none disabled:opacity-50"
                 >
                   <option value="all">All Stations</option>
-                  <option value="pos1">POS Terminal 1</option>
-                  <option value="pos2">POS Terminal 2</option>
-                  <option value="kds_kitchen">KDS Kitchen</option>
-                  <option value="kds_bar">KDS Bar</option>
+                  {locationsLoading ? (
+                    <option disabled>Loading...</option>
+                  ) : locationsError || locations.length === 0 ? (
+                    <>
+                      <option value="pos1">POS Terminal 1</option>
+                      <option value="pos2">POS Terminal 2</option>
+                      <option value="kds_kitchen">KDS Kitchen</option>
+                      <option value="kds_bar">KDS Bar</option>
+                    </>
+                  ) : (
+                    locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </option>
+                    ))
+                  )}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               </div>

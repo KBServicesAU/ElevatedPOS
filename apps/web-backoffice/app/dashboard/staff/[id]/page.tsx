@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   UserCircle,
@@ -11,6 +11,10 @@ import {
   Phone,
   Calendar,
   Briefcase,
+  Pencil,
+  X,
+  Save,
+  Loader2,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
@@ -49,6 +53,19 @@ interface EmployeePermissions {
   permissions?: string[];
   roleName?: string;
 }
+
+interface EditFormData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  role: string;
+  employmentType: string;
+  hourlyRate: string;
+}
+
+const ROLE_OPTIONS = ['admin', 'manager', 'cashier', 'kitchen', 'driver'] as const;
+const EMPLOYMENT_TYPE_OPTIONS = ['full_time', 'part_time', 'casual', 'contractor'] as const;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -142,6 +159,7 @@ function Skeleton() {
 export default function EmployeeDetailPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
 
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
@@ -149,6 +167,19 @@ export default function EmployeeDetailPage({ params }: { params: { id: string } 
   const [permissions, setPermissions] = useState<EmployeePermissions | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+
+  // ── Edit mode ───────────────────────────────────────────────────────────────
+  const isEditMode = searchParams.get('edit') === '1';
+  const [editForm, setEditForm] = useState<EditFormData>({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    role: '',
+    employmentType: '',
+    hourlyRate: '',
+  });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -200,6 +231,68 @@ export default function EmployeeDetailPage({ params }: { params: { id: string } 
     load();
     return () => { cancelled = true; };
   }, [id, toast]);
+
+  // Populate form when entering edit mode or when employee data arrives
+  useEffect(() => {
+    if (isEditMode && employee) {
+      setEditForm({
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        email: employee.email,
+        phone: employee.phone ?? '',
+        role: getRoleName(employee.role).toLowerCase(),
+        employmentType: employee.employmentType ?? '',
+        hourlyRate: employee.hourlyRate != null ? String(employee.hourlyRate) : '',
+      });
+    }
+  }, [isEditMode, employee]);
+
+  function exitEditMode() {
+    router.replace(`/dashboard/staff/${id}`);
+  }
+
+  function enterEditMode() {
+    router.replace(`/dashboard/staff/${id}?edit=1`);
+  }
+
+  function handleEditChange(field: keyof EditFormData, value: string) {
+    setEditForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        firstName: editForm.firstName.trim(),
+        lastName: editForm.lastName.trim(),
+        email: editForm.email.trim(),
+        phone: editForm.phone.trim() || undefined,
+        role: editForm.role,
+        employmentType: editForm.employmentType || undefined,
+        hourlyRate: editForm.hourlyRate ? Number(editForm.hourlyRate) : undefined,
+      };
+
+      const updated = await apiFetch<EmployeeDetail | { data: EmployeeDetail }>(
+        `employees/${id}`,
+        { method: 'PATCH', body: JSON.stringify(payload) },
+      );
+
+      // Normalise response
+      const emp =
+        'data' in updated && !('id' in updated)
+          ? (updated as { data: EmployeeDetail }).data
+          : (updated as EmployeeDetail);
+
+      setEmployee(emp);
+      toast({ title: 'Employee updated', variant: 'success' });
+      exitEditMode();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update employee';
+      toast({ title: message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (loading) return <Skeleton />;
 
@@ -277,36 +370,194 @@ export default function EmployeeDetailPage({ params }: { params: { id: string } 
               {employee.email}
             </p>
           </div>
+
+          {/* Edit button */}
+          {!isEditMode && (
+            <button
+              onClick={enterEditMode}
+              title="Edit employee"
+              className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Account Details ─────────────────────────────────────────────────── */}
-      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 mb-5">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-          <Briefcase className="h-4 w-4 text-gray-400" />
-          Account Details
-        </h2>
-        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-          <DetailRow label="Employee ID" value={employee.id} icon={<UserCircle className="h-4 w-4" />} />
-          <DetailRow label="Email" value={employee.email} icon={<Mail className="h-4 w-4" />} />
-          <DetailRow label="Phone" value={employee.phone ?? '—'} icon={<Phone className="h-4 w-4" />} />
-          <DetailRow
-            label="Employment Type"
-            value={employee.employmentType ? capitalise(employee.employmentType) : '—'}
-            icon={<Briefcase className="h-4 w-4" />}
-          />
-          <DetailRow
-            label="Hourly Rate"
-            value={employee.hourlyRate != null ? `$${Number(employee.hourlyRate).toFixed(2)}/hr` : '—'}
-            icon={<Clock className="h-4 w-4" />}
-          />
-          <DetailRow
-            label="Hire Date"
-            value={employee.hireDate ? formatDate(employee.hireDate) : employee.createdAt ? formatDate(employee.createdAt) : '—'}
-            icon={<Calendar className="h-4 w-4" />}
-          />
-        </dl>
-      </div>
+      {/* ── Account Details / Edit Form ────────────────────────────────────── */}
+      {isEditMode ? (
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 mb-5">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Pencil className="h-4 w-4 text-gray-400" />
+            Edit Employee
+          </h2>
+
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleSave(); }}
+            className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4"
+          >
+            {/* First Name */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="edit-firstName" className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                First Name
+              </label>
+              <input
+                id="edit-firstName"
+                type="text"
+                required
+                value={editForm.firstName}
+                onChange={(e) => handleEditChange('firstName', e.target.value)}
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            {/* Last Name */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="edit-lastName" className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Last Name
+              </label>
+              <input
+                id="edit-lastName"
+                type="text"
+                required
+                value={editForm.lastName}
+                onChange={(e) => handleEditChange('lastName', e.target.value)}
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            {/* Email */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="edit-email" className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Email
+              </label>
+              <input
+                id="edit-email"
+                type="email"
+                required
+                value={editForm.email}
+                onChange={(e) => handleEditChange('email', e.target.value)}
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            {/* Phone */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="edit-phone" className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Phone
+              </label>
+              <input
+                id="edit-phone"
+                type="tel"
+                value={editForm.phone}
+                onChange={(e) => handleEditChange('phone', e.target.value)}
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            {/* Role */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="edit-role" className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Role
+              </label>
+              <select
+                id="edit-role"
+                value={editForm.role}
+                onChange={(e) => handleEditChange('role', e.target.value)}
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Select role</option>
+                {ROLE_OPTIONS.map((r) => (
+                  <option key={r} value={r}>{capitalise(r)}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Employment Type */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="edit-employmentType" className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Employment Type
+              </label>
+              <select
+                id="edit-employmentType"
+                value={editForm.employmentType}
+                onChange={(e) => handleEditChange('employmentType', e.target.value)}
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Select type</option>
+                {EMPLOYMENT_TYPE_OPTIONS.map((t) => (
+                  <option key={t} value={t}>{capitalise(t.replace(/_/g, ' '))}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Hourly Rate */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="edit-hourlyRate" className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Hourly Rate ($)
+              </label>
+              <input
+                id="edit-hourlyRate"
+                type="number"
+                min="0"
+                step="0.01"
+                value={editForm.hourlyRate}
+                onChange={(e) => handleEditChange('hourlyRate', e.target.value)}
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            {/* Actions — spans full row */}
+            <div className="sm:col-span-2 flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={exitEditMode}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 mb-5">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Briefcase className="h-4 w-4 text-gray-400" />
+            Account Details
+          </h2>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+            <DetailRow label="Employee ID" value={employee.id} icon={<UserCircle className="h-4 w-4" />} />
+            <DetailRow label="Email" value={employee.email} icon={<Mail className="h-4 w-4" />} />
+            <DetailRow label="Phone" value={employee.phone ?? '—'} icon={<Phone className="h-4 w-4" />} />
+            <DetailRow
+              label="Employment Type"
+              value={employee.employmentType ? capitalise(employee.employmentType) : '—'}
+              icon={<Briefcase className="h-4 w-4" />}
+            />
+            <DetailRow
+              label="Hourly Rate"
+              value={employee.hourlyRate != null ? `$${Number(employee.hourlyRate).toFixed(2)}/hr` : '—'}
+              icon={<Clock className="h-4 w-4" />}
+            />
+            <DetailRow
+              label="Hire Date"
+              value={employee.hireDate ? formatDate(employee.hireDate) : employee.createdAt ? formatDate(employee.createdAt) : '—'}
+              icon={<Calendar className="h-4 w-4" />}
+            />
+          </dl>
+        </div>
+      )}
 
       {/* ── Recent Shifts ───────────────────────────────────────────────────── */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 mb-5">
