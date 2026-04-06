@@ -9,8 +9,21 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
     nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - elevatedpos.com.au
+        - www.elevatedpos.com.au
+      secretName: elevatedpos-root-tls
+    - hosts:
+        - shop.elevatedpos.com.au
+      secretName: elevatedpos-shop-tls
+    - hosts:
+        - app.elevatedpos.com.au
+      secretName: elevatedpos-app-tls
   rules:
     # ── Marketing site & onboarding (elevatedpos.com.au + www) ──────────────
     - host: elevatedpos.com.au

@@ -30,7 +30,7 @@ export async function ingestOrder(order: {
 
   try {
     await clickhouse.insert({
-      table: 'nexus_analytics.sales_fact',
+      table: 'elevatedpos_analytics.sales_fact',
       values: [
         {
           order_id: order.id,
@@ -57,7 +57,7 @@ export async function ingestOrder(order: {
 
     if (order.lines?.length) {
       await clickhouse.insert({
-        table: 'nexus_analytics.order_lines_fact',
+        table: 'elevatedpos_analytics.order_lines_fact',
         values: order.lines.map((l) => ({
           line_id: l.id,
           order_id: order.id,

@@ -10,12 +10,12 @@ export const clickhouse = createClient({
   url: clickhouseUrl,
   username: process.env['CLICKHOUSE_USER'] ?? 'default',
   password: process.env['CLICKHOUSE_PASSWORD'] ?? '',
-  database: process.env['CLICKHOUSE_DB'] ?? 'nexus_analytics',
+  database: process.env['CLICKHOUSE_DB'] ?? 'elevatedpos_analytics',
 });
 
 export async function initClickHouseTables() {
   const statements = [
-    `CREATE TABLE IF NOT EXISTS nexus_analytics.sales_fact (
+    `CREATE TABLE IF NOT EXISTS elevatedpos_analytics.sales_fact (
       order_id String,
       org_id String,
       location_id String,
@@ -37,7 +37,7 @@ export async function initClickHouseTables() {
     PARTITION BY (org_id, year, month)
     ORDER BY (org_id, location_id, completed_at)`,
 
-    `CREATE TABLE IF NOT EXISTS nexus_analytics.order_lines_fact (
+    `CREATE TABLE IF NOT EXISTS elevatedpos_analytics.order_lines_fact (
       line_id String,
       order_id String,
       org_id String,
@@ -55,7 +55,7 @@ export async function initClickHouseTables() {
     PARTITION BY (org_id, toYYYYMM(completed_at))
     ORDER BY (org_id, product_id, completed_at)`,
 
-    `CREATE TABLE IF NOT EXISTS nexus_analytics.customer_activity (
+    `CREATE TABLE IF NOT EXISTS elevatedpos_analytics.customer_activity (
       event_id String,
       org_id String,
       customer_id String,

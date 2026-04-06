@@ -134,12 +134,12 @@ describe('parseAppKey', () => {
 
 describe('isValidRedirectUri', () => {
   const allowed = [
-    'https://app.nexus.com/oauth/callback',
-    'https://staging.nexus.com/oauth/callback',
+    'https://app.elevatedpos.com.au/oauth/callback',
+    'https://staging.elevatedpos.com.au/oauth/callback',
   ];
 
   it('returns true for an exact match in the whitelist', () => {
-    expect(isValidRedirectUri('https://app.nexus.com/oauth/callback', allowed)).toBe(true);
+    expect(isValidRedirectUri('https://app.elevatedpos.com.au/oauth/callback', allowed)).toBe(true);
   });
 
   it('returns false for a URI not in the whitelist', () => {
@@ -151,6 +151,6 @@ describe('isValidRedirectUri', () => {
   });
 
   it('returns false when the allowed list is empty', () => {
-    expect(isValidRedirectUri('https://app.nexus.com/oauth/callback', [])).toBe(false);
+    expect(isValidRedirectUri('https://app.elevatedpos.com.au/oauth/callback', [])).toBe(false);
   });
 });

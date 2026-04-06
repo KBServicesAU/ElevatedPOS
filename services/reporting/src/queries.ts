@@ -52,7 +52,7 @@ export async function querySalesSummary(
       sum(discount_total) AS totalDiscounts,
       sum(tax_total)      AS totalTax,
       avg(total)          AS avgOrderValue
-    FROM nexus_analytics.sales_fact
+    FROM elevatedpos_analytics.sales_fact
     WHERE org_id = {orgId:String}
       AND completed_at >= {fromDate:DateTime}
       AND completed_at <  {toDate:DateTime}
@@ -97,7 +97,7 @@ export async function queryTopProducts(
       sum(quantity)               AS totalQuantity,
       sum(line_total)             AS totalRevenue,
       count(DISTINCT order_id)    AS orderCount
-    FROM nexus_analytics.order_lines_fact
+    FROM elevatedpos_analytics.order_lines_fact
     WHERE org_id = {orgId:String}
       AND completed_at >= {fromDate:DateTime}
       AND completed_at <  {toDate:DateTime}
@@ -137,7 +137,7 @@ export async function queryRevenueByHour(
       hour                AS hour,
       sum(total)          AS totalRevenue,
       count()             AS orderCount
-    FROM nexus_analytics.sales_fact
+    FROM elevatedpos_analytics.sales_fact
     WHERE org_id = {orgId:String}
       AND toDate(completed_at) = {date:Date}
     GROUP BY hour
@@ -175,7 +175,7 @@ export async function queryRevenueByChannel(
       sum(total)          AS totalRevenue,
       count()             AS orderCount,
       avg(total)          AS avgOrderValue
-    FROM nexus_analytics.sales_fact
+    FROM elevatedpos_analytics.sales_fact
     WHERE org_id = {orgId:String}
       AND completed_at >= {fromDate:DateTime}
       AND completed_at <  {toDate:DateTime}
@@ -215,7 +215,7 @@ export async function queryRevenueByDay(
       sum(total)                      AS totalRevenue,
       count()                         AS orderCount,
       avg(total)                      AS avgOrderValue
-    FROM nexus_analytics.sales_fact
+    FROM elevatedpos_analytics.sales_fact
     WHERE org_id = {orgId:String}
       AND completed_at >= {fromDate:DateTime}
       AND completed_at <  {toDate:DateTime}
