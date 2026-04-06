@@ -48,9 +48,27 @@ function LoginContent() {
         return;
       }
 
-      // Cookie is set server-side — redirect to original destination or dashboard
-      const next = searchParams.get('next') ?? '/dashboard';
-      router.push(next);
+      // Cookie is set server-side — check onboarding status before redirecting
+      const explicitNext = searchParams.get('next');
+      let destination = explicitNext ?? '/dashboard';
+
+      // For default dashboard redirects, check if onboarding is complete
+      if (!explicitNext || explicitNext === '/dashboard') {
+        try {
+          const onboardingRes = await fetch('/api/proxy/organisations/onboarding');
+          if (onboardingRes.ok) {
+            const onboarding = await onboardingRes.json();
+            if (onboarding.step && onboarding.step !== 'completed') {
+              destination = '/setup';
+            }
+          }
+          // If the call fails, fall through to dashboard
+        } catch {
+          // Onboarding endpoint unavailable — continue to dashboard
+        }
+      }
+
+      router.push(destination);
       router.refresh();
     } catch {
       setError('Unable to connect. Please check your connection.');

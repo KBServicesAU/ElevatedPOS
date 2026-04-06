@@ -1,8 +1,12 @@
 import { type FastifyInstance } from 'fastify';
 import { randomBytes } from 'crypto';
 import { eq } from 'drizzle-orm';
+import { z } from 'zod';
 import { db, schema } from '../db/index.js';
 import { hashPassword } from '../lib/tokens.js';
+
+const industryValues = ['cafe', 'restaurant', 'bar', 'retail', 'fashion', 'grocery', 'salon', 'gym', 'services', 'other'] as const;
+const onboardingSteps = ['industry_selected', 'location_setup', 'products_added', 'completed'] as const;
 
 const NOTIFICATIONS_API_URL = process.env['NOTIFICATIONS_API_URL'] ?? 'http://localhost:4009';
 const INTEGRATIONS_API_URL = process.env['INTEGRATIONS_API_URL'] ?? 'http://localhost:4010';
@@ -36,13 +40,15 @@ export async function organisationRoutes(app: FastifyInstance) {
           phone:        { type: 'string' },
           abn:          { type: 'string' },
           plan:         { type: 'string', enum: ['starter', 'growth', 'enterprise'], default: 'starter' },
+          industry:     { type: 'string', enum: ['cafe', 'restaurant', 'bar', 'retail', 'fashion', 'grocery', 'salon', 'gym', 'services', 'other'] },
         },
       },
     },
   }, async (request, reply) => {
-    const { businessName, email, password, firstName, lastName, abn, plan = 'starter' } = request.body as {
+    const { businessName, email, password, firstName, lastName, abn, plan = 'starter', industry } = request.body as {
       businessName: string; email: string; password: string;
       firstName: string; lastName: string; phone?: string; abn?: string; plan?: string;
+      industry?: string;
     };
 
     // Plan limits
@@ -68,7 +74,8 @@ export async function organisationRoutes(app: FastifyInstance) {
           maxDevices: limits.maxDevices,
           abn: abn ?? null,
           billingEmail: email,
-          onboardingStep: 'account_created',
+          industry: industry ?? null,
+          onboardingStep: industry ? 'industry_selected' : 'account_created',
         }).returning();
 
         const [employee] = await tx.insert(schema.employees).values({
@@ -204,5 +211,67 @@ export async function organisationRoutes(app: FastifyInstance) {
       }
       throw err;
     }
+  });
+
+  // ── Onboarding ───────────────────────────────────────────────────────────────
+
+  const updateOnboardingSchema = z.object({
+    step: z.enum(onboardingSteps),
+    industry: z.enum(industryValues).optional(),
+  });
+
+  // GET /api/v1/organisations/onboarding — returns current onboarding status
+  app.get('/onboarding', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+
+    const org = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, orgId),
+    });
+
+    if (!org) return reply.status(404).send({ error: 'Organisation not found' });
+
+    return reply.send({
+      step: org.onboardingStep,
+      industry: org.industry ?? null,
+      completedAt: org.onboardingCompletedAt ?? null,
+    });
+  });
+
+  // PATCH /api/v1/organisations/onboarding — advance onboarding step
+  app.patch('/onboarding', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+
+    const parsed = updateOnboardingSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid body', details: parsed.error.flatten() });
+    }
+
+    const { step, industry } = parsed.data;
+
+    const updates: Record<string, unknown> = {
+      onboardingStep: step,
+      updatedAt: new Date(),
+    };
+
+    if (industry) {
+      updates['industry'] = industry;
+    }
+
+    if (step === 'completed') {
+      updates['onboardingCompletedAt'] = new Date();
+    }
+
+    const [updated] = await db.update(schema.organisations)
+      .set(updates)
+      .where(eq(schema.organisations.id, orgId))
+      .returning();
+
+    if (!updated) return reply.status(404).send({ error: 'Organisation not found' });
+
+    return reply.send({
+      step: updated.onboardingStep,
+      industry: updated.industry ?? null,
+      completedAt: updated.onboardingCompletedAt ?? null,
+    });
   });
 }

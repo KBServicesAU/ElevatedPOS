@@ -23,6 +23,8 @@ export const organisations = pgTable('organisations', {
   abn: varchar('abn', { length: 11 }),
   billingEmail: varchar('billing_email', { length: 255 }),
   onboardingStep: varchar('onboarding_step', { length: 50 }).notNull().default('completed'),
+  industry: varchar('industry', { length: 50 }),
+  onboardingCompletedAt: timestamp('onboarding_completed_at', { withTimezone: true }),
   whiteLabelThemeId: uuid('white_label_theme_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

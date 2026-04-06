@@ -339,6 +339,11 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
     prefix: '/api/v1/roster',
   },
+  // Organisation onboarding — auth service
+  organisations: {
+    base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
+    prefix: '/api/v1/organisations',
+  },
   // Notifications service routes
   notifications: {
     base: process.env.NOTIFICATIONS_API_URL ?? 'http://localhost:4009',
