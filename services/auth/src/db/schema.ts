@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, text, varchar, boolean, timestamp, jsonb, integer, numeric, pgEnum,
+  pgTable, uuid, text, varchar, boolean, timestamp, jsonb, integer, numeric, pgEnum, date, index,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -134,6 +134,27 @@ export const shifts = pgTable('shifts', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Roster Shifts (planned/scheduled shifts) ─────────────────────────────────
+
+export const rosterShifts = pgTable('roster_shifts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
+  employeeId: uuid('employee_id').notNull().references(() => employees.id),
+  date: date('date').notNull(),
+  startTime: varchar('start_time', { length: 5 }).notNull(),
+  endTime: varchar('end_time', { length: 5 }).notNull(),
+  role: varchar('role', { length: 100 }),
+  station: varchar('station', { length: 100 }),
+  published: boolean('published').notNull().default(false),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  orgDateIdx: index('roster_shifts_org_date_idx').on(table.orgId, table.date),
+  orgEmployeeIdx: index('roster_shifts_org_employee_idx').on(table.orgId, table.employeeId),
+}));
+
 export const refreshTokens = pgTable('refresh_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
   employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'cascade' }),
@@ -243,6 +264,17 @@ export const shiftsRelations = relations(shifts, ({ one }) => ({
   }),
   employee: one(employees, {
     fields: [shifts.employeeId],
+    references: [employees.id],
+  }),
+}));
+
+export const rosterShiftsRelations = relations(rosterShifts, ({ one }) => ({
+  organisation: one(organisations, {
+    fields: [rosterShifts.orgId],
+    references: [organisations.id],
+  }),
+  employee: one(employees, {
+    fields: [rosterShifts.employeeId],
     references: [employees.id],
   }),
 }));

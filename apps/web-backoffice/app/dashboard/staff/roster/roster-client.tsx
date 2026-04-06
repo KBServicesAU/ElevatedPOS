@@ -88,7 +88,7 @@ function AddShiftModal({ employees, defaultDate, onClose, onSaved }: AddShiftMod
     if (!employeeId || !date || !startTime || !endTime) return;
     setSaving(true); setError(null);
     try {
-      const res = await apiFetch<{ data: Shift }>('shifts/roster', {
+      const res = await apiFetch<{ data: Shift }>('roster/shifts', {
         method: 'POST',
         body: JSON.stringify({ employeeId, date, startTime, endTime, role: role || undefined, station: station || undefined }),
       });
@@ -248,7 +248,7 @@ export function RosterClient() {
     try {
       const from = toDateStr(mon);
       const to   = toDateStr(addDays(mon, 6));
-      const res  = await apiFetch<{ data: Shift[] }>(`shifts?dateFrom=${from}&dateTo=${to}`);
+      const res  = await apiFetch<{ data: Shift[] }>(`roster/shifts?dateFrom=${from}&dateTo=${to}`);
       setShifts(res.data ?? []);
     } catch {
       setShifts([]);
@@ -275,7 +275,7 @@ export function RosterClient() {
   async function handlePublish() {
     setPublishing(true);
     try {
-      await apiFetch('shifts/publish', {
+      await apiFetch('roster/publish', {
         method: 'POST',
         body: JSON.stringify({ dateFrom: toDateStr(monday), dateTo: toDateStr(sunday) }),
       });
@@ -291,7 +291,7 @@ export function RosterClient() {
     setCopyingWeek(true);
     try {
       const fromMonday = addDays(monday, -7);
-      await apiFetch('shifts/copy-week', {
+      await apiFetch('roster/copy-week', {
         method: 'POST',
         body: JSON.stringify({ fromWeek: toDateStr(fromMonday), toWeek: toDateStr(monday) }),
       });

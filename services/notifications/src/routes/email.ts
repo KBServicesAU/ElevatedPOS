@@ -3,8 +3,9 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { db, schema } from '../db/index.js';
 import { sendEmail } from '../lib/channels/email.js';
+import { rosterEmail } from '../lib/templates/roster.js';
 
-const TEMPLATES = ['receipt', 'layby_statement', 'gift_card', 'campaign', 'custom'] as const;
+const TEMPLATES = ['receipt', 'layby_statement', 'gift_card', 'campaign', 'roster', 'custom'] as const;
 
 const emailSchema = z.object({
   to: z.string().email(),
@@ -142,6 +143,27 @@ function renderTemplate(
       };
     }
 
+    case 'roster': {
+      const employeeName = String(data['employeeName'] ?? '');
+      const weekLabel = String(data['weekLabel'] ?? '');
+      const shifts = Array.isArray(data['shifts']) ? (data['shifts'] as Array<Record<string, unknown>>) : [];
+      const rosterShifts = shifts.map((s) => ({
+        date: String(s['date'] ?? ''),
+        startTime: String(s['startTime'] ?? ''),
+        endTime: String(s['endTime'] ?? ''),
+        role: s['role'] ? String(s['role']) : undefined,
+      }));
+      const result = rosterEmail({ employeeName, weekLabel, shifts: rosterShifts });
+      const textShifts = rosterShifts
+        .map((s) => `  ${s.date}  ${s.startTime}-${s.endTime}  ${s.role ?? ''}`)
+        .join('\n');
+      return {
+        resolvedSubject: result.subject,
+        htmlBody: result.html,
+        textBody: `Hi ${employeeName},\n\nYour roster for ${weekLabel}:\n${textShifts}\n\nIf anything doesn't look right, please reach out to your manager.`,
+      };
+    }
+
     case 'custom':
     default: {
       const body = String(data['body'] ?? '');
@@ -159,8 +181,8 @@ function renderTemplate(
 export async function emailRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
 
-  // POST /email — send an email notification
-  app.post('/', async (request, reply) => {
+  // POST /email and POST /email/send — send an email notification
+  const sendHandler = async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     const parsed = emailSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
@@ -202,5 +224,8 @@ export async function emailRoutes(app: FastifyInstance) {
     }
 
     return reply.status(200).send({ messageId: result.messageId ?? messageId, to, subject: resolvedSubject, status: 'sent' });
-  });
+  };
+
+  app.post('/', sendHandler);
+  app.post('/send', sendHandler);
 }
