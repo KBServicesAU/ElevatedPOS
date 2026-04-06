@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Animated,
   FlatList,
+  Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
   ScrollView,
@@ -28,8 +29,20 @@ const FONT_SCALE: Record<FontSize, number> = {
   large: 1.2,
 };
 
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  category: string;
+  tags: readonly string[];
+  emoji: string;
+  description: string;
+  ageRestricted: boolean;
+  imageUrl?: string;
+}
+
 // TODO: Replace hardcoded product data with API call to GET /api/v1/catalog/products?channel=kiosk
-const MOCK_PRODUCTS = [
+const MOCK_PRODUCTS: Product[] = [
   {
     id: '1',
     name: 'Classic Burger',
@@ -170,9 +183,7 @@ const MOCK_PRODUCTS = [
     description: 'With smoky chipotle mayo',
     ageRestricted: false,
   },
-] as const;
-
-type Product = (typeof MOCK_PRODUCTS)[number];
+];
 
 export default function MenuScreen() {
   const router = useRouter();
@@ -252,6 +263,7 @@ export default function MenuScreen() {
         price: product.price,
         qty: 1,
         modifiers: [],
+        ...(product.imageUrl ? { imageUrl: product.imageUrl } : {}),
       });
       router.push('/age-verification');
       return;
@@ -264,6 +276,7 @@ export default function MenuScreen() {
       price: product.price,
       qty: 1,
       modifiers: [],
+      ...(product.imageUrl ? { imageUrl: product.imageUrl } : {}),
     });
 
     // Show upsell only for non-restricted (or already verified) items
@@ -342,7 +355,7 @@ export default function MenuScreen() {
       {/* Product grid */}
       <FlatList
         ref={listRef}
-        data={filteredProducts as readonly Product[]}
+        data={filteredProducts}
         keyExtractor={(item) => item.id}
         numColumns={2}
         contentContainerStyle={styles.grid}
@@ -357,7 +370,15 @@ export default function MenuScreen() {
               activeOpacity={0.8}
             >
               <View style={styles.productEmoji}>
-                <Text style={styles.emojiText}>{item.emoji}</Text>
+                {item.imageUrl ? (
+                  <Image
+                    source={{ uri: item.imageUrl }}
+                    style={styles.productImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Text style={styles.emojiText}>{item.emoji}</Text>
+                )}
                 {item.ageRestricted && (
                   <View style={styles.ageBadge}>
                     <Text style={styles.ageBadgeText}>18+</Text>
@@ -528,11 +549,17 @@ const styles = StyleSheet.create({
   productEmoji: {
     backgroundColor: '#111',
     borderRadius: 12,
-    height: 80,
+    height: 96,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
     position: 'relative',
+    overflow: 'hidden',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
   },
   emojiText: { fontSize: 40 },
   ageBadge: {

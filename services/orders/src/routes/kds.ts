@@ -87,4 +87,75 @@ export async function kdsRoutes(app: FastifyInstance) {
 
     return reply.status(200).send({ data: updated });
   });
+
+  // POST /api/v1/kds/recall/:orderId — reverse a bump: set order back to open, re-broadcast to KDS.
+  // Accepts either a valid JWT (staff/POS) or the x-internal-secret header.
+  app.post('/recall/:orderId', async (request, reply) => {
+    const { orderId } = request.params as { orderId: string };
+    const internalSecret = process.env['INTERNAL_SECRET'];
+    const providedSecret = request.headers['x-internal-secret'];
+    const isInternalCall = internalSecret && providedSecret === internalSecret;
+
+    let orgId: string | null = null;
+
+    if (isInternalCall) {
+      orgId = null;
+    } else {
+      try {
+        await request.jwtVerify();
+        orgId = (request.user as { orgId: string }).orgId;
+      } catch {
+        return reply.status(401).send({ title: 'Unauthorized', status: 401 });
+      }
+    }
+
+    const order = await db.query.orders.findFirst({
+      where: orgId
+        ? and(eq(schema.orders.id, orderId), eq(schema.orders.orgId, orgId))
+        : eq(schema.orders.id, orderId),
+      with: { lines: true },
+    });
+    if (!order) return reply.status(404).send({ title: 'Not Found', status: 404 });
+
+    // Only allow recalling orders that were bumped (status === 'completed')
+    if (order.status !== 'completed') {
+      return reply.status(409).send({ title: 'Order is not in bumped state', status: 409 });
+    }
+
+    const recallRows = await db
+      .update(schema.orders)
+      .set({ status: 'open', completedAt: null, updatedAt: new Date() })
+      .where(
+        orgId
+          ? and(eq(schema.orders.id, orderId), eq(schema.orders.orgId, orgId))
+          : eq(schema.orders.id, orderId),
+      )
+      .returning();
+    const updated = recallRows[0]!;
+
+    // Re-broadcast as new_order so all KDS clients pick it up again
+    broadcastToKDS(order.locationId, {
+      type: 'new_order',
+      order: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        orderType: order.orderType,
+        channel: order.channel,
+        tableId: order.tableId,
+        locationId: order.locationId,
+        lines: order.lines.map((l) => ({
+          name: l.name,
+          qty: Number(l.quantity),
+          modifiers: (l.modifiers as { name: string }[]).map((m) => m.name),
+          seatNumber: l.seatNumber,
+          course: l.course,
+          kdsDestination: l.kdsDestination ?? undefined,
+        })),
+        createdAt: order.createdAt.toISOString(),
+        status: 'new',
+      },
+    });
+
+    return reply.status(200).send({ data: updated });
+  });
 }

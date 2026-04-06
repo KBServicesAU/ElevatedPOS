@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   SafeAreaView,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -36,8 +37,12 @@ export interface Product {
   name: string;
   sku?: string;
   price: number; // cents
+  wholesalePrice?: number; // cents
+  costPrice?: number; // cents
   category?: string;
   categoryId?: string;
+  imageUrl?: string;
+  image?: string;
   modifierGroups?: ModifierGroup[];
   hasModifiers?: boolean;
 }
@@ -84,13 +89,22 @@ function ProductRow({ product, onPress }: ProductRowProps) {
   const color = categoryColor(product.category ?? product.id);
   const initials = getInitials(product.name);
   const priceDisplay = `$${(product.price / 100).toFixed(2)}`;
+  const productImageUri = product.imageUrl ?? product.image;
 
   return (
     <TouchableOpacity style={ps.row} onPress={() => onPress(product)}>
-      {/* Image placeholder */}
-      <View style={[ps.avatar, { backgroundColor: `${color}33` }]}>
-        <Text style={[ps.avatarText, { color }]}>{initials}</Text>
-      </View>
+      {/* Product image or avatar placeholder */}
+      {productImageUri ? (
+        <Image
+          source={{ uri: productImageUri }}
+          style={ps.avatarImage}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={[ps.avatar, { backgroundColor: `${color}33` }]}>
+          <Text style={[ps.avatarText, { color }]}>{initials}</Text>
+        </View>
+      )}
 
       {/* Info */}
       <View style={ps.rowInfo}>
@@ -386,6 +400,11 @@ const ps = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  avatarImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
   },
   avatarText: { fontSize: 15, fontWeight: '700' },
   rowInfo: { flex: 1, gap: 2 },

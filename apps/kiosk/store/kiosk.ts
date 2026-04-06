@@ -17,6 +17,7 @@ export interface CartItem {
   qty: number;
   modifiers: SelectedModifier[];
   specialNote?: string;
+  imageUrl?: string;
 }
 
 export interface LoyaltyAccount {

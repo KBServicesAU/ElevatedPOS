@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   FlatList,
+  Image,
   StyleSheet,
   Text,
   TextInput,
@@ -90,6 +91,13 @@ export default function CartScreen() {
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
           <View style={styles.cartItem}>
+            {item.imageUrl ? (
+              <Image
+                source={{ uri: item.imageUrl }}
+                style={styles.cartItemImage}
+                resizeMode="cover"
+              />
+            ) : null}
             <View style={styles.itemInfo}>
               <Text style={styles.itemName}>{item.name}</Text>
               <Text style={styles.itemPrice}>${(item.price * item.qty).toFixed(2)}</Text>
@@ -150,7 +158,8 @@ const styles = StyleSheet.create({
   nameLabel: { fontSize: 13, color: '#666', marginBottom: 6 },
   nameInput: { backgroundColor: '#1a1a1a', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: '#fff', borderWidth: 1, borderColor: '#333' },
   list: { paddingHorizontal: 16, paddingBottom: 8 },
-  cartItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e1e' },
+  cartItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e1e', gap: 12 },
+  cartItemImage: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#111' },
   itemInfo: { flex: 1 },
   itemName: { fontSize: 16, fontWeight: '600', color: '#fff', marginBottom: 2 },
   itemPrice: { fontSize: 14, color: '#888' },

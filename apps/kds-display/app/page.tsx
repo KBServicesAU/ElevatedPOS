@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ChefHat, CheckCircle, Wifi, WifiOff, Clock, AlertTriangle } from 'lucide-react';
+import { ChefHat, CheckCircle, Wifi, WifiOff, Clock, AlertTriangle, RotateCcw, X, Undo2 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +25,11 @@ interface KdsTicket {
   createdAt: string;
   status: 'new' | 'preparing' | 'bumped';
   elapsedSeconds: number;
+}
+
+interface BumpedOrder {
+  ticket: KdsTicket;
+  bumpedAt: number; // timestamp in ms
 }
 
 // The WS payload uses a plain string for status (arrives from the server as-is)
@@ -87,21 +92,6 @@ function channelLabel(channel: string): string {
     case 'qr': return 'QR';
     default: return channel.toUpperCase();
   }
-}
-
-// ─── Stats bar ───────────────────────────────────────────────────────────────
-
-function StatsBar({ tickets }: { tickets: KdsTicket[] }) {
-  if (tickets.length === 0) return null;
-  const avg = Math.floor(tickets.reduce((s, t) => s + Math.max(0, t.elapsedSeconds), 0) / tickets.length / 60);
-  const longest = Math.floor(Math.max(...tickets.map((t) => Math.max(0, t.elapsedSeconds))) / 60);
-  return (
-    <div className="flex items-center gap-6 border-b border-[#2a2a2a] bg-[#111] px-6 py-2 text-sm text-gray-400">
-      <span className="font-semibold text-white">{tickets.length} ticket{tickets.length !== 1 ? 's' : ''}</span>
-      <span>Avg: <strong className="text-yellow-400">{avg}min</strong></span>
-      <span>Longest: <strong className="text-red-400">{longest}min</strong></span>
-    </div>
-  );
 }
 
 // ─── Ticket card ─────────────────────────────────────────────────────────────
@@ -251,6 +241,110 @@ function BumpErrorToast({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
+// ─── Undo bump toast ─────────────────────────────────────────────────────────
+
+function UndoBumpToast({ orderNumber, onUndo, onDismiss }: { orderNumber: string; onUndo: () => void; onDismiss: () => void }) {
+  useEffect(() => {
+    const id = setTimeout(onDismiss, 5000);
+    return () => clearTimeout(id);
+  }, [onDismiss]);
+
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-xl bg-[#1a1a1a] border border-gray-700 px-5 py-3 shadow-2xl text-white z-50">
+      <CheckCircle className="h-5 w-5 text-green-400 shrink-0" />
+      <p className="text-sm font-semibold">Order #{orderNumber} bumped</p>
+      <button
+        onClick={onUndo}
+        className="ml-2 flex items-center gap-1 rounded-lg bg-yellow-400 px-3 py-1.5 text-xs font-bold text-black hover:bg-yellow-300 transition-colors"
+      >
+        <Undo2 className="h-3.5 w-3.5" /> Undo
+      </button>
+      <button onClick={onDismiss} className="ml-1 text-gray-500 hover:text-white transition-colors">
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+// ─── Recall panel ────────────────────────────────────────────────────────────
+
+function RecallPanel({
+  bumpedOrders,
+  onRecall,
+  isOpen,
+  onToggle,
+}: {
+  bumpedOrders: BumpedOrder[];
+  onRecall: (orderId: string) => void;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Close panel when clicking outside
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        onToggle();
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [isOpen, onToggle]);
+
+  return (
+    <div ref={panelRef} className="relative">
+      <button
+        onClick={onToggle}
+        disabled={bumpedOrders.length === 0}
+        className="flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-400 hover:text-white hover:border-gray-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+        Recall ({bumpedOrders.length})
+      </button>
+
+      {isOpen && bumpedOrders.length > 0 && (
+        <div className="absolute bottom-full right-0 mb-2 w-72 rounded-xl border border-gray-700 bg-[#1a1a1a] shadow-2xl z-50 overflow-hidden">
+          <div className="border-b border-gray-700 px-4 py-2.5">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Recently Bumped</p>
+          </div>
+          <div className="max-h-80 overflow-y-auto">
+            {bumpedOrders.map((bo) => {
+              const ago = Math.floor((Date.now() - bo.bumpedAt) / 1000);
+              const agoText = ago < 60 ? `${ago}s ago` : `${Math.floor(ago / 60)}m ago`;
+              return (
+                <button
+                  key={bo.ticket.orderId}
+                  onClick={() => {
+                    onRecall(bo.ticket.orderId);
+                    onToggle();
+                  }}
+                  className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-[#2a2a2a] transition-colors border-b border-gray-800 last:border-b-0"
+                >
+                  <div className="min-w-0">
+                    <span className="text-sm font-bold text-white">#{bo.ticket.orderNumber}</span>
+                    <span className="ml-2 text-xs text-gray-500">
+                      {bo.ticket.items.length} item{bo.ticket.items.length !== 1 ? 's' : ''}
+                    </span>
+                    {bo.ticket.tableId && (
+                      <span className="ml-2 text-xs text-gray-500">Table {bo.ticket.tableId}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-gray-500">{agoText}</span>
+                    <RotateCcw className="h-3.5 w-3.5 text-yellow-400" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main KDS page ────────────────────────────────────────────────────────────
 
 const ORDERS_API = process.env['NEXT_PUBLIC_ORDERS_API_URL'] ?? 'http://localhost:4004';
@@ -272,6 +366,9 @@ export default function KDSPage() {
   const [tickets, setTickets] = useState<KdsTicket[]>([]);
   const [connected, setConnected] = useState(false);
   const [bumpError, setBumpError] = useState(false);
+  const [bumpedOrders, setBumpedOrders] = useState<BumpedOrder[]>([]);
+  const [undoToast, setUndoToast] = useState<{ orderId: string; orderNumber: string } | null>(null);
+  const [recallOpen, setRecallOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryDelay = useRef(1000);
@@ -345,7 +442,11 @@ export default function KDSPage() {
           status: 'new',
           elapsedSeconds: Math.max(0, Math.floor((now - new Date(o.createdAt).getTime()) / 1000)),
         };
-        setTickets((prev) => [ticket, ...prev]);
+        setTickets((prev) => {
+          // Deduplicate: skip if this order is already in the queue (e.g. recall restored it locally before WS broadcast)
+          if (prev.some((t) => t.orderId === ticket.orderId)) return prev;
+          return [ticket, ...prev];
+        });
       } else if (msg.type === 'order_bumped') {
         setTickets((prev) => prev.filter((t) => t.orderId !== msg.orderId));
       }
@@ -382,12 +483,16 @@ export default function KDSPage() {
     });
 
     try {
-      // Route through the local Next.js proxy so INTERNAL_SECRET is never
-      // exposed to the browser. The proxy adds the header server-side and
-      // forwards the request to the orders service.
       const res = await fetch(`/api/bump/${encodeURIComponent(orderId)}`, { method: 'POST' });
       if (!res.ok) {
         throw new Error(`Bump returned ${res.status}`);
+      }
+
+      // On success, save to bumped orders list (keep last 10)
+      if (removedTicket) {
+        const bumped: BumpedOrder = { ticket: removedTicket, bumpedAt: Date.now() };
+        setBumpedOrders((prev) => [bumped, ...prev].slice(0, 10));
+        setUndoToast({ orderId: removedTicket.orderId, orderNumber: removedTicket.orderNumber });
       }
     } catch {
       // Restore the ticket so it is not silently lost, and notify the operator
@@ -397,6 +502,41 @@ export default function KDSPage() {
       setBumpError(true);
     }
   }, []);
+
+  const handleRecall = useCallback(async (orderId: string) => {
+    const entry = bumpedOrders.find((bo) => bo.ticket.orderId === orderId);
+    if (!entry) return;
+
+    // Immediately restore the ticket to the active queue
+    setTickets((prev) => {
+      // Avoid duplicates if the WS re-broadcast arrives before state update
+      if (prev.some((t) => t.orderId === orderId)) return prev;
+      const restored: KdsTicket = {
+        ...entry.ticket,
+        status: 'new',
+        elapsedSeconds: Math.max(0, Math.floor((Date.now() - new Date(entry.ticket.createdAt).getTime()) / 1000)),
+      };
+      return [restored, ...prev];
+    });
+    setBumpedOrders((prev) => prev.filter((bo) => bo.ticket.orderId !== orderId));
+    setUndoToast(null);
+
+    try {
+      const res = await fetch(`/api/recall/${encodeURIComponent(orderId)}`, { method: 'POST' });
+      if (!res.ok) {
+        throw new Error(`Recall returned ${res.status}`);
+      }
+    } catch {
+      // If the API call fails, the order is still visually restored.
+      // The server-side broadcast will correct all KDS clients eventually.
+      // We don't remove it from the active queue to avoid confusion.
+    }
+  }, [bumpedOrders]);
+
+  const handleUndoLastBump = useCallback(() => {
+    if (!undoToast) return;
+    handleRecall(undoToast.orderId);
+  }, [undoToast, handleRecall]);
 
   if (!locationId) {
     return (
@@ -451,8 +591,25 @@ export default function KDSPage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <StatsBar tickets={tickets} />
+      {/* Stats + Recall */}
+      <div className="flex items-center justify-between border-b border-[#2a2a2a] bg-[#111] px-6 py-2 text-sm text-gray-400">
+        <div className="flex items-center gap-6">
+          {tickets.length > 0 && (
+            <>
+              <span className="font-semibold text-white">{tickets.length} ticket{tickets.length !== 1 ? 's' : ''}</span>
+              <span>Avg: <strong className="text-yellow-400">{Math.floor(tickets.reduce((s, t) => s + Math.max(0, t.elapsedSeconds), 0) / tickets.length / 60)}min</strong></span>
+              <span>Longest: <strong className="text-red-400">{Math.floor(Math.max(...tickets.map((t) => Math.max(0, t.elapsedSeconds))) / 60)}min</strong></span>
+            </>
+          )}
+          {tickets.length === 0 && <span className="text-gray-600">No active tickets</span>}
+        </div>
+        <RecallPanel
+          bumpedOrders={bumpedOrders}
+          onRecall={handleRecall}
+          isOpen={recallOpen}
+          onToggle={() => setRecallOpen((p) => !p)}
+        />
+      </div>
 
       {/* Board */}
       {tickets.length === 0 ? (
@@ -469,6 +626,15 @@ export default function KDSPage() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Undo bump toast */}
+      {undoToast && (
+        <UndoBumpToast
+          orderNumber={undoToast.orderNumber}
+          onUndo={handleUndoLastBump}
+          onDismiss={() => setUndoToast(null)}
+        />
       )}
 
       {/* Bump error toast */}

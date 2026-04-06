@@ -8,6 +8,9 @@ interface Employee {
   orgId: string;
 }
 
+/** Minutes value or 0 for "Never" */
+export type AutoLogoutMinutes = 5 | 10 | 15 | 30 | 60 | 0;
+
 interface AuthState {
   token: string | null;
   employee: Employee | null;
@@ -15,6 +18,8 @@ interface AuthState {
   /** @deprecated use token instead */
   accessToken: string | null;
   isAuthenticated: boolean;
+  /** Auto-logout after N minutes of inactivity. 0 = never. */
+  autoLogoutMinutes: AutoLogoutMinutes;
 }
 
 interface AuthActions {
@@ -24,12 +29,14 @@ interface AuthActions {
   login: (employee: Employee, token: string) => void;
   /** @deprecated use clearAuth instead */
   logout: () => void;
+  setAutoLogoutMinutes: (minutes: AutoLogoutMinutes) => void;
   _hydrate: () => Promise<void>;
 }
 
 type AuthStore = AuthState & AuthActions;
 
 const STORAGE_KEY = 'elevatedpos_auth';
+const SETTINGS_KEY = 'elevatedpos_settings';
 
 export const useAuthStore = create<AuthStore>((set) => ({
   token: null,
@@ -37,6 +44,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
   org: null,
   accessToken: null,
   isAuthenticated: false,
+  autoLogoutMinutes: 15,
 
   setAuth: async ({ token, employee, org }) => {
     set({ token, accessToken: token, employee, org: org ?? null, isAuthenticated: true });
@@ -64,21 +72,43 @@ export const useAuthStore = create<AuthStore>((set) => ({
     AsyncStorage.removeItem(STORAGE_KEY).catch(() => undefined);
   },
 
+  setAutoLogoutMinutes: (minutes) => {
+    set({ autoLogoutMinutes: minutes });
+    AsyncStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ autoLogoutMinutes: minutes }),
+    ).catch(() => undefined);
+  },
+
   _hydrate: async () => {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const { token, employee, org } = JSON.parse(raw) as {
-        token: string;
-        employee: Employee;
-        org: string | null;
-      };
-      if (token && employee) {
-        set({ token, accessToken: token, employee, org: org ?? null, isAuthenticated: true });
+      if (raw) {
+        const { token, employee, org } = JSON.parse(raw) as {
+          token: string;
+          employee: Employee;
+          org: string | null;
+        };
+        if (token && employee) {
+          set({ token, accessToken: token, employee, org: org ?? null, isAuthenticated: true });
+        }
       }
     } catch {
       // Corrupted storage — clear it and leave unauthenticated
       await AsyncStorage.removeItem(STORAGE_KEY).catch(() => undefined);
+    }
+
+    // Hydrate settings
+    try {
+      const settingsRaw = await AsyncStorage.getItem(SETTINGS_KEY);
+      if (settingsRaw) {
+        const settings = JSON.parse(settingsRaw) as { autoLogoutMinutes?: AutoLogoutMinutes };
+        if (settings.autoLogoutMinutes !== undefined) {
+          set({ autoLogoutMinutes: settings.autoLogoutMinutes });
+        }
+      }
+    } catch {
+      // Ignore corrupted settings
     }
   },
 }));

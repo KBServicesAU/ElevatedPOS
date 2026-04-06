@@ -8,10 +8,12 @@ import {
   SafeAreaView,
   Alert,
   Switch,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/auth';
+import type { AutoLogoutMinutes } from '../../store/auth';
 
 interface MenuRow {
   id: string;
@@ -140,6 +142,15 @@ const SECTIONS: Section[] = [
         label: 'Auto-print Receipts',
         toggle: true,
       },
+      {
+        id: 'autologout',
+        icon: 'timer-outline',
+        iconColor: '#f59e0b',
+        iconBg: '#451a03',
+        label: 'Auto-Logout Timer',
+        sublabel: 'Lock screen after inactivity',
+        chevron: true,
+      },
     ],
   },
   {
@@ -157,13 +168,32 @@ const SECTIONS: Section[] = [
   },
 ];
 
+// ─── Auto-logout timeout options ─────────────────────────────────────────────
+
+const AUTO_LOGOUT_OPTIONS: { label: string; value: AutoLogoutMinutes }[] = [
+  { label: '5 minutes', value: 5 },
+  { label: '10 minutes', value: 10 },
+  { label: '15 minutes', value: 15 },
+  { label: '30 minutes', value: 30 },
+  { label: '60 minutes', value: 60 },
+  { label: 'Never', value: 0 },
+];
+
+function formatAutoLogout(minutes: AutoLogoutMinutes): string {
+  if (minutes === 0) return 'Never';
+  return `${minutes} min`;
+}
+
 export default function MoreScreen() {
   const router = useRouter();
   const employee = useAuthStore((s) => s.employee);
   const logout = useAuthStore((s) => s.logout);
+  const autoLogoutMinutes = useAuthStore((s) => s.autoLogoutMinutes);
+  const setAutoLogoutMinutes = useAuthStore((s) => s.setAutoLogoutMinutes);
 
   const [sound, setSound] = useState(true);
   const [autoReceipt, setAutoReceipt] = useState(false);
+  const [autoLogoutModalVisible, setAutoLogoutModalVisible] = useState(false);
 
   const displayName = employee?.name ?? 'Staff';
   const displayRole =
@@ -210,6 +240,9 @@ export default function MoreScreen() {
       case 'discounts':
         // TODO: Implement discount management screen
         Alert.alert('Coming Soon', 'Discount and promotion management will be available in a future update.');
+        break;
+      case 'autologout':
+        setAutoLogoutModalVisible(true);
         break;
       case 'signout':
         Alert.alert('Sign Out', `Sign out as ${displayName}?`, [
@@ -261,7 +294,9 @@ export default function MoreScreen() {
             <Text style={styles.sectionTitle}>{section.title}</Text>
             <View style={styles.sectionCard}>
               {section.rows.map((row, index) => {
-                const sublabel = row.sublabel;
+                const sublabel = row.id === 'autologout'
+                  ? `Lock after ${formatAutoLogout(autoLogoutMinutes)}`
+                  : row.sublabel;
                 return (
                   <View key={row.id}>
                     <TouchableOpacity
@@ -301,6 +336,53 @@ export default function MoreScreen() {
 
         <Text style={styles.version}>ElevatedPOS v1.0.0 · Terminal 1</Text>
       </ScrollView>
+
+      {/* Auto-Logout Timer Modal */}
+      <Modal
+        visible={autoLogoutModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAutoLogoutModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Auto-Logout Timer</Text>
+              <TouchableOpacity onPress={() => setAutoLogoutModalVisible(false)}>
+                <Ionicons name="close" size={22} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalDescription}>
+              Automatically lock the terminal after a period of inactivity.
+            </Text>
+            {AUTO_LOGOUT_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.modalOption,
+                  autoLogoutMinutes === option.value && styles.modalOptionActive,
+                ]}
+                onPress={() => {
+                  setAutoLogoutMinutes(option.value);
+                  setAutoLogoutModalVisible(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.modalOptionText,
+                    autoLogoutMinutes === option.value && styles.modalOptionTextActive,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+                {autoLogoutMinutes === option.value && (
+                  <Ionicons name="checkmark" size={18} color="#818cf8" />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -388,4 +470,43 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 8,
   },
+
+  // ── Auto-logout modal ────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#1e1e2e',
+    borderRadius: 16,
+    padding: 20,
+    width: '80%',
+    maxWidth: 380,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  modalTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  modalDescription: { color: '#6b7280', fontSize: 13, marginBottom: 16 },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 4,
+  },
+  modalOptionActive: {
+    backgroundColor: '#2a2a3a',
+  },
+  modalOptionText: { color: '#d1d5db', fontSize: 15 },
+  modalOptionTextActive: { color: '#818cf8', fontWeight: '600' },
 });
