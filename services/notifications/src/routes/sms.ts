@@ -17,7 +17,7 @@ export async function smsRoutes(app: FastifyInstance) {
     const parsed = smsSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,

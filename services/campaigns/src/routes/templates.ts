@@ -38,7 +38,7 @@ export async function templateRoutes(app: FastifyInstance) {
     const parsed = createTemplateSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -47,7 +47,7 @@ export async function templateRoutes(app: FastifyInstance) {
     const { channel, ...rest } = parsed.data;
     if (channel === 'email' && !rest.subject) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: 'subject is required for email templates',
@@ -92,7 +92,7 @@ export async function templateRoutes(app: FastifyInstance) {
     });
     if (!template) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Template ${id} not found`,
@@ -115,7 +115,7 @@ export async function templateRoutes(app: FastifyInstance) {
     });
     if (!template) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Template ${id} not found`,
@@ -125,7 +125,7 @@ export async function templateRoutes(app: FastifyInstance) {
     const parsed = previewSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -161,7 +161,7 @@ export async function templateRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Template ${id} not found`,
@@ -171,7 +171,7 @@ export async function templateRoutes(app: FastifyInstance) {
     const parsed = updateTemplateSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -207,7 +207,7 @@ export async function templateRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Template ${id} not found`,

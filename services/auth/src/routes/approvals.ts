@@ -25,7 +25,7 @@ export async function approvalRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -80,7 +80,7 @@ export async function approvalRoutes(app: FastifyInstance) {
 
     if (!approval) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -100,7 +100,7 @@ export async function approvalRoutes(app: FastifyInstance) {
 
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -108,7 +108,7 @@ export async function approvalRoutes(app: FastifyInstance) {
 
     if (existing.status !== 'pending') {
       return reply.status(409).send({
-        type: 'https://nexus.app/errors/conflict',
+        type: 'https://elevatedpos.com/errors/conflict',
         title: 'Approval already resolved',
         status: 409,
       });
@@ -118,7 +118,7 @@ export async function approvalRoutes(app: FastifyInstance) {
 
     if (existing.expiresAt < now) {
       return reply.status(410).send({
-        type: 'https://nexus.app/errors/expired',
+        type: 'https://elevatedpos.com/errors/expired',
         title: 'Approval request has expired',
         status: 410,
       });
@@ -141,7 +141,7 @@ export async function approvalRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -154,7 +154,7 @@ export async function approvalRoutes(app: FastifyInstance) {
 
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -162,7 +162,7 @@ export async function approvalRoutes(app: FastifyInstance) {
 
     if (existing.status !== 'pending') {
       return reply.status(409).send({
-        type: 'https://nexus.app/errors/conflict',
+        type: 'https://elevatedpos.com/errors/conflict',
         title: 'Approval already resolved',
         status: 409,
       });

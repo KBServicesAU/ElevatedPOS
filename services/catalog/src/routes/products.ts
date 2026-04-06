@@ -203,7 +203,7 @@ export async function productRoutes(app: FastifyInstance) {
   app.post('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const body = createProductSchema.safeParse(request.body);
-    if (!body.success) return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    if (!body.success) return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
 
     const {
       description: rawDescription,
@@ -262,7 +262,7 @@ export async function productRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
     const body = createProductSchema.partial().safeParse(request.body);
-    if (!body.success) return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422 });
+    if (!body.success) return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422 });
 
     const existing = await db.query.products.findFirst({ where: and(eq(schema.products.id, id), eq(schema.products.orgId, orgId)) });
     if (!existing) return reply.status(404).send({ title: 'Not Found', status: 404 });
@@ -343,7 +343,7 @@ export async function productRoutes(app: FastifyInstance) {
       restoreAt: z.string().datetime({ offset: true }).optional(),
     });
     const body = bodySchema.safeParse(request.body);
-    if (!body.success) return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    if (!body.success) return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
 
     const existing = await db.query.products.findFirst({ where: and(eq(schema.products.id, id), eq(schema.products.orgId, orgId)) });
     if (!existing) return reply.status(404).send({ title: 'Not Found', status: 404 });

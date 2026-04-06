@@ -27,7 +27,7 @@ export type { OrderLine };
 export interface NexusClientConfig {
   /** API key for server-side access. Sent as `X-Nexus-Api-Key` header. */
   apiKey: string;
-  /** Defaults to https://api.nexus.app */
+  /** Defaults to https://api.elevatedpos.com.au */
   baseUrl?: string;
   /** Request timeout in milliseconds. Defaults to 30 000. */
   timeout?: number;
@@ -55,7 +55,7 @@ export class NexusClient {
 
   constructor(config: NexusClientConfig) {
     this.apiKey = config.apiKey;
-    this.baseUrl = (config.baseUrl ?? 'https://api.nexus.app').replace(/\/$/, '');
+    this.baseUrl = (config.baseUrl ?? 'https://api.elevatedpos.com.au').replace(/\/$/, '');
     this.timeout = config.timeout ?? 30_000;
   }
 

@@ -45,7 +45,7 @@ export async function supplierRoutes(app: FastifyInstance) {
     const body = supplierSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -79,7 +79,7 @@ export async function supplierRoutes(app: FastifyInstance) {
 
     if (!supplier) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -95,7 +95,7 @@ export async function supplierRoutes(app: FastifyInstance) {
     const body = supplierSchema.partial().safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -123,7 +123,7 @@ export async function supplierRoutes(app: FastifyInstance) {
 
     if (!updated) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -151,7 +151,7 @@ export async function supplierRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -164,7 +164,7 @@ export async function supplierRoutes(app: FastifyInstance) {
 
     if (!supplier) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -197,7 +197,7 @@ export async function supplierRoutes(app: FastifyInstance) {
 
     if (!supplier) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -250,7 +250,7 @@ export async function supplierRoutes(app: FastifyInstance) {
 
     if (!supplier) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });

@@ -49,7 +49,7 @@ async function start() {
         await request.jwtVerify();
       } catch {
         return reply.status(401).send({
-          type: 'https://nexus.app/errors/unauthorized',
+          type: 'https://elevatedpos.com/errors/unauthorized',
           title: 'Unauthorized',
           status: 401,
         });

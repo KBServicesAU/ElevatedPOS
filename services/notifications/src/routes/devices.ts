@@ -20,7 +20,7 @@ export async function deviceRoutes(app: FastifyInstance) {
     const parsed = registerDeviceSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -72,7 +72,7 @@ export async function deviceRoutes(app: FastifyInstance) {
 
     if (result.length === 0) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Device token not found',
         status: 404,
       });

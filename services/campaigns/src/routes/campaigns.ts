@@ -41,7 +41,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     const parsed = createCampaignSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -73,7 +73,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     });
     if (!campaign) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Campaign ${id} not found`,
@@ -92,7 +92,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Campaign ${id} not found`,
@@ -100,7 +100,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
     if (!EDITABLE_STATUSES.includes(existing.status as typeof EDITABLE_STATUSES[number])) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/invalid-state',
+        type: 'https://elevatedpos.com/errors/invalid-state',
         title: 'Invalid State',
         status: 422,
         detail: `Cannot edit a campaign with status '${existing.status}'`,
@@ -110,7 +110,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     const parsed = createCampaignSchema.partial().safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -142,7 +142,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Campaign ${id} not found`,
@@ -150,7 +150,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
     if (!EDITABLE_STATUSES.includes(existing.status as typeof EDITABLE_STATUSES[number])) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/invalid-state',
+        type: 'https://elevatedpos.com/errors/invalid-state',
         title: 'Invalid State',
         status: 422,
         detail: `Cannot launch a campaign with status '${existing.status}'`,
@@ -175,7 +175,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Campaign ${id} not found`,
@@ -183,7 +183,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
     if (existing.status === 'completed' || existing.status === 'cancelled') {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/invalid-state',
+        type: 'https://elevatedpos.com/errors/invalid-state',
         title: 'Invalid State',
         status: 422,
         detail: `Cannot cancel a campaign with status '${existing.status}'`,

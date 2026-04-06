@@ -30,7 +30,7 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const body = clickAndCollectSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const order = await db.query.orders.findFirst({
@@ -81,7 +81,7 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const body = assignSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const existing = await db.query.fulfillmentRequests.findFirst({
@@ -107,7 +107,7 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const body = createFulfillmentSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     // Verify the order belongs to this org

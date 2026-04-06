@@ -22,7 +22,7 @@ export async function policyRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${groupId} not found`,
@@ -43,7 +43,7 @@ export async function policyRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${groupId} not found`,
@@ -52,7 +52,7 @@ export async function policyRoutes(app: FastifyInstance) {
     const parsed = createPolicySchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -82,7 +82,7 @@ export async function policyRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${groupId} not found`,
@@ -93,7 +93,7 @@ export async function policyRoutes(app: FastifyInstance) {
     });
     if (!policy) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Policy ${id} not found`,
@@ -111,7 +111,7 @@ export async function policyRoutes(app: FastifyInstance) {
     const q = request.query as { groupId?: string; fieldPath?: string };
     if (!q.groupId || !q.fieldPath) {
       return reply.status(400).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Bad Request',
         status: 400,
         detail: 'groupId and fieldPath query params are required',
@@ -122,7 +122,7 @@ export async function policyRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${q.groupId} not found`,

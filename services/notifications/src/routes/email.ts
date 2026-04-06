@@ -164,7 +164,7 @@ export async function emailRoutes(app: FastifyInstance) {
     const parsed = emailSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -193,7 +193,7 @@ export async function emailRoutes(app: FastifyInstance) {
 
     if (!result.success) {
       return reply.status(502).send({
-        type: 'https://nexus.app/errors/smtp-failure',
+        type: 'https://elevatedpos.com/errors/smtp-failure',
         title: 'Email Send Failed',
         status: 502,
         detail: result.error ?? 'SMTP send failed',

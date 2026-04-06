@@ -34,7 +34,7 @@ export async function segmentRoutes(app: FastifyInstance) {
     const parsed = createSegmentSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -70,7 +70,7 @@ export async function segmentRoutes(app: FastifyInstance) {
     });
     if (!segment) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Segment ${id} not found`,
@@ -89,7 +89,7 @@ export async function segmentRoutes(app: FastifyInstance) {
     });
     if (!segment) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Segment ${id} not found`,
@@ -116,7 +116,7 @@ export async function segmentRoutes(app: FastifyInstance) {
     });
     if (!segment) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Segment ${id} not found`,
@@ -145,7 +145,7 @@ export async function segmentRoutes(app: FastifyInstance) {
     const parsed = createSegmentSchema.partial().safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -156,7 +156,7 @@ export async function segmentRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Segment ${id} not found`,

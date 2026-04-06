@@ -49,7 +49,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     const body = createWebhookSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const secret = generateSecret();
@@ -87,7 +87,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     const body = createWebhookSchema.partial().safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const existing = await db.query.webhooks.findFirst({
@@ -120,7 +120,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     const body = createWebhookSchema.partial().safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const existing = await db.query.webhooks.findFirst({

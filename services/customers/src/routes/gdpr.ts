@@ -17,7 +17,7 @@ export async function gdprRoutes(app: FastifyInstance) {
 
     if (!customer) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Customer ${id} not found`,
@@ -120,7 +120,7 @@ export async function gdprRoutes(app: FastifyInstance) {
     const isAuthorised = role === 'admin' || role === 'owner';
     if (!isAuthorised) {
       return reply.status(403).send({
-        type: 'https://nexus.app/errors/forbidden',
+        type: 'https://elevatedpos.com/errors/forbidden',
         title: 'Forbidden',
         status: 403,
         detail: 'Only admin or owner roles can perform GDPR erasure requests',
@@ -133,7 +133,7 @@ export async function gdprRoutes(app: FastifyInstance) {
 
     if (!customer) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Customer ${id} not found`,
@@ -142,7 +142,7 @@ export async function gdprRoutes(app: FastifyInstance) {
 
     if (customer.gdprDeleted) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/conflict',
+        type: 'https://elevatedpos.com/errors/conflict',
         title: 'Already Erased',
         status: 422,
         detail: `Customer ${id} has already been anonymised`,
@@ -218,7 +218,7 @@ export async function gdprRoutes(app: FastifyInstance) {
     const isAuthorised = role === 'admin' || role === 'owner' || role === 'manager';
     if (!isAuthorised) {
       return reply.status(403).send({
-        type: 'https://nexus.app/errors/forbidden',
+        type: 'https://elevatedpos.com/errors/forbidden',
         title: 'Forbidden',
         status: 403,
         detail: 'Only admin, owner or manager roles can view GDPR requests',

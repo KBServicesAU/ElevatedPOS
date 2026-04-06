@@ -40,7 +40,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
     const parsed = createGroupSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -72,7 +72,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${id} not found`,
@@ -91,7 +91,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
     const parsed = createGroupSchema.partial().safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -102,7 +102,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${id} not found`,
@@ -132,7 +132,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${id} not found`,
@@ -153,7 +153,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${id} not found`,
@@ -162,7 +162,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
     const parsed = addLocationSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -191,7 +191,7 @@ export async function franchiseRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${id} not found`,

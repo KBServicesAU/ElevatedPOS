@@ -77,7 +77,7 @@ export async function bnplRoutes(app: FastifyInstance) {
     const body = initiateSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -116,7 +116,7 @@ export async function bnplRoutes(app: FastifyInstance) {
     const body = confirmSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -169,7 +169,7 @@ export async function bnplRoutes(app: FastifyInstance) {
     const body = refundSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,

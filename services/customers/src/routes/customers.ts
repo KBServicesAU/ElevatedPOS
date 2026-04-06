@@ -59,7 +59,7 @@ export async function customerRoutes(app: FastifyInstance) {
   app.post('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const body = createCustomerSchema.safeParse(request.body);
-    if (!body.success) return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    if (!body.success) return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
 
     const { firstName, lastName, email, phone, dob, company, abn, tags, marketingOptIn, notes: bodyNotes, source, dietaryPreferences, allergenAlerts } = body.data;
     const data = {

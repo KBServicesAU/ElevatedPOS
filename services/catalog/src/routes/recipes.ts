@@ -33,7 +33,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const body = createRecipeSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const { ingredients, ...recipeData } = body.data;
@@ -125,7 +125,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     const updateSchema = createRecipeSchema.partial();
     const body = updateSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const existing = await db.query.recipes.findFirst({
@@ -252,7 +252,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const body = createIngredientSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const [created] = await db
@@ -277,7 +277,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = updateIngredientSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const existing = await db.query.ingredients.findFirst({
@@ -350,7 +350,7 @@ export async function recipeRoutes(app: FastifyInstance) {
 
     const body = bodySchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const product = await db.query.products.findFirst({
@@ -405,7 +405,7 @@ export async function recipeRoutes(app: FastifyInstance) {
 
     const body = bodySchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     let deducted = 0;

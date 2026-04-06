@@ -40,7 +40,7 @@ export async function crmRoutes(app: FastifyInstance) {
       .safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -52,7 +52,7 @@ export async function crmRoutes(app: FastifyInstance) {
     });
     if (!customer) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Customer ${id} not found`,
@@ -84,7 +84,7 @@ export async function crmRoutes(app: FastifyInstance) {
     });
     if (!customer) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Customer ${id} not found`,
@@ -126,7 +126,7 @@ export async function crmRoutes(app: FastifyInstance) {
     });
     if (!note) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Note ${noteId} not found`,
@@ -138,7 +138,7 @@ export async function crmRoutes(app: FastifyInstance) {
 
     if (!isManager && !isOwner) {
       return reply.status(403).send({
-        type: 'https://nexus.app/errors/forbidden',
+        type: 'https://elevatedpos.com/errors/forbidden',
         title: 'Forbidden',
         status: 403,
         detail: 'You can only delete your own notes',
@@ -165,7 +165,7 @@ export async function crmRoutes(app: FastifyInstance) {
     });
     if (!customer) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Customer ${id} not found`,
@@ -282,7 +282,7 @@ export async function crmRoutes(app: FastifyInstance) {
       .safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -293,7 +293,7 @@ export async function crmRoutes(app: FastifyInstance) {
 
     if (keepId === mergeId) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: 'keepId and mergeId must be different customers',
@@ -311,7 +311,7 @@ export async function crmRoutes(app: FastifyInstance) {
 
     if (!keepCustomer) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Customer ${keepId} not found`,
@@ -319,7 +319,7 @@ export async function crmRoutes(app: FastifyInstance) {
     }
     if (!mergeCustomer) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Customer ${mergeId} not found`,
@@ -327,7 +327,7 @@ export async function crmRoutes(app: FastifyInstance) {
     }
     if (mergeCustomer.mergedIntoId !== null) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: `Customer ${mergeId} has already been merged`,

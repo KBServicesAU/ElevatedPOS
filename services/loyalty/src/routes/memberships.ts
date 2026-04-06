@@ -55,7 +55,7 @@ function addBillingPeriod(from: Date, cycle: 'monthly' | 'annual' | 'one_time'):
 
 function sendValidationError(reply: FastifyReply, detail: string) {
   return reply.status(422).send({
-    type: 'https://nexus.app/errors/validation',
+    type: 'https://elevatedpos.com/errors/validation',
     title: 'Validation Error',
     status: 422,
     detail,
@@ -64,7 +64,7 @@ function sendValidationError(reply: FastifyReply, detail: string) {
 
 function sendNotFound(reply: FastifyReply, detail: string) {
   return reply.status(404).send({
-    type: 'https://nexus.app/errors/not-found',
+    type: 'https://elevatedpos.com/errors/not-found',
     title: 'Not Found',
     status: 404,
     detail,

@@ -58,7 +58,7 @@ export async function paymentRoutes(app: FastifyInstance) {
   app.post('/initiate', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const body = initiateSchema.safeParse(request.body);
-    if (!body.success) return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    if (!body.success) return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
 
     const { acquirer, ...paymentData } = body.data;
 
@@ -115,7 +115,7 @@ export async function paymentRoutes(app: FastifyInstance) {
 
       if (!result.success) {
         return reply.status(402).send({
-          type: 'https://nexus.app/errors/payment-declined',
+          type: 'https://elevatedpos.com/errors/payment-declined',
           title: 'Payment Declined',
           status: 402,
           detail: result.errorMessage ?? 'Payment was declined by the acquirer.',

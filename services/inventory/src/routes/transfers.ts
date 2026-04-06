@@ -64,7 +64,7 @@ export async function transferRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -121,7 +121,7 @@ export async function transferRoutes(app: FastifyInstance) {
 
     if (!transfer) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -141,7 +141,7 @@ export async function transferRoutes(app: FastifyInstance) {
 
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -149,7 +149,7 @@ export async function transferRoutes(app: FastifyInstance) {
 
     if (!['requested', 'approved'].includes(existing.status)) {
       return reply.status(409).send({
-        type: 'https://nexus.app/errors/conflict',
+        type: 'https://elevatedpos.com/errors/conflict',
         title: 'Transfer cannot be sent in its current status',
         status: 409,
         detail: `Current status: ${existing.status}`,
@@ -178,7 +178,7 @@ export async function transferRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -192,7 +192,7 @@ export async function transferRoutes(app: FastifyInstance) {
 
     if (!transfer) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -200,7 +200,7 @@ export async function transferRoutes(app: FastifyInstance) {
 
     if (transfer.status !== 'dispatched') {
       return reply.status(409).send({
-        type: 'https://nexus.app/errors/conflict',
+        type: 'https://elevatedpos.com/errors/conflict',
         title: 'Transfer must be dispatched before receiving',
         status: 409,
         detail: `Current status: ${transfer.status}`,
@@ -279,7 +279,7 @@ export async function transferRoutes(app: FastifyInstance) {
 
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -287,7 +287,7 @@ export async function transferRoutes(app: FastifyInstance) {
 
     if (!['requested', 'approved'].includes(existing.status)) {
       return reply.status(409).send({
-        type: 'https://nexus.app/errors/conflict',
+        type: 'https://elevatedpos.com/errors/conflict',
         title: 'Only requested or approved transfers can be cancelled',
         status: 409,
         detail: `Current status: ${existing.status}`,

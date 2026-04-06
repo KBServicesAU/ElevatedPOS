@@ -47,7 +47,7 @@ export async function accountRoutes(app: FastifyInstance) {
       .safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -62,7 +62,7 @@ export async function accountRoutes(app: FastifyInstance) {
     });
     if (!program) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: 'Loyalty program not found',
@@ -78,7 +78,7 @@ export async function accountRoutes(app: FastifyInstance) {
     });
     if (existing) {
       return reply.status(409).send({
-        type: 'https://nexus.app/errors/conflict',
+        type: 'https://elevatedpos.com/errors/conflict',
         title: 'Conflict',
         status: 409,
         detail: 'Customer already has an account in this program',
@@ -103,7 +103,7 @@ export async function accountRoutes(app: FastifyInstance) {
     });
     if (!account) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Account ${accountId} not found`,
@@ -144,7 +144,7 @@ export async function accountRoutes(app: FastifyInstance) {
       .safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -167,7 +167,7 @@ export async function accountRoutes(app: FastifyInstance) {
     });
     if (!account) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Account ${accountId} not found`,
@@ -265,7 +265,7 @@ export async function accountRoutes(app: FastifyInstance) {
       .safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -288,7 +288,7 @@ export async function accountRoutes(app: FastifyInstance) {
     });
     if (!account) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Account ${accountId} not found`,
@@ -297,7 +297,7 @@ export async function accountRoutes(app: FastifyInstance) {
 
     if (account.points < parsed.data.points) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/insufficient-points',
+        type: 'https://elevatedpos.com/errors/insufficient-points',
         title: 'Insufficient Points',
         status: 422,
         detail: `Account has ${account.points} points, cannot redeem ${parsed.data.points}`,
@@ -336,7 +336,7 @@ export async function accountRoutes(app: FastifyInstance) {
     });
     if (!account) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Account ${accountId} not found`,

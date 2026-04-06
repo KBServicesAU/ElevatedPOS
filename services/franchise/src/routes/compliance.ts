@@ -17,7 +17,7 @@ export async function complianceRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${groupId} not found`,
@@ -81,7 +81,7 @@ export async function complianceRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${groupId} not found`,
@@ -109,7 +109,7 @@ export async function complianceRoutes(app: FastifyInstance) {
     });
     if (!group) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Franchise group ${groupId} not found`,

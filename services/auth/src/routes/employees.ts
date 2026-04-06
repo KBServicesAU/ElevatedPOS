@@ -72,7 +72,7 @@ export async function employeeRoutes(app: FastifyInstance) {
     });
 
     if (!employee) {
-      return reply.status(404).send({ type: 'https://nexus.app/errors/not-found', title: 'Not Found', status: 404 });
+      return reply.status(404).send({ type: 'https://elevatedpos.com/errors/not-found', title: 'Not Found', status: 404 });
     }
 
     return reply.status(200).send({ data: employee });
@@ -85,7 +85,7 @@ export async function employeeRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -122,7 +122,7 @@ export async function employeeRoutes(app: FastifyInstance) {
 
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,

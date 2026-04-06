@@ -89,7 +89,7 @@ export async function giftCardRoutes(app: FastifyInstance) {
     const { orgId, sub: employeeId } = request.user as { orgId: string; sub: string };
     const body = issueGiftCardSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     // Generate a unique code (retry on collision)

@@ -76,7 +76,7 @@ async function start() {
       const payload = request.user as { jti?: string };
       if (payload.jti && await isBlacklisted(payload.jti)) {
         return reply.status(401).send({
-          type: 'https://nexus.app/errors/unauthorized',
+          type: 'https://elevatedpos.com/errors/unauthorized',
           title: 'Unauthorized',
           status: 401,
           detail: 'Token has been revoked.',
@@ -84,7 +84,7 @@ async function start() {
       }
     } catch {
       return reply.status(401).send({
-        type: 'https://nexus.app/errors/unauthorized',
+        type: 'https://elevatedpos.com/errors/unauthorized',
         title: 'Unauthorized',
         status: 401,
       });

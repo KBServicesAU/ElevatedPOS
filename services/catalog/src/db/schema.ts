@@ -8,6 +8,9 @@ export const bundleTypeEnum = pgEnum('bundle_type', ['fixed', 'dynamic']);
 export const bundleDiscountTypeEnum = pgEnum('bundle_discount_type', ['none', 'percentage', 'fixed']);
 export const markdownScopeEnum = pgEnum('markdown_scope', ['product', 'category', 'all']);
 export const markdownDiscountTypeEnum = pgEnum('markdown_discount_type', ['percentage', 'fixed']);
+export const promoCodeTypeEnum = pgEnum('promo_code_type', ['percentage', 'fixed', 'free_shipping']);
+export const promoCodeScopeEnum = pgEnum('promo_code_scope', ['order', 'product', 'category']);
+export const promoCodeStatusEnum = pgEnum('promo_code_status', ['active', 'expired', 'disabled']);
 
 export const productTypeEnum = pgEnum('product_type', ['standard', 'variant', 'kit', 'service']);
 
@@ -203,6 +206,32 @@ export const markdowns = pgTable('markdowns', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Promo Codes ───────────────────────────────────────────────────────────────
+
+export const promoCodes = pgTable('promo_codes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  code: varchar('code', { length: 50 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  type: promoCodeTypeEnum('type').notNull().default('percentage'),
+  discountValue: decimal('discount_value', { precision: 12, scale: 4 }).notNull().default('0'),
+  scope: promoCodeScopeEnum('scope').notNull().default('order'),
+  targetId: uuid('target_id'),
+  minOrderValue: decimal('min_order_value', { precision: 12, scale: 4 }),
+  maxUses: integer('max_uses'),
+  usedCount: integer('used_count').notNull().default(0),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  status: promoCodeStatusEnum('status').notNull().default('active'),
+  isFirstTimeOnly: boolean('is_first_time_only').notNull().default(false),
+  createdBy: uuid('created_by').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  uniqueCodePerOrg: unique('promo_code_org_unique').on(table.orgId, table.code),
+}));
 
 // ── Recipes & Ingredient Tracking ─────────────────────────────────────────────
 

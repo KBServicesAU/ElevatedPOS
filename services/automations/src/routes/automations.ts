@@ -45,7 +45,7 @@ export async function automationRoutes(app: FastifyInstance) {
     const parsed = createRuleSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -65,7 +65,7 @@ export async function automationRoutes(app: FastifyInstance) {
     const parsed = createRuleSchema.partial().safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -76,7 +76,7 @@ export async function automationRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Automation rule ${id} not found`,
@@ -107,7 +107,7 @@ export async function automationRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Automation rule ${id} not found`,
@@ -125,7 +125,7 @@ export async function automationRoutes(app: FastifyInstance) {
     const parsed = triggerEventSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -172,7 +172,7 @@ export async function automationRoutes(app: FastifyInstance) {
     const bodyParsed = triggerDataSchema.safeParse(request.body ?? {});
     if (!bodyParsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: bodyParsed.error.message,
@@ -184,7 +184,7 @@ export async function automationRoutes(app: FastifyInstance) {
     });
     if (!rule) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Automation rule ${id} not found`,
@@ -268,7 +268,7 @@ export async function automationRoutes(app: FastifyInstance) {
     });
     if (!rule) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Automation rule ${id} not found`,

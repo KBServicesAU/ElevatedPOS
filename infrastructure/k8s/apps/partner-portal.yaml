@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partner-portal
+  namespace: elevatedpos
+  labels:
+    app: partner-portal
+    app.kubernetes.io/part-of: elevatedpos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: partner-portal
+  template:
+    metadata:
+      labels:
+        app: partner-portal
+    spec:
+      serviceAccountName: elevatedpos-service
+      containers:
+        - name: partner-portal
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/partner-portal:latest
+          ports:
+            - containerPort: 3020
+          envFrom:
+            - configMapRef:
+                name: elevatedpos-config
+            - secretRef:
+                name: elevatedpos-secrets
+          env:
+            - name: PORT
+              value: "3020"
+            - name: NEXT_TELEMETRY_DISABLED
+              value: "1"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3020
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3020
+            initialDelaySeconds: 20
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: partner-portal
+  namespace: elevatedpos
+spec:
+  selector:
+    app: partner-portal
+  ports:
+    - name: http
+      port: 3020
+      targetPort: 3020
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: partner-portal
+  namespace: elevatedpos
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: partner-portal
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

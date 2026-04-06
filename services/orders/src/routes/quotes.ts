@@ -67,7 +67,7 @@ export async function quoteRoutes(app: FastifyInstance) {
     const { orgId, sub: createdBy } = request.user as { orgId: string; sub: string };
     const body = createQuoteSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const { subtotal, discountTotal, taxTotal, total } = calcTotals(body.data.items, body.data.discountPercent);

@@ -48,7 +48,7 @@ export async function authRoutes(app: FastifyInstance) {
     const body = loginSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -64,7 +64,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (!employee || !employee.passwordHash) {
       return reply.status(401).send({
-        type: 'https://nexus.app/errors/invalid-credentials',
+        type: 'https://elevatedpos.com/errors/invalid-credentials',
         title: 'Invalid Credentials',
         status: 401,
         detail: 'Email or password is incorrect.',
@@ -73,7 +73,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (!employee.isActive) {
       return reply.status(401).send({
-        type: 'https://nexus.app/errors/account-inactive',
+        type: 'https://elevatedpos.com/errors/account-inactive',
         title: 'Account Inactive',
         status: 401,
         detail: 'This account has been deactivated.',
@@ -82,7 +82,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (employee.lockedUntil && employee.lockedUntil > new Date()) {
       return reply.status(429).send({
-        type: 'https://nexus.app/errors/account-locked',
+        type: 'https://elevatedpos.com/errors/account-locked',
         title: 'Account Locked',
         status: 429,
         detail: `Account is locked until ${employee.lockedUntil.toISOString()}.`,
@@ -103,7 +103,7 @@ export async function authRoutes(app: FastifyInstance) {
         .where(eq(schema.employees.id, employee.id));
 
       return reply.status(401).send({
-        type: 'https://nexus.app/errors/invalid-credentials',
+        type: 'https://elevatedpos.com/errors/invalid-credentials',
         title: 'Invalid Credentials',
         status: 401,
         detail: 'Email or password is incorrect.',
@@ -122,7 +122,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (!org || org.planStatus !== 'active') {
       return reply.status(403).send({
-        type: 'https://nexus.app/errors/org-suspended',
+        type: 'https://elevatedpos.com/errors/org-suspended',
         title: 'Organisation Suspended',
         status: 403,
         detail: 'This organisation account is not active.',
@@ -173,7 +173,7 @@ export async function authRoutes(app: FastifyInstance) {
     const body = pinLoginSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -220,7 +220,7 @@ export async function authRoutes(app: FastifyInstance) {
       });
       if (!employee?.pin || !(await verifyPin(pin, employee.pin))) {
         return reply.status(401).send({
-          type: 'https://nexus.app/errors/invalid-pin',
+          type: 'https://elevatedpos.com/errors/invalid-pin',
           title: 'Invalid PIN',
           status: 401,
           detail: 'No employee found with that PIN.',
@@ -245,7 +245,7 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     return reply.status(401).send({
-      type: 'https://nexus.app/errors/invalid-pin',
+      type: 'https://elevatedpos.com/errors/invalid-pin',
       title: 'Invalid PIN',
       status: 401,
       detail: 'No employee found with that PIN.',
@@ -257,7 +257,7 @@ export async function authRoutes(app: FastifyInstance) {
     const body = refreshSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
       });
@@ -271,7 +271,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
       return reply.status(401).send({
-        type: 'https://nexus.app/errors/invalid-refresh-token',
+        type: 'https://elevatedpos.com/errors/invalid-refresh-token',
         title: 'Invalid or Expired Refresh Token',
         status: 401,
       });
@@ -280,7 +280,7 @@ export async function authRoutes(app: FastifyInstance) {
     const { employee } = stored;
     if (!employee.isActive) {
       return reply.status(401).send({
-        type: 'https://nexus.app/errors/account-inactive',
+        type: 'https://elevatedpos.com/errors/account-inactive',
         title: 'Account Inactive',
         status: 401,
       });
@@ -411,7 +411,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/forgot-password', { config: { skipAuth: true } }, async (request, reply) => {
     const body = z.object({ email: z.string().email() }).safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422 });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422 });
     }
 
     const { email } = body.data;
@@ -485,7 +485,7 @@ export async function authRoutes(app: FastifyInstance) {
     }).safeParse(request.body);
 
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const { token, password } = body.data;
@@ -502,7 +502,7 @@ export async function authRoutes(app: FastifyInstance) {
       employee.passwordResetExpiresAt < new Date()
     ) {
       return reply.status(400).send({
-        type: 'https://nexus.app/errors/invalid-token',
+        type: 'https://elevatedpos.com/errors/invalid-token',
         title: 'Invalid or expired reset link',
         status: 400,
       });

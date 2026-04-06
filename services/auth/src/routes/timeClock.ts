@@ -50,7 +50,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -68,7 +68,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (existingShift) {
       return reply.status(409).send({
-        type: 'https://nexus.app/errors/conflict',
+        type: 'https://elevatedpos.com/errors/conflict',
         title: 'Employee already has an open shift',
         status: 409,
       });
@@ -114,7 +114,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -131,7 +131,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!openShift) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'No open shift found',
         status: 404,
       });
@@ -178,7 +178,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -195,7 +195,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!openShift) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'No open shift found',
         status: 404,
       });
@@ -224,7 +224,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -251,7 +251,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!openShift) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'No open shift found',
         status: 404,
       });
@@ -294,7 +294,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!queryResult.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: queryResult.error.message,
@@ -332,7 +332,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!shift) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'No open shift',
         status: 404,
       });
@@ -349,7 +349,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -362,7 +362,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -420,7 +420,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
       });
@@ -428,7 +428,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (existing.status === 'open') {
       return reply.status(409).send({
-        type: 'https://nexus.app/errors/conflict',
+        type: 'https://elevatedpos.com/errors/conflict',
         title: 'Cannot approve an open shift',
         status: 409,
       });
@@ -452,7 +452,7 @@ export async function timeClockRoutes(app: FastifyInstance) {
 
     if (!queryResult.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: queryResult.error.message,

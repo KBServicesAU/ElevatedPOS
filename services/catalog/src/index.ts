@@ -16,6 +16,7 @@ import { recipeRoutes } from './routes/recipes';
 import { wastageRoutes } from './routes/wastage';
 import { searchRoutes } from './routes/search';
 import { variantRoutes } from './routes/variants';
+import { promoCodeRoutes } from './routes/promoCodes';
 import { db, schema } from './db';
 import { initCollections } from './lib/typesense';
 import { registerGraphQL } from './graphql';
@@ -51,7 +52,7 @@ async function start() {
     try {
       await request.jwtVerify();
     } catch {
-      return reply.status(401).send({ type: 'https://nexus.app/errors/unauthorized', title: 'Unauthorized', status: 401 });
+      return reply.status(401).send({ type: 'https://elevatedpos.com/errors/unauthorized', title: 'Unauthorized', status: 401 });
     }
   });
 
@@ -127,6 +128,7 @@ async function start() {
   await app.register(wastageRoutes, { prefix: '/api/v1/wastage' });
   await app.register(searchRoutes, { prefix: '/api/v1/search' });
   await app.register(variantRoutes, { prefix: '/api/v1' });
+  await app.register(promoCodeRoutes, { prefix: '/api/v1/promo-codes' });
 
   await registerGraphQL(app);
 

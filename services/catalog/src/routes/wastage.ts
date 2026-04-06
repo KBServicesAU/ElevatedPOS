@@ -113,7 +113,7 @@ export async function wastageRoutes(app: FastifyInstance) {
     const { orgId, sub: recordedBy } = request.user as { orgId: string; sub: string };
     const body = createWastageSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const [created] = await db.insert(schema.wastageEvents).values({

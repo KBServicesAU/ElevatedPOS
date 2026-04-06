@@ -46,7 +46,7 @@ function extractJSON(text: string): unknown {
 function requireApiKey(reply: import('fastify').FastifyReply): boolean {
   if (!process.env['ANTHROPIC_API_KEY']) {
     void reply.status(503).send({
-      type: 'https://nexus.app/errors/service-unavailable',
+      type: 'https://elevatedpos.com/errors/service-unavailable',
       title: 'AI Not Configured',
       status: 503,
       detail: 'Set ANTHROPIC_API_KEY to enable AI features.',
@@ -208,7 +208,7 @@ async function start() {
         await request.jwtVerify();
       } catch {
         return reply.status(401).send({
-          type: 'https://nexus.app/errors/unauthorized',
+          type: 'https://elevatedpos.com/errors/unauthorized',
           title: 'Unauthorized',
           status: 401,
         });
@@ -221,7 +221,7 @@ async function start() {
     const parsed = querySchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -249,7 +249,7 @@ async function start() {
     const parsed = upsellSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -295,7 +295,7 @@ async function start() {
       const parsed = stockAnomalySchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -335,7 +335,7 @@ async function start() {
       } catch (err) {
         app.log.error(err, 'stock-anomaly Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Analysis Failed',
           status: 500,
           detail: 'Failed to analyze stock anomalies. Please try again.',
@@ -353,7 +353,7 @@ async function start() {
       const parsed = churnRiskSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -392,7 +392,7 @@ async function start() {
       } catch (err) {
         app.log.error(err, 'churn-risk Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Analysis Failed',
           status: 500,
           detail: 'Failed to score churn risk. Please try again.',
@@ -410,7 +410,7 @@ async function start() {
       const parsed = laborOptimizationSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -456,7 +456,7 @@ async function start() {
       } catch (err) {
         app.log.error(err, 'labor-optimization Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Analysis Failed',
           status: 500,
           detail: 'Failed to analyze labor optimization. Please try again.',
@@ -474,7 +474,7 @@ async function start() {
       const parsed = menuEngineeringSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -522,7 +522,7 @@ async function start() {
       } catch (err) {
         app.log.error(err, 'menu-engineering Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Analysis Failed',
           status: 500,
           detail: 'Failed to analyze menu engineering. Please try again.',
@@ -540,7 +540,7 @@ async function start() {
       const parsed = fraudDetectionSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -583,7 +583,7 @@ async function start() {
       } catch (err) {
         app.log.error(err, 'fraud-detection Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Analysis Failed',
           status: 500,
           detail: 'Failed to run fraud detection analysis. Please try again.',
@@ -601,7 +601,7 @@ async function start() {
       const parsed = reorderSuggestionsSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -648,7 +648,7 @@ async function start() {
       } catch (err) {
         app.log.error(err, 'reorder-suggestions Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Analysis Failed',
           status: 500,
           detail: 'Failed to generate reorder suggestions. Please try again.',
@@ -666,7 +666,7 @@ async function start() {
       const parsed = onboardingSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -711,7 +711,7 @@ async function start() {
       } catch (err) {
         app.log.error(err, 'onboarding Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Analysis Failed',
           status: 500,
           detail: 'Failed to generate onboarding guidance. Please try again.',
@@ -726,7 +726,7 @@ async function start() {
     const parsed = supportSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -766,7 +766,7 @@ async function start() {
     } catch (err) {
       app.log.error(err, 'support Claude call failed');
       return reply.status(500).send({
-        type: 'https://nexus.app/errors/ai-failure',
+        type: 'https://elevatedpos.com/errors/ai-failure',
         title: 'AI Analysis Failed',
         status: 500,
         detail: 'Failed to generate support response. Please try again.',

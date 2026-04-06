@@ -30,7 +30,7 @@ export async function serialTrackingRoutes(app: FastifyInstance) {
     const body = receiveSerialSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -113,7 +113,7 @@ export async function serialTrackingRoutes(app: FastifyInstance) {
     const body = sellSerialSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,
@@ -152,7 +152,7 @@ export async function serialTrackingRoutes(app: FastifyInstance) {
     const body = returnSerialSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: body.error.message,

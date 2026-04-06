@@ -191,7 +191,7 @@ export async function connectorRoutes(app: FastifyInstance) {
 
     const body = acceptOrderSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const connectorConfig = await loadConnectorConfig(orgId, 'uber-eats');
@@ -215,7 +215,7 @@ export async function connectorRoutes(app: FastifyInstance) {
 
     const body = denyOrderSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const connectorConfig = await loadConnectorConfig(orgId, 'uber-eats');
@@ -238,7 +238,7 @@ export async function connectorRoutes(app: FastifyInstance) {
 
     const body = syncProductsSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
     const connectorConfig = await loadConnectorConfig(orgId, 'shopify');

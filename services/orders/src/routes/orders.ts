@@ -86,7 +86,7 @@ export async function orderRoutes(app: FastifyInstance) {
   app.post('/', async (request, reply) => {
     const { orgId, sub: employeeId } = request.user as { orgId: string; sub: string };
     const body = createOrderSchema.safeParse(request.body);
-    if (!body.success) return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    if (!body.success) return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
 
     const { lines, ...orderData } = body.data;
 

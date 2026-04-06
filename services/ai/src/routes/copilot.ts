@@ -75,7 +75,7 @@ const customerInsightsSchema = z.object({
 function requireApiKey(reply: FastifyReply): boolean {
   if (!process.env['ANTHROPIC_API_KEY']) {
     void reply.status(503).send({
-      type: 'https://nexus.app/errors/service-unavailable',
+      type: 'https://elevatedpos.com/errors/service-unavailable',
       title: 'AI Not Configured',
       status: 503,
       detail: 'Set ANTHROPIC_API_KEY to enable AI features.',
@@ -99,7 +99,7 @@ export async function copilotRoutes(app: FastifyInstance) {
     const parsed = chatSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -172,7 +172,7 @@ export async function copilotRoutes(app: FastifyInstance) {
     } catch (err) {
       app.log.error(err, 'chat Claude call failed');
       return reply.status(500).send({
-        type: 'https://nexus.app/errors/ai-failure',
+        type: 'https://elevatedpos.com/errors/ai-failure',
         title: 'AI Chat Failed',
         status: 500,
         detail: 'Failed to generate chat response. Please try again.',
@@ -188,7 +188,7 @@ export async function copilotRoutes(app: FastifyInstance) {
       const parsed = analyzeSalesSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -229,7 +229,7 @@ export async function copilotRoutes(app: FastifyInstance) {
       } catch (err) {
         app.log.error(err, 'analyze-sales Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Analysis Failed',
           status: 500,
           detail: 'Failed to analyze sales data. Please try again.',
@@ -246,7 +246,7 @@ export async function copilotRoutes(app: FastifyInstance) {
       const parsed = forecastStockSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -288,7 +288,7 @@ export async function copilotRoutes(app: FastifyInstance) {
       } catch (err) {
         app.log.error(err, 'forecast-stock Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Forecast Failed',
           status: 500,
           detail: 'Failed to generate stock forecast. Please try again.',
@@ -305,7 +305,7 @@ export async function copilotRoutes(app: FastifyInstance) {
       const parsed = smartPricingSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -352,7 +352,7 @@ export async function copilotRoutes(app: FastifyInstance) {
       } catch (err) {
         app.log.error(err, 'smart-pricing Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Pricing Failed',
           status: 500,
           detail: 'Failed to generate pricing recommendations. Please try again.',
@@ -369,7 +369,7 @@ export async function copilotRoutes(app: FastifyInstance) {
       const parsed = customerInsightsSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(422).send({
-          type: 'https://nexus.app/errors/validation',
+          type: 'https://elevatedpos.com/errors/validation',
           title: 'Validation Error',
           status: 422,
           detail: parsed.error.message,
@@ -417,7 +417,7 @@ export async function copilotRoutes(app: FastifyInstance) {
       } catch (err) {
         app.log.error(err, 'customer-insights Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Insights Failed',
           status: 500,
           detail: 'Failed to generate customer insights. Please try again.',
@@ -479,7 +479,7 @@ export async function copilotRoutes(app: FastifyInstance) {
       } catch (err) {
         app.log.error(err, 'suggestions Claude call failed');
         return reply.status(500).send({
-          type: 'https://nexus.app/errors/ai-failure',
+          type: 'https://elevatedpos.com/errors/ai-failure',
           title: 'AI Suggestions Failed',
           status: 500,
           detail: 'Failed to generate suggestions. Please try again.',

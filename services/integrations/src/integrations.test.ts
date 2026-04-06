@@ -111,17 +111,17 @@ describe('maskCredential', () => {
 
 describe('parseAppKey', () => {
   it('extracts the app key from a well-formed marketplace URL', () => {
-    const key = parseAppKey('https://marketplace.nexus.app/marketplace/apps/shopify');
+    const key = parseAppKey('https://marketplace.elevatedpos.com.au/marketplace/apps/shopify');
     expect(key).toBe('shopify');
   });
 
   it('extracts the app key when additional path segments follow', () => {
-    const key = parseAppKey('https://marketplace.nexus.app/marketplace/apps/xero/settings');
+    const key = parseAppKey('https://marketplace.elevatedpos.com.au/marketplace/apps/xero/settings');
     expect(key).toBe('xero');
   });
 
   it('returns null when the URL has no apps path segment', () => {
-    const key = parseAppKey('https://marketplace.nexus.app/marketplace/other');
+    const key = parseAppKey('https://marketplace.elevatedpos.com.au/marketplace/other');
     expect(key).toBeNull();
   });
 

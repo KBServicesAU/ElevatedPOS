@@ -24,7 +24,7 @@ export async function multiplierEventRoutes(app: FastifyInstance) {
     const parsed = createEventSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -32,7 +32,7 @@ export async function multiplierEventRoutes(app: FastifyInstance) {
     }
     if (parsed.data.startDate > parsed.data.endDate) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: 'startDate must be before or equal to endDate',
@@ -108,7 +108,7 @@ export async function multiplierEventRoutes(app: FastifyInstance) {
     const parsed = createEventSchema.partial().safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
-        type: 'https://nexus.app/errors/validation',
+        type: 'https://elevatedpos.com/errors/validation',
         title: 'Validation Error',
         status: 422,
         detail: parsed.error.message,
@@ -123,7 +123,7 @@ export async function multiplierEventRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Multiplier event ${id} not found`,
@@ -166,7 +166,7 @@ export async function multiplierEventRoutes(app: FastifyInstance) {
     });
     if (!existing) {
       return reply.status(404).send({
-        type: 'https://nexus.app/errors/not-found',
+        type: 'https://elevatedpos.com/errors/not-found',
         title: 'Not Found',
         status: 404,
         detail: `Multiplier event ${id} not found`,

@@ -30,7 +30,7 @@ export async function roleRoutes(app: FastifyInstance) {
     const body = createRoleSchema.safeParse(request.body);
 
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422 });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422 });
     }
 
     const createdRows = await db
@@ -54,7 +54,7 @@ export async function roleRoutes(app: FastifyInstance) {
     const body = createRoleSchema.partial().safeParse(request.body);
 
     if (!body.success) {
-      return reply.status(422).send({ type: 'https://nexus.app/errors/validation', title: 'Validation Error', status: 422 });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422 });
     }
 
     const existing = await db.query.roles.findFirst({

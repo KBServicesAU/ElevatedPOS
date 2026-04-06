@@ -25,6 +25,12 @@ spec:
     - hosts:
         - epsales.elevatedpos.com.au
       secretName: elevatedpos-sales-portal-tls
+    - hosts:
+        - partners.elevatedpos.com.au
+      secretName: elevatedpos-partner-portal-tls
+    - hosts:
+        - developers.elevatedpos.com.au
+      secretName: elevatedpos-developer-portal-tls
   rules:
     - host: organisation.elevatedpos.com.au
       http:
@@ -66,3 +72,23 @@ spec:
                 name: sales-portal
                 port:
                   number: 53113
+    - host: partners.elevatedpos.com.au
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: partner-portal
+                port:
+                  number: 3020
+    - host: developers.elevatedpos.com.au
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: developer-portal
+                port:
+                  number: 3021
