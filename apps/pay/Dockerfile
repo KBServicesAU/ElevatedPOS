@@ -5,7 +5,7 @@ RUN npm install -g pnpm@9.4.0 turbo@2
 FROM base AS pruner
 WORKDIR /app
 COPY . .
-RUN turbo prune @elevatedpos/pay --docker
+RUN turbo prune @nexus/pay --docker
 
 # ── Stage 2: Install dependencies ─────────────────────────────────────────
 FROM base AS installer
@@ -19,7 +19,7 @@ FROM installer AS builder
 WORKDIR /app
 COPY --from=pruner /app/out/full/ .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN turbo build --filter=@elevatedpos/pay
+RUN turbo build --filter=@nexus/pay
 
 # ── Stage 4: Production runner ────────────────────────────────────────────
 FROM node:20-alpine AS runner
