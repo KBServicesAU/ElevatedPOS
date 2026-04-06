@@ -68,21 +68,37 @@ function EditShiftModal({ shift, onClose, onSaved }: EditShiftModalProps) {
   const [clockOut, setClockOut] = useState(shift.clockOut ? shift.clockOut.slice(0, 16) : '');
   const [breakMinutes, setBreakMinutes] = useState(String(shift.breakMinutes ?? 0));
   const [notes, setNotes] = useState(shift.notes ?? '');
+  const [editReason, setEditReason] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
+    if (!editReason.trim()) {
+      toast({ title: 'Reason required', description: 'Please provide a reason for the edit.', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
     try {
-      const updated = await apiFetch<Shift>(`shifts/${shift.id}`, {
-        method: 'PUT',
+      const res = await apiFetch<{ data: Record<string, unknown> }>(`shifts/${shift.id}`, {
+        method: 'PATCH',
         body: JSON.stringify({
-          clockIn: clockIn ? new Date(clockIn).toISOString() : undefined,
-          clockOut: clockOut ? new Date(clockOut).toISOString() : undefined,
+          clockInAt: clockIn ? new Date(clockIn).toISOString() : undefined,
+          clockOutAt: clockOut ? new Date(clockOut).toISOString() : undefined,
           breakMinutes: Number(breakMinutes) || 0,
           notes,
+          editReason: editReason.trim(),
         }),
       });
-      onSaved({ ...shift, ...updated });
+      // Map backend fields back to frontend Shift shape
+      const d = res.data ?? res;
+      const totalMins = Number(d.totalMinutes ?? 0);
+      onSaved({
+        ...shift,
+        clockIn: clockIn ? new Date(clockIn).toISOString() : shift.clockIn,
+        clockOut: clockOut ? new Date(clockOut).toISOString() : shift.clockOut,
+        breakMinutes: Number(breakMinutes) || 0,
+        totalHours: totalMins > 0 ? totalMins / 60 : shift.totalHours,
+        notes,
+      });
       toast({ title: 'Shift updated', variant: 'success' });
       onClose();
     } catch (err) {
@@ -147,9 +163,23 @@ function EditShiftModal({ shift, onClose, onSaved }: EditShiftModalProps) {
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              rows={3}
+              rows={2}
               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             />
+          </div>
+          {/* Reason for edit — required by backend */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Reason for Edit <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={editReason}
+              onChange={(e) => setEditReason(e.target.value)}
+              placeholder="e.g. Staff forgot to clock out"
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+            <p className="mt-1 text-xs text-gray-400">This is recorded in the audit trail for compliance.</p>
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
@@ -161,7 +191,7 @@ function EditShiftModal({ shift, onClose, onSaved }: EditShiftModalProps) {
           </button>
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !editReason.trim()}
             className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -367,8 +397,31 @@ export function TimesheetsClient() {
     fetch(`/api/proxy/shifts?dateFrom=${dateFrom}&dateTo=${dateTo}`)
       .then((r) => r.json())
       .then((json) => {
-        const data: Shift[] = Array.isArray(json) ? json : json.data ?? [];
-        setShifts(data);
+        const raw: Record<string, unknown>[] = Array.isArray(json) ? json : (json as { data?: Record<string, unknown>[] }).data ?? [];
+        // Map backend fields (clockInAt/clockOutAt/totalMinutes) to frontend Shift shape
+        const mapped: Shift[] = raw.map((r) => {
+          const clockInStr = String(r.clockInAt ?? r.clockIn ?? '');
+          const clockOutStr = String(r.clockOutAt ?? r.clockOut ?? '');
+          const breakMin = Number(r.breakMinutes ?? 0);
+          const totalMins = Number(r.totalMinutes ?? 0);
+          const clockInDate = clockInStr ? new Date(clockInStr) : null;
+          return {
+            id: String(r.id ?? ''),
+            employeeId: String(r.employeeId ?? ''),
+            employeeName: String(r.employeeName ?? r.employeeId ?? 'Unknown'),
+            hourlyRate: r.hourlyRate != null ? Number(r.hourlyRate) : undefined,
+            day: clockInDate ? clockInDate.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) : '',
+            clockIn: clockInStr,
+            clockOut: clockOutStr,
+            breakMinutes: breakMin,
+            totalHours: totalMins > 0 ? totalMins / 60 : 0,
+            notes: r.notes != null ? String(r.notes) : undefined,
+            status: (String(r.status ?? 'pending') === 'open' ? 'pending'
+              : String(r.status ?? 'pending') === 'closed' ? 'pending'
+              : String(r.status ?? 'pending')) as Shift['status'],
+          };
+        });
+        setShifts(mapped);
       })
       .catch(() => setShifts([]))
       .finally(() => setIsLoading(false));
@@ -432,29 +485,42 @@ export function TimesheetsClient() {
   }
 
   async function approveAll() {
+    const pending = shifts.filter((s) => s.status === 'pending' || s.status === 'flagged');
+    if (pending.length === 0) return;
     setApprovingAll(true);
-    try {
-      await fetch('/api/proxy/shifts/approve-all', { method: 'POST' });
-      const count = shifts.filter((s) => s.status === 'pending').length;
-      setShifts((prev) =>
-        prev.map((s) => (s.status === 'pending' ? { ...s, status: 'approved' as const } : s)),
-      );
+    let approved = 0;
+    let failed = 0;
+    for (const s of pending) {
+      try {
+        await apiFetch(`shifts/${s.id}/approve`, { method: 'POST' });
+        approved++;
+      } catch {
+        failed++;
+      }
+    }
+    setShifts((prev) =>
+      prev.map((s) => (s.status === 'pending' || s.status === 'flagged' ? { ...s, status: 'approved' as const } : s)),
+    );
+    if (failed === 0) {
       toast({
         title: 'Timesheets approved',
-        description: `${count} shift${count !== 1 ? 's' : ''} approved.`,
+        description: `${approved} shift${approved !== 1 ? 's' : ''} approved.`,
         variant: 'success',
       });
-    } catch {
-      toast({ title: 'Approval failed', description: 'Could not approve timesheets. Please try again.', variant: 'destructive' });
-    } finally {
-      setApprovingAll(false);
+    } else {
+      toast({
+        title: 'Partial approval',
+        description: `${approved} approved, ${failed} failed.`,
+        variant: 'destructive',
+      });
     }
+    setApprovingAll(false);
   }
 
   async function approveShift(id: string) {
     setApprovingId(id);
     try {
-      await apiFetch(`shifts/${id}/approve`, { method: 'PATCH' });
+      await apiFetch(`shifts/${id}/approve`, { method: 'POST' });
       setShifts((prev) =>
         prev.map((sh) => (sh.id === id ? { ...sh, status: 'approved' as const } : sh)),
       );
