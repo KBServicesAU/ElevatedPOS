@@ -122,15 +122,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ env.AWS_REGION }}
 
+      - name: Check if EKS cluster exists
+        id: check-cluster
+        run: |
+          if aws eks describe-cluster --name elevatedpos-staging --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::EKS cluster 'elevatedpos-staging' not found — skipping deploy"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Update kubeconfig
+        if: steps.check-cluster.outputs.exists == 'true'
         run: aws eks update-kubeconfig --name elevatedpos-staging --region ${{ env.AWS_REGION }}
 
       - name: Replace ACCOUNT_ID in manifests
+        if: steps.check-cluster.outputs.exists == 'true'
         run: |
           find infrastructure/k8s -name "*.yaml" -exec \
             sed -i "s/ACCOUNT_ID/${{ secrets.AWS_ACCOUNT_ID }}/g" {} +
 
       - name: Apply Kubernetes manifests
+        if: steps.check-cluster.outputs.exists == 'true'
         run: |
           kubectl apply -f infrastructure/k8s/namespace.yaml
           kubectl apply -f infrastructure/k8s/serviceaccount.yaml
@@ -150,6 +163,7 @@ jobs:
           kubectl apply -f infrastructure/k8s/ingress/
 
       - name: Run database migrations
+        if: steps.check-cluster.outputs.exists == 'true'
         run: |
           MIGRATE_SCRIPT='const {Pool}=require("pg");const {drizzle}=require("drizzle-orm/node-postgres");const {migrate}=require("drizzle-orm/node-postgres/migrator");const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});const d=drizzle(p);migrate(d,{migrationsFolder:"src/db/migrations",migrationsTable:"__drizzle_migrations"}).then(()=>{console.log("migrations applied");p.end();process.exit(0);}).catch(e=>{console.error(e.message);p.end();process.exit(1);});'
           for SVC in auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations franchise webhooks; do
@@ -165,6 +179,7 @@ jobs:
           done
 
       - name: Update image tags
+        if: steps.check-cluster.outputs.exists == 'true'
         run: |
           SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge franchise reporting webhooks"
           for SVC in $SERVICES; do
@@ -182,6 +197,7 @@ jobs:
           kubectl set image deployment/developer-portal developer-portal=${{ env.ECR_REGISTRY }}/elevatedpos/developer-portal:${{ github.sha }} -n elevatedpos
 
       - name: Wait for rollout
+        if: steps.check-cluster.outputs.exists == 'true'
         run: |
           kubectl rollout status deployment/orders -n elevatedpos --timeout=5m
           kubectl rollout status deployment/payments -n elevatedpos --timeout=5m
@@ -207,15 +223,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ env.AWS_REGION }}
 
+      - name: Check if EKS cluster exists
+        id: check-prod-cluster
+        run: |
+          if aws eks describe-cluster --name elevatedpos-prod --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::EKS cluster 'elevatedpos-prod' not found — skipping deploy"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Update kubeconfig
+        if: steps.check-prod-cluster.outputs.exists == 'true'
         run: aws eks update-kubeconfig --name elevatedpos-prod --region ${{ env.AWS_REGION }}
 
       - name: Replace ACCOUNT_ID in manifests
+        if: steps.check-prod-cluster.outputs.exists == 'true'
         run: |
           find infrastructure/k8s -name "*.yaml" -exec \
             sed -i "s/ACCOUNT_ID/${{ secrets.AWS_ACCOUNT_ID }}/g" {} +
 
       - name: Apply Kubernetes manifests
+        if: steps.check-prod-cluster.outputs.exists == 'true'
         run: |
           kubectl apply -f infrastructure/k8s/namespace.yaml
           kubectl apply -f infrastructure/k8s/serviceaccount.yaml
@@ -235,6 +264,7 @@ jobs:
           kubectl apply -f infrastructure/k8s/ingress/
 
       - name: Run database migrations
+        if: steps.check-prod-cluster.outputs.exists == 'true'
         run: |
           # Use any reliably running pod to apply SQL migrations directly
           # Find a stable pod (catalog tends to be reliable)
@@ -408,6 +438,7 @@ jobs:
           done
 
       - name: Update image tags
+        if: steps.check-prod-cluster.outputs.exists == 'true'
         run: |
           SERVICES="auth catalog inventory orders payments customers loyalty campaigns notifications integrations automations ai hardware-bridge franchise reporting webhooks"
           for SVC in $SERVICES; do
@@ -425,6 +456,7 @@ jobs:
           kubectl set image deployment/developer-portal developer-portal=${{ env.ECR_REGISTRY }}/elevatedpos/developer-portal:${{ github.sha }} -n elevatedpos
 
       - name: Wait for production rollout
+        if: steps.check-prod-cluster.outputs.exists == 'true'
         run: |
           for SVC in auth catalog orders payments web-backoffice; do
             kubectl rollout status deployment/$SVC -n elevatedpos --timeout=10m \
