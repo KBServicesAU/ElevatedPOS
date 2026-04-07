@@ -76,7 +76,7 @@ const appMeta: Omit<AppRelease, 'downloadUrl' | 'version' | 'buildNumber' | 'rel
 /* ------------------------------------------------------------------ */
 
 const EAS_PROJECT_ID = '5f03d9c6-0120-4047-aa27-f71a823afa7b';
-const EAS_API = 'https://api.expo.dev/v2/projects';
+const EAS_GRAPHQL = 'https://api.expo.dev/graphql';
 const EXPO_TOKEN = process.env['EXPO_TOKEN'] ?? process.env['EAS_ACCESS_TOKEN'] ?? '';
 
 interface EASBuild {
@@ -87,7 +87,6 @@ interface EASBuild {
   appVersion?: string;
   appBuildVersion?: string;
   createdAt: string;
-  updatedAt: string;
   buildProfile?: string;
 }
 
@@ -99,16 +98,51 @@ async function fetchLatestEASBuild(buildProfile: string): Promise<EASBuild | nul
   if (!EXPO_TOKEN) return null;
 
   try {
-    const url = `${EAS_API}/${EAS_PROJECT_ID}/builds?platform=ANDROID&status=FINISHED&buildProfile=${buildProfile}&limit=1`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${EXPO_TOKEN}` },
+    const query = `query ($appId: String!, $buildProfile: String!) {
+      app {
+        byId(appId: $appId) {
+          buildsPaginated(first: 1, filter: { buildProfile: $buildProfile }) {
+            edges {
+              node {
+                ... on Build {
+                  id
+                  status
+                  platform
+                  buildProfile
+                  appVersion
+                  appBuildVersion
+                  createdAt
+                  artifacts { buildUrl }
+                }
+              }
+            }
+          }
+        }
+      }
+    }`;
+
+    const res = await fetch(EAS_GRAPHQL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${EXPO_TOKEN}`,
+      },
+      body: JSON.stringify({
+        query,
+        variables: { appId: EAS_PROJECT_ID, buildProfile },
+      }),
       next: { revalidate: 300 },
     });
     if (!res.ok) return null;
 
     const json = await res.json();
-    const builds: EASBuild[] = json.data ?? json ?? [];
-    return builds.length > 0 ? builds[0] ?? null : null;
+    const edges = json?.data?.app?.byId?.buildsPaginated?.edges ?? [];
+    if (edges.length === 0) return null;
+
+    const node = edges[0]?.node;
+    if (!node || node.status !== 'FINISHED' || node.platform !== 'ANDROID') return null;
+
+    return node as EASBuild;
   } catch {
     return null;
   }
