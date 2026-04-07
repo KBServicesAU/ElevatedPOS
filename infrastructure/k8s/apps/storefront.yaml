@@ -32,6 +32,12 @@ spec:
               value: "3002"
             - name: NEXT_TELEMETRY_DISABLED
               value: "1"
+            - name: EXPO_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: elevatedpos-secrets
+                  key: EXPO_TOKEN
+                  optional: true
           resources:
             requests:
               cpu: "50m"

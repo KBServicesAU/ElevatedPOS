@@ -6,7 +6,10 @@ import { getLatestRelease, getAllReleases } from '@/lib/app-releases';
  * GET /api/downloads/latest?app=pos
  *
  * Returns the latest release info for a specific app, or all apps if no
- * `app` query param is provided. Used by:
+ * `app` query param is provided. Download URLs are resolved dynamically
+ * from the EAS API so they always point to the latest successful build.
+ *
+ * Used by:
  *   - The /downloads storefront page
  *   - The mobile app's in-app update checker
  */
@@ -15,7 +18,7 @@ export async function GET(request: NextRequest) {
   const app = searchParams.get('app');
 
   if (app) {
-    const release = getLatestRelease(app);
+    const release = await getLatestRelease(app);
     if (!release) {
       return NextResponse.json({ error: `Unknown app: ${app}` }, { status: 404 });
     }
@@ -25,7 +28,8 @@ export async function GET(request: NextRequest) {
   }
 
   // Return all apps
-  return NextResponse.json({ releases: getAllReleases() }, {
+  const releases = await getAllReleases();
+  return NextResponse.json({ releases }, {
     headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' },
   });
 }

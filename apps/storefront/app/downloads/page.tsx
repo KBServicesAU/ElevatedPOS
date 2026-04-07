@@ -1,10 +1,10 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { Navbar } from '@/components/navbar';
 import { Footer } from '@/components/footer';
-import { getAllReleases, type AppRelease } from '@/lib/app-releases';
+import type { AppRelease } from '@/lib/app-releases';
 
 /* ------------------------------------------------------------------ */
 /* Animation helpers                                                   */
@@ -93,7 +93,14 @@ const labelMap: Record<string, string> = {
 /* ------------------------------------------------------------------ */
 
 export default function DownloadsPage() {
-  const releases = getAllReleases();
+  const [releases, setReleases] = useState<AppRelease[]>([]);
+
+  useEffect(() => {
+    fetch('/api/downloads/latest')
+      .then((r) => r.json())
+      .then((data) => setReleases(data.releases ?? []))
+      .catch(() => {});
+  }, []);
 
   return (
     <>
