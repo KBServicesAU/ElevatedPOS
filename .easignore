@@ -1,0 +1,30 @@
+# EAS Build: skip non-mobile monorepo apps/services to reduce upload size
+services/
+apps/storefront/
+apps/web-backoffice/
+apps/godmode/
+apps/org-portal/
+apps/reseller-portal/
+apps/sales-portal/
+apps/partner-portal/
+apps/developer-portal/
+apps/kds-display/
+apps/pay/
+infrastructure/
+docs/
+.github/
+e2e/
+
+# Large / binary artefacts
+*.zip
+*.exe
+*.crt
+
+# Misc root-level files not needed for mobile build
+send_*.py
+test_*.py
+*ghactions.json
+mx-records.json
+spf-record.json
+kubectl.exe
+eks-ca.crt
