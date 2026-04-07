@@ -68,6 +68,34 @@ spec:
                 name: auth
                 port:
                   number: 4001
+          - path: /api/v1/devices
+            pathType: Prefix
+            backend:
+              service:
+                name: auth
+                port:
+                  number: 4001
+          - path: /api/v1/employees
+            pathType: Prefix
+            backend:
+              service:
+                name: auth
+                port:
+                  number: 4001
+          - path: /api/v1/locations
+            pathType: Prefix
+            backend:
+              service:
+                name: auth
+                port:
+                  number: 4001
+          - path: /api/v1/organisations
+            pathType: Prefix
+            backend:
+              service:
+                name: auth
+                port:
+                  number: 4001
           - path: /api/v1/catalog
             pathType: Prefix
             backend:

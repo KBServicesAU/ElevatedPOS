@@ -20,16 +20,16 @@
       }
     },
     "production-pos": {
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos" } }
+      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au" } },
+      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au" } }
     },
     "production-kds": {
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds" } }
+      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au", "EXPO_PUBLIC_ORDERS_API_URL": "https://app.elevatedpos.com.au" } },
+      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au", "EXPO_PUBLIC_ORDERS_API_URL": "https://app.elevatedpos.com.au" } }
     },
     "production-kiosk": {
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk" } }
+      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au" } },
+      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au" } }
     }
   },
   "submit": {

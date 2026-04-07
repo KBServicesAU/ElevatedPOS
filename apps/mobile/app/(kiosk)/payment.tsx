@@ -51,7 +51,7 @@ export default function PaymentScreen() {
     };
 
     try {
-      const apiBase = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:3000';
+      const apiBase = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
       const res = await fetch(`${apiBase}/api/v1/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
