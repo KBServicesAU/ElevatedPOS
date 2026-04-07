@@ -60,6 +60,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-router',
     'expo-secure-store',
     [
+      'expo-build-properties',
+      {
+        android: {
+          compileSdkVersion: 34,
+          targetSdkVersion: 34,
+          buildToolsVersion: '34.0.0',
+          kotlinVersion: '1.9.23',
+        },
+      },
+    ],
+    [
       'expo-splash-screen',
       {
         backgroundColor: '#0a0a0a',
