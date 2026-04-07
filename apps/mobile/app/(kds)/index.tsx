@@ -1,14 +1,24 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
+  Linking,
+  Modal,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { useDeviceStore } from '../../store/device';
+
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
+const DOWNLOADS_API =
+  process.env['EXPO_PUBLIC_API_URL']
+    ? `${process.env['EXPO_PUBLIC_API_URL'].replace(/\/+$/, '')}/api/downloads/latest`
+    : 'https://elevatedpos.com.au/api/downloads/latest';
 
 interface KdsItem {
   name: string;
@@ -121,6 +131,45 @@ export default function KDSScreen() {
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(true);
 
+  // Settings modal state
+  const [showSettings, setShowSettings] = useState(false);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [updateUrl, setUpdateUrl] = useState<string | null>(null);
+  const [updateChangelog, setUpdateChangelog] = useState<string[]>([]);
+
+  async function checkForUpdate() {
+    setUpdateChecking(true);
+    try {
+      const res = await fetch(`${DOWNLOADS_API}?app=kds`);
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      const data = await res.json() as { version: string; downloadUrl: string; changelog: string[] };
+      setLatestVersion(data.version);
+      setUpdateUrl(data.downloadUrl);
+      setUpdateChangelog(data.changelog ?? []);
+    } catch {
+      Alert.alert('Update Check Failed', 'Could not reach the update server. Check your network connection.');
+    } finally {
+      setUpdateChecking(false);
+    }
+  }
+
+  function handleDownloadUpdate() {
+    if (!updateUrl) return;
+    Linking.openURL(updateUrl);
+  }
+
+  function isUpdateAvailable(): boolean {
+    if (!latestVersion) return false;
+    const a = APP_VERSION.split('.').map(Number);
+    const b = latestVersion.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+      if ((b[i] ?? 0) > (a[i] ?? 0)) return true;
+      if ((b[i] ?? 0) < (a[i] ?? 0)) return false;
+    }
+    return false;
+  }
+
   const connect = useCallback(() => {
     if (!identity) return;
     const wsBase = ORDERS_API.replace(/^http/, 'ws');
@@ -219,8 +268,83 @@ export default function KDSScreen() {
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           <View style={[styles.connDot, { backgroundColor: connected ? '#22c55e' : '#ef4444' }]} />
           <Text style={styles.connLabel}>{connected ? 'Live' : 'Reconnecting...'}</Text>
+          <TouchableOpacity
+            onPress={() => { setShowSettings(true); checkForUpdate(); }}
+            style={styles.gearBtn}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.gearIcon}>⚙</Text>
+          </TouchableOpacity>
         </View>
       </View>
+
+      {/* Settings / Update Modal */}
+      <Modal visible={showSettings} transparent animationType="fade" onRequestClose={() => setShowSettings(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Settings</Text>
+
+            <View style={styles.modalCard}>
+              <View style={styles.modalRow}>
+                <Text style={styles.modalLabel}>App Version</Text>
+                <Text style={styles.modalValue}>{APP_VERSION}</Text>
+              </View>
+              <View style={styles.modalDivider} />
+              <View style={styles.modalRow}>
+                <Text style={styles.modalLabel}>Latest Version</Text>
+                {updateChecking ? (
+                  <ActivityIndicator size="small" color="#f59e0b" />
+                ) : (
+                  <Text style={[styles.modalValue, isUpdateAvailable() && { color: '#f59e0b', fontWeight: '700' }]}>
+                    {latestVersion ?? '—'}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.modalDivider} />
+              <View style={styles.modalRow}>
+                <Text style={styles.modalLabel}>Role</Text>
+                <Text style={styles.modalValue}>KDS</Text>
+              </View>
+              <View style={styles.modalDivider} />
+              <View style={styles.modalRow}>
+                <Text style={styles.modalLabel}>Device ID</Text>
+                <Text style={styles.modalValue}>{identity?.deviceId?.slice(0, 12) ?? '—'}…</Text>
+              </View>
+            </View>
+
+            {isUpdateAvailable() && updateUrl ? (
+              <TouchableOpacity style={styles.modalUpdateBtn} onPress={handleDownloadUpdate} activeOpacity={0.85}>
+                <Text style={styles.modalUpdateBtnText}>Download Update v{latestVersion}</Text>
+              </TouchableOpacity>
+            ) : !updateChecking ? (
+              <View style={styles.modalUpToDate}>
+                <Text style={styles.modalUpToDateText}>✓ Up to date</Text>
+              </View>
+            ) : null}
+
+            {updateChangelog.length > 0 && isUpdateAvailable() && (
+              <View style={styles.modalChangelog}>
+                {updateChangelog.map((entry, i) => (
+                  <Text key={i} style={styles.modalChangelogItem}>• {entry}</Text>
+                ))}
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.modalCheckBtn}
+              onPress={checkForUpdate}
+              disabled={updateChecking}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.modalCheckBtnText}>Check for Updates</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowSettings(false)} activeOpacity={0.85}>
+              <Text style={styles.modalCloseBtnText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {tickets.length === 0 ? (
         <View style={styles.clearKitchen}>
@@ -313,4 +437,28 @@ const styles = StyleSheet.create({
   },
   bumpBtnBumping: { opacity: 0.6 },
   bumpBtnText: { fontSize: 16, fontWeight: '900', color: '#000', letterSpacing: 1 },
+
+  // Gear button
+  gearBtn: { marginLeft: 12, padding: 4 },
+  gearIcon: { fontSize: 20, color: '#888' },
+
+  // Settings modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { backgroundColor: '#141414', borderRadius: 20, padding: 24, width: 380, maxWidth: '90%', borderWidth: 1, borderColor: '#2a2a2a' },
+  modalTitle: { fontSize: 22, fontWeight: '900', color: '#fff', marginBottom: 20 },
+  modalCard: { backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#2a2a2a', marginBottom: 16 },
+  modalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12 },
+  modalDivider: { height: 1, backgroundColor: '#222', marginHorizontal: 14 },
+  modalLabel: { fontSize: 13, color: '#777' },
+  modalValue: { fontSize: 13, color: '#ccc', fontWeight: '500' },
+  modalUpdateBtn: { backgroundColor: '#f59e0b', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginBottom: 10 },
+  modalUpdateBtnText: { fontSize: 15, fontWeight: '700', color: '#000' },
+  modalUpToDate: { backgroundColor: 'rgba(34,197,94,0.1)', borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: 'rgba(34,197,94,0.2)' },
+  modalUpToDateText: { fontSize: 14, color: '#22c55e', fontWeight: '600' },
+  modalChangelog: { backgroundColor: '#1a1a1a', borderRadius: 10, padding: 12, marginBottom: 10 },
+  modalChangelogItem: { fontSize: 12, color: '#999', lineHeight: 18 },
+  modalCheckBtn: { backgroundColor: '#1e1e1e', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginBottom: 8, borderWidth: 1, borderColor: '#2a2a2a' },
+  modalCheckBtnText: { fontSize: 14, fontWeight: '600', color: '#ccc' },
+  modalCloseBtn: { paddingVertical: 10, alignItems: 'center' },
+  modalCloseBtnText: { fontSize: 14, fontWeight: '600', color: '#666' },
 });
