@@ -8,9 +8,18 @@ interface Organisation {
   id: string;
   businessName: string;
   plan?: string;
+  planStatus?: string;
   createdAt?: string;
   status?: string;
 }
+
+/** Known plan monthly prices (AUD) — matches storefront pricing */
+const PLAN_MONTHLY_PRICE: Record<string, number> = {
+  starter: 49,
+  growth: 149,
+};
+
+const DEFAULT_COMMISSION_RATE = 0.2; // 20% reseller commission
 
 interface ApiResponse {
   organisations?: Organisation[];
@@ -56,6 +65,17 @@ export default function ResellerDashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Compute KPI values from merchant data
+  const activeOrgs = orgs.filter((o) => o.planStatus === 'active' || (!o.planStatus && o.plan));
+  const monthlyRevenue = activeOrgs.reduce(
+    (sum, o) => sum + (PLAN_MONTHLY_PRICE[o.plan ?? ''] ?? 0),
+    0,
+  );
+  const commissionEarned = Math.round(monthlyRevenue * DEFAULT_COMMISSION_RATE * 100) / 100;
+  const trialConversions = orgs.filter(
+    (o) => o.planStatus === 'active' && o.plan && o.plan !== 'trial',
+  ).length;
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
@@ -84,21 +104,22 @@ export default function ResellerDashboardPage() {
         <KpiCard
           icon={<DollarSign size={20} className="text-blue-600" />}
           label="Monthly Revenue"
-          value={loading ? '—' : '—'}
-          subtitle="Coming soon"
+          value={loading ? '—' : `$${monthlyRevenue.toLocaleString()}`}
+          subtitle={`${activeOrgs.length} active plan${activeOrgs.length !== 1 ? 's' : ''}`}
           bg="bg-blue-50 dark:bg-blue-900/20"
         />
         <KpiCard
           icon={<TrendingUp size={20} className="text-purple-600" />}
-          label="Commission Earned"
-          value={loading ? '—' : '—'}
-          subtitle="Coming soon"
+          label="Commission (20%)"
+          value={loading ? '—' : `$${commissionEarned.toLocaleString()}`}
+          subtitle="Estimated this cycle"
           bg="bg-purple-50 dark:bg-purple-900/20"
         />
         <KpiCard
           icon={<RefreshCw size={20} className="text-amber-500" />}
           label="Trial Conversions"
-          value={loading ? '—' : orgs.filter((o) => o.status === 'active' && o.plan && o.plan !== 'trial').length.toString()}
+          value={loading ? '—' : trialConversions.toString()}
+          subtitle={orgs.length > 0 ? `${orgs.length} total merchants` : undefined}
           bg="bg-amber-50 dark:bg-amber-900/20"
         />
       </div>

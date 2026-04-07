@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Building2, AlertCircle, Activity, Search } from 'lucide-react';
+import { Building2, AlertCircle, AlertTriangle, Activity, Search } from 'lucide-react';
 
 interface Organisation {
   id: string;
@@ -73,10 +73,10 @@ export default function DashboardPage() {
           bg="bg-blue-50 dark:bg-blue-900/20"
         />
         <StatCard
-          icon={<AlertCircle size={20} className="text-amber-500 dark:text-amber-400" />}
-          label="Open Issues"
-          value={loading ? '—' : '—'}
-          subtitle="Coming soon"
+          icon={<AlertTriangle size={20} className="text-amber-500 dark:text-amber-400" />}
+          label="Needs Attention"
+          value={loading ? '—' : orgs.filter((o) => o.onboardingStep && o.onboardingStep !== 'completed').length.toString()}
+          subtitle="Incomplete onboarding"
           bg="bg-amber-50 dark:bg-amber-900/20"
         />
         <StatCard
