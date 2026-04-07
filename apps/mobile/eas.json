@@ -21,18 +21,18 @@
     },
     "production-pos": {
       "channel": "production",
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au" } }
+      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au" } },
+      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au" } }
     },
     "production-kds": {
       "channel": "production",
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au", "EXPO_PUBLIC_ORDERS_API_URL": "https://app.elevatedpos.com.au" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au", "EXPO_PUBLIC_ORDERS_API_URL": "https://app.elevatedpos.com.au" } }
+      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au", "EXPO_PUBLIC_ORDERS_API_URL": "https://api.elevatedpos.com.au" } },
+      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au", "EXPO_PUBLIC_ORDERS_API_URL": "https://api.elevatedpos.com.au" } }
     },
     "production-kiosk": {
       "channel": "production",
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk", "EXPO_PUBLIC_API_URL": "https://app.elevatedpos.com.au" } }
+      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au" } },
+      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au" } }
     }
   },
   "submit": {
