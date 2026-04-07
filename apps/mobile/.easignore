@@ -1,0 +1,18 @@
+# Skip non-mobile monorepo services to reduce upload size and avoid conflicts
+/services/
+/apps/storefront/
+/apps/web-backoffice/
+/apps/godmode/
+/apps/org-portal/
+/apps/reseller-portal/
+/apps/sales-portal/
+/apps/partner-portal/
+/apps/developer-portal/
+/apps/kds-display/
+/apps/pay/
+/infrastructure/
+/docs/
+/.github/
+*.zip
+*.exe
+*.crt
