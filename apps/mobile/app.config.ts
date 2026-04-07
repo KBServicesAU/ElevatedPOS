@@ -1,9 +1,9 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
-const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk' | undefined;
+const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk' | 'dashboard' | undefined;
 
 const roleConfig: Record<
-  'pos' | 'kds' | 'kiosk',
+  'pos' | 'kds' | 'kiosk' | 'dashboard',
   { name: string; slug: string; bundleIdentifier: string; package: string }
 > = {
   pos: {
@@ -23,6 +23,12 @@ const roleConfig: Record<
     slug: 'elevatedpos',
     bundleIdentifier: 'com.au.elevatedpos.kiosk',
     package: 'com.au.elevatedpos.kiosk',
+  },
+  dashboard: {
+    name: 'ElevatedPOS Dashboard',
+    slug: 'elevatedpos',
+    bundleIdentifier: 'com.au.elevatedpos.dashboard',
+    package: 'com.au.elevatedpos.dashboard',
   },
 };
 

@@ -9,7 +9,7 @@
 
 export interface AppRelease {
   /** Machine-readable app identifier */
-  app: 'pos' | 'kds' | 'kiosk';
+  app: 'pos' | 'kds' | 'kiosk' | 'dashboard';
   /** Display name */
   name: string;
   /** Short description */
@@ -36,6 +36,17 @@ export interface AppRelease {
 
 /** Static app metadata — downloadUrl will be overwritten at runtime */
 const appMeta: Omit<AppRelease, 'downloadUrl' | 'version' | 'buildNumber' | 'releasedAt'>[] = [
+  {
+    app: 'dashboard',
+    name: 'ElevatedPOS Dashboard',
+    buildProfile: 'production-dashboard',
+    description:
+      'Central hub — launch POS, KDS, or Kiosk apps, view daily stats, and manage devices.',
+    packageName: 'com.au.elevatedpos.dashboard',
+    size: '~44 MB',
+    minAndroid: 'Android 8.0+',
+    changelog: ['Initial release', 'App launcher tiles for POS, KDS, and Kiosk', 'Daily order and revenue overview', 'Update checker for all apps'],
+  },
   {
     app: 'pos',
     name: 'ElevatedPOS',

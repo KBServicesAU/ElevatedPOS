@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useDeviceStore } from '../store/device';
 
-const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk' | undefined;
+const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk' | 'dashboard' | undefined;
 
 export default function Index() {
   const { identity, ready } = useDeviceStore();
@@ -25,7 +25,11 @@ export default function Index() {
   }
 
   const role = ROLE_LOCK ?? identity.role;
-  if (role === 'pos') return <Redirect href="/(pos)" />;
+
+  // POS and Dashboard require employee login before access
+  if (role === 'pos' || role === 'dashboard') {
+    return <Redirect href="/employee-login" />;
+  }
   if (role === 'kds') return <Redirect href="/(kds)" />;
   return <Redirect href="/(kiosk)/attract" />;
 }

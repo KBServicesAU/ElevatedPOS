@@ -16,8 +16,8 @@ import { useDeviceStore } from '../../store/device';
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 const DOWNLOADS_API =
-  process.env['EXPO_PUBLIC_API_URL']
-    ? `${process.env['EXPO_PUBLIC_API_URL'].replace(/\/+$/, '')}/api/downloads/latest`
+  process.env['EXPO_PUBLIC_STOREFRONT_URL']
+    ? `${process.env['EXPO_PUBLIC_STOREFRONT_URL'].replace(/\/+$/, '')}/api/downloads/latest`
     : 'https://elevatedpos.com.au/api/downloads/latest';
 
 interface KdsItem {

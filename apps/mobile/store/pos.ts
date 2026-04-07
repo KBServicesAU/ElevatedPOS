@@ -1,26 +1,64 @@
 import { create } from 'zustand';
 
-export interface PosCartItem { id: string; name: string; price: number; qty: number; emoji: string; }
+export interface PosCartItem {
+  id: string;
+  name: string;
+  price: number;       // tax-inclusive price (AU GST included)
+  qty: number;
+  categoryColor?: string;
+}
 
 interface PosStore {
   cart: PosCartItem[];
+  customerId: string | null;
+  customerName: string | null;
+
   addItem: (item: Omit<PosCartItem, 'qty'>) => void;
   removeItem: (id: string) => void;
+  updateQty: (id: string, qty: number) => void;
   clearCart: () => void;
+  setCustomer: (id: string | null, name: string | null) => void;
 }
 
 export const usePosStore = create<PosStore>((set) => ({
   cart: [],
-  addItem: (item) => set((state) => {
-    const existing = state.cart.find((i) => i.id === item.id);
-    if (existing) return { cart: state.cart.map((i) => i.id === item.id ? { ...i, qty: i.qty + 1 } : i) };
-    return { cart: [...state.cart, { ...item, qty: 1 }] };
-  }),
-  removeItem: (id) => set((state) => {
-    const item = state.cart.find((i) => i.id === id);
-    if (!item) return state;
-    if (item.qty === 1) return { cart: state.cart.filter((i) => i.id !== id) };
-    return { cart: state.cart.map((i) => i.id === id ? { ...i, qty: i.qty - 1 } : i) };
-  }),
-  clearCart: () => set({ cart: [] }),
+  customerId: null,
+  customerName: null,
+
+  addItem: (item) =>
+    set((state) => {
+      const existing = state.cart.find((i) => i.id === item.id);
+      if (existing) {
+        return {
+          cart: state.cart.map((i) =>
+            i.id === item.id ? { ...i, qty: i.qty + 1 } : i,
+          ),
+        };
+      }
+      return { cart: [...state.cart, { ...item, qty: 1 }] };
+    }),
+
+  removeItem: (id) =>
+    set((state) => {
+      const item = state.cart.find((i) => i.id === id);
+      if (!item) return state;
+      if (item.qty === 1) return { cart: state.cart.filter((i) => i.id !== id) };
+      return {
+        cart: state.cart.map((i) =>
+          i.id === id ? { ...i, qty: i.qty - 1 } : i,
+        ),
+      };
+    }),
+
+  updateQty: (id, qty) =>
+    set((state) => {
+      if (qty <= 0) return { cart: state.cart.filter((i) => i.id !== id) };
+      return {
+        cart: state.cart.map((i) => (i.id === id ? { ...i, qty } : i)),
+      };
+    }),
+
+  clearCart: () => set({ cart: [], customerId: null, customerName: null }),
+
+  setCustomer: (id, name) => set({ customerId: id, customerName: name }),
 }));

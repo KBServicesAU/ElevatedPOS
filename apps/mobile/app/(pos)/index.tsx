@@ -1,137 +1,394 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { usePosStore } from '../../store/pos';
+import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 import { useDeviceStore } from '../../store/device';
 
-// TODO: Replace hardcoded product catalogue with API call to GET /api/v1/catalog/products
-const PRODUCTS = [
-  { id: '00000000-0000-0000-0000-000000000001', name: 'Flat White', price: 5.50, emoji: '☕' },
-  { id: '00000000-0000-0000-0000-000000000002', name: 'Iced Latte', price: 6.50, emoji: '🧊' },
-  { id: '00000000-0000-0000-0000-000000000003', name: 'Cold Brew', price: 7.00, emoji: '🫗' },
-  { id: '00000000-0000-0000-0000-000000000004', name: 'Pour Over', price: 7.50, emoji: '☕' },
-  { id: '00000000-0000-0000-0000-000000000005', name: 'Croissant', price: 5.00, emoji: '🥐' },
-  { id: '00000000-0000-0000-0000-000000000006', name: 'Banana Bread', price: 6.00, emoji: '🍞' },
-  { id: '00000000-0000-0000-0000-000000000007', name: 'Avocado Toast', price: 14.00, emoji: '🥑' },
-  { id: '00000000-0000-0000-0000-000000000008', name: 'Eggs Benedict', price: 18.00, emoji: '🍳' },
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+const CATEGORY_COLORS = [
+  '#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4',
+  '#8b5cf6', '#ef4444', '#14b8a6', '#f97316', '#3b82f6',
 ];
 
-const TAX_RATE = 0.10;
+function catColor(index: number, explicit?: string | null): string {
+  return explicit || CATEGORY_COLORS[index % CATEGORY_COLORS.length]!;
+}
+
+function parsePrice(v: string | number): number {
+  return typeof v === 'number' ? v : parseFloat(v) || 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Screen                                                              */
+/* ------------------------------------------------------------------ */
 
 export default function PosSellScreen() {
-  const { cart, addItem, removeItem, clearCart } = usePosStore();
+  const { cart, addItem, removeItem, clearCart, customerName, customerId, setCustomer } =
+    usePosStore();
+  const { products, categories, loading, error, fetchAll } = useCatalogStore();
   const { identity } = useDeviceStore();
+
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
   const [charging, setCharging] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const subtotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
-  const tax = subtotal * TAX_RATE;
-  const total = subtotal + tax;
-  const itemCount = cart.reduce((sum, i) => sum + i.qty, 0);
+  // Fetch catalog on mount
+  useEffect(() => {
+    fetchAll();
+  }, []);
 
+  // Pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchAll();
+    setRefreshing(false);
+  }, [fetchAll]);
+
+  // ── Category colour map ──────────────────────────────────────────
+  const colorMap = useMemo(() => {
+    const m = new Map<string, string>();
+    categories.forEach((c, i) => m.set(c.id, catColor(i, c.color)));
+    return m;
+  }, [categories]);
+
+  // ── Client-side filtering ────────────────────────────────────────
+  const filtered = useMemo(() => {
+    let list = products;
+    if (selectedCategoryId) {
+      list = list.filter((p) => p.categoryId === selectedCategoryId);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      list = list.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.sku && p.sku.toLowerCase().includes(q)),
+      );
+    }
+    return list;
+  }, [products, selectedCategoryId, search]);
+
+  // ── Cart totals (tax-inclusive — AU GST) ─────────────────────────
+  const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  const gst = total / 11; // GST portion of the tax-inclusive total
+  const itemCount = cart.reduce((s, i) => s + i.qty, 0);
+
+  // ── Add product to cart ──────────────────────────────────────────
+  function handleAdd(p: CatalogProduct) {
+    addItem({
+      id: p.id,
+      name: p.name,
+      price: parsePrice(p.basePrice),
+      categoryColor: p.categoryId ? colorMap.get(p.categoryId) : undefined,
+    });
+  }
+
+  // ── Charge ───────────────────────────────────────────────────────
   async function handleCharge() {
     if (cart.length === 0) return;
     setCharging(true);
     try {
-      const apiBase = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
-      const payload = {
-        items: cart.map((i) => ({ productId: i.id, name: i.name, qty: i.qty, unitPrice: i.price })),
-        subtotal, tax, total,
-        paymentMethod: 'card',
-        channel: 'pos',
-      };
-      const res = await fetch(`${apiBase}/api/v1/orders`, {
+      const base = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+      const res = await fetch(`${base}/api/v1/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(identity ? { Authorization: `Bearer ${identity.deviceToken}` } : {}),
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          items: cart.map((i) => ({
+            productId: i.id,
+            name: i.name,
+            qty: i.qty,
+            unitPrice: i.price,
+          })),
+          total,
+          gst: +gst.toFixed(2),
+          paymentMethod: 'card',
+          channel: 'pos',
+          ...(customerId ? { customerId } : {}),
+        }),
         signal: AbortSignal.timeout(5000),
       });
       const data = res.ok ? await res.json() : null;
-      const orderNum = (data as { orderNumber?: string } | null)?.orderNumber ?? `P${Math.floor(100 + Math.random() * 900)}`;
+      const num =
+        (data as { orderNumber?: string } | null)?.orderNumber ??
+        `P${Math.floor(100 + Math.random() * 900)}`;
       clearCart();
-      Alert.alert('Order Placed', `Order #${orderNum} — $${total.toFixed(2)} charged`, [{ text: 'OK' }]);
+      Alert.alert('Order Placed', `Order #${num} — $${total.toFixed(2)}`);
     } catch {
-      // API unavailable — generate local order number for demo/offline use
-      const orderNum = `P${Math.floor(100 + Math.random() * 900)}`;
+      const num = `P${Math.floor(100 + Math.random() * 900)}`;
       clearCart();
-      Alert.alert('Order Placed (Offline)', `Order #${orderNum} — $${total.toFixed(2)}\nThis order will sync when the server is available.`, [{ text: 'OK' }]);
+      Alert.alert(
+        'Order Placed (Offline)',
+        `Order #${num} — $${total.toFixed(2)}\nWill sync when server is available.`,
+      );
     } finally {
       setCharging(false);
     }
   }
 
+  // ── Render product card ──────────────────────────────────────────
+  function renderProduct({ item }: { item: CatalogProduct }) {
+    const price = parsePrice(item.basePrice);
+    const inCart = cart.find((c) => c.id === item.id);
+    const cc =
+      item.categoryId ? (colorMap.get(item.categoryId) ?? '#6366f1') : '#6366f1';
+
+    return (
+      <TouchableOpacity
+        style={[styles.card, inCart && styles.cardActive]}
+        onPress={() => handleAdd(item)}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.cardColorBar, { backgroundColor: cc }]} />
+        <View style={styles.cardBody}>
+          <Text style={styles.cardName} numberOfLines={2}>
+            {item.name}
+          </Text>
+          <View style={styles.cardFooter}>
+            <Text style={styles.cardPrice}>${price.toFixed(2)}</Text>
+            {inCart && (
+              <View style={styles.cardBadge}>
+                <Text style={styles.cardBadgeText}>{inCart.qty}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  // ── Render ───────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <View style={styles.layout}>
-        {/* Product Grid */}
-        <View style={styles.gridArea}>
-          <FlatList
-            data={PRODUCTS}
-            keyExtractor={(p) => p.id}
-            numColumns={2}
-            contentContainerStyle={styles.grid}
-            renderItem={({ item }) => {
-              const inCart = cart.find((c) => c.id === item.id);
+        {/* ═══════════ LEFT: Products ═══════════ */}
+        <View style={styles.leftPane}>
+          {/* Search + Customer */}
+          <View style={styles.topRow}>
+            <View style={styles.searchWrap}>
+              <Ionicons
+                name="search"
+                size={16}
+                color="#555"
+                style={{ marginLeft: 10 }}
+              />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search products..."
+                placeholderTextColor="#444"
+                value={search}
+                onChangeText={setSearch}
+                returnKeyType="search"
+              />
+              {search !== '' && (
+                <TouchableOpacity
+                  onPress={() => setSearch('')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons
+                    name="close-circle"
+                    size={16}
+                    color="#555"
+                    style={{ marginRight: 10 }}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+            <TouchableOpacity
+              style={[styles.custBtn, customerName ? styles.custBtnActive : null]}
+              onPress={() => {
+                if (customerName) {
+                  Alert.alert('Customer', customerName, [
+                    {
+                      text: 'Remove',
+                      style: 'destructive',
+                      onPress: () => setCustomer(null, null),
+                    },
+                    { text: 'OK' },
+                  ]);
+                } else {
+                  // TODO: Open customer search/picker modal
+                  Alert.alert('Customer', 'Customer selection coming soon');
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="person"
+                size={16}
+                color={customerName ? '#6366f1' : '#555'}
+              />
+              {customerName ? (
+                <Text style={styles.custName} numberOfLines={1}>
+                  {customerName}
+                </Text>
+              ) : null}
+            </TouchableOpacity>
+          </View>
+
+          {/* Category filter chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.catBar}
+            contentContainerStyle={styles.catBarInner}
+          >
+            <TouchableOpacity
+              style={[styles.chip, !selectedCategoryId && styles.chipActive]}
+              onPress={() => setSelectedCategoryId(null)}
+            >
+              <Text
+                style={[
+                  styles.chipText,
+                  !selectedCategoryId && styles.chipTextActive,
+                ]}
+              >
+                All
+              </Text>
+            </TouchableOpacity>
+            {categories.map((cat, idx) => {
+              const active = selectedCategoryId === cat.id;
+              const c = catColor(idx, cat.color);
               return (
                 <TouchableOpacity
-                  style={[styles.productCard, inCart ? styles.productCardActive : null]}
-                  onPress={() => addItem(item)}
-                  activeOpacity={0.8}
+                  key={cat.id}
+                  style={[
+                    styles.chip,
+                    active
+                      ? { backgroundColor: c, borderColor: c }
+                      : { borderColor: `${c}44` },
+                  ]}
+                  onPress={() =>
+                    setSelectedCategoryId(active ? null : cat.id)
+                  }
                 >
-                  <Text style={styles.productEmoji}>{item.emoji}</Text>
-                  <Text style={styles.productName}>{item.name}</Text>
-                  <View style={styles.productFooter}>
-                    <Text style={styles.productPrice}>${item.price.toFixed(2)}</Text>
-                    {inCart ? (
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{inCart.qty}</Text>
-                      </View>
-                    ) : null}
-                  </View>
+                  {!active && (
+                    <View style={[styles.chipDot, { backgroundColor: c }]} />
+                  )}
+                  <Text
+                    style={[
+                      styles.chipText,
+                      active && styles.chipTextActive,
+                    ]}
+                  >
+                    {cat.name}
+                  </Text>
                 </TouchableOpacity>
               );
-            }}
-          />
-        </View>
+            })}
+          </ScrollView>
 
-        {/* Cart Panel */}
-        <View style={styles.cartPanel}>
-          <Text style={styles.cartTitle}>{`Order${itemCount > 0 ? ` (${itemCount})` : ''}`}</Text>
-
-          {cart.length === 0 ? (
-            <View style={styles.emptyCart}>
-              <Text style={styles.emptyCartEmoji}>🛒</Text>
-              <Text style={styles.emptyCartText}>Tap items to add</Text>
+          {/* Product grid */}
+          {loading && products.length === 0 ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color="#6366f1" />
+              <Text style={styles.centerText}>Loading catalog...</Text>
+            </View>
+          ) : error ? (
+            <View style={styles.center}>
+              <Ionicons name="alert-circle" size={36} color="#ef4444" />
+              <Text style={styles.centerTextErr}>{error}</Text>
+              <TouchableOpacity style={styles.retryBtn} onPress={fetchAll}>
+                <Text style={styles.retryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : filtered.length === 0 ? (
+            <View style={styles.center}>
+              <Ionicons name="cube-outline" size={36} color="#444" />
+              <Text style={styles.centerText}>
+                {search ? 'No matching products' : 'No products found'}
+              </Text>
             </View>
           ) : (
-            <ScrollView style={styles.cartList} showsVerticalScrollIndicator={false}>
+            <FlatList
+              data={filtered}
+              keyExtractor={(p) => p.id}
+              numColumns={4}
+              renderItem={renderProduct}
+              contentContainerStyle={styles.grid}
+              showsVerticalScrollIndicator={false}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            />
+          )}
+        </View>
+
+        {/* ═══════════ RIGHT: Cart ═══════════ */}
+        <View style={styles.cartPanel}>
+          <View style={styles.cartHead}>
+            <Text style={styles.cartTitle}>Order</Text>
+            {itemCount > 0 && (
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>{itemCount}</Text>
+              </View>
+            )}
+          </View>
+
+          {cart.length === 0 ? (
+            <View style={styles.cartEmpty}>
+              <Ionicons name="cart-outline" size={36} color="#2a2a3a" />
+              <Text style={styles.cartEmptyText}>Tap products to add</Text>
+            </View>
+          ) : (
+            <ScrollView
+              style={styles.cartList}
+              showsVerticalScrollIndicator={false}
+            >
               {cart.map((item) => (
                 <View key={item.id} style={styles.cartRow}>
-                  <View style={styles.cartItemInfo}>
-                    <Text style={styles.cartItemEmoji}>{item.emoji}</Text>
-                    <View style={styles.cartItemDetails}>
-                      <Text style={styles.cartItemName} numberOfLines={1}>{item.name}</Text>
-                      <Text style={styles.cartItemPrice}>${(item.price * item.qty).toFixed(2)}</Text>
+                  <View style={styles.cartItemLeft}>
+                    <View
+                      style={[
+                        styles.cartDot,
+                        { backgroundColor: item.categoryColor ?? '#6366f1' },
+                      ]}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cartItemName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.cartItemSub}>
+                        ${item.price.toFixed(2)} ea
+                      </Text>
                     </View>
                   </View>
-                  <View style={styles.cartQtyRow}>
-                    <TouchableOpacity style={styles.qtyBtn} onPress={() => removeItem(item.id)}>
-                      <Text style={styles.qtyBtnText}>{item.qty === 1 ? '🗑' : '−'}</Text>
+                  <View style={styles.qtyRow}>
+                    <TouchableOpacity
+                      style={styles.qtyBtn}
+                      onPress={() => removeItem(item.id)}
+                    >
+                      <Text style={styles.qtyBtnLabel}>
+                        {item.qty === 1 ? '×' : '−'}
+                      </Text>
                     </TouchableOpacity>
                     <Text style={styles.qtyNum}>{item.qty}</Text>
-                    <TouchableOpacity style={[styles.qtyBtn, styles.qtyBtnAdd]} onPress={() => addItem(item)}>
-                      <Text style={styles.qtyBtnText}>+</Text>
+                    <TouchableOpacity
+                      style={[styles.qtyBtn, styles.qtyBtnPlus]}
+                      onPress={() => addItem(item)}
+                    >
+                      <Text style={styles.qtyBtnLabel}>+</Text>
                     </TouchableOpacity>
+                    <Text style={styles.lineTotal}>
+                      ${(item.price * item.qty).toFixed(2)}
+                    </Text>
                   </View>
                 </View>
               ))}
@@ -139,31 +396,32 @@ export default function PosSellScreen() {
           )}
 
           {cart.length > 0 && (
-            <View style={styles.totals}>
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Subtotal</Text>
-                <Text style={styles.totalValue}>${subtotal.toFixed(2)}</Text>
+            <View style={styles.totalsWrap}>
+              <View style={styles.totalLine}>
+                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={styles.totalValue}>${total.toFixed(2)}</Text>
               </View>
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>GST (10%)</Text>
-                <Text style={styles.totalValue}>${tax.toFixed(2)}</Text>
-              </View>
-              <View style={[styles.totalRow, styles.grandTotalRow]}>
-                <Text style={styles.grandTotalLabel}>Total</Text>
-                <Text style={styles.grandTotalValue}>${total.toFixed(2)}</Text>
-              </View>
+              <Text style={styles.gstNote}>
+                Incl. GST ${gst.toFixed(2)}
+              </Text>
+
               <TouchableOpacity
-                style={[styles.chargeBtn, (charging || cart.length === 0) ? styles.chargeBtnDisabled : null]}
+                style={[
+                  styles.chargeBtn,
+                  (charging || cart.length === 0) && styles.chargeBtnOff,
+                ]}
                 onPress={handleCharge}
                 disabled={charging || cart.length === 0}
                 activeOpacity={0.85}
               >
-                <Text style={styles.chargeBtnText}>
-                  {charging ? 'Processing...' : `Charge $${total.toFixed(2)}`}
+                <Text style={styles.chargeText}>
+                  {charging
+                    ? 'Processing...'
+                    : `Charge $${total.toFixed(2)}`}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.clearBtn} onPress={clearCart}>
-                <Text style={styles.clearBtnText}>Clear</Text>
+                <Text style={styles.clearText}>Clear Order</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -173,54 +431,240 @@ export default function PosSellScreen() {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Styles                                                              */
+/* ------------------------------------------------------------------ */
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d14' },
   layout: { flex: 1, flexDirection: 'row' },
-  gridArea: { flex: 1.4, borderRightWidth: 1, borderRightColor: '#1e1e2e' },
-  grid: { padding: 8, paddingBottom: 20 },
-  productCard: {
+
+  /* ── Left pane ── */
+  leftPane: {
+    flex: 2.2,
+    borderRightWidth: 1,
+    borderRightColor: '#1e1e2e',
+  },
+
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    gap: 6,
+  },
+  searchWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#141425',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+    height: 38,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#ccc',
+    fontSize: 13,
+    paddingHorizontal: 8,
+    height: 38,
+  },
+  custBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#141425',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+    paddingHorizontal: 12,
+    height: 38,
+  },
+  custBtnActive: { borderColor: '#6366f1', backgroundColor: '#1a1a35' },
+  custName: {
+    fontSize: 12,
+    color: '#6366f1',
+    fontWeight: '600',
+    maxWidth: 80,
+  },
+
+  /* ── Category bar ── */
+  catBar: { maxHeight: 44, marginTop: 6 },
+  catBarInner: { paddingHorizontal: 8, gap: 6, alignItems: 'center' },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#141425',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  chipActive: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
+  chipDot: { width: 8, height: 8, borderRadius: 4 },
+  chipText: { fontSize: 12, color: '#999', fontWeight: '600' },
+  chipTextActive: { color: '#fff' },
+
+  /* ── Product grid ── */
+  grid: { padding: 6, paddingBottom: 20 },
+  card: {
     flex: 1,
     backgroundColor: '#141425',
-    borderRadius: 14,
-    padding: 14,
-    margin: 4,
-    borderWidth: 1.5,
+    borderRadius: 10,
+    margin: 3,
+    borderWidth: 1,
     borderColor: '#2a2a3a',
+    overflow: 'hidden',
+    minHeight: 80,
+  },
+  cardActive: { borderColor: '#6366f1', backgroundColor: '#1a1a35' },
+  cardColorBar: { height: 3 },
+  cardBody: {
+    padding: 8,
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  cardName: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#ccc',
+    lineHeight: 15,
+    marginBottom: 4,
+  },
+  cardFooter: {
+    flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 110,
+    justifyContent: 'space-between',
+  },
+  cardPrice: { fontSize: 13, fontWeight: '800', color: '#6366f1' },
+  cardBadge: {
+    backgroundColor: '#6366f1',
+    borderRadius: 8,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  cardBadgeText: { fontSize: 10, fontWeight: '800', color: '#fff' },
+
+  /* ── Center states ── */
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  centerText: { fontSize: 14, color: '#555' },
+  centerTextErr: {
+    fontSize: 13,
+    color: '#ef4444',
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  retryBtn: {
+    backgroundColor: '#1e1e2e',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+  },
+  retryText: { color: '#ccc', fontWeight: '600', fontSize: 13 },
+
+  /* ── Right pane (cart) ── */
+  cartPanel: {
+    flex: 1,
+    backgroundColor: '#0a0a14',
+    padding: 12,
+    flexDirection: 'column',
+  },
+  cartHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  cartTitle: { fontSize: 17, fontWeight: '800', color: '#fff' },
+  cartBadge: {
+    backgroundColor: '#6366f1',
+    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  cartBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
+  cartEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.35,
+  },
+  cartEmptyText: { fontSize: 13, color: '#666', marginTop: 8 },
+
+  cartList: { flex: 1 },
+  cartRow: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a2a',
+  },
+  cartItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  cartDot: { width: 8, height: 8, borderRadius: 4 },
+  cartItemName: { fontSize: 13, fontWeight: '600', color: '#ccc' },
+  cartItemSub: { fontSize: 11, color: '#555', marginTop: 1 },
+  qtyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 16,
+  },
+  qtyBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#2a2a3a',
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  productCardActive: { borderColor: '#6366f1', backgroundColor: '#1a1a35' },
-  productEmoji: { fontSize: 32, marginBottom: 6 },
-  productName: { fontSize: 13, fontWeight: '700', color: '#ccc', textAlign: 'center', marginBottom: 6 },
-  productFooter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  productPrice: { fontSize: 15, fontWeight: '800', color: '#6366f1' },
-  badge: { backgroundColor: '#6366f1', borderRadius: 10, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  badgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
-  cartPanel: { flex: 1, backgroundColor: '#0a0a14', padding: 14, flexDirection: 'column' },
-  cartTitle: { fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 12 },
-  emptyCart: { flex: 1, alignItems: 'center', justifyContent: 'center', opacity: 0.4 },
-  emptyCartEmoji: { fontSize: 40, marginBottom: 8 },
-  emptyCartText: { fontSize: 15, color: '#888' },
-  cartList: { flex: 1 },
-  cartRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1a1a2a' },
-  cartItemInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cartItemEmoji: { fontSize: 22 },
-  cartItemDetails: { flex: 1 },
-  cartItemName: { fontSize: 13, fontWeight: '600', color: '#ccc' },
-  cartItemPrice: { fontSize: 12, color: '#6366f1', marginTop: 1 },
-  cartQtyRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  qtyBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#2a2a3a', alignItems: 'center', justifyContent: 'center' },
-  qtyBtnAdd: { backgroundColor: '#6366f1' },
-  qtyBtnText: { fontSize: 14, color: '#fff', fontWeight: '700' },
-  qtyNum: { fontSize: 15, fontWeight: '800', color: '#fff', minWidth: 20, textAlign: 'center' },
-  totals: { borderTopWidth: 1, borderTopColor: '#1e1e2e', paddingTop: 12 },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  totalLabel: { fontSize: 13, color: '#777' },
-  totalValue: { fontSize: 13, color: '#aaa' },
-  grandTotalRow: { borderTopWidth: 1, borderTopColor: '#2a2a3a', paddingTop: 8, marginTop: 4, marginBottom: 14 },
-  grandTotalLabel: { fontSize: 18, fontWeight: '800', color: '#fff' },
-  grandTotalValue: { fontSize: 20, fontWeight: '900', color: '#6366f1' },
+  qtyBtnPlus: { backgroundColor: '#6366f1' },
+  qtyBtnLabel: { fontSize: 14, color: '#fff', fontWeight: '700' },
+  qtyNum: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#fff',
+    minWidth: 18,
+    textAlign: 'center',
+  },
+  lineTotal: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#888',
+    marginLeft: 'auto',
+  },
+
+  /* ── Totals ── */
+  totalsWrap: {
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e2e',
+    paddingTop: 10,
+  },
+  totalLine: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  totalLabel: { fontSize: 17, fontWeight: '800', color: '#fff' },
+  totalValue: { fontSize: 19, fontWeight: '900', color: '#6366f1' },
+  gstNote: { fontSize: 11, color: '#555', marginBottom: 12 },
+
   chargeBtn: {
     backgroundColor: '#6366f1',
     borderRadius: 12,
@@ -233,8 +677,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
-  chargeBtnDisabled: { opacity: 0.4, shadowOpacity: 0, elevation: 0 },
-  chargeBtnText: { fontSize: 16, fontWeight: '800', color: '#fff' },
-  clearBtn: { paddingVertical: 8, alignItems: 'center' },
-  clearBtnText: { fontSize: 13, color: '#555' },
+  chargeBtnOff: { opacity: 0.4, shadowOpacity: 0, elevation: 0 },
+  chargeText: { fontSize: 15, fontWeight: '800', color: '#fff' },
+  clearBtn: { paddingVertical: 6, alignItems: 'center' },
+  clearText: { fontSize: 12, color: '#444' },
 });
