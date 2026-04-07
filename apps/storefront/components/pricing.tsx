@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SectionTransition, DividerLine } from './section-transition';
+import { SectionTransition } from './section-transition';
 
 interface Plan {
   id: string;

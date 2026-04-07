@@ -1,7 +1,6 @@
 'use client';
 
 import { useRef } from 'react';
-import Link from 'next/link';
 import { motion, useInView } from 'framer-motion';
 import { Navbar } from '@/components/navbar';
 import { Footer } from '@/components/footer';

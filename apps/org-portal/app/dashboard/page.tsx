@@ -75,13 +75,19 @@ export default function DashboardPage() {
         <StatCard
           icon={<AlertCircle size={20} className="text-amber-500 dark:text-amber-400" />}
           label="Open Issues"
-          value="0"
+          value={loading ? '—' : '—'}
+          subtitle="Coming soon"
           bg="bg-amber-50 dark:bg-amber-900/20"
         />
         <StatCard
           icon={<Activity size={20} className="text-green-600 dark:text-green-400" />}
           label="Recently Active"
-          value="—"
+          value={loading ? '—' : orgs.filter((o) => {
+            if (!o.createdAt) return false;
+            const created = new Date(o.createdAt).getTime();
+            return Date.now() - created < 30 * 24 * 60 * 60 * 1000;
+          }).length.toString()}
+          subtitle="Last 30 days"
           bg="bg-green-50 dark:bg-green-900/20"
         />
       </div>
@@ -152,11 +158,13 @@ function StatCard({
   icon,
   label,
   value,
+  subtitle,
   bg,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  subtitle?: string;
   bg: string;
 }) {
   return (
@@ -165,6 +173,7 @@ function StatCard({
       <div>
         <p className="text-sm text-gray-600 dark:text-gray-400">{label}</p>
         <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+        {subtitle && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{subtitle}</p>}
       </div>
     </div>
   );

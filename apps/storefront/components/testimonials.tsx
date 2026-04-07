@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
-import { motion, useInView, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { SectionTransition } from './section-transition';
 
 const testimonials = [
@@ -51,7 +51,6 @@ const testimonials = [
 
 export function Testimonials() {
   const ref = useRef<HTMLDivElement>(null);
-  const isInView = useInView(ref, { once: true, margin: '-80px' });
   const [current, setCurrent] = useState(0);
 
   useEffect(() => {

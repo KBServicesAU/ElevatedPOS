@@ -84,19 +84,21 @@ export default function ResellerDashboardPage() {
         <KpiCard
           icon={<DollarSign size={20} className="text-blue-600" />}
           label="Monthly Revenue"
-          value="$0"
+          value={loading ? '—' : '—'}
+          subtitle="Coming soon"
           bg="bg-blue-50 dark:bg-blue-900/20"
         />
         <KpiCard
           icon={<TrendingUp size={20} className="text-purple-600" />}
           label="Commission Earned"
-          value="$0"
+          value={loading ? '—' : '—'}
+          subtitle="Coming soon"
           bg="bg-purple-50 dark:bg-purple-900/20"
         />
         <KpiCard
           icon={<RefreshCw size={20} className="text-amber-500" />}
           label="Trial Conversions"
-          value="0"
+          value={loading ? '—' : orgs.filter((o) => o.status === 'active' && o.plan && o.plan !== 'trial').length.toString()}
           bg="bg-amber-50 dark:bg-amber-900/20"
         />
       </div>
@@ -171,7 +173,7 @@ export default function ResellerDashboardPage() {
                   </td>
                   <td className="px-5 py-3 text-right">
                     <a
-                      href={`https://organisation.elevatedpos.com.au/dashboard/merchants/${org.id}`}
+                      href={`${process.env.NEXT_PUBLIC_ORG_PORTAL_URL ?? 'https://organisation.elevatedpos.com.au'}/dashboard/merchants/${org.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-200 font-medium"
@@ -193,11 +195,13 @@ function KpiCard({
   icon,
   label,
   value,
+  subtitle,
   bg,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  subtitle?: string;
   bg: string;
 }) {
   return (
@@ -206,6 +210,7 @@ function KpiCard({
       <div>
         <p className="text-sm text-gray-600 dark:text-gray-300">{label}</p>
         <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+        {subtitle && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{subtitle}</p>}
       </div>
     </div>
   );
