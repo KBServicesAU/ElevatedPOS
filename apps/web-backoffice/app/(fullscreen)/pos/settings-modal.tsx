@@ -1,32 +1,38 @@
 'use client';
 
-import { X, Printer, Bluetooth, Usb, CheckCircle, AlertCircle, Settings } from 'lucide-react';
+import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings } from 'lucide-react';
 import { useState } from 'react';
+
+type ConnectionMethod = 'serial' | 'usb' | 'bluetooth';
 
 interface SettingsModalProps {
   onClose: () => void;
-  onConnect: (printerType: 'receipt' | 'order', method: 'serial' | 'bluetooth') => void;
+  onConnect: (printerType: 'receipt' | 'order', method: ConnectionMethod) => void;
 }
 
 type ConnectionStatus = 'connected' | 'not_connected';
 
 interface PrinterState {
-  receipt: ConnectionStatus;
-  order: ConnectionStatus;
+  receipt: { status: ConnectionStatus; method?: ConnectionMethod };
+  order: { status: ConnectionStatus; method?: ConnectionMethod };
 }
 
 export function SettingsModal({ onClose, onConnect }: SettingsModalProps) {
-  const [status, setStatus] = useState<PrinterState>({
-    receipt: 'not_connected',
-    order: 'not_connected',
+  const [printers, setPrinters] = useState<PrinterState>({
+    receipt: { status: 'not_connected' },
+    order: { status: 'not_connected' },
   });
 
   const hasSerial = typeof navigator !== 'undefined' && 'serial' in navigator;
+  const hasUsb = typeof navigator !== 'undefined' && 'usb' in navigator;
   const hasBluetooth = typeof navigator !== 'undefined' && 'bluetooth' in navigator;
 
-  function handleConnect(printerType: 'receipt' | 'order', method: 'serial' | 'bluetooth') {
+  function handleConnect(printerType: 'receipt' | 'order', method: ConnectionMethod) {
     onConnect(printerType, method);
-    setStatus(prev => ({ ...prev, [printerType]: 'connected' }));
+    setPrinters(prev => ({
+      ...prev,
+      [printerType]: { status: 'connected' as ConnectionStatus, method },
+    }));
   }
 
   return (
@@ -50,16 +56,20 @@ export function SettingsModal({ onClose, onConnect }: SettingsModalProps) {
           <PrinterSection
             title="Receipt Printer (80mm)"
             printerType="receipt"
-            connectionStatus={status.receipt}
+            connectionStatus={printers.receipt.status}
+            connectedMethod={printers.receipt.method}
             hasSerial={hasSerial}
+            hasUsb={hasUsb}
             hasBluetooth={hasBluetooth}
             onConnect={handleConnect}
           />
           <PrinterSection
             title="Order Printer"
             printerType="order"
-            connectionStatus={status.order}
+            connectionStatus={printers.order.status}
+            connectedMethod={printers.order.method}
             hasSerial={hasSerial}
+            hasUsb={hasUsb}
             hasBluetooth={hasBluetooth}
             onConnect={handleConnect}
           />
@@ -82,20 +92,32 @@ interface PrinterSectionProps {
   title: string;
   printerType: 'receipt' | 'order';
   connectionStatus: ConnectionStatus;
+  connectedMethod?: ConnectionMethod;
   hasSerial: boolean;
+  hasUsb: boolean;
   hasBluetooth: boolean;
-  onConnect: (printerType: 'receipt' | 'order', method: 'serial' | 'bluetooth') => void;
+  onConnect: (printerType: 'receipt' | 'order', method: ConnectionMethod) => void;
 }
 
 function PrinterSection({
   title,
   printerType,
   connectionStatus,
+  connectedMethod,
   hasSerial,
+  hasUsb,
   hasBluetooth,
   onConnect,
 }: PrinterSectionProps) {
   const isConnected = connectionStatus === 'connected';
+
+  const methodLabel = (method: ConnectionMethod) => {
+    switch (method) {
+      case 'usb':       return 'USB';
+      case 'serial':    return 'Serial';
+      case 'bluetooth': return 'Bluetooth';
+    }
+  };
 
   return (
     <div className="bg-[#0f0f0f] rounded-xl p-4 flex flex-col gap-4">
@@ -105,29 +127,57 @@ function PrinterSection({
           <Printer size={16} className="text-gray-400" />
           <span className="text-white text-sm font-medium">{title}</span>
         </div>
-        <ConnectionBadge connected={isConnected} />
+        <ConnectionBadge
+          connected={isConnected}
+          method={connectedMethod ? methodLabel(connectedMethod) : undefined}
+        />
       </div>
 
       {/* Connect Buttons */}
       <div className="flex flex-col gap-2">
-        {/* USB / Serial */}
-        {hasSerial ? (
+        {/* USB Printer (WebUSB) */}
+        {hasUsb ? (
           <button
-            onClick={() => onConnect(printerType, 'serial')}
+            onClick={() => onConnect(printerType, 'usb')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              isConnected
+              isConnected && connectedMethod === 'usb'
                 ? 'bg-green-900/40 text-green-400 border border-green-700/40 cursor-default'
-                : 'bg-[#1a1a2e] hover:bg-[#252545] text-gray-300 hover:text-white border border-white/10'
+                : isConnected
+                  ? 'bg-[#1a1a2e] text-gray-600 border border-white/5 cursor-default'
+                  : 'bg-[#1a1a2e] hover:bg-[#252545] text-gray-300 hover:text-white border border-white/10'
             }`}
             disabled={isConnected}
           >
             <Usb size={15} />
-            {isConnected ? 'Connected via USB/Serial' : 'Connect via USB/Serial'}
+            {isConnected && connectedMethod === 'usb' ? 'Connected via USB' : 'USB Printer'}
           </button>
         ) : (
           <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-gray-600 bg-[#1a1a2e] border border-white/5">
             <Usb size={15} />
-            USB/Serial — Not supported
+            USB Printer — Not supported
+          </div>
+        )}
+
+        {/* Serial Port (Web Serial) */}
+        {hasSerial ? (
+          <button
+            onClick={() => onConnect(printerType, 'serial')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              isConnected && connectedMethod === 'serial'
+                ? 'bg-green-900/40 text-green-400 border border-green-700/40 cursor-default'
+                : isConnected
+                  ? 'bg-[#1a1a2e] text-gray-600 border border-white/5 cursor-default'
+                  : 'bg-[#1a1a2e] hover:bg-[#252545] text-gray-300 hover:text-white border border-white/10'
+            }`}
+            disabled={isConnected}
+          >
+            <Cable size={15} />
+            {isConnected && connectedMethod === 'serial' ? 'Connected via Serial' : 'Serial Port'}
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-gray-600 bg-[#1a1a2e] border border-white/5">
+            <Cable size={15} />
+            Serial Port — Not supported
           </div>
         )}
 
@@ -136,14 +186,16 @@ function PrinterSection({
           <button
             onClick={() => onConnect(printerType, 'bluetooth')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              isConnected
+              isConnected && connectedMethod === 'bluetooth'
                 ? 'bg-blue-900/40 text-blue-400 border border-blue-700/40 cursor-default'
-                : 'bg-[#1a1a2e] hover:bg-[#252545] text-gray-300 hover:text-white border border-white/10'
+                : isConnected
+                  ? 'bg-[#1a1a2e] text-gray-600 border border-white/5 cursor-default'
+                  : 'bg-[#1a1a2e] hover:bg-[#252545] text-gray-300 hover:text-white border border-white/10'
             }`}
             disabled={isConnected}
           >
             <Bluetooth size={15} />
-            {isConnected ? 'Connected via Bluetooth' : 'Connect via Bluetooth'}
+            {isConnected && connectedMethod === 'bluetooth' ? 'Connected via Bluetooth' : 'Bluetooth'}
           </button>
         ) : (
           <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-gray-600 bg-[#1a1a2e] border border-white/5">
@@ -152,16 +204,24 @@ function PrinterSection({
           </div>
         )}
       </div>
+
+      {/* Hint text */}
+      {!isConnected && (
+        <p className="text-xs text-gray-600 leading-relaxed">
+          <strong className="text-gray-500">USB Printer</strong> — for printers plugged in directly via USB.{' '}
+          <strong className="text-gray-500">Serial Port</strong> — for USB-to-serial adapters or RS232 connections.
+        </p>
+      )}
     </div>
   );
 }
 
-function ConnectionBadge({ connected }: { connected: boolean }) {
+function ConnectionBadge({ connected, method }: { connected: boolean; method?: string }) {
   if (connected) {
     return (
       <span className="flex items-center gap-1 text-xs font-medium text-green-400 bg-green-900/30 px-2 py-0.5 rounded-full">
         <CheckCircle size={11} />
-        Connected
+        {method ? `Connected (${method})` : 'Connected'}
       </span>
     );
   }

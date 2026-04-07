@@ -4,148 +4,343 @@
     {
       "name": "All Services (Turbo)",
       "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
-      "runtimeArgs": ["./node_modules/turbo/bin/turbo", "dev", "--filter=@nexus/web-backoffice", "--concurrency=10"],
+      "runtimeArgs": [
+        "./node_modules/turbo/bin/turbo",
+        "dev",
+        "--filter=@nexus/web-backoffice",
+        "--concurrency=10"
+      ],
       "port": 53111
     },
     {
       "name": "Docker Dev Stack",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "docker", "compose", "-f", "infrastructure/docker/docker-compose.dev.yml", "up"],
+      "runtimeArgs": [
+        "/c",
+        "docker",
+        "compose",
+        "-f",
+        "infrastructure/docker/docker-compose.dev.yml",
+        "up"
+      ],
       "port": 5432
     },
     {
       "name": "web-backoffice",
       "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
-      "runtimeArgs": ["./node_modules/next/dist/bin/next", "dev", "-p", "53111"],
+      "runtimeArgs": [
+        "./node_modules/next/dist/bin/next",
+        "dev",
+        "-p",
+        "53111"
+      ],
       "cwd": "apps/web-backoffice",
-      "port": 53111
+      "port": 53111,
+      "autoPort": false
     },
     {
       "name": "auth-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/auth", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/auth",
+        "dev"
+      ],
       "port": 4001
     },
     {
       "name": "catalog-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/catalog", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/catalog",
+        "dev"
+      ],
       "port": 4002
     },
     {
       "name": "inventory-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/inventory", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/inventory",
+        "dev"
+      ],
       "port": 4003
     },
     {
       "name": "orders-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/orders", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/orders",
+        "dev"
+      ],
       "port": 4004
     },
     {
       "name": "payments-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/payments", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/payments",
+        "dev"
+      ],
       "port": 4005
     },
     {
       "name": "customers-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/customers", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/customers",
+        "dev"
+      ],
       "port": 4006
     },
     {
       "name": "loyalty-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/loyalty", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/loyalty",
+        "dev"
+      ],
       "port": 4007
     },
     {
       "name": "campaigns-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/campaigns", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/campaigns",
+        "dev"
+      ],
       "port": 4008
     },
     {
       "name": "notifications-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/notifications", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/notifications",
+        "dev"
+      ],
       "port": 4009
     },
     {
       "name": "integrations-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/integrations", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/integrations",
+        "dev"
+      ],
       "port": 4010
     },
     {
       "name": "automations-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/automations", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/automations",
+        "dev"
+      ],
       "port": 4011
     },
     {
       "name": "ai-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/ai", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/ai",
+        "dev"
+      ],
       "port": 4012
     },
     {
       "name": "franchise-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/franchise", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/franchise",
+        "dev"
+      ],
       "port": 4013
     },
     {
       "name": "reporting-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/reporting", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/reporting",
+        "dev"
+      ],
       "port": 4014
     },
     {
       "name": "webhooks-service",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/webhooks", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/webhooks",
+        "dev"
+      ],
       "port": 4015
     },
     {
       "name": "storefront",
       "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
-      "runtimeArgs": ["./node_modules/next/dist/bin/next", "dev", "-p", "3005"],
+      "runtimeArgs": [
+        "./node_modules/next/dist/bin/next",
+        "dev",
+        "-p",
+        "3005"
+      ],
       "cwd": "apps/storefront",
       "port": 3005
     },
     {
       "name": "kds-display",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/kds-display", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/kds-display",
+        "dev"
+      ],
       "port": 3001
     },
     {
       "name": "developer-portal",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/developer-portal", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/developer-portal",
+        "dev"
+      ],
       "port": 3002
     },
     {
       "name": "partner-portal",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/partner-portal", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/partner-portal",
+        "dev"
+      ],
       "port": 3003
     },
     {
       "name": "pos-client (Expo)",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/pos-client", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/pos-client",
+        "dev"
+      ],
       "port": 8081
     },
     {
       "name": "kiosk (Expo)",
       "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
-      "runtimeArgs": ["/c", "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd", "--filter", "@nexus/kiosk", "dev"],
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/kiosk",
+        "dev"
+      ],
       "port": 8082
+    },
+    {
+      "name": "godmode",
+      "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/godmode",
+        "dev"
+      ],
+      "port": 3010,
+      "autoPort": false
+    },
+    {
+      "name": "org-portal",
+      "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/org-portal",
+        "dev"
+      ],
+      "port": 3011,
+      "autoPort": false
+    },
+    {
+      "name": "reseller-portal",
+      "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/reseller-portal",
+        "dev"
+      ],
+      "port": 3012,
+      "autoPort": false
+    },
+    {
+      "name": "sales-portal",
+      "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
+      "runtimeArgs": [
+        "/c",
+        "C:\\Users\\mokhl\\AppData\\Roaming\\npm\\pnpm.cmd",
+        "--filter",
+        "@nexus/sales-portal",
+        "dev"
+      ],
+      "port": 53113,
+      "autoPort": false
     }
   ]
 }

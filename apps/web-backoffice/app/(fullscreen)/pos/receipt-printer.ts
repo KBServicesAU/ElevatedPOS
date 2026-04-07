@@ -171,6 +171,10 @@ export function buildReceiptBytes(data: ReceiptData): Uint8Array {
   return new Uint8Array(buf);
 }
 
+/* ------------------------------------------------------------------ */
+/* Serial Port printing (Web Serial API)                               */
+/* ------------------------------------------------------------------ */
+
 export async function printReceipt(port: SerialPort, data: ReceiptData): Promise<void> {
   try {
     const portInfo = port.getInfo();
@@ -208,5 +212,69 @@ export async function openCashDrawer(port: SerialPort): Promise<void> {
     }
   } catch (err) {
     throw new Error(`Failed to open cash drawer: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* USB Printer support (WebUSB API)                                    */
+/* ------------------------------------------------------------------ */
+
+/** Common thermal/receipt printer USB vendor IDs */
+export const USB_PRINTER_FILTERS: USBDeviceFilter[] = [
+  { classCode: 0x07 },          // USB Printer class
+  { vendorId: 0x04b8 },         // Epson
+  { vendorId: 0x0519 },         // Star Micronics
+  { vendorId: 0x1d90 },         // Citizen
+  { vendorId: 0x0dd4 },         // Custom Engineering
+  { vendorId: 0x1504 },         // Bixolon
+  { vendorId: 0x0fe6 },         // ICS Electronics
+  { vendorId: 0x0416 },         // Winbond
+  { vendorId: 0x04e8 },         // Samsung (Bixolon rebrand)
+  { vendorId: 0x0483 },         // STMicroelectronics (some POS printers)
+];
+
+async function sendToUsbDevice(device: USBDevice, data: Uint8Array): Promise<void> {
+  if (!device.opened) {
+    await device.open();
+  }
+  if (device.configuration === null) {
+    await device.selectConfiguration(1);
+  }
+
+  const iface = device.configuration!.interfaces[0];
+  if (!iface) throw new Error('No USB interface found on device');
+
+  try {
+    await device.claimInterface(iface.interfaceNumber);
+  } catch {
+    // Interface may already be claimed — continue
+  }
+
+  const alternate = iface.alternates[0];
+  if (!alternate) throw new Error('No alternate setting found on USB interface');
+
+  const outEndpoint = alternate.endpoints.find((e: USBEndpoint) => e.direction === 'out');
+  if (!outEndpoint) {
+    throw new Error('No output endpoint found on USB device. This device may not support direct USB printing.');
+  }
+
+  await device.transferOut(outEndpoint.endpointNumber, data.buffer as ArrayBuffer);
+}
+
+export async function printReceiptUsb(device: USBDevice, data: ReceiptData): Promise<void> {
+  try {
+    const receiptBytes = buildReceiptBytes(data);
+    await sendToUsbDevice(device, receiptBytes);
+  } catch (err) {
+    throw new Error(`Failed to print receipt via USB: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+export async function openCashDrawerUsb(device: USBDevice): Promise<void> {
+  try {
+    const drawerBytes = new Uint8Array(CMD.DRAWER_OPEN);
+    await sendToUsbDevice(device, drawerBytes);
+  } catch (err) {
+    throw new Error(`Failed to open cash drawer via USB: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

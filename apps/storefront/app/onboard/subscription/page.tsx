@@ -39,37 +39,37 @@ function SubscriptionContent() {
     <div className="flex-1 flex items-start justify-center px-4 py-12">
       <div className="w-full max-w-lg">
         {connected && (
-          <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-            <svg className="h-5 w-5 flex-shrink-0 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+            <svg className="h-5 w-5 flex-shrink-0 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="text-sm font-medium text-emerald-800">Payment account connected successfully!</span>
+            <span className="text-sm font-medium text-emerald-300">Payment account connected successfully!</span>
           </div>
         )}
 
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Activate your subscription</h1>
-          <p className="text-gray-500 text-sm">Review your plan and start your free trial.</p>
+          <h1 className="text-2xl font-bold text-white mb-2">Activate your subscription</h1>
+          <p className="text-neutral-500 text-sm">Review your plan and start your free trial.</p>
         </div>
 
         {/* Plan summary card */}
-        <div className="border border-indigo-200 rounded-2xl p-6 bg-indigo-50 mb-6">
+        <div className="border border-[#7c3aed]/20 rounded-2xl p-6 bg-[#7c3aed]/[0.03] mb-6">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <div className="text-sm text-indigo-600 font-semibold uppercase tracking-wide">Selected plan</div>
-              <div className="text-2xl font-bold text-gray-900 mt-1">{selectedPlan.name}</div>
+              <div className="text-sm text-[#7c3aed] font-semibold uppercase tracking-wide">Selected plan</div>
+              <div className="text-2xl font-bold text-white mt-1">{selectedPlan.name}</div>
             </div>
             <div className="text-right">
-              <div className="text-2xl font-bold text-gray-900">{selectedPlan.price}</div>
+              <div className="text-2xl font-bold text-white">{selectedPlan.price}</div>
               {selectedPlan.period && (
-                <div className="text-xs text-gray-500">{selectedPlan.period}</div>
+                <div className="text-xs text-neutral-500">{selectedPlan.period}</div>
               )}
             </div>
           </div>
           <ul className="space-y-1.5">
             {selectedPlan.features.map((f) => (
-              <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
-                <svg className="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <li key={f} className="flex items-center gap-2 text-sm text-neutral-400">
+                <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                 </svg>
                 {f}
@@ -79,16 +79,16 @@ function SubscriptionContent() {
         </div>
 
         {/* Trial message */}
-        <div className="border border-emerald-200 rounded-2xl p-6 bg-emerald-50 mb-8">
+        <div className="border border-emerald-500/20 rounded-2xl p-6 bg-emerald-500/[0.05] mb-8">
           <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-              <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             <div>
-              <div className="font-semibold text-gray-900 text-sm">Your 14-day trial has started</div>
-              <div className="text-sm text-gray-600 mt-1 leading-relaxed">
+              <div className="font-semibold text-white text-sm">Your 14-day trial has started</div>
+              <div className="text-sm text-neutral-400 mt-1 leading-relaxed">
                 No payment required until your trial ends. You&#39;ll receive a reminder 3 days before you&#39;re charged.
               </div>
             </div>
@@ -97,12 +97,12 @@ function SubscriptionContent() {
 
         <Link
           href={continueHref}
-          className="block w-full text-center bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-xl transition-colors"
+          className="block w-full text-center bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-semibold py-3 rounded-xl transition-colors"
         >
           Continue
         </Link>
 
-        <p className="text-xs text-gray-400 text-center mt-4">
+        <p className="text-xs text-neutral-600 text-center mt-4">
           You can change or cancel your plan at any time from your dashboard.
         </p>
       </div>
@@ -112,7 +112,7 @@ function SubscriptionContent() {
 
 export default function SubscriptionPage() {
   return (
-    <Suspense fallback={<div className="flex-1 flex items-center justify-center text-gray-400">Loading…</div>}>
+    <Suspense fallback={<div className="flex-1 flex items-center justify-center text-neutral-600">Loading…</div>}>
       <SubscriptionContent />
     </Suspense>
   );

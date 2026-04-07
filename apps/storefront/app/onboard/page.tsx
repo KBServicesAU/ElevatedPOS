@@ -96,12 +96,12 @@ export default function OnboardAccountPage() {
     <div className="flex-1 flex items-start justify-center px-4 py-12">
       <div className="w-full max-w-lg">
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Create your account</h1>
-          <p className="text-gray-500 mt-1">Start your free 14-day trial — no credit card required.</p>
+          <h1 className="text-2xl font-bold text-white">Create your account</h1>
+          <p className="text-neutral-500 mt-1">Start your free 14-day trial — no credit card required.</p>
         </div>
 
         {serverError && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400">
             {serverError}
           </div>
         )}
@@ -109,8 +109,8 @@ export default function OnboardAccountPage() {
         <form onSubmit={handleSubmit} noValidate className="space-y-5">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5" htmlFor="firstName">
-                First name <span className="text-red-500">*</span>
+              <label className="block text-sm font-medium text-neutral-300 mb-1.5" htmlFor="firstName">
+                First name <span className="text-red-400">*</span>
               </label>
               <input
                 id="firstName"
@@ -119,18 +119,18 @@ export default function OnboardAccountPage() {
                 autoComplete="given-name"
                 value={form.firstName}
                 onChange={handleChange}
-                className={`w-full px-3.5 py-2.5 rounded-xl border text-sm outline-none transition-colors ${
+                className={`w-full px-4 py-3 rounded-lg border text-sm text-white outline-none transition-colors bg-white/[0.05] placeholder-neutral-600 ${
                   errors.firstName
-                    ? 'border-red-400 bg-red-50 focus:border-red-500'
-                    : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
+                    ? 'border-red-500/50 bg-red-500/[0.05] focus:border-red-500'
+                    : 'border-white/[0.08] focus:border-[#7c3aed] focus:ring-1 focus:ring-[#7c3aed]/20'
                 }`}
                 placeholder="Jane"
               />
-              {errors.firstName && <p className="text-xs text-red-600 mt-1">{errors.firstName}</p>}
+              {errors.firstName && <p className="text-xs text-red-400 mt-1">{errors.firstName}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5" htmlFor="lastName">
-                Last name <span className="text-red-500">*</span>
+              <label className="block text-sm font-medium text-neutral-300 mb-1.5" htmlFor="lastName">
+                Last name <span className="text-red-400">*</span>
               </label>
               <input
                 id="lastName"
@@ -139,20 +139,20 @@ export default function OnboardAccountPage() {
                 autoComplete="family-name"
                 value={form.lastName}
                 onChange={handleChange}
-                className={`w-full px-3.5 py-2.5 rounded-xl border text-sm outline-none transition-colors ${
+                className={`w-full px-4 py-3 rounded-lg border text-sm text-white outline-none transition-colors bg-white/[0.05] placeholder-neutral-600 ${
                   errors.lastName
-                    ? 'border-red-400 bg-red-50 focus:border-red-500'
-                    : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
+                    ? 'border-red-500/50 bg-red-500/[0.05] focus:border-red-500'
+                    : 'border-white/[0.08] focus:border-[#7c3aed] focus:ring-1 focus:ring-[#7c3aed]/20'
                 }`}
                 placeholder="Smith"
               />
-              {errors.lastName && <p className="text-xs text-red-600 mt-1">{errors.lastName}</p>}
+              {errors.lastName && <p className="text-xs text-red-400 mt-1">{errors.lastName}</p>}
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5" htmlFor="businessName">
-              Business name <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-neutral-300 mb-1.5" htmlFor="businessName">
+              Business name <span className="text-red-400">*</span>
             </label>
             <input
               id="businessName"
@@ -161,19 +161,19 @@ export default function OnboardAccountPage() {
               autoComplete="organization"
               value={form.businessName}
               onChange={handleChange}
-              className={`w-full px-3.5 py-2.5 rounded-xl border text-sm outline-none transition-colors ${
+              className={`w-full px-4 py-3 rounded-lg border text-sm text-white outline-none transition-colors bg-white/[0.05] placeholder-neutral-600 ${
                 errors.businessName
-                  ? 'border-red-400 bg-red-50 focus:border-red-500'
-                  : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
+                  ? 'border-red-500/50 bg-red-500/[0.05] focus:border-red-500'
+                  : 'border-white/[0.08] focus:border-[#7c3aed] focus:ring-1 focus:ring-[#7c3aed]/20'
               }`}
               placeholder="Acme Cafe"
             />
-            {errors.businessName && <p className="text-xs text-red-600 mt-1">{errors.businessName}</p>}
+            {errors.businessName && <p className="text-xs text-red-400 mt-1">{errors.businessName}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5" htmlFor="email">
-              Email address <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-neutral-300 mb-1.5" htmlFor="email">
+              Email address <span className="text-red-400">*</span>
             </label>
             <input
               id="email"
@@ -182,19 +182,19 @@ export default function OnboardAccountPage() {
               autoComplete="email"
               value={form.email}
               onChange={handleChange}
-              className={`w-full px-3.5 py-2.5 rounded-xl border text-sm outline-none transition-colors ${
+              className={`w-full px-4 py-3 rounded-lg border text-sm text-white outline-none transition-colors bg-white/[0.05] placeholder-neutral-600 ${
                 errors.email
-                  ? 'border-red-400 bg-red-50 focus:border-red-500'
-                  : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
+                  ? 'border-red-500/50 bg-red-500/[0.05] focus:border-red-500'
+                  : 'border-white/[0.08] focus:border-[#7c3aed] focus:ring-1 focus:ring-[#7c3aed]/20'
               }`}
               placeholder="jane@acmecafe.com.au"
             />
-            {errors.email && <p className="text-xs text-red-600 mt-1">{errors.email}</p>}
+            {errors.email && <p className="text-xs text-red-400 mt-1">{errors.email}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5" htmlFor="password">
-              Password <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-neutral-300 mb-1.5" htmlFor="password">
+              Password <span className="text-red-400">*</span>
             </label>
             <input
               id="password"
@@ -203,19 +203,19 @@ export default function OnboardAccountPage() {
               autoComplete="new-password"
               value={form.password}
               onChange={handleChange}
-              className={`w-full px-3.5 py-2.5 rounded-xl border text-sm outline-none transition-colors ${
+              className={`w-full px-4 py-3 rounded-lg border text-sm text-white outline-none transition-colors bg-white/[0.05] placeholder-neutral-600 ${
                 errors.password
-                  ? 'border-red-400 bg-red-50 focus:border-red-500'
-                  : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
+                  ? 'border-red-500/50 bg-red-500/[0.05] focus:border-red-500'
+                  : 'border-white/[0.08] focus:border-[#7c3aed] focus:ring-1 focus:ring-[#7c3aed]/20'
               }`}
               placeholder="Minimum 8 characters"
             />
-            {errors.password && <p className="text-xs text-red-600 mt-1">{errors.password}</p>}
+            {errors.password && <p className="text-xs text-red-400 mt-1">{errors.password}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5" htmlFor="phone">
-              Phone <span className="text-gray-400 font-normal">(optional)</span>
+            <label className="block text-sm font-medium text-neutral-300 mb-1.5" htmlFor="phone">
+              Phone <span className="text-neutral-600 font-normal">(optional)</span>
             </label>
             <input
               id="phone"
@@ -224,14 +224,14 @@ export default function OnboardAccountPage() {
               autoComplete="tel"
               value={form.phone}
               onChange={handleChange}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm outline-none transition-colors focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              className="w-full px-4 py-3 rounded-lg border border-white/[0.08] bg-white/[0.05] text-sm text-white placeholder-neutral-600 outline-none transition-colors focus:border-[#7c3aed] focus:ring-1 focus:ring-[#7c3aed]/20"
               placeholder="04XX XXX XXX"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5" htmlFor="abn">
-              ABN <span className="text-gray-400 font-normal">(optional)</span>
+            <label className="block text-sm font-medium text-neutral-300 mb-1.5" htmlFor="abn">
+              ABN <span className="text-neutral-600 font-normal">(optional)</span>
             </label>
             <input
               id="abn"
@@ -239,7 +239,7 @@ export default function OnboardAccountPage() {
               type="text"
               value={form.abn}
               onChange={handleChange}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm outline-none transition-colors focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              className="w-full px-4 py-3 rounded-lg border border-white/[0.08] bg-white/[0.05] text-sm text-white placeholder-neutral-600 outline-none transition-colors focus:border-[#7c3aed] focus:ring-1 focus:ring-[#7c3aed]/20"
               placeholder="XX XXX XXX XXX"
             />
           </div>
@@ -247,7 +247,7 @@ export default function OnboardAccountPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-400 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-2"
+            className="w-full bg-[#7c3aed] hover:bg-[#6d28d9] disabled:bg-[#7c3aed]/50 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 mt-2"
           >
             {loading ? (
               <>
@@ -262,19 +262,19 @@ export default function OnboardAccountPage() {
             )}
           </button>
 
-          <p className="text-center text-sm text-gray-500">
+          <p className="text-center text-sm text-neutral-500">
             Already have an account?{' '}
-            <a href="https://app.elevatedpos.com.au/login" className="text-indigo-600 hover:text-indigo-500 font-medium">
+            <a href="https://app.elevatedpos.com.au/login" className="text-[#7c3aed] hover:text-white font-medium transition-colors">
               Log in
             </a>
           </p>
         </form>
 
-        <p className="text-xs text-gray-400 text-center mt-6">
+        <p className="text-xs text-neutral-600 text-center mt-6">
           By creating an account you agree to our{' '}
-          <a href="/terms" className="underline hover:text-gray-600">Terms of Service</a>{' '}
+          <a href="/terms" className="text-neutral-500 underline hover:text-white transition-colors">Terms of Service</a>{' '}
           and{' '}
-          <a href="/privacy" className="underline hover:text-gray-600">Privacy Policy</a>.
+          <a href="/privacy" className="text-neutral-500 underline hover:text-white transition-colors">Privacy Policy</a>.
         </p>
       </div>
     </div>

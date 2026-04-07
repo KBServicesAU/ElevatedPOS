@@ -40,7 +40,7 @@ async function seed() {
   console.log('  ✓ Role: Owner');
 
   // ── Employees ─────────────────────────────────────────────────────────────
-  const ownerPassHash = await bcrypt.hash('elevated2024!', 12);
+  const ownerPassHash = await bcrypt.hash('nexus2024!', 12);
   const ownerPin      = await bcrypt.hash('1234', 10);
 
   await db.insert(schema.employees).values({
@@ -55,7 +55,7 @@ async function seed() {
     employmentType: 'full_time',
     isActive: true,
   }).onConflictDoNothing();
-  console.log('  ✓ Employee: owner@elevatedpos.dev  |  password: elevated2024!  |  PIN: 1234');
+  console.log('  ✓ Employee: owner@elevatedpos.dev  |  password: nexus2024!  |  PIN: 1234');
 
   const managerPassHash = await bcrypt.hash('manager123!', 12);
   const managerPin      = await bcrypt.hash('5678', 10);

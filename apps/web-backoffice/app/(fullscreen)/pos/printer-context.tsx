@@ -4,13 +4,26 @@ import { createContext, useContext, useRef, useState, useCallback, type ReactNod
 import {
   printReceipt as doPrintReceipt,
   openCashDrawer as doOpenCashDrawer,
+  printReceiptUsb as doPrintReceiptUsb,
+  openCashDrawerUsb as doOpenCashDrawerUsb,
+  USB_PRINTER_FILTERS,
   type ReceiptData,
 } from './receipt-printer';
+
+type ConnectionMethod = 'serial' | 'usb' | 'bluetooth';
+
+interface PrinterConnection {
+  method: ConnectionMethod;
+  serialPort?: SerialPort;
+  usbDevice?: USBDevice;
+}
 
 interface PrinterContextValue {
   receiptConnected: boolean;
   orderConnected: boolean;
-  connectPrinter: (type: 'receipt' | 'order', method: 'serial' | 'bluetooth') => Promise<void>;
+  receiptMethod: ConnectionMethod | null;
+  orderMethod: ConnectionMethod | null;
+  connectPrinter: (type: 'receipt' | 'order', method: ConnectionMethod) => Promise<void>;
   disconnectPrinter: (type: 'receipt' | 'order') => void;
   /** Print a receipt to the connected receipt printer. No-ops if not connected. */
   printReceipt: (data: ReceiptData) => Promise<void>;
@@ -21,61 +34,100 @@ interface PrinterContextValue {
 const PrinterContext = createContext<PrinterContextValue | null>(null);
 
 export function PrinterProvider({ children }: { children: ReactNode }) {
-  // Refs hold the live port objects; they are NOT exposed in context because
-  // ref.current is not tracked by React and reading it from context always
-  // returns the stale value captured at render time.
-  const receiptPortRef = useRef<SerialPort | null>(null);
-  const orderPortRef   = useRef<SerialPort | null>(null);
+  const receiptRef = useRef<PrinterConnection | null>(null);
+  const orderRef   = useRef<PrinterConnection | null>(null);
 
   const [receiptConnected, setReceiptConnected] = useState(false);
   const [orderConnected,   setOrderConnected]   = useState(false);
+  const [receiptMethod,    setReceiptMethod]     = useState<ConnectionMethod | null>(null);
+  const [orderMethod,      setOrderMethod]       = useState<ConnectionMethod | null>(null);
 
-  const connectPrinter = useCallback(async (type: 'receipt' | 'order', method: 'serial' | 'bluetooth') => {
+  const connectPrinter = useCallback(async (type: 'receipt' | 'order', method: ConnectionMethod) => {
     if (method === 'bluetooth') {
-      throw new Error('Bluetooth printing is not yet supported. Use USB/Serial.');
+      throw new Error('Bluetooth printing is not yet supported. Use USB or Serial.');
     }
+
     if (method === 'serial') {
       if (!('serial' in navigator)) {
         throw new Error('Web Serial is not supported in this browser. Use Chrome or Edge.');
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const port = await (navigator as any).serial.requestPort({ filters: [] }) as SerialPort;
+      const conn: PrinterConnection = { method: 'serial', serialPort: port };
+
       if (type === 'receipt') {
-        receiptPortRef.current = port;
+        receiptRef.current = conn;
         setReceiptConnected(true);
+        setReceiptMethod('serial');
       } else {
-        orderPortRef.current = port;
+        orderRef.current = conn;
         setOrderConnected(true);
+        setOrderMethod('serial');
+      }
+    }
+
+    if (method === 'usb') {
+      if (!('usb' in navigator)) {
+        throw new Error('WebUSB is not supported in this browser. Use Chrome or Edge.');
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const device = await (navigator as any).usb.requestDevice({
+        filters: USB_PRINTER_FILTERS,
+      }) as USBDevice;
+      const conn: PrinterConnection = { method: 'usb', usbDevice: device };
+
+      if (type === 'receipt') {
+        receiptRef.current = conn;
+        setReceiptConnected(true);
+        setReceiptMethod('usb');
+      } else {
+        orderRef.current = conn;
+        setOrderConnected(true);
+        setOrderMethod('usb');
       }
     }
   }, []);
 
   const disconnectPrinter = useCallback((type: 'receipt' | 'order') => {
     if (type === 'receipt') {
-      receiptPortRef.current = null;
+      receiptRef.current = null;
       setReceiptConnected(false);
+      setReceiptMethod(null);
     } else {
-      orderPortRef.current = null;
+      orderRef.current = null;
       setOrderConnected(false);
+      setOrderMethod(null);
     }
   }, []);
 
   const printReceipt = useCallback(async (data: ReceiptData): Promise<void> => {
-    const port = receiptPortRef.current;
-    if (!port) return;
-    await doPrintReceipt(port, data);
+    const conn = receiptRef.current;
+    if (!conn) return;
+
+    if (conn.method === 'serial' && conn.serialPort) {
+      await doPrintReceipt(conn.serialPort, data);
+    } else if (conn.method === 'usb' && conn.usbDevice) {
+      await doPrintReceiptUsb(conn.usbDevice, data);
+    }
   }, []);
 
   const openCashDrawer = useCallback(async (): Promise<void> => {
-    const port = receiptPortRef.current;
-    if (!port) return;
-    await doOpenCashDrawer(port);
+    const conn = receiptRef.current;
+    if (!conn) return;
+
+    if (conn.method === 'serial' && conn.serialPort) {
+      await doOpenCashDrawer(conn.serialPort);
+    } else if (conn.method === 'usb' && conn.usbDevice) {
+      await doOpenCashDrawerUsb(conn.usbDevice);
+    }
   }, []);
 
   return (
     <PrinterContext.Provider value={{
       receiptConnected,
       orderConnected,
+      receiptMethod,
+      orderMethod,
       connectPrinter,
       disconnectPrinter,
       printReceipt,

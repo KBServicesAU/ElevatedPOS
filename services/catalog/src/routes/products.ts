@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, ilike, or, arrayContains } from 'drizzle-orm';
+import { eq, and, desc, ilike, or, arrayContains, count } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { searchProducts, indexProduct, deleteProductFromIndex } from '../lib/typesense';
 import { getCached, setCached, invalidateCache } from '../lib/cache';
@@ -59,22 +59,28 @@ export async function productRoutes(app: FastifyInstance) {
     }
 
     // Typesense unavailable — fall back to DB
-    const products = await db.query.products.findMany({
-      where: and(
-        eq(schema.products.orgId, orgId),
-        q.isActive !== undefined ? eq(schema.products.isActive, q.isActive === 'true') : undefined,
-        q.categoryId ? eq(schema.products.categoryId, q.categoryId) : undefined,
-        query ? or(
-          ilike(schema.products.name, `%${query}%`),
-          ilike(schema.products.sku, `%${query}%`),
-        ) : undefined,
-      ),
-      with: { category: true, taxClass: true, variants: true },
-      orderBy: [desc(schema.products.updatedAt)],
-      limit,
-    });
+    const searchWhereClause = and(
+      eq(schema.products.orgId, orgId),
+      q.isActive !== undefined ? eq(schema.products.isActive, q.isActive === 'true') : undefined,
+      q.categoryId ? eq(schema.products.categoryId, q.categoryId) : undefined,
+      query ? or(
+        ilike(schema.products.name, `%${query}%`),
+        ilike(schema.products.sku, `%${query}%`),
+      ) : undefined,
+    );
 
-    return reply.status(200).send({ data: products, meta: { totalCount: products.length, source: 'db' } });
+    const [products, countResult] = await Promise.all([
+      db.query.products.findMany({
+        where: searchWhereClause,
+        with: { category: true, taxClass: true, variants: true },
+        orderBy: [desc(schema.products.updatedAt)],
+        limit,
+      }),
+      db.select({ totalCount: count() }).from(schema.products).where(searchWhereClause),
+    ]);
+    const searchTotalCount = countResult[0]?.totalCount ?? 0;
+
+    return reply.status(200).send({ data: products, meta: { totalCount: searchTotalCount, source: 'db' } });
   });
 
   app.get('/', async (request, reply) => {
@@ -102,60 +108,72 @@ export async function productRoutes(app: FastifyInstance) {
         const channelFiltered = q.channel
           ? tsResults.hits.filter((p: Record<string, unknown>) => Array.isArray(p['channels']) && (p['channels'] as string[]).includes(q.channel!))
           : tsResults.hits;
-        return reply.status(200).send({ data: channelFiltered, meta: { totalCount: channelFiltered.length, hasMore: channelFiltered.length === limit, source: 'typesense' } });
+        return reply.status(200).send({ data: channelFiltered, meta: { totalCount: tsResults.found, hasMore: channelFiltered.length === limit, source: 'typesense' } });
       }
 
       // Typesense unavailable — fall back to DB with ILIKE
-      const products = await db.query.products.findMany({
-        where: and(
-          eq(schema.products.orgId, orgId),
-          q.isActive !== undefined ? eq(schema.products.isActive, q.isActive === 'true') : undefined,
-          q.categoryId ? eq(schema.products.categoryId, q.categoryId) : undefined,
-          channelFilter,
-        ),
-        with: { category: true, taxClass: true, variants: true },
-        orderBy: [desc(schema.products.updatedAt)],
-        limit,
-      });
-
-      const filtered = products.filter(
-        (p) =>
-          p.name.toLowerCase().includes(query.toLowerCase()) ||
-          p.sku.toLowerCase().includes(query.toLowerCase()) ||
-          (p.barcodes as string[]).some((b) => b.includes(query)),
-      );
-
-      return reply.status(200).send({ data: filtered, meta: { totalCount: filtered.length, hasMore: filtered.length === limit, source: 'db' } });
-    }
-
-    // No search query — standard list (cache only when no filters applied)
-    const cacheKey = `products:${orgId}:list`;
-    const useCache = !q.isActive && !q.categoryId && !q.channel && limit === 50;
-
-    if (useCache) {
-      const cached = await getCached<typeof products>(cacheKey);
-      if (cached) {
-        return reply.status(200).send({ data: cached, meta: { totalCount: cached.length, hasMore: cached.length === limit, source: 'cache' } });
-      }
-    }
-
-    const products = await db.query.products.findMany({
-      where: and(
+      const dbSearchWhere = and(
         eq(schema.products.orgId, orgId),
         q.isActive !== undefined ? eq(schema.products.isActive, q.isActive === 'true') : undefined,
         q.categoryId ? eq(schema.products.categoryId, q.categoryId) : undefined,
         channelFilter,
-      ),
-      with: { category: true, taxClass: true, variants: true },
-      orderBy: [desc(schema.products.updatedAt)],
-      limit,
-    });
+        or(
+          ilike(schema.products.name, `%${query}%`),
+          ilike(schema.products.sku, `%${query}%`),
+        ),
+      );
+
+      const [products, dbSearchCountResult] = await Promise.all([
+        db.query.products.findMany({
+          where: dbSearchWhere,
+          with: { category: true, taxClass: true, variants: true },
+          orderBy: [desc(schema.products.updatedAt)],
+          limit,
+        }),
+        db.select({ totalCount: count() }).from(schema.products).where(dbSearchWhere),
+      ]);
+      const dbSearchTotal = dbSearchCountResult[0]?.totalCount ?? 0;
+
+      return reply.status(200).send({ data: products, meta: { totalCount: dbSearchTotal, hasMore: products.length === limit, source: 'db' } });
+    }
+
+    // No search query — standard list (cache only when no filters applied)
+    const cacheKey = `products:${orgId}:list`;
+    const countCacheKey = `products:${orgId}:count`;
+    const useCache = !q.isActive && !q.categoryId && !q.channel && limit === 50;
+
+    if (useCache) {
+      const cached = await getCached<typeof products>(cacheKey);
+      const cachedCount = await getCached<number>(countCacheKey);
+      if (cached && cachedCount !== null) {
+        return reply.status(200).send({ data: cached, meta: { totalCount: cachedCount, hasMore: cached.length === limit, source: 'cache' } });
+      }
+    }
+
+    const listWhereClause = and(
+      eq(schema.products.orgId, orgId),
+      q.isActive !== undefined ? eq(schema.products.isActive, q.isActive === 'true') : undefined,
+      q.categoryId ? eq(schema.products.categoryId, q.categoryId) : undefined,
+      channelFilter,
+    );
+
+    const [products, listCountResult] = await Promise.all([
+      db.query.products.findMany({
+        where: listWhereClause,
+        with: { category: true, taxClass: true, variants: true },
+        orderBy: [desc(schema.products.updatedAt)],
+        limit,
+      }),
+      db.select({ totalCount: count() }).from(schema.products).where(listWhereClause),
+    ]);
+    const listTotalCount = listCountResult[0]?.totalCount ?? 0;
 
     if (useCache) {
       await setCached(cacheKey, products);
+      await setCached(countCacheKey, listTotalCount);
     }
 
-    return reply.status(200).send({ data: products, meta: { totalCount: products.length, hasMore: products.length === limit } });
+    return reply.status(200).send({ data: products, meta: { totalCount: listTotalCount, hasMore: products.length === limit } });
   });
 
   // GET /api/v1/products/barcode/:barcode

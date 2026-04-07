@@ -700,6 +700,15 @@ export function CatalogClient() {
   const baseProducts = (productsData?.data ?? []) as ProductWithChannels[];
   const categories = (categoriesData?.data ?? []) as Category[];
 
+  // Build a category ID -> name lookup map for display
+  const categoryMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const cat of categories) {
+      map.set(cat.id, cat.name);
+    }
+    return map;
+  }, [categories]);
+
   // Apply client-side filters for type and channel (not supported by API params)
   const products = useMemo(() => {
     return baseProducts.filter((p) => {
@@ -1081,7 +1090,7 @@ export function CatalogClient() {
                           {/* Category */}
                           <td className="px-4 py-3.5">
                             <span className="text-sm text-gray-600 dark:text-gray-400">
-                              {product.categoryName ?? '—'}
+                              {(product.categoryId ? categoryMap.get(product.categoryId) : undefined) ?? '—'}
                             </span>
                           </td>
 

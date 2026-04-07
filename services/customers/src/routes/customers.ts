@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, count, ilike, or } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 const createCustomerSchema = z.object({
@@ -27,22 +27,33 @@ export async function customerRoutes(app: FastifyInstance) {
     const q = request.query as { search?: string; tag?: string; limit?: string; cursor?: string };
     const limit = Math.min(Number(q.limit ?? 50), 200);
 
-    const allCustomers = await db.query.customers.findMany({
-      where: and(eq(schema.customers.orgId, orgId), eq(schema.customers.gdprDeleted, false)),
-      orderBy: [desc(schema.customers.lastPurchaseAt), desc(schema.customers.createdAt)],
-      limit: limit + 1,
-    });
-
-    const filtered = q.search
-      ? allCustomers.filter((c) =>
-          `${c.firstName} ${c.lastName}`.toLowerCase().includes(q.search!.toLowerCase()) ||
-          (c.email?.toLowerCase().includes(q.search!.toLowerCase()) ?? false) ||
-          (c.phone?.includes(q.search!) ?? false),
+    const searchFilter = q.search
+      ? or(
+          ilike(schema.customers.firstName, `%${q.search}%`),
+          ilike(schema.customers.lastName, `%${q.search}%`),
+          ilike(schema.customers.email, `%${q.search}%`),
+          ilike(schema.customers.phone, `%${q.search}%`),
         )
-      : allCustomers;
+      : undefined;
 
-    const hasMore = filtered.length > limit;
-    return reply.status(200).send({ data: filtered.slice(0, limit), meta: { totalCount: filtered.length, hasMore } });
+    const whereClause = and(
+      eq(schema.customers.orgId, orgId),
+      eq(schema.customers.gdprDeleted, false),
+      searchFilter,
+    );
+
+    const [customers, countResult] = await Promise.all([
+      db.query.customers.findMany({
+        where: whereClause,
+        orderBy: [desc(schema.customers.lastPurchaseAt), desc(schema.customers.createdAt)],
+        limit: limit + 1,
+      }),
+      db.select({ totalCount: count() }).from(schema.customers).where(whereClause),
+    ]);
+    const totalCount = countResult[0]?.totalCount ?? 0;
+
+    const hasMore = customers.length > limit;
+    return reply.status(200).send({ data: customers.slice(0, limit), meta: { totalCount, hasMore } });
   });
 
   app.get('/:id', async (request, reply) => {

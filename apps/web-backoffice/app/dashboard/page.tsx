@@ -147,7 +147,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       `${reportsBase}/api/v1/reports/sales?orgId=${orgId}&from=${fromStr}&to=${toStr}`,
       authHeaders,
     ),
-    safeFetch<{ pagination?: { total: number } }>(
+    safeFetch<{ data: unknown[]; meta?: { totalCount: number }; pagination?: { total: number } }>(
       customersBase + '/api/v1/customers?limit=1',
       authHeaders,
     ),
@@ -155,7 +155,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       employeesBase + '/api/v1/employees?limit=100',
       authHeaders,
     ),
-    safeFetch<{ pagination?: { total: number } }>(
+    safeFetch<{ data: unknown[]; meta?: { totalCount: number }; pagination?: { total: number } }>(
       catalogBase + '/api/v1/products?status=active&limit=1',
       authHeaders,
     ),
@@ -172,16 +172,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const txns = sales?.totalOrders ?? recentOrders.length;
   const aov = txns > 0 ? Math.round(revenue / txns) : 0;
 
-  // Customers total
-  const totalCustomers = customersResult?.pagination?.total ?? null;
+  // Customers total — the microservice may return the count in meta.totalCount or pagination.total
+  const totalCustomers = customersResult?.meta?.totalCount ?? customersResult?.pagination?.total ?? null;
 
   // Staff on duty
   const allStaff = employeesResult?.data ?? [];
   const staffOnDuty = allStaff.filter((e) => e.clockedIn).length;
   const totalStaff = allStaff.length;
 
-  // Active products
-  const activeProducts = productsResult?.pagination?.total ?? null;
+  // Active products — the microservice may return the count in meta.totalCount or pagination.total
+  const activeProducts = productsResult?.meta?.totalCount ?? productsResult?.pagination?.total ?? null;
 
   const firstName = user?.firstName ?? 'there';
   const today = now.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });

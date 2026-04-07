@@ -8,7 +8,7 @@ import { Suspense } from 'react';
 const infoCards = [
   {
     icon: (
-      <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <svg className="w-5 h-5 text-[#7c3aed]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
@@ -17,7 +17,7 @@ const infoCards = [
   },
   {
     icon: (
-      <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <svg className="w-5 h-5 text-[#7c3aed]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
       </svg>
     ),
@@ -26,7 +26,7 @@ const infoCards = [
   },
   {
     icon: (
-      <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <svg className="w-5 h-5 text-[#7c3aed]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
       </svg>
     ),
@@ -84,28 +84,28 @@ function PaymentAccountContent() {
     <div className="flex-1 flex items-start justify-center px-4 py-12">
       <div className="w-full max-w-lg">
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Set up your payment processing account</h1>
-          <p className="text-gray-500 text-sm leading-relaxed">
+          <h1 className="text-2xl font-bold text-white mb-2">Set up your payment processing account</h1>
+          <p className="text-neutral-500 text-sm leading-relaxed">
             Accept card payments from customers. Your funds are deposited directly to your Australian bank account.
           </p>
         </div>
 
         <div className="grid grid-cols-1 gap-4 mb-8">
           {infoCards.map((card) => (
-            <div key={card.title} className="flex items-start gap-4 p-4 rounded-xl border border-gray-100 bg-gray-50">
-              <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+            <div key={card.title} className="flex items-start gap-4 p-4 rounded-xl border border-white/[0.08] bg-white/[0.02]">
+              <div className="w-10 h-10 rounded-lg bg-[#7c3aed]/10 flex items-center justify-center flex-shrink-0">
                 {card.icon}
               </div>
               <div>
-                <div className="text-sm font-semibold text-gray-900">{card.title}</div>
-                <div className="text-sm text-gray-500 mt-0.5">{card.description}</div>
+                <div className="text-sm font-semibold text-white">{card.title}</div>
+                <div className="text-sm text-neutral-500 mt-0.5">{card.description}</div>
               </div>
             </div>
           ))}
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400">
             {error}
           </div>
         )}
@@ -114,7 +114,7 @@ function PaymentAccountContent() {
           <button
             onClick={handleConnect}
             disabled={loading}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-400 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full bg-[#7c3aed] hover:bg-[#6d28d9] disabled:bg-[#7c3aed]/50 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
           >
             {loading ? (
               <>
@@ -137,14 +137,14 @@ function PaymentAccountContent() {
           <div className="text-center">
             <Link
               href={skipHref}
-              className="text-sm text-gray-400 hover:text-gray-600 underline transition-colors"
+              className="text-sm text-neutral-600 hover:text-neutral-400 underline transition-colors"
             >
               Skip for now
             </Link>
           </div>
         </div>
 
-        <p className="text-xs text-gray-400 text-center mt-6">
+        <p className="text-xs text-neutral-600 text-center mt-6">
           Payment processing is powered by Stripe. Your financial data is encrypted and secure.
         </p>
       </div>
@@ -154,7 +154,7 @@ function PaymentAccountContent() {
 
 export default function PaymentAccountPage() {
   return (
-    <Suspense fallback={<div className="flex-1 flex items-center justify-center text-gray-400">Loading…</div>}>
+    <Suspense fallback={<div className="flex-1 flex items-center justify-center text-neutral-600">Loading…</div>}>
       <PaymentAccountContent />
     </Suspense>
   );

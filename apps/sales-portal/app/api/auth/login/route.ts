@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 
-const AUTH_API_URL = process.env.AUTH_API_URL ?? 'http://auth:4001';
+const AUTH_API_URL = process.env.AUTH_API_URL ?? 'http://localhost:4001';
 
 export async function POST(request: NextRequest) {
   try {
