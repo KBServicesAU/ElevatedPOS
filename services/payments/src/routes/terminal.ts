@@ -17,12 +17,14 @@ import { AnzWorldlineTIMClient, isApproved } from '../lib/anzworldline';
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
 const saveCredentialsSchema = z.object({
-  provider:     z.literal('anz'),
+  provider:     z.enum(['anz', 'tyro', 'stripe', 'westpac', 'nab', 'cba', 'windcave']),
   label:        z.string().min(1).max(255).optional(),
-  /** IPv4 address of the terminal, e.g. "192.168.1.100" */
-  terminalIp:   z.string().min(7).max(45),
-  /** Port the terminal HTTP server listens on — default 8080 */
-  terminalPort: z.number().int().min(1).max(65535).default(8080),
+  /** IPv4 address of the terminal — required for ANZ, optional for Tyro */
+  terminalIp:   z.string().max(45).default(''),
+  /** Port the terminal HTTP server listens on */
+  terminalPort: z.number().int().min(0).max(65535).default(0),
+  /** Provider-specific config (Tyro: apiKey, merchantId, terminalId, tyroHandlesSurcharge) */
+  metadata:     z.record(z.unknown()).optional(),
 });
 
 const refundSchema = z.object({
@@ -77,7 +79,7 @@ export async function terminalRoutes(app: FastifyInstance) {
       });
     }
 
-    const { provider, label, terminalIp, terminalPort } = body.data;
+    const { provider, label, terminalIp, terminalPort, metadata } = body.data;
 
     const existing = await db.query.terminalCredentials.findFirst({
       where: and(
@@ -86,18 +88,27 @@ export async function terminalRoutes(app: FastifyInstance) {
       ),
     });
 
+    const setData: Record<string, unknown> = {
+      label: label ?? null,
+      terminalIp: terminalIp || '',
+      terminalPort: terminalPort || 0,
+      isActive: true,
+      updatedAt: new Date(),
+    };
+    if (metadata) setData.metadata = metadata;
+
     let saved;
     if (existing) {
       const rows = await db
         .update(schema.terminalCredentials)
-        .set({ label: label ?? null, terminalIp, terminalPort, isActive: true, updatedAt: new Date() })
+        .set(setData)
         .where(eq(schema.terminalCredentials.id, existing.id))
         .returning();
       saved = rows[0]!;
     } else {
       const rows = await db
         .insert(schema.terminalCredentials)
-        .values({ orgId, provider, label: label ?? null, terminalIp, terminalPort })
+        .values({ orgId, provider, label: label ?? null, terminalIp: terminalIp || '', terminalPort: terminalPort || 0, ...(metadata ? { metadata } : {}) })
         .returning();
       saved = rows[0]!;
     }
