@@ -30,11 +30,11 @@ const pinLoginSchema = z.union([
     pin: z.string().min(4).max(8),
     locationId: z.string().uuid().optional(),
   }),
-  // Org-scan verification (legacy / kiosk flow)
+  // Org-scan verification (quick PIN / kiosk flow)
   z.object({
     orgId: z.string().uuid(),
     pin: z.string().min(4).max(8),
-    registerId: z.string().uuid(),
+    registerId: z.string().uuid().optional(),
   }),
 ]);
 

@@ -61,8 +61,12 @@ export const useAuthStore = create<AuthStore>((set) => ({
 
   fetchEmployees: async () => {
     const identity = useDeviceStore.getState().identity;
-    if (!identity) return;
+    if (!identity) {
+      console.warn('[fetchEmployees] No device identity — skipping');
+      return;
+    }
     try {
+      console.log('[fetchEmployees] Fetching from', `${AUTH_BASE}/api/v1/devices/employees`);
       const res = await fetch(`${AUTH_BASE}/api/v1/devices/employees`, {
         headers: {
           'Content-Type': 'application/json',
@@ -72,9 +76,13 @@ export const useAuthStore = create<AuthStore>((set) => ({
       if (res.ok) {
         const data = (await res.json()) as { data?: AuthEmployee[] };
         const list = data.data ?? [];
+        console.log('[fetchEmployees] Got', list.length, 'employees');
         set({ employees: list.filter((e: any) => e.isActive !== false) });
+      } else {
+        console.warn('[fetchEmployees] Failed:', res.status, await res.text().catch(() => ''));
       }
-    } catch {
+    } catch (err) {
+      console.warn('[fetchEmployees] Network error:', err);
       // Non-critical — quick PIN entry still works without employee list
     }
   },
