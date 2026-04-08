@@ -2004,13 +2004,24 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
   }
 
   return (
-    <IntegrationCard
-      name="Tyro EFTPOS"
-      description="Integrated EFTPOS with Tyro terminals. Browser-based — no IP required."
-      icon={<CreditCard className="h-5 w-5 text-indigo-400" />}
-      connected={status.connected}
-    >
-      <div className="space-y-3 pt-3">
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex items-start justify-between p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-400">
+            <CreditCard className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900 dark:text-white">Tyro EFTPOS</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Payment Terminal</p>
+          </div>
+        </div>
+        <StatusBadge connected={status.connected} />
+      </div>
+      <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800">
+        <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+          Integrated EFTPOS with Tyro terminals. Browser-based — no IP required.
+        </p>
+        <div className="space-y-3">
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-500">API Key</label>
           <input
@@ -2070,7 +2081,7 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
           </button>
         </div>
       </div>
-    </IntegrationCard>
+    </div>
   );
 }
 
