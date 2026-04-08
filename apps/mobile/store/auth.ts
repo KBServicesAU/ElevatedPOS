@@ -63,7 +63,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     const identity = useDeviceStore.getState().identity;
     if (!identity) return;
     try {
-      const res = await fetch(`${AUTH_BASE}/api/v1/employees`, {
+      const res = await fetch(`${AUTH_BASE}/api/v1/devices/employees`, {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${identity.deviceToken}`,

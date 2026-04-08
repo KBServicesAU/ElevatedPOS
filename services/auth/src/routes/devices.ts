@@ -230,6 +230,35 @@ export async function deviceRoutes(app: FastifyInstance) {
     return reply.send({ data: updated });
   });
 
+  // GET /api/v1/devices/employees — list active employees for this device's org (device token auth)
+  app.get('/employees', async (request, reply) => {
+    const header = request.headers['authorization'];
+    if (!header?.startsWith('Bearer ')) return reply.status(401).send({ title: 'Unauthorized', status: 401 });
+    const token = header.slice(7);
+    const tokenHash = hashToken(token);
+
+    const device = await db.query.devices.findFirst({
+      where: and(eq(schema.devices.tokenHash, tokenHash), eq(schema.devices.status, 'active')),
+    });
+    if (!device) return reply.status(401).send({ title: 'Device not found or revoked', status: 401 });
+
+    const employees = await db.query.employees.findMany({
+      where: and(eq(schema.employees.orgId, device.orgId), eq(schema.employees.isActive, true)),
+      columns: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        roleId: true,
+        locationIds: true,
+      },
+      with: { role: { columns: { id: true, name: true } } },
+      orderBy: (e, { asc }) => [asc(e.firstName), asc(e.lastName)],
+    });
+
+    return reply.send({ data: employees });
+  });
+
   // PATCH /api/v1/devices/heartbeat — update lastSeenAt + appVersion (device token auth)
   app.patch('/heartbeat', async (request, reply) => {
     const header = request.headers['authorization'];
