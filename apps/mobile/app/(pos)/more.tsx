@@ -119,6 +119,16 @@ export default function MoreScreen() {
   const [managingProducts, setManagingProducts] = useState(true); // true=products, false=categories
   const [toggling, setToggling] = useState<string | null>(null);
 
+  // ── Add/Edit forms ──────────────────────────────────────────────
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<CatalogProduct | null>(null);
+  const [editingCategory, setEditingCategory] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+
+  const [prodForm, setProdForm] = useState({ name: '', sku: '', basePrice: '', categoryId: '', description: '' });
+  const [catForm, setCatForm] = useState({ name: '', color: '#6366f1', printerDestination: 'none', kdsDestination: 'none', sortOrder: '0' });
+
   // ── Update ───────────────────────────────────────────────────────
   const [checking, setChecking] = useState(false);
   const [release, setRelease] = useState<ReleaseInfo | null>(null);
@@ -253,6 +263,122 @@ export default function MoreScreen() {
       setToggling(null);
     }
   }
+
+  /* ── Add / Edit Product ───────────────────────────────────────── */
+
+  function openAddProduct() {
+    setProdForm({ name: '', sku: '', basePrice: '', categoryId: '', description: '' });
+    setEditingProduct(null);
+    setShowAddProduct(true);
+  }
+
+  function openEditProduct(p: CatalogProduct) {
+    setProdForm({
+      name: p.name,
+      sku: p.sku ?? '',
+      basePrice: parseFloat(p.basePrice || '0').toFixed(2),
+      categoryId: p.categoryId ?? '',
+      description: '',
+    });
+    setEditingProduct(p);
+    setShowAddProduct(true);
+  }
+
+  async function saveProduct() {
+    if (!prodForm.name || !prodForm.basePrice) {
+      Alert.alert('Missing Fields', 'Name and price are required.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const body: Record<string, any> = {
+        name: prodForm.name,
+        basePrice: parseFloat(prodForm.basePrice),
+      };
+      if (prodForm.sku) body.sku = prodForm.sku;
+      if (prodForm.categoryId) body.categoryId = prodForm.categoryId;
+      if (prodForm.description) body.description = prodForm.description;
+
+      if (editingProduct) {
+        await catalogApiFetch(`/api/v1/products/${editingProduct.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        });
+      } else {
+        if (!body.sku) body.sku = `SKU-${Date.now()}`;
+        await catalogApiFetch('/api/v1/products', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+      }
+      await fetchCatalog();
+      setShowAddProduct(false);
+      Alert.alert('Success', editingProduct ? 'Product updated.' : 'Product added.');
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /* ── Add / Edit Category ─────────────────────────────────────── */
+
+  function openAddCategory() {
+    setCatForm({ name: '', color: '#6366f1', printerDestination: 'none', kdsDestination: 'none', sortOrder: '0' });
+    setEditingCategory(null);
+    setShowAddCategory(true);
+  }
+
+  function openEditCategory(c: any) {
+    setCatForm({
+      name: c.name,
+      color: c.color ?? '#6366f1',
+      printerDestination: c.printerDestination ?? 'none',
+      kdsDestination: c.kdsDestination ?? 'none',
+      sortOrder: String(c.sortOrder ?? 0),
+    });
+    setEditingCategory(c);
+    setShowAddCategory(true);
+  }
+
+  async function saveCategory() {
+    if (!catForm.name) {
+      Alert.alert('Missing Fields', 'Name is required.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const body: Record<string, any> = {
+        name: catForm.name,
+        color: catForm.color,
+        sortOrder: parseInt(catForm.sortOrder) || 0,
+      };
+      if (catForm.printerDestination !== 'none') body.printerDestination = catForm.printerDestination;
+      if (catForm.kdsDestination !== 'none') body.kdsDestination = catForm.kdsDestination;
+
+      if (editingCategory) {
+        await catalogApiFetch(`/api/v1/categories/${editingCategory.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        });
+      } else {
+        await catalogApiFetch('/api/v1/categories', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+      }
+      await fetchCatalog();
+      setShowAddCategory(false);
+      Alert.alert('Success', editingCategory ? 'Category updated.' : 'Category added.');
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const DEST_OPTIONS = ['none', 'front', 'back', 'bar', 'kitchen', 'custom'] as const;
+  const COLOR_OPTIONS = ['#6366f1', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4', '#8b5cf6'] as const;
 
   /* ── Printer handlers ─────────────────────────────────────────── */
 
@@ -739,30 +865,34 @@ export default function MoreScreen() {
             {/* Modal header */}
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>
-                {managingProducts ? 'Manage Products' : 'Categories'}
+                {managingProducts ? 'Products' : 'Categories'}
               </Text>
               <TouchableOpacity onPress={() => setShowManageModal(false)}>
                 <Ionicons name="close" size={24} color="#999" />
               </TouchableOpacity>
             </View>
 
-            {/* Tab switcher */}
-            <View style={s.tabRow}>
+            {/* Tab switcher + Add button */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginBottom: 12, gap: 8 }}>
               <TouchableOpacity
                 style={[s.tab, managingProducts && s.tabActive]}
                 onPress={() => setManagingProducts(true)}
               >
-                <Text style={[s.tabText, managingProducts && s.tabTextActive]}>
-                  Products
-                </Text>
+                <Text style={[s.tabText, managingProducts && s.tabTextActive]}>Products</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.tab, !managingProducts && s.tabActive]}
                 onPress={() => setManagingProducts(false)}
               >
-                <Text style={[s.tabText, !managingProducts && s.tabTextActive]}>
-                  Categories
-                </Text>
+                <Text style={[s.tabText, !managingProducts && s.tabTextActive]}>Categories</Text>
+              </TouchableOpacity>
+              <View style={{ flex: 1 }} />
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#6366f1', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 }}
+                onPress={managingProducts ? openAddProduct : openAddCategory}
+              >
+                <Ionicons name="add" size={18} color="#fff" />
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>Add</Text>
               </TouchableOpacity>
             </View>
 
@@ -773,31 +903,37 @@ export default function MoreScreen() {
                 keyExtractor={(p) => p.id}
                 contentContainerStyle={{ paddingBottom: 20 }}
                 renderItem={({ item }) => (
-                  <View style={s.manageRow}>
+                  <TouchableOpacity style={s.manageRow} onPress={() => openEditProduct(item)} activeOpacity={0.6}>
                     <View style={{ flex: 1 }}>
-                      <Text style={s.manageName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
+                      <Text style={s.manageName} numberOfLines={1}>{item.name}</Text>
                       <Text style={s.manageSub}>
                         ${parseFloat(item.basePrice || '0').toFixed(2)}
                         {item.sku ? ` · ${item.sku}` : ''}
+                        {item.categoryId ? ` · ${categories.find(c => c.id === item.categoryId)?.name ?? ''}` : ''}
                       </Text>
                     </View>
                     {toggling === item.id ? (
                       <ActivityIndicator size="small" color="#6366f1" />
                     ) : (
-                      <Switch
-                        value={item.isActive}
-                        onValueChange={() => toggleProductAvailability(item)}
-                        trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
-                        thumbColor={item.isActive ? '#6366f1' : '#555'}
-                      />
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Switch
+                          value={item.isActive}
+                          onValueChange={() => toggleProductAvailability(item)}
+                          trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
+                          thumbColor={item.isActive ? '#6366f1' : '#555'}
+                        />
+                        <Ionicons name="chevron-forward" size={16} color="#444" />
+                      </View>
                     )}
-                  </View>
+                  </TouchableOpacity>
                 )}
                 ListEmptyComponent={
                   <View style={s.emptyList}>
-                    <Text style={s.emptyListText}>No products</Text>
+                    <Ionicons name="cube-outline" size={32} color="#444" />
+                    <Text style={s.emptyListText}>No products yet</Text>
+                    <TouchableOpacity style={{ marginTop: 12, backgroundColor: '#6366f1', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 }} onPress={openAddProduct}>
+                      <Text style={{ color: '#fff', fontWeight: '700' }}>Add First Product</Text>
+                    </TouchableOpacity>
                   </View>
                 }
               />
@@ -807,30 +943,135 @@ export default function MoreScreen() {
                 keyExtractor={(c) => c.id}
                 contentContainerStyle={{ paddingBottom: 20 }}
                 renderItem={({ item, index }) => (
-                  <View style={s.manageRow}>
-                    <View
-                      style={[
-                        s.catDot,
-                        {
-                          backgroundColor:
-                            item.color ??
-                            ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'][
-                              index % 5
-                            ],
-                        },
-                      ]}
-                    />
-                    <Text style={s.manageName}>{item.name}</Text>
-                    <Text style={s.manageOrder}>#{item.sortOrder}</Text>
-                  </View>
+                  <TouchableOpacity style={s.manageRow} onPress={() => openEditCategory(item)} activeOpacity={0.6}>
+                    <View style={[s.catDot, { backgroundColor: item.color ?? ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'][index % 5] }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.manageName}>{item.name}</Text>
+                      <Text style={s.manageSub}>
+                        {(item as any).printerDestination ? `Printer: ${(item as any).printerDestination}` : ''}
+                        {(item as any).kdsDestination ? ` · KDS: ${(item as any).kdsDestination}` : ''}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="#444" />
+                  </TouchableOpacity>
                 )}
                 ListEmptyComponent={
                   <View style={s.emptyList}>
-                    <Text style={s.emptyListText}>No categories</Text>
+                    <Ionicons name="grid-outline" size={32} color="#444" />
+                    <Text style={s.emptyListText}>No categories yet</Text>
+                    <TouchableOpacity style={{ marginTop: 12, backgroundColor: '#6366f1', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 }} onPress={openAddCategory}>
+                      <Text style={{ color: '#fff', fontWeight: '700' }}>Add First Category</Text>
+                    </TouchableOpacity>
                   </View>
                 }
               />
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ═══════════ Add/Edit Product Modal ═══════════ */}
+      <Modal visible={showAddProduct} transparent animationType="fade" onRequestClose={() => setShowAddProduct(false)}>
+        <View style={s.modalOverlay}>
+          <View style={[s.modalContent, { width: 420 }]}>
+            <Text style={s.modalTitle}>{editingProduct ? 'Edit Product' : 'Add Product'}</Text>
+
+            <Text style={s.inputLabel}>Name *</Text>
+            <TextInput style={s.input} value={prodForm.name} onChangeText={v => setProdForm(p => ({ ...p, name: v }))} placeholder="e.g. Burger" placeholderTextColor="#555" />
+
+            <Text style={s.inputLabel}>Price (incl. GST) *</Text>
+            <TextInput style={s.input} value={prodForm.basePrice} onChangeText={v => setProdForm(p => ({ ...p, basePrice: v }))} placeholder="15.00" placeholderTextColor="#555" keyboardType="decimal-pad" />
+
+            <Text style={s.inputLabel}>SKU</Text>
+            <TextInput style={s.input} value={prodForm.sku} onChangeText={v => setProdForm(p => ({ ...p, sku: v }))} placeholder="Auto-generated if blank" placeholderTextColor="#555" />
+
+            <Text style={s.inputLabel}>Category</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity
+                  style={[s.typeBtn, !prodForm.categoryId && s.typeBtnActive]}
+                  onPress={() => setProdForm(p => ({ ...p, categoryId: '' }))}
+                >
+                  <Text style={[s.typeBtnText, !prodForm.categoryId && s.typeBtnTextActive]}>None</Text>
+                </TouchableOpacity>
+                {categories.map(c => (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[s.typeBtn, prodForm.categoryId === c.id && s.typeBtnActive]}
+                    onPress={() => setProdForm(p => ({ ...p, categoryId: c.id }))}
+                  >
+                    <View style={[s.catDot, { backgroundColor: c.color ?? '#6366f1', marginRight: 0 }]} />
+                    <Text style={[s.typeBtnText, prodForm.categoryId === c.id && s.typeBtnTextActive]}>{c.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
+              <TouchableOpacity style={[s.outlineBtn]} onPress={() => setShowAddProduct(false)}>
+                <Text style={s.outlineBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.outlineBtn, { backgroundColor: '#6366f1', borderColor: '#6366f1' }]} onPress={saveProduct} disabled={saving}>
+                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={[s.outlineBtnText, { color: '#fff' }]}>{editingProduct ? 'Update' : 'Add Product'}</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ═══════════ Add/Edit Category Modal ═══════════ */}
+      <Modal visible={showAddCategory} transparent animationType="fade" onRequestClose={() => setShowAddCategory(false)}>
+        <View style={s.modalOverlay}>
+          <View style={[s.modalContent, { width: 420 }]}>
+            <Text style={s.modalTitle}>{editingCategory ? 'Edit Category' : 'Add Category'}</Text>
+
+            <Text style={s.inputLabel}>Name *</Text>
+            <TextInput style={s.input} value={catForm.name} onChangeText={v => setCatForm(p => ({ ...p, name: v }))} placeholder="e.g. Drinks" placeholderTextColor="#555" />
+
+            <Text style={s.inputLabel}>Color</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
+              {COLOR_OPTIONS.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => setCatForm(p => ({ ...p, color: c }))}
+                  style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: c, borderWidth: catForm.color === c ? 3 : 0, borderColor: '#fff' }}
+                />
+              ))}
+            </View>
+
+            <Text style={s.inputLabel}>Printer Destination</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {DEST_OPTIONS.map(d => (
+                  <TouchableOpacity key={d} style={[s.typeBtn, catForm.printerDestination === d && s.typeBtnActive]} onPress={() => setCatForm(p => ({ ...p, printerDestination: d }))}>
+                    <Text style={[s.typeBtnText, catForm.printerDestination === d && s.typeBtnTextActive]}>{d}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <Text style={s.inputLabel}>KDS Destination</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {DEST_OPTIONS.map(d => (
+                  <TouchableOpacity key={d} style={[s.typeBtn, catForm.kdsDestination === d && s.typeBtnActive]} onPress={() => setCatForm(p => ({ ...p, kdsDestination: d }))}>
+                    <Text style={[s.typeBtnText, catForm.kdsDestination === d && s.typeBtnTextActive]}>{d}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <Text style={s.inputLabel}>Sort Order</Text>
+            <TextInput style={s.input} value={catForm.sortOrder} onChangeText={v => setCatForm(p => ({ ...p, sortOrder: v }))} keyboardType="number-pad" placeholderTextColor="#555" />
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
+              <TouchableOpacity style={[s.outlineBtn]} onPress={() => setShowAddCategory(false)}>
+                <Text style={s.outlineBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.outlineBtn, { backgroundColor: '#6366f1', borderColor: '#6366f1' }]} onPress={saveCategory} disabled={saving}>
+                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={[s.outlineBtnText, { color: '#fff' }]}>{editingCategory ? 'Update' : 'Add Category'}</Text>}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
