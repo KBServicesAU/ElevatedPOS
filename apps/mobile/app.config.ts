@@ -56,6 +56,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     requireFullScreen: true,
   },
   android: {
+    permissions: [
+      'android.permission.USB_PERMISSION',
+      'android.permission.INTERNET',
+      'android.permission.ACCESS_NETWORK_STATE',
+    ],
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#0a0a0a',

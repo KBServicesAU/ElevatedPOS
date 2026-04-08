@@ -2,23 +2,27 @@
  * ESC/POS thermal printer utility for the mobile POS app.
  * Supports USB, Bluetooth, and Network printers via react-native-thermal-receipt-printer.
  */
-import { Platform } from 'react-native';
+import { Platform, Alert } from 'react-native';
 import { usePrinterStore, type PrinterConnectionType } from '../store/printers';
 
 // Lazy-load printer modules to prevent crash if native module is unavailable
 let USBPrinter: any = null;
 let BLEPrinter: any = null;
 let NetPrinter: any = null;
+let modulesLoaded = false;
 
-function loadPrinterModules() {
-  if (USBPrinter) return;
+function loadPrinterModules(): boolean {
+  if (modulesLoaded) return !!USBPrinter;
+  modulesLoaded = true;
   try {
     const mod = require('react-native-thermal-receipt-printer');
     USBPrinter = mod.USBPrinter;
     BLEPrinter = mod.BLEPrinter;
     NetPrinter = mod.NetPrinter;
+    return true;
   } catch (err) {
     console.warn('[printer] Failed to load thermal printer module:', err);
+    return false;
   }
 }
 
@@ -29,65 +33,87 @@ function loadPrinterModules() {
 let connected = false;
 
 export async function connectPrinter(): Promise<void> {
-  loadPrinterModules();
+  if (!loadPrinterModules()) {
+    throw new Error('Printer module not available. The app may need to be rebuilt.');
+  }
+
   const { type, address } = usePrinterStore.getState().config;
   if (!type) throw new Error('No printer type configured');
-  if (!USBPrinter) throw new Error('Printer module not available. Rebuild the app may be required.');
 
-  try {
-    if (type === 'usb') {
-      await USBPrinter.init();
-      const devices = await USBPrinter.getDeviceList();
-      if (devices.length === 0) throw new Error('No USB printers found. Check the connection.');
-      // Connect to first available USB printer (or match by address if set)
-      const target = address
-        ? devices.find((d: any) => String(d.device_id) === address || d.device_name === address) ?? devices[0]
-        : devices[0];
-      await USBPrinter.connectPrinter(
-        String((target as any).vendor_id ?? ''),
-        String((target as any).product_id ?? ''),
-      );
-      // Save the device info for future reconnection
-      await usePrinterStore.getState().setConfig({
-        address: String((target as any).device_id ?? (target as any).device_name ?? 'usb'),
-        name: (target as any).device_name ?? 'USB Printer',
-      });
-      connected = true;
-    } else if (type === 'bluetooth') {
-      await BLEPrinter.init();
-      const devices = await BLEPrinter.getDeviceList();
-      if (devices.length === 0) throw new Error('No Bluetooth printers found. Make sure the printer is paired.');
-      const target = address
-        ? devices.find((d: any) => d.inner_mac_address === address || d.device_name === address) ?? devices[0]
-        : devices[0];
-      await BLEPrinter.connectPrinter((target as any).inner_mac_address ?? '');
-      await usePrinterStore.getState().setConfig({
-        address: (target as any).inner_mac_address ?? '',
-        name: (target as any).device_name ?? 'BT Printer',
-      });
-      connected = true;
-    } else if (type === 'network') {
-      if (!address) throw new Error('Network address required (IP:port)');
-      await NetPrinter.init();
-      const [host, portStr] = address.split(':');
-      await NetPrinter.connectPrinter(host!, parseInt(portStr ?? '9100'));
-      connected = true;
+  if (type === 'usb') {
+    try { await USBPrinter.init(); } catch (e: any) {
+      throw new Error('USB init failed: ' + (e?.message ?? 'unknown'));
     }
-  } catch (err) {
-    connected = false;
-    throw err;
+    let devices: any[] = [];
+    try { devices = await USBPrinter.getDeviceList(); } catch (e: any) {
+      throw new Error('USB device scan failed: ' + (e?.message ?? 'unknown'));
+    }
+    if (!devices || devices.length === 0) {
+      throw new Error('No USB printers found. Check the cable and try again.');
+    }
+    const target = address
+      ? devices.find((d: any) => String(d.device_id) === address || d.device_name === address) ?? devices[0]
+      : devices[0];
+    if (!target) throw new Error('Could not find target USB printer');
+    try {
+      await USBPrinter.connectPrinter(
+        String(target.vendor_id ?? ''),
+        String(target.product_id ?? ''),
+      );
+    } catch (e: any) {
+      throw new Error('USB connect failed: ' + (e?.message ?? 'unknown'));
+    }
+    await usePrinterStore.getState().setConfig({
+      address: String(target.device_id ?? target.device_name ?? 'usb'),
+      name: target.device_name ?? 'USB Printer',
+    });
+    connected = true;
+  } else if (type === 'bluetooth') {
+    try { await BLEPrinter.init(); } catch (e: any) {
+      throw new Error('Bluetooth init failed: ' + (e?.message ?? 'unknown'));
+    }
+    let devices: any[] = [];
+    try { devices = await BLEPrinter.getDeviceList(); } catch (e: any) {
+      throw new Error('Bluetooth scan failed: ' + (e?.message ?? 'unknown'));
+    }
+    if (!devices || devices.length === 0) {
+      throw new Error('No Bluetooth printers found. Make sure the printer is paired.');
+    }
+    const target = address
+      ? devices.find((d: any) => d.inner_mac_address === address || d.device_name === address) ?? devices[0]
+      : devices[0];
+    try {
+      await BLEPrinter.connectPrinter(target.inner_mac_address ?? '');
+    } catch (e: any) {
+      throw new Error('Bluetooth connect failed: ' + (e?.message ?? 'unknown'));
+    }
+    await usePrinterStore.getState().setConfig({
+      address: target.inner_mac_address ?? '',
+      name: target.device_name ?? 'BT Printer',
+    });
+    connected = true;
+  } else if (type === 'network') {
+    if (!address) throw new Error('Network address required (IP:port)');
+    try { await NetPrinter.init(); } catch (e: any) {
+      throw new Error('Network init failed: ' + (e?.message ?? 'unknown'));
+    }
+    const [host, portStr] = address.split(':');
+    try {
+      await NetPrinter.connectPrinter(host!, parseInt(portStr ?? '9100'));
+    } catch (e: any) {
+      throw new Error('Network connect failed: ' + (e?.message ?? 'unknown'));
+    }
+    connected = true;
   }
 }
 
 export async function disconnectPrinter(): Promise<void> {
   const { type } = usePrinterStore.getState().config;
   try {
-    if (type === 'usb') await USBPrinter.closeConn();
-    else if (type === 'bluetooth') await BLEPrinter.closeConn();
-    else if (type === 'network') await NetPrinter.closeConn();
-  } catch {
-    // ignore disconnect errors
-  }
+    if (type === 'usb' && USBPrinter) await USBPrinter.closeConn();
+    else if (type === 'bluetooth' && BLEPrinter) await BLEPrinter.closeConn();
+    else if (type === 'network' && NetPrinter) await NetPrinter.closeConn();
+  } catch { /* ignore */ }
   connected = false;
 }
 
@@ -108,12 +134,15 @@ export interface DiscoveredPrinter {
 }
 
 export async function discoverPrinters(type: PrinterConnectionType): Promise<DiscoveredPrinter[]> {
-  loadPrinterModules();
-  if (!USBPrinter) throw new Error('Printer module not available.');
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+
   if (type === 'usb') {
-    await USBPrinter.init();
-    const devices = await USBPrinter.getDeviceList();
-    return (devices as any[]).map((d) => ({
+    try { await USBPrinter.init(); } catch { /* ignore */ }
+    let devices: any[] = [];
+    try { devices = await USBPrinter.getDeviceList(); } catch (e: any) {
+      throw new Error('USB scan failed: ' + (e?.message ?? 'unknown'));
+    }
+    return (devices ?? []).map((d: any) => ({
       id: String(d.device_id ?? d.device_name ?? ''),
       name: d.device_name ?? `USB Printer (${d.vendor_id})`,
       type: 'usb' as const,
@@ -122,9 +151,12 @@ export async function discoverPrinters(type: PrinterConnectionType): Promise<Dis
     }));
   }
   if (type === 'bluetooth') {
-    await BLEPrinter.init();
-    const devices = await BLEPrinter.getDeviceList();
-    return (devices as any[]).map((d) => ({
+    try { await BLEPrinter.init(); } catch { /* ignore */ }
+    let devices: any[] = [];
+    try { devices = await BLEPrinter.getDeviceList(); } catch (e: any) {
+      throw new Error('Bluetooth scan failed: ' + (e?.message ?? 'unknown'));
+    }
+    return (devices ?? []).map((d: any) => ({
       id: d.inner_mac_address ?? '',
       name: d.device_name ?? 'Bluetooth Printer',
       type: 'bluetooth' as const,
@@ -145,11 +177,16 @@ function getPrinter(type: PrinterConnectionType | null) {
 }
 
 export async function printText(text: string): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
   const { type } = usePrinterStore.getState().config;
   const printer = getPrinter(type);
   if (!printer) throw new Error('No printer configured');
   if (!connected) await connectPrinter();
-  await printer.printText(text, { cut: true });
+  try {
+    await printer.printText(text, { cut: true });
+  } catch (e: any) {
+    throw new Error('Print failed: ' + (e?.message ?? 'unknown'));
+  }
 }
 
 export async function printReceipt(opts: {
@@ -162,12 +199,13 @@ export async function printReceipt(opts: {
   paymentMethod?: string;
   cashierName?: string;
 }): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
   const { type, paperWidth } = usePrinterStore.getState().config;
   const printer = getPrinter(type);
   if (!printer) throw new Error('No printer configured');
   if (!connected) await connectPrinter();
 
-  const w = paperWidth === 58 ? 32 : 48; // characters per line
+  const w = paperWidth === 58 ? 32 : 48;
   const line = '='.repeat(w);
   const dash = '-'.repeat(w);
 
@@ -177,7 +215,7 @@ export async function printReceipt(opts: {
   }
 
   const now = new Date();
-  const date = now.toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const date = now.toLocaleDateString('en-AU');
   const time = now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
 
   let receipt = '';
@@ -199,18 +237,19 @@ export async function printReceipt(opts: {
   receipt += line + '\n';
   receipt += `<B>${pad('TOTAL', `$${opts.total.toFixed(2)}`)}</B>\n`;
   receipt += line + '\n';
-
-  if (opts.paymentMethod) {
-    receipt += pad('Payment', opts.paymentMethod) + '\n';
-  }
-
+  if (opts.paymentMethod) receipt += pad('Payment', opts.paymentMethod) + '\n';
   receipt += '\n<C>Thank you!</C>\n';
   receipt += '<C>Powered by ElevatedPOS</C>\n\n\n';
 
-  await printer.printText(receipt, { cut: true });
+  try {
+    await printer.printText(receipt, { cut: true });
+  } catch (e: any) {
+    throw new Error('Print failed: ' + (e?.message ?? 'unknown'));
+  }
 }
 
 export async function printTestPage(): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
   const { type, name, paperWidth } = usePrinterStore.getState().config;
   const printer = getPrinter(type);
   if (!printer) throw new Error('No printer configured');
@@ -227,8 +266,11 @@ export async function printTestPage(): Promise<void> {
   text += `Time: ${new Date().toLocaleString('en-AU')}\n`;
   text += '='.repeat(w) + '\n';
   text += `<C>If you can read this,</C>\n`;
-  text += `<C>your printer is working!</C>\n`;
-  text += '\n\n\n';
+  text += `<C>your printer is working!</C>\n\n\n`;
 
-  await printer.printText(text, { cut: true });
+  try {
+    await printer.printText(text, { cut: true });
+  } catch (e: any) {
+    throw new Error('Print failed: ' + (e?.message ?? 'unknown'));
+  }
 }

@@ -454,14 +454,26 @@ export default function MoreScreen() {
   }
 
   async function handleConnectPrinter() {
-    try {
-      await connectPrinter();
-      setPrinterConnected(true);
-      Alert.alert('Connected', 'Printer connected successfully.');
-    } catch (err) {
-      setPrinterConnected(false);
-      Alert.alert('Connection Failed', err instanceof Error ? err.message : 'Could not connect');
-    }
+    Alert.alert(
+      'Connect Printer',
+      'Make sure your USB printer is plugged in. The system will request USB permission.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Connect',
+          onPress: async () => {
+            try {
+              await connectPrinter();
+              setPrinterConnected(true);
+              Alert.alert('Connected', 'Printer connected successfully.');
+            } catch (err) {
+              setPrinterConnected(false);
+              Alert.alert('Connection Failed', err instanceof Error ? err.message : 'Could not connect to printer. Make sure it is plugged in and try again.');
+            }
+          },
+        },
+      ],
+    );
   }
 
   /* ── Unpair ───────────────────────────────────────────────────── */
