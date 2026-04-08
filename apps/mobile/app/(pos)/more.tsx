@@ -461,6 +461,26 @@ export default function MoreScreen() {
         <Text style={[s.sectionTitle, { marginTop: 32 }]}>Quick Manage</Text>
 
         <View style={s.card}>
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={async () => {
+              try {
+                await fetchCatalog();
+                Alert.alert('Menu Refreshed', `Loaded ${useCatalogStore.getState().products.length} products and ${useCatalogStore.getState().categories.length} categories.`);
+              } catch (err) {
+                Alert.alert('Refresh Failed', err instanceof Error ? err.message : 'Could not refresh menu');
+              }
+            }}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="refresh-outline" size={20} color="#22c55e" />
+              <Text style={s.menuRowText}>Refresh Menu</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+          <View style={s.divider} />
           <TouchableOpacity style={s.menuRow} onPress={() => openManageModal('products')}>
             <View style={s.menuRowLeft}>
               <Ionicons name="cube-outline" size={20} color="#6366f1" />

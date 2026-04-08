@@ -1,31 +1,64 @@
 import { useDeviceStore } from '../store/device';
+import { useAuthStore } from '../store/auth';
 
 /**
  * Authenticated fetch wrapper for the Catalog service.
  *
- * In production the API gateway routes `/api/v1/products` and `/api/v1/categories`
- * to the catalog micro-service automatically, so the same base URL works.
- * For local development you can point EXPO_PUBLIC_CATALOG_API_URL at port 4002.
+ * Production API gateway routes catalog at /api/v1/catalog/*
+ * which gets rewritten to /api/v1/* on the catalog service.
+ * For local development point EXPO_PUBLIC_CATALOG_API_URL at port 4002.
  */
+const API_BASE =
+  process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+
 const CATALOG_BASE =
-  process.env['EXPO_PUBLIC_CATALOG_API_URL'] ??
-  process.env['EXPO_PUBLIC_API_URL'] ??
-  'http://localhost:4002';
+  process.env['EXPO_PUBLIC_CATALOG_API_URL'] ?? '';
+
+/**
+ * Map bare catalog paths to the gateway's /api/v1/catalog/* prefix.
+ * e.g. /api/v1/categories → /api/v1/catalog/categories
+ * When EXPO_PUBLIC_CATALOG_API_URL is set (direct to catalog service), skip remapping.
+ */
+function resolveUrl(path: string): string {
+  if (CATALOG_BASE) return `${CATALOG_BASE}${path}`;
+  // Rewrite /api/v1/xxx → /api/v1/catalog/xxx for the API gateway
+  return `${API_BASE}${path.replace('/api/v1/', '/api/v1/catalog/')}`;
+}
+
+/** Get the best available auth token: prefer employee JWT, fall back to device token */
+function getToken(): string | null {
+  return useAuthStore.getState().employeeToken
+    ?? useDeviceStore.getState().identity?.deviceToken
+    ?? null;
+}
 
 export async function catalogApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const identity = useDeviceStore.getState().identity;
-  const res = await fetch(`${CATALOG_BASE}${path}`, {
+  const token = getToken();
+  const url = resolveUrl(path);
+  const res = await fetch(url, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(identity ? { Authorization: `Bearer ${identity.deviceToken}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...((init?.headers as Record<string, string>) ?? {}),
     },
   });
 
   if (res.status === 401) {
-    await useDeviceStore.getState().clearIdentity();
-    throw new Error('Device has been revoked. Please re-pair this device.');
+    // Try once more with device token if employee token was stale
+    const deviceToken = useDeviceStore.getState().identity?.deviceToken;
+    if (deviceToken && token !== deviceToken) {
+      const retry = await fetch(url, {
+        ...init,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${deviceToken}`,
+          ...((init?.headers as Record<string, string>) ?? {}),
+        },
+      });
+      if (retry.ok) return retry.json() as Promise<T>;
+    }
+    throw new Error('Unauthorized — please log in again.');
   }
   if (!res.ok) {
     const err = (await res.json().catch(() => ({ title: res.statusText }))) as { title?: string };
