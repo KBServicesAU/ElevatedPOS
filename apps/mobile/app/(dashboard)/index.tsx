@@ -55,9 +55,25 @@ export default function DashboardScreen() {
   const token = useAuthStore.getState().employeeToken;
 
   // Inject the auth token as a cookie so the WebView is logged in
+  // Also hide the POS/KDS/Kiosk links in the sidebar since we have them in the app bar
   const injectedJS = token
-    ? `document.cookie = "elevatedpos_token=${token}; path=/; max-age=28800; SameSite=Lax";
+    ? `
+       document.cookie = "elevatedpos_token=${token}; path=/; max-age=28800; SameSite=Lax";
        window.__ELEVATED_TOKEN__ = "${token}";
+       // Hide POS Terminal, KDS Display, Kiosk links from sidebar
+       (function hideNavItems() {
+         var style = document.createElement('style');
+         style.textContent = 'a[href*="/pos"], a[href*="/kds"], a[href*="/kiosk"] { display: none !important; }';
+         document.head.appendChild(style);
+         // Retry after hydration
+         setTimeout(function() {
+           var links = document.querySelectorAll('a');
+           links.forEach(function(a) {
+             var text = a.textContent || '';
+             if (text.match(/POS Terminal|KDS Display|Kiosk/)) a.style.display = 'none';
+           });
+         }, 2000);
+       })();
        true;`
     : 'true;';
 
@@ -67,15 +83,16 @@ export default function DashboardScreen() {
       return;
     }
     try {
-      // Try Android intent to open by package name
-      const intentUrl = `intent://#Intent;package=${app.packageName};end`;
-      const canOpen = await Linking.canOpenURL(intentUrl);
+      // Android: use the package manager launch intent directly
+      const launchUrl = `${app.packageName}://`;
+      const canOpen = await Linking.canOpenURL(launchUrl);
       if (canOpen) {
-        await Linking.openURL(intentUrl);
-      } else {
-        // Fallback — try opening the package directly
-        await Linking.openURL(`market://details?id=${app.packageName}`);
+        await Linking.openURL(launchUrl);
+        return;
       }
+      // Fallback: try intent scheme
+      const intentUrl = `intent://main#Intent;scheme=elevatedpos;package=${app.packageName};end`;
+      await Linking.openURL(intentUrl);
     } catch {
       Alert.alert(
         `${app.label} Not Installed`,

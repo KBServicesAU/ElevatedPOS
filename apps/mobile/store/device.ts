@@ -88,4 +88,26 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
     await Promise.all(Object.values(KEYS).map((k) => SecureStore.deleteItemAsync(k)));
     set({ identity: null });
   },
+
+  /** Check if device is still valid (not revoked). Call periodically. */
+  checkHeartbeat: async () => {
+    const { identity } = useDeviceStore.getState();
+    if (!identity) return;
+    const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/devices/heartbeat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${identity.deviceToken}`,
+        },
+      });
+      if (res.status === 401 || res.status === 403) {
+        // Device has been revoked — clear identity to force re-pair
+        await useDeviceStore.getState().clearIdentity();
+      }
+    } catch {
+      // Network error — don't clear on connectivity issues
+    }
+  },
 }));
