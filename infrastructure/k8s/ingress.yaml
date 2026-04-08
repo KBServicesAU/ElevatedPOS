@@ -117,6 +117,13 @@ spec:
                 name: orders
                 port:
                   number: 4004
+          - path: /api/v1/kds
+            pathType: Prefix
+            backend:
+              service:
+                name: orders
+                port:
+                  number: 4004
           - path: /api/v1/payments
             pathType: Prefix
             backend:
