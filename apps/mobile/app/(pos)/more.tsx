@@ -441,8 +441,7 @@ export default function MoreScreen() {
 
   async function handleSelectPrinter(printer: DiscoveredPrinter) {
     try {
-      await savePrinterConfig({
-        ...editPrinter,
+      await setPrinterConfig({
         type: printer.type,
         address: printer.id,
         name: printer.name,
