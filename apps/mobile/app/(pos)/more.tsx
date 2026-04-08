@@ -24,6 +24,14 @@ import { usePrinterStore, type PrinterConnectionType } from '../../store/printer
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 import { catalogApiFetch } from '../../lib/catalog-api';
+import {
+  connectPrinter,
+  disconnectPrinter,
+  discoverPrinters,
+  printTestPage,
+  isConnected as isPrinterConnected,
+  type DiscoveredPrinter,
+} from '../../lib/printer';
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
@@ -398,15 +406,66 @@ export default function MoreScreen() {
     setShowPrinterModal(false);
   }
 
-  function handleTestPrint() {
-    if (!printerConfig.type || !printerConfig.address) {
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveredPrinters, setDiscoveredPrinters] = useState<DiscoveredPrinter[]>([]);
+  const [printerConnected, setPrinterConnected] = useState(false);
+
+  async function handleTestPrint() {
+    if (!printerConfig.type) {
       Alert.alert('No Printer', 'Please configure a printer first.');
       return;
     }
-    Alert.alert(
-      'Test Print',
-      'Printer driver not yet installed. To enable printing, add a compatible ESC/POS library (e.g. react-native-thermal-receipt-printer) and rebuild the app.',
-    );
+    try {
+      await printTestPage();
+      setPrinterConnected(true);
+      Alert.alert('Success', 'Test page sent to printer.');
+    } catch (err) {
+      Alert.alert('Print Failed', err instanceof Error ? err.message : 'Could not print');
+    }
+  }
+
+  async function handleDiscoverPrinters(type: PrinterConnectionType) {
+    setDiscovering(true);
+    try {
+      const devices = await discoverPrinters(type);
+      setDiscoveredPrinters(devices);
+      if (devices.length === 0) {
+        Alert.alert('No Printers Found', `No ${type.toUpperCase()} printers detected. Check the connection.`);
+      }
+    } catch (err) {
+      Alert.alert('Discovery Failed', err instanceof Error ? err.message : 'Could not scan for printers');
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  async function handleSelectPrinter(printer: DiscoveredPrinter) {
+    try {
+      await savePrinterConfig({
+        ...editPrinter,
+        type: printer.type,
+        address: printer.id,
+        name: printer.name,
+      });
+      setDiscoveredPrinters([]);
+      // Try connecting immediately
+      await connectPrinter();
+      setPrinterConnected(true);
+      Alert.alert('Connected', `Connected to ${printer.name}`);
+    } catch (err) {
+      Alert.alert('Connection Failed', err instanceof Error ? err.message : 'Could not connect');
+    }
+  }
+
+  async function handleConnectPrinter() {
+    try {
+      await connectPrinter();
+      setPrinterConnected(true);
+      Alert.alert('Connected', 'Printer connected successfully.');
+    } catch (err) {
+      setPrinterConnected(false);
+      Alert.alert('Connection Failed', err instanceof Error ? err.message : 'Could not connect');
+    }
   }
 
   /* ── Unpair ───────────────────────────────────────────────────── */
@@ -643,27 +702,73 @@ export default function MoreScreen() {
           <View style={s.divider} />
           <View style={s.row}>
             <Text style={s.label}>Connection</Text>
-            <Text style={s.value}>
-              {printerConfig.type?.toUpperCase() ?? '—'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: printerConnected ? '#22c55e' : '#666' }} />
+              <Text style={s.value}>
+                {printerConfig.type?.toUpperCase() ?? '—'} {printerConnected ? '(Connected)' : ''}
+              </Text>
+            </View>
           </View>
           <View style={s.divider} />
           <View style={s.row}>
             <Text style={s.label}>Auto-Print Receipts</Text>
-            <Text style={[s.value, { color: printerConfig.autoPrint ? '#22c55e' : '#666' }]}>
-              {printerConfig.autoPrint ? 'On' : 'Off'}
-            </Text>
+            <Switch
+              value={printerConfig.autoPrint}
+              onValueChange={v => setPrinterConfig({ autoPrint: v })}
+              trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
+              thumbColor={printerConfig.autoPrint ? '#6366f1' : '#555'}
+            />
           </View>
         </View>
 
+        {/* Scan + Connect + Test buttons */}
         <View style={s.btnRow}>
+          <TouchableOpacity
+            style={s.outlineBtn}
+            onPress={() => handleDiscoverPrinters('usb')}
+            activeOpacity={0.85}
+          >
+            {discovering ? <ActivityIndicator size="small" color="#ccc" /> : <Ionicons name="search-outline" size={16} color="#ccc" />}
+            <Text style={s.outlineBtnText}>Scan USB</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.outlineBtn, printerConnected && { borderColor: '#22c55e' }]}
+            onPress={printerConnected ? handleTestPrint : handleConnectPrinter}
+            activeOpacity={0.85}
+          >
+            <Ionicons name={printerConnected ? 'print-outline' : 'link-outline'} size={16} color={printerConnected ? '#22c55e' : '#ccc'} />
+            <Text style={[s.outlineBtnText, printerConnected && { color: '#22c55e' }]}>
+              {printerConnected ? 'Test Print' : 'Connect'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Discovered printers list */}
+        {discoveredPrinters.length > 0 && (
+          <View style={[s.card, { marginTop: 8 }]}>
+            <Text style={[s.label, { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }]}>Found Printers</Text>
+            {discoveredPrinters.map((p) => (
+              <TouchableOpacity
+                key={p.id}
+                style={[s.manageRow, { paddingHorizontal: 16 }]}
+                onPress={() => handleSelectPrinter(p)}
+                activeOpacity={0.6}
+              >
+                <Ionicons name="print" size={18} color="#6366f1" style={{ marginRight: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.manageName}>{p.name}</Text>
+                  <Text style={s.manageSub}>{p.type.toUpperCase()} · {p.id}</Text>
+                </View>
+                <Ionicons name="add-circle-outline" size={22} color="#22c55e" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        <View style={[s.btnRow, { marginTop: 8 }]}>
           <TouchableOpacity style={s.outlineBtn} onPress={openPrinterModal} activeOpacity={0.85}>
             <Ionicons name="settings-outline" size={16} color="#ccc" />
-            <Text style={s.outlineBtnText}>Configure</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.outlineBtn} onPress={handleTestPrint} activeOpacity={0.85}>
-            <Ionicons name="print-outline" size={16} color="#ccc" />
-            <Text style={s.outlineBtnText}>Test Print</Text>
+            <Text style={s.outlineBtnText}>Advanced</Text>
           </TouchableOpacity>
         </View>
 
