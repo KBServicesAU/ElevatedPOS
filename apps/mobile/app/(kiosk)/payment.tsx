@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useKioskStore } from '../../store/kiosk';
+import { useDeviceStore } from '../../store/device';
 
 type PaymentMethod = 'card' | 'cash' | 'qr';
 
@@ -32,29 +33,33 @@ export default function PaymentScreen() {
 
   async function handlePay() {
     setProcessing(true);
+    const identity = useDeviceStore.getState().identity;
 
     const orderPayload = {
-      items: cartItems.map((i) => ({
+      locationId: identity?.locationId,
+      registerId: identity?.registerId || undefined,
+      channel: 'kiosk' as const,
+      orderType: orderType === 'dine_in' ? 'dine_in' : 'takeaway',
+      lines: cartItems.map((i) => ({
         productId: i.id,
         name: i.name,
-        qty: i.qty,
-        unitPrice: i.price,
-        modifiers: i.modifiers,
+        quantity: i.qty,
+        unitPrice: Math.round(i.price * 100), // dollars → cents for API
+        costPrice: 0,
+        taxRate: 10,
       })),
-      orderType,
-      tableNumber: orderType === 'dine_in' ? tableNumber : undefined,
-      loyaltyAccountPhone: loyaltyAccount?.phone ?? undefined,
-      paymentMethod: selected,
-      subtotal,
-      tax,
-      total,
+      ...(orderType === 'dine_in' && tableNumber ? { notes: `Table ${tableNumber}` } : {}),
     };
 
     try {
       const apiBase = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+      const token = identity?.deviceToken ?? '';
       const res = await fetch(`${apiBase}/api/v1/orders`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(orderPayload),
         signal: AbortSignal.timeout(5000),
       });
