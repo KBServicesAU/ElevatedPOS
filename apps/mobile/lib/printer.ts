@@ -2,12 +2,25 @@
  * ESC/POS thermal printer utility for the mobile POS app.
  * Supports USB, Bluetooth, and Network printers via react-native-thermal-receipt-printer.
  */
-import {
-  USBPrinter,
-  BLEPrinter,
-  NetPrinter,
-} from 'react-native-thermal-receipt-printer';
+import { Platform } from 'react-native';
 import { usePrinterStore, type PrinterConnectionType } from '../store/printers';
+
+// Lazy-load printer modules to prevent crash if native module is unavailable
+let USBPrinter: any = null;
+let BLEPrinter: any = null;
+let NetPrinter: any = null;
+
+function loadPrinterModules() {
+  if (USBPrinter) return;
+  try {
+    const mod = require('react-native-thermal-receipt-printer');
+    USBPrinter = mod.USBPrinter;
+    BLEPrinter = mod.BLEPrinter;
+    NetPrinter = mod.NetPrinter;
+  } catch (err) {
+    console.warn('[printer] Failed to load thermal printer module:', err);
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Connection                                                          */
@@ -16,8 +29,10 @@ import { usePrinterStore, type PrinterConnectionType } from '../store/printers';
 let connected = false;
 
 export async function connectPrinter(): Promise<void> {
+  loadPrinterModules();
   const { type, address } = usePrinterStore.getState().config;
   if (!type) throw new Error('No printer type configured');
+  if (!USBPrinter) throw new Error('Printer module not available. Rebuild the app may be required.');
 
   try {
     if (type === 'usb') {
@@ -93,6 +108,8 @@ export interface DiscoveredPrinter {
 }
 
 export async function discoverPrinters(type: PrinterConnectionType): Promise<DiscoveredPrinter[]> {
+  loadPrinterModules();
+  if (!USBPrinter) throw new Error('Printer module not available.');
   if (type === 'usb') {
     await USBPrinter.init();
     const devices = await USBPrinter.getDeviceList();

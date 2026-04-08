@@ -301,7 +301,7 @@ export default function MoreScreen() {
     try {
       const body: Record<string, any> = {
         name: prodForm.name,
-        basePrice: parseFloat(prodForm.basePrice),
+        basePrice: Math.round(parseFloat(prodForm.basePrice) * 100), // dollars → cents
       };
       if (prodForm.sku) body.sku = prodForm.sku;
       if (prodForm.categoryId) body.categoryId = prodForm.categoryId;
@@ -447,12 +447,9 @@ export default function MoreScreen() {
         name: printer.name,
       });
       setDiscoveredPrinters([]);
-      // Try connecting immediately
-      await connectPrinter();
-      setPrinterConnected(true);
-      Alert.alert('Connected', `Connected to ${printer.name}`);
+      Alert.alert('Printer Saved', `${printer.name} configured. Tap "Connect" to establish connection.`);
     } catch (err) {
-      Alert.alert('Connection Failed', err instanceof Error ? err.message : 'Could not connect');
+      Alert.alert('Error', err instanceof Error ? err.message : 'Could not save printer');
     }
   }
 

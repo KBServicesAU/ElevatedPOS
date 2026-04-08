@@ -927,13 +927,11 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
             setCategories(['All', ...apiCats.map((c) => c.name)]);
           }
           setProducts(apiProducts.map((p) => {
-            // Support both formats: basePrice (decimal string) and price (cents integer)
-            let dollars = 0;
-            if (p.basePrice != null) {
-              dollars = typeof p.basePrice === 'string' ? parseFloat(p.basePrice) : p.basePrice;
-            } else if (p.price != null) {
-              dollars = p.price / 100;
-            }
+            // basePrice is stored in cents (dashboard multiplies by 100)
+            const raw = p.basePrice != null
+              ? (typeof p.basePrice === 'string' ? parseFloat(p.basePrice) : p.basePrice)
+              : (p.price ?? 0);
+            const dollars = raw / 100;
             return {
               id: p.id,
               name: p.name,

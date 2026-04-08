@@ -63,12 +63,18 @@ export const useCatalogStore = create<CatalogStore>((set) => ({
         ),
       ]);
 
-      const categories = (Array.isArray(catRes) ? catRes : []).filter(
-        (c) => c.isActive !== false,
-      );
-      const products = Array.isArray(prodRes)
+      // API may return raw array or { data: [...] } wrapper
+      const rawCats = Array.isArray(catRes) ? catRes : ((catRes as any).data ?? []);
+      const categories = rawCats.filter((c: CatalogCategory) => c.isActive !== false);
+      const rawProds = Array.isArray(prodRes)
         ? prodRes
         : ((prodRes as ProductsResponse).data ?? []);
+      // Prices are stored in cents (dashboard multiplies by 100).
+      // Convert to dollar strings for display.
+      const products = rawProds.map((p: CatalogProduct) => {
+        const cents = parseFloat(String(p.basePrice)) || 0;
+        return { ...p, basePrice: (cents / 100).toFixed(2) };
+      });
 
       set({ categories, products, loading: false, lastFetched: Date.now() });
     } catch (err) {
