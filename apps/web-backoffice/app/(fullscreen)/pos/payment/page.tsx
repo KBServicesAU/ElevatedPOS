@@ -6,6 +6,8 @@ import { ArrowLeft, X, Wifi, CreditCard, CheckCircle, AlertCircle } from 'lucide
 import { usePrinter } from '../printer-context';
 import { type ReceiptData } from '../receipt-printer';
 import { getDeviceInfo } from '@/lib/device-auth';
+import { TyroPaymentOverlay } from './tyro-payment-overlay';
+import type { TyroConfig } from '@/lib/tyro-provider';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +34,9 @@ interface Tender {
   cardBrand?: string;
   paymentIntentId?: string;
   surchargeAmount?: number;
+  /** Tyro-specific fields */
+  tyroTransactionRef?: string;
+  tyroReceiptData?: { merchantReceipt?: string; customerReceipt?: string };
 }
 
 const METHOD_META: Record<PaymentMethod, { label: string; emoji: string; color: string; hint: string }> = {
@@ -402,8 +407,29 @@ function AddTenderDialog({
   const [cashTenderedStr, setCashTenderedStr] = useState('');
   const [giftCode, setGiftCode] = useState('');
   const [bnplProvider, setBnplProvider] = useState<'afterpay' | 'zip'>('afterpay');
-  const [showTerminal, setShowTerminal] = useState(false);
+  const [showTerminal, setShowTerminal] = useState<false | 'stripe' | 'tyro'>(false);
   const [paymentSettings, setPaymentSettings] = useState<{ cardSurchargeRate: number; cashRoundingEnabled: boolean } | null>(null);
+  const [tyroConfig, setTyroConfig] = useState<TyroConfig | null>(null);
+  const [eftposProvider, setEftposProvider] = useState<'stripe' | 'tyro'>('stripe');
+
+  // Fetch Tyro config on mount to determine provider
+  useEffect(() => {
+    fetch('/api/tyro/config')
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { configured?: boolean; apiKey?: string; merchantId?: string; terminalId?: string; testMode?: boolean; tyroHandlesSurcharge?: boolean } | null) => {
+        if (data?.configured && data.apiKey) {
+          setEftposProvider('tyro');
+          setTyroConfig({
+            apiKey: data.apiKey,
+            merchantId: data.merchantId ?? '',
+            terminalId: data.terminalId ?? '',
+            testMode: data.testMode ?? true,
+            tyroHandlesSurcharge: data.tyroHandlesSurcharge ?? false,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch('/api/proxy/settings/payments')
@@ -445,9 +471,9 @@ function AddTenderDialog({
 
   const handleApply = () => {
     if (method === 'card') {
-      // Hand off to Stripe Terminal overlay; notify CFD
+      // Route to the correct EFTPOS provider
       onPaymentProcessing?.();
-      setShowTerminal(true);
+      setShowTerminal(eftposProvider);
       return;
     }
     const tender: Tender = {
@@ -462,7 +488,33 @@ function AddTenderDialog({
     onAdd(tender);
   };
 
-  if (showTerminal) {
+  if (showTerminal === 'tyro') {
+    const tyroAmount = tyroConfig?.tyroHandlesSurcharge ? amount : cardChargeTotal;
+    return (
+      <TyroPaymentOverlay
+        amount={tyroAmount}
+        config={tyroConfig}
+        onApproved={(result) => {
+          const finalAmount = result.totalAmount ?? tyroAmount;
+          const tyrSurcharge = result.surchargeAmount ?? 0;
+          onAdd({
+            id: newTenderId(),
+            method: 'card',
+            amount: finalAmount,
+            cardLast4: result.cardLast4,
+            cardBrand: result.cardBrand,
+            tyroTransactionRef: result.transactionRef,
+            tyroReceiptData: result.receiptData,
+            ...(tyrSurcharge > 0 ? { surchargeAmount: tyrSurcharge } : surchargeAmt > 0 ? { surchargeAmount: surchargeAmt } : {}),
+          });
+        }}
+        onFailed={() => setShowTerminal(false)}
+        onCancel={() => setShowTerminal(false)}
+      />
+    );
+  }
+
+  if (showTerminal === 'stripe') {
     return (
       <TerminalPaymentOverlay
         amount={cardChargeTotal}
