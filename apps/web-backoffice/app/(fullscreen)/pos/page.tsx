@@ -46,7 +46,8 @@ interface CartItem extends Product {
 interface ApiProduct {
   id: string;
   name: string;
-  price: number; // cents, GST-inclusive
+  price?: number; // cents, GST-inclusive (legacy)
+  basePrice?: string | number; // decimal string from catalog API, e.g. "15.0000"
   categoryId?: string;
   categoryName?: string;
   status?: string;
@@ -925,15 +926,24 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
             categoryMap = Object.fromEntries(apiCats.map((c) => [c.id, c.name]));
             setCategories(['All', ...apiCats.map((c) => c.name)]);
           }
-          setProducts(apiProducts.map((p) => ({
-            id: p.id,
-            name: p.name,
-            price: p.price / 100, // cents → dollars, GST-inclusive
-            category: (p.categoryId && categoryMap[p.categoryId]) ?? p.categoryName ?? 'Other',
-            emoji: '🛒',
-            description: p.description,
-            sku: p.sku,
-          })));
+          setProducts(apiProducts.map((p) => {
+            // Support both formats: basePrice (decimal string) and price (cents integer)
+            let dollars = 0;
+            if (p.basePrice != null) {
+              dollars = typeof p.basePrice === 'string' ? parseFloat(p.basePrice) : p.basePrice;
+            } else if (p.price != null) {
+              dollars = p.price / 100;
+            }
+            return {
+              id: p.id,
+              name: p.name,
+              price: isNaN(dollars) ? 0 : dollars,
+              category: (p.categoryId && categoryMap[p.categoryId]) ?? p.categoryName ?? 'Other',
+              emoji: '🛒',
+              description: p.description,
+              sku: p.sku,
+            };
+          }));
         }
       } catch { /* keep mock */ }
       finally { setLoadingCatalog(false); }
