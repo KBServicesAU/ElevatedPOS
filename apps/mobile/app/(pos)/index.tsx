@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePosStore } from '../../store/pos';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 import { useDeviceStore } from '../../store/device';
+import { useCustomerDisplayStore } from '../../store/customer-display';
+import CustomerDisplay from '../../components/CustomerDisplay';
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -43,14 +45,18 @@ export default function PosSellScreen() {
   const { products, categories, loading, error, fetchAll } = useCatalogStore();
   const { identity } = useDeviceStore();
 
+  const { settings: displaySettings, syncTransaction, showThankYou, hydrate: hydrateDisplay } =
+    useCustomerDisplayStore();
+
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [charging, setCharging] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Fetch catalog on mount
+  // Fetch catalog + hydrate customer display on mount
   useEffect(() => {
     fetchAll();
+    hydrateDisplay();
   }, []);
 
   // Pull-to-refresh
@@ -88,6 +94,19 @@ export default function PosSellScreen() {
   const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const gst = total / 11; // GST portion of the tax-inclusive total
   const itemCount = cart.reduce((s, i) => s + i.qty, 0);
+
+  // ── Sync cart → customer display ──────────────────────────────────
+  useEffect(() => {
+    if (displaySettings.enabled) {
+      syncTransaction({
+        items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price })),
+        total,
+        gst,
+        itemCount,
+        customerName,
+      });
+    }
+  }, [cart, customerName, displaySettings.enabled]);
 
   // ── Add product to cart ──────────────────────────────────────────
   function handleAdd(p: CatalogProduct) {
@@ -131,10 +150,12 @@ export default function PosSellScreen() {
         (data as { orderNumber?: string } | null)?.orderNumber ??
         `P${Math.floor(100 + Math.random() * 900)}`;
       clearCart();
+      if (displaySettings.enabled) showThankYou();
       Alert.alert('Order Placed', `Order #${num} — $${total.toFixed(2)}`);
     } catch {
       const num = `P${Math.floor(100 + Math.random() * 900)}`;
       clearCart();
+      if (displaySettings.enabled) showThankYou();
       Alert.alert(
         'Order Placed (Offline)',
         `Order #${num} — $${total.toFixed(2)}\nWill sync when server is available.`,

@@ -21,6 +21,7 @@ import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { useEmployeeStore, type Shift } from '../../store/employee';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
+import { useCustomerDisplayStore } from '../../store/customer-display';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 import { catalogApiFetch } from '../../lib/catalog-api';
 
@@ -105,6 +106,13 @@ export default function MoreScreen() {
     autoPrint: false,
   });
 
+  // ── Customer Display ──────────────────────────────────────────────
+  const {
+    settings: displaySettings,
+    hydrate: hydrateDisplay,
+    setSettings: setDisplaySettings,
+  } = useCustomerDisplayStore();
+
   // ── Quick Manage ─────────────────────────────────────────────────
   const [showManageModal, setShowManageModal] = useState(false);
   const { products, categories, fetchAll: fetchCatalog } = useCatalogStore();
@@ -124,6 +132,7 @@ export default function MoreScreen() {
   useEffect(() => {
     checkCurrentShift();
     hydratePrinter();
+    hydrateDisplay();
     checkForUpdate();
   }, []);
 
@@ -510,6 +519,70 @@ export default function MoreScreen() {
             <Ionicons name="print-outline" size={16} color="#ccc" />
             <Text style={s.outlineBtnText}>Test Print</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* ═══════ Customer Display ═══════ */}
+        <Text style={[s.sectionTitle, { marginTop: 32 }]}>Customer Display</Text>
+
+        <View style={s.card}>
+          <View style={s.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.label}>Customer-Facing Screen</Text>
+              <Text style={[s.valueSmall, { marginTop: 2 }]}>
+                iMin Swan dual-screen / HDMI
+              </Text>
+            </View>
+            <Switch
+              value={displaySettings.enabled}
+              onValueChange={(v) => setDisplaySettings({ enabled: v })}
+              trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
+              thumbColor={displaySettings.enabled ? '#6366f1' : '#555'}
+            />
+          </View>
+          {displaySettings.enabled && (
+            <>
+              <View style={s.divider} />
+              <View style={s.row}>
+                <Text style={s.label}>Show Logo</Text>
+                <Switch
+                  value={displaySettings.showLogo}
+                  onValueChange={(v) => setDisplaySettings({ showLogo: v })}
+                  trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
+                  thumbColor={displaySettings.showLogo ? '#6366f1' : '#555'}
+                />
+              </View>
+              <View style={s.divider} />
+              <View style={s.row}>
+                <Text style={s.label}>Show Line Items</Text>
+                <Switch
+                  value={displaySettings.showLineItems}
+                  onValueChange={(v) => setDisplaySettings({ showLineItems: v })}
+                  trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
+                  thumbColor={displaySettings.showLineItems ? '#6366f1' : '#555'}
+                />
+              </View>
+              <View style={s.divider} />
+              <View style={s.row}>
+                <Text style={s.label}>Show GST Breakdown</Text>
+                <Switch
+                  value={displaySettings.showGst}
+                  onValueChange={(v) => setDisplaySettings({ showGst: v })}
+                  trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
+                  thumbColor={displaySettings.showGst ? '#6366f1' : '#555'}
+                />
+              </View>
+              <View style={s.divider} />
+              <View style={s.row}>
+                <Text style={s.label}>Welcome Message</Text>
+                <Text style={s.value} numberOfLines={1}>{displaySettings.welcomeMessage}</Text>
+              </View>
+              <View style={s.divider} />
+              <View style={s.row}>
+                <Text style={s.label}>Thank-You Message</Text>
+                <Text style={s.value} numberOfLines={1}>{displaySettings.thankYouMessage}</Text>
+              </View>
+            </>
+          )}
         </View>
 
         {/* ═══════ Software Update ═══════ */}
