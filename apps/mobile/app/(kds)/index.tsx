@@ -1,16 +1,20 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Linking,
   Modal,
+  Platform,
+  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Audio } from 'expo-av';
 import Constants from 'expo-constants';
 import { useDeviceStore } from '../../store/device';
 
@@ -130,6 +134,40 @@ export default function KDSScreen() {
   const reconnectAttempt = useRef(0);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(true);
+
+  // Sound settings
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const ticketCountRef = useRef(0);
+
+  // Play beep on new ticket
+  useEffect(() => {
+    if (tickets.length > ticketCountRef.current && soundEnabled) {
+      // New ticket arrived — play beep
+      (async () => {
+        try {
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: 'https://cdn.elevatedpos.com.au/sounds/beep.mp3' },
+            { shouldPlay: true },
+          );
+          setTimeout(() => sound.unloadAsync(), 2000);
+        } catch { /* sound failed — non-critical */ }
+      })();
+    }
+    ticketCountRef.current = tickets.length;
+  }, [tickets.length, soundEnabled]);
+
+  // Order summary — aggregate item counts across all tickets
+  const orderSummary = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of tickets) {
+      for (const item of t.items) {
+        counts.set(item.name, (counts.get(item.name) ?? 0) + item.qty);
+      }
+    }
+    return Array.from(counts.entries())
+      .map(([name, qty]) => ({ name, qty }))
+      .sort((a, b) => b.qty - a.qty);
+  }, [tickets]);
 
   // Settings modal state
   const [showSettings, setShowSettings] = useState(false);
@@ -286,6 +324,16 @@ export default function KDSScreen() {
 
             <View style={styles.modalCard}>
               <View style={styles.modalRow}>
+                <Text style={styles.modalLabel}>New Order Sound</Text>
+                <Switch
+                  value={soundEnabled}
+                  onValueChange={setSoundEnabled}
+                  trackColor={{ false: '#2a2a2a', true: '#6366f180' }}
+                  thumbColor={soundEnabled ? '#6366f1' : '#555'}
+                />
+              </View>
+              <View style={styles.modalDivider} />
+              <View style={styles.modalRow}>
                 <Text style={styles.modalLabel}>App Version</Text>
                 <Text style={styles.modalValue}>{APP_VERSION}</Text>
               </View>
@@ -346,21 +394,43 @@ export default function KDSScreen() {
         </View>
       </Modal>
 
-      {tickets.length === 0 ? (
-        <View style={styles.clearKitchen}>
-          <Text style={styles.clearEmoji}>✅</Text>
-          <Text style={styles.clearTitle}>Kitchen Clear</Text>
-          <Text style={styles.clearSub}>No pending tickets</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={tickets}
-          keyExtractor={(t) => t.id}
-          numColumns={3}
-          contentContainerStyle={styles.ticketGrid}
-          renderItem={({ item }) => <TicketCard ticket={item} onBump={handleBump} />}
-        />
-      )}
+      <View style={{ flex: 1, flexDirection: 'row' }}>
+        {/* Left: Order Summary Sidebar */}
+        {tickets.length > 0 && (
+          <View style={{ width: 180, backgroundColor: '#111', borderRightWidth: 1, borderRightColor: '#222', paddingTop: 12 }}>
+            <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', paddingHorizontal: 12, marginBottom: 8, letterSpacing: 1 }}>TO MAKE</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {orderSummary.map((item, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '900', color: '#f59e0b', minWidth: 30 }}>{item.qty}x</Text>
+                  <Text style={{ fontSize: 13, color: '#ccc', fontWeight: '600', flex: 1 }} numberOfLines={1}>{item.name}</Text>
+                </View>
+              ))}
+            </ScrollView>
+            <View style={{ padding: 12, borderTopWidth: 1, borderTopColor: '#222' }}>
+              <Text style={{ color: '#555', fontSize: 11 }}>{tickets.length} orders · {orderSummary.reduce((s, i) => s + i.qty, 0)} items</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Right: Ticket Grid */}
+        {tickets.length === 0 ? (
+          <View style={styles.clearKitchen}>
+            <Text style={styles.clearEmoji}>✅</Text>
+            <Text style={styles.clearTitle}>Kitchen Clear</Text>
+            <Text style={styles.clearSub}>No pending tickets</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={tickets}
+            keyExtractor={(t) => t.id}
+            numColumns={3}
+            contentContainerStyle={styles.ticketGrid}
+            renderItem={({ item }) => <TicketCard ticket={item} onBump={handleBump} />}
+            style={{ flex: 1 }}
+          />
+        )}
+      </View>
     </SafeAreaView>
   );
 }
