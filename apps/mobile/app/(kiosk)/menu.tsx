@@ -15,8 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useKioskStore } from '../../store/kiosk';
-
-const CATEGORIES = ['All', 'Food', 'Drinks', 'Desserts', 'Extras'] as const;
+import { useCatalogStore } from '../../store/catalog';
 
 const FONT_SIZE_KEY = '@kiosk_font_size';
 type FontSize = 'small' | 'medium' | 'large';
@@ -27,157 +26,50 @@ const FONT_SCALE: Record<FontSize, number> = {
   large: 1.2,
 };
 
-const MOCK_PRODUCTS = [
-  {
-    id: '1',
-    name: 'Classic Burger',
-    price: 18.5,
-    category: 'Food',
-    tags: [''],
-    emoji: '🍔',
-    description: 'Beef patty, lettuce, tomato, special sauce',
-    ageRestricted: false,
-  },
-  {
-    id: '2',
-    name: 'Veggie Wrap',
-    price: 15.0,
-    category: 'Food',
-    tags: ['V', 'GF'],
-    emoji: '🌯',
-    description: 'Grilled vegetables, hummus, rocket',
-    ageRestricted: false,
-  },
-  {
-    id: '3',
-    name: 'Grilled Chicken',
-    price: 22.0,
-    category: 'Food',
-    tags: ['GF'],
-    emoji: '🍗',
-    description: 'Free-range chicken, seasonal greens, aioli',
-    ageRestricted: false,
-  },
-  {
-    id: '4',
-    name: 'Fish & Chips',
-    price: 24.0,
-    category: 'Food',
-    tags: [''],
-    emoji: '🐟',
-    description: 'Beer battered barramundi, shoestring fries',
-    ageRestricted: false,
-  },
-  {
-    id: '5',
-    name: 'Caesar Salad',
-    price: 16.0,
-    category: 'Food',
-    tags: ['V'],
-    emoji: '🥗',
-    description: 'Cos lettuce, parmesan, croutons, caesar dressing',
-    ageRestricted: false,
-  },
-  {
-    id: '6',
-    name: 'Flat White',
-    price: 5.5,
-    category: 'Drinks',
-    tags: [''],
-    emoji: '☕',
-    description: 'Single origin espresso, steamed milk',
-    ageRestricted: false,
-  },
-  {
-    id: '7',
-    name: 'Lemon Iced Tea',
-    price: 6.0,
-    category: 'Drinks',
-    tags: ['V', 'GF'],
-    emoji: '🍋',
-    description: 'House-brewed iced tea with fresh lemon',
-    ageRestricted: false,
-  },
-  {
-    id: '8',
-    name: 'Freshly Squeezed OJ',
-    price: 7.0,
-    category: 'Drinks',
-    tags: ['V', 'GF'],
-    emoji: '🍊',
-    description: 'Cold-pressed orange juice',
-    ageRestricted: false,
-  },
-  {
-    id: 'alc1',
-    name: 'House Red Wine',
-    price: 12.0,
-    category: 'Drinks',
-    tags: ['GF'],
-    emoji: '🍷',
-    description: 'Australian shiraz, 150ml serve',
-    ageRestricted: true,
-  },
-  {
-    id: 'alc2',
-    name: 'Craft Beer',
-    price: 10.0,
-    category: 'Drinks',
-    tags: [''],
-    emoji: '🍺',
-    description: 'Local IPA on tap, 285ml',
-    ageRestricted: true,
-  },
-  {
-    id: '9',
-    name: 'Chocolate Lava Cake',
-    price: 12.0,
-    category: 'Desserts',
-    tags: ['V'],
-    emoji: '🍫',
-    description: 'Warm dark chocolate cake, vanilla bean ice cream',
-    ageRestricted: false,
-  },
-  {
-    id: '10',
-    name: 'Creme Brulee',
-    price: 11.0,
-    category: 'Desserts',
-    tags: ['V', 'GF'],
-    emoji: '🍮',
-    description: 'Classic French custard with caramelised sugar',
-    ageRestricted: false,
-  },
-  {
-    id: '11',
-    name: 'Garlic Bread',
-    price: 7.0,
-    category: 'Extras',
-    tags: ['V'],
-    emoji: '🥖',
-    description: 'Sourdough, herb butter, parmesan',
-    ageRestricted: false,
-  },
-  {
-    id: '12',
-    name: 'Sweet Potato Fries',
-    price: 9.0,
-    category: 'Extras',
-    tags: ['V', 'GF'],
-    emoji: '🍟',
-    description: 'With smoky chipotle mayo',
-    ageRestricted: false,
-  },
-] as const;
+// Products and categories now fetched from the real catalog API
 
-type Product = (typeof MOCK_PRODUCTS)[number];
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  category: string;
+  emoji: string;
+  description: string;
+  ageRestricted: boolean;
+  tags: string[];
+}
 
 export default function MenuScreen() {
   const router = useRouter();
   const { cartItems, addToCart, ageVerified, setAgeVerified, setPendingAgeRestrictedProductId } =
     useKioskStore();
+  const { products: catalogProducts, categories: catalogCategories, fetchAll } = useCatalogStore();
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [search, setSearch] = useState('');
+
+  // Fetch real catalog on mount
+  useEffect(() => { fetchAll(); }, []);
+
+  // Build category list from real data
+  const CATEGORIES = useMemo(() => {
+    const names = catalogCategories.map(c => c.name);
+    return ['All', ...names];
+  }, [catalogCategories]);
+
+  // Map catalog products to the Product shape used by the UI
+  const realProducts: Product[] = useMemo(() => {
+    const catMap = new Map(catalogCategories.map(c => [c.id, c.name]));
+    return catalogProducts.map(p => ({
+      id: p.id,
+      name: p.name,
+      price: parseFloat(String(p.basePrice)) || 0, // already in dollars from catalog store
+      category: (p.categoryId && catMap.get(p.categoryId)) ?? 'Other',
+      emoji: '',
+      description: '',
+      ageRestricted: false,
+      tags: [],
+    }));
+  }, [catalogProducts, catalogCategories]);
 
   const [fontSize, setFontSize] = useState<FontSize>('medium');
   useEffect(() => {
@@ -216,12 +108,12 @@ export default function MenuScreen() {
   }
 
   const filteredProducts = useMemo(() => {
-    return MOCK_PRODUCTS.filter((p) => {
+    return realProducts.filter((p) => {
       const matchesCategory = activeCategory === 'All' || p.category === activeCategory;
       const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
       return matchesCategory && matchesSearch;
     });
-  }, [activeCategory, search]);
+  }, [activeCategory, search, realProducts]);
 
   const cartTotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
   const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
