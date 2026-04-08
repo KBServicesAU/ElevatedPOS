@@ -15,7 +15,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePosStore } from '../../store/pos';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 import { useDeviceStore } from '../../store/device';
+import { useAuthStore } from '../../store/auth';
 import { useCustomerDisplayStore } from '../../store/customer-display';
+import { usePrinterStore } from '../../store/printers';
+import { printReceipt, isConnected as isPrinterConnected, connectPrinter } from '../../lib/printer';
 import CustomerDisplay from '../../components/CustomerDisplay';
 
 /* ------------------------------------------------------------------ */
@@ -122,47 +125,75 @@ export default function PosSellScreen() {
   async function handleCharge() {
     if (cart.length === 0) return;
     setCharging(true);
+
+    const authToken = useAuthStore.getState().employeeToken;
+    const authEmployee = useAuthStore.getState().employee;
+    const printerConfig = usePrinterStore.getState().config;
+    const orderTotal = total;
+    const orderGst = +gst.toFixed(2);
+    const orderItems = cart.map((i) => ({
+      productId: i.id,
+      name: i.name,
+      quantity: i.qty,
+      unitPrice: i.price,
+      costPrice: 0,
+      taxRate: 10,
+    }));
+
+    let orderNumber = `P${Math.floor(100 + Math.random() * 900)}`;
+
     try {
       const base = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+      const token = authToken ?? identity?.deviceToken ?? '';
       const res = await fetch(`${base}/api/v1/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(identity ? { Authorization: `Bearer ${identity.deviceToken}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          items: cart.map((i) => ({
-            productId: i.id,
-            name: i.name,
-            qty: i.qty,
-            unitPrice: i.price,
-          })),
-          total,
-          gst: +gst.toFixed(2),
-          paymentMethod: 'card',
+          locationId: identity?.locationId,
+          registerId: identity?.registerId || undefined,
           channel: 'pos',
+          orderType: 'retail',
+          lines: orderItems,
           ...(customerId ? { customerId } : {}),
         }),
         signal: AbortSignal.timeout(5000),
       });
-      const data = res.ok ? await res.json() : null;
-      const num =
-        (data as { orderNumber?: string } | null)?.orderNumber ??
-        `P${Math.floor(100 + Math.random() * 900)}`;
-      clearCart();
-      if (displaySettings.enabled) showThankYou();
-      Alert.alert('Order Placed', `Order #${num} — $${total.toFixed(2)}`);
+      if (res.ok) {
+        const data = await res.json();
+        orderNumber = data.orderNumber ?? orderNumber;
+      }
     } catch {
-      const num = `P${Math.floor(100 + Math.random() * 900)}`;
-      clearCart();
-      if (displaySettings.enabled) showThankYou();
-      Alert.alert(
-        'Order Placed (Offline)',
-        `Order #${num} — $${total.toFixed(2)}\nWill sync when server is available.`,
-      );
-    } finally {
-      setCharging(false);
+      // Offline — use fallback order number
     }
+
+    // Auto-print receipt if configured
+    if (printerConfig.autoPrint && printerConfig.type) {
+      try {
+        if (!isPrinterConnected()) await connectPrinter();
+        await printReceipt({
+          storeName: 'ElevatedPOS',
+          orderNumber,
+          items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price })),
+          subtotal: orderTotal - orderGst,
+          gst: orderGst,
+          total: orderTotal,
+          paymentMethod: 'Card',
+          cashierName: authEmployee
+            ? `${authEmployee.firstName} ${authEmployee.lastName}`
+            : undefined,
+        });
+      } catch {
+        // Print failed — don't block order
+      }
+    }
+
+    clearCart();
+    if (displaySettings.enabled) showThankYou();
+    Alert.alert('Order Placed', `Order #${orderNumber} — $${orderTotal.toFixed(2)}`);
+    setCharging(false);
   }
 
   // ── Render product card ──────────────────────────────────────────
