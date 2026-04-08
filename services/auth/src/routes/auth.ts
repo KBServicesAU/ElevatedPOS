@@ -34,7 +34,7 @@ const pinLoginSchema = z.union([
   z.object({
     orgId: z.string().uuid(),
     pin: z.string().min(4).max(8),
-    registerId: z.string().uuid().optional(),
+    registerId: z.string().uuid().optional().or(z.literal('')).transform(v => v || undefined),
   }),
 ]);
 

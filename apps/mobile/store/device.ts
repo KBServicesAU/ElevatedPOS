@@ -55,7 +55,12 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
         locationId && orgId
       ) {
         set({
-          identity: { deviceId, deviceToken, role, locationId, registerId, orgId, label },
+          identity: {
+            deviceId, deviceToken, role, locationId,
+            registerId: registerId || null,
+            orgId,
+            label: label || null,
+          },
           ready: true,
         });
       } else {

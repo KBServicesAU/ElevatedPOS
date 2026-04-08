@@ -134,7 +134,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
         body: JSON.stringify({
           orgId: identity.orgId,
           pin,
-          registerId: identity.registerId ?? undefined,
+          registerId: identity.registerId || undefined,
         }),
       });
       if (!res.ok) {
