@@ -116,7 +116,7 @@ export default function EmployeeLoginScreen() {
             },
             body: JSON.stringify({
               locationId: identity.locationId,
-              registerId: identity.registerId ?? undefined,
+              registerId: identity.registerId || undefined,
             }),
           });
           if (res.ok) {
