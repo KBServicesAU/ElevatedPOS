@@ -42,6 +42,7 @@ interface IntegrationsStatus {
   messagebird: { connected: boolean; apiKey?: string; fromName?: string };
   deputy: { connected: boolean; businessId?: string; lastSync?: string };
   anzWorldline: { connected: boolean; terminalIp?: string; terminalPort?: number };
+  tyro: { connected: boolean; merchantId?: string; terminalId?: string; tyroHandlesSurcharge?: boolean };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1931,6 +1932,148 @@ function DeputyCard({
   );
 }
 
+// ─── Payment Terminals: Tyro EFTPOS ──────────────────────────────────────────
+
+function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; onRefresh: () => void }) {
+  const { toast } = useToast();
+  const [apiKey, setApiKey] = useState('');
+  const [merchantId, setMerchantId] = useState(status.merchantId ?? '');
+  const [terminalId, setTerminalId] = useState(status.terminalId ?? '');
+  const [surchargeToggle, setSurchargeToggle] = useState(status.tyroHandlesSurcharge ?? false);
+  const [saving, setSaving] = useState(false);
+  const [pairing, setPairing] = useState(false);
+
+  async function handleSave() {
+    if (!apiKey && !status.connected) {
+      toast({ title: 'API Key Required', description: 'Enter your Tyro iClient API key.', variant: 'destructive' });
+      return;
+    }
+    if (!merchantId || !terminalId) {
+      toast({ title: 'Missing Fields', description: 'Merchant ID and Terminal ID are required.', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiFetch('terminal/credentials', {
+        method: 'POST',
+        body: JSON.stringify({
+          provider: 'tyro',
+          label: `Tyro ${terminalId}`,
+          terminalIp: '',
+          terminalPort: 0,
+          metadata: {
+            apiKey: apiKey || undefined,
+            merchantId,
+            terminalId,
+            tyroHandlesSurcharge: surchargeToggle,
+          },
+        }),
+      });
+      toast({ title: 'Tyro Saved', description: 'Tyro EFTPOS credentials saved.', variant: 'success' });
+      setApiKey('');
+      onRefresh();
+    } catch (err) {
+      toast({ title: 'Save Failed', description: err instanceof Error ? err.message : 'Could not save', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handlePair() {
+    setPairing(true);
+    try {
+      const { loadTyroScript, pairTyroTerminal } = await import('@/lib/tyro-provider');
+      await loadTyroScript(true);
+      const result = await pairTyroTerminal({
+        apiKey: apiKey || 'stored',
+        merchantId,
+        terminalId,
+        testMode: true,
+        tyroHandlesSurcharge: surchargeToggle,
+      });
+      if (result.status === 'success') {
+        toast({ title: 'Paired', description: 'Tyro terminal paired successfully.', variant: 'success' });
+      } else {
+        toast({ title: 'Pairing Failed', description: result.message ?? 'Could not pair terminal.', variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Pairing Error', description: err instanceof Error ? err.message : 'Pairing failed', variant: 'destructive' });
+    } finally {
+      setPairing(false);
+    }
+  }
+
+  return (
+    <IntegrationCard
+      name="Tyro EFTPOS"
+      description="Integrated EFTPOS with Tyro terminals. Browser-based — no IP required."
+      icon={<CreditCard className="h-5 w-5 text-indigo-400" />}
+      connected={status.connected}
+    >
+      <div className="space-y-3 pt-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">API Key</label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            placeholder={status.connected ? '••••••••' : 'Enter Tyro API key'}
+            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-indigo-500 focus:outline-none"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Merchant ID</label>
+            <input
+              value={merchantId}
+              onChange={e => setMerchantId(e.target.value)}
+              placeholder="e.g. 400012345"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Terminal ID</label>
+            <input
+              value={terminalId}
+              onChange={e => setTerminalId(e.target.value)}
+              placeholder="e.g. 1"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
+          <div>
+            <p className="text-sm text-white">Tyro handles surcharging</p>
+            <p className="text-xs text-gray-500">Let the terminal apply card surcharges (ACCC compliant)</p>
+          </div>
+          <button
+            onClick={() => setSurchargeToggle(!surchargeToggle)}
+            className={`relative h-6 w-11 rounded-full transition-colors ${surchargeToggle ? 'bg-indigo-600' : 'bg-gray-700'}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${surchargeToggle ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </button>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+          <button
+            onClick={handlePair}
+            disabled={pairing || !merchantId || !terminalId}
+            className="flex-1 rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-gray-300 hover:text-white hover:border-white/30 transition-colors disabled:opacity-50"
+          >
+            {pairing ? 'Pairing...' : 'Pair Terminal'}
+          </button>
+        </div>
+      </div>
+    </IntegrationCard>
+  );
+}
+
 // ─── Payment Terminals: ANZ Worldline ────────────────────────────────────────
 
 function ANZWorldlineCard({ status, onRefresh }: { status: IntegrationsStatus['anzWorldline']; onRefresh: () => void }) {
@@ -2119,6 +2262,7 @@ const DEFAULT_STATUS: IntegrationsStatus = {
   messagebird: { connected: false },
   deputy: { connected: false },
   anzWorldline: { connected: false },
+  tyro: { connected: false },
 };
 
 // ─── Root component ───────────────────────────────────────────────────────────
@@ -2204,6 +2348,7 @@ export function IntegrationsClient() {
           description="Connect EFTPOS and card terminals for in-store payments."
         />
         <div className="grid gap-4 sm:grid-cols-2">
+          <TyroCard status={status.tyro} onRefresh={fetchStatus} />
           <ANZWorldlineCard status={status.anzWorldline} onRefresh={fetchStatus} />
         </div>
       </section>
