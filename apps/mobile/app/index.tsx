@@ -7,6 +7,13 @@ const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk
 
 export default function Index() {
   const { identity, ready } = useDeviceStore();
+
+  // Dashboard app skips device pairing — goes straight to email/password login
+  if (ROLE_LOCK === 'dashboard') {
+    if (!ready) return null;
+    return <Redirect href="/login" />;
+  }
+
   if (!ready) return null;
   if (!identity) return <Redirect href="/pair" />;
 
@@ -26,10 +33,11 @@ export default function Index() {
 
   const role = ROLE_LOCK ?? identity.role;
 
-  // POS and Dashboard require employee login before access
-  if (role === 'pos' || role === 'dashboard') {
+  // POS requires employee login before access
+  if (role === 'pos') {
     return <Redirect href="/employee-login" />;
   }
+  if (role === 'dashboard') return <Redirect href="/login" />;
   if (role === 'kds') return <Redirect href="/(kds)" />;
   return <Redirect href="/(kiosk)/attract" />;
 }
