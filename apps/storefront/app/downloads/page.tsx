@@ -94,12 +94,28 @@ const labelMap: Record<string, string> = {
 
 export default function DownloadsPage() {
   const [releases, setReleases] = useState<AppRelease[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoading(true);
     fetch('/api/downloads/latest')
-      .then((r) => r.json())
-      .then((data) => setReleases(data.releases ?? []))
-      .catch(() => {});
+      .then((r) => {
+        if (!r.ok) throw new Error(`Server error ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        const list = data.releases ?? [];
+        setReleases(list);
+        if (list.length === 0) {
+          setError('No releases found. The build system may be updating.');
+        }
+      })
+      .catch((err) => {
+        console.error('[downloads] Fetch failed:', err);
+        setError('Could not load app releases. Please refresh and try again.');
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -132,11 +148,28 @@ export default function DownloadsPage() {
       {/* App Cards */}
       <section className="py-20 sm:py-28">
         <div className="max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-12">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {releases.map((release, i) => (
-              <AppCard key={release.app} release={release} index={i} />
-            ))}
-          </div>
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-4">
+              <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-gray-500 text-sm">Loading releases...</p>
+            </div>
+          ) : error && releases.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-4">
+              <p className="text-gray-400 text-sm">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {releases.map((release, i) => (
+                <AppCard key={release.app} release={release} index={i} />
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
