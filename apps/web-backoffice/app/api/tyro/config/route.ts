@@ -5,11 +5,17 @@ const PAYMENTS_API_URL = process.env['PAYMENTS_API_URL'] ?? process.env['AUTH_AP
 const TYRO_TEST_MODE = process.env['TYRO_TEST_MODE'] !== 'false'; // default to test mode
 
 /**
- * GET /api/tyro/config
+ * GET /api/tyro/config?deviceId=xxx
  *
- * Fetches the Tyro iClient configuration for the current device.
- * The API key flows from the server-side payments service to the client
- * only through this route, keeping it out of client bundles.
+ * Fetches the EFTPOS terminal configuration for a specific device.
+ * Returns the provider type and config so the POS payment page knows
+ * whether to use Tyro, Stripe, ANZ, etc.
+ *
+ * Flow:
+ * 1. Look up device's terminalCredentialId from device_payment_configs
+ * 2. Fetch that specific credential
+ * 3. Return provider + config (Tyro: apiKey, merchantId, terminalId)
+ * 4. Fallback: search org's active credentials if no device config
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -21,8 +27,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Fetch device payment config to get terminalCredentialId
-    let credentialId: string | null = null;
+    // Step 1: Look up device-specific terminal assignment
+    let credential: any = null;
 
     if (deviceId) {
       const configRes = await fetch(`${PAYMENTS_API_URL}/api/v1/terminal/device-config/${deviceId}`, {
@@ -30,45 +36,81 @@ export async function GET(request: Request) {
       });
       if (configRes.ok) {
         const configData = await configRes.json();
-        credentialId = configData.terminalCredentialId ?? null;
+        const credId = configData.terminalCredentialId;
+        if (credId) {
+          // Fetch the specific credential
+          const credsRes = await fetch(`${PAYMENTS_API_URL}/api/v1/terminal/credentials`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (credsRes.ok) {
+            const creds = await credsRes.json();
+            credential = (creds.data ?? creds).find((c: any) => c.id === credId && c.isActive);
+          }
+        }
       }
     }
 
-    // If no device-specific config, try fetching the org's active Tyro credential
-    if (!credentialId) {
+    // Step 2: Fallback — find any active terminal credential for the org
+    if (!credential) {
       const credsRes = await fetch(`${PAYMENTS_API_URL}/api/v1/terminal/credentials`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (credsRes.ok) {
         const creds = await credsRes.json();
-        const tyroCredential = (creds.data ?? creds)
-          .find((c: { provider: string; isActive: boolean }) => c.provider === 'tyro' && c.isActive);
-        if (tyroCredential) {
-          credentialId = tyroCredential.id;
-          const metadata = tyroCredential.metadata ?? {};
-          return NextResponse.json({
-            configured: true,
-            testMode: TYRO_TEST_MODE,
-            apiKey: metadata.apiKey ?? '',
-            merchantId: metadata.merchantId ?? '',
-            terminalId: metadata.terminalId ?? '',
-            tyroHandlesSurcharge: metadata.tyroHandlesSurcharge ?? false,
-          });
-        }
+        // Prefer Tyro, then any other provider
+        credential = (creds.data ?? creds).find((c: any) => c.provider === 'tyro' && c.isActive)
+          ?? (creds.data ?? creds).find((c: any) => c.isActive);
       }
     }
 
-    // No Tyro configuration found
+    if (!credential) {
+      return NextResponse.json({
+        configured: false,
+        provider: null,
+        testMode: TYRO_TEST_MODE,
+      });
+    }
+
+    const metadata = credential.metadata ?? {};
+
+    // Return provider-specific config
+    if (credential.provider === 'tyro') {
+      return NextResponse.json({
+        configured: true,
+        provider: 'tyro',
+        testMode: TYRO_TEST_MODE,
+        apiKey: metadata.apiKey ?? '',
+        merchantId: metadata.merchantId ?? '',
+        terminalId: metadata.terminalId ?? '',
+        tyroHandlesSurcharge: metadata.tyroHandlesSurcharge ?? false,
+        credentialId: credential.id,
+      });
+    }
+
+    if (credential.provider === 'anz') {
+      return NextResponse.json({
+        configured: true,
+        provider: 'anz',
+        terminalIp: credential.terminalIp,
+        terminalPort: credential.terminalPort,
+        credentialId: credential.id,
+      });
+    }
+
+    // Stripe or other providers
     return NextResponse.json({
-      configured: false,
-      testMode: TYRO_TEST_MODE,
+      configured: true,
+      provider: credential.provider,
+      credentialId: credential.id,
+      metadata,
     });
   } catch (err) {
     console.error('[tyro/config] Error:', err);
     return NextResponse.json({
       configured: false,
+      provider: null,
       testMode: TYRO_TEST_MODE,
-      error: 'Failed to fetch Tyro configuration',
+      error: 'Failed to fetch terminal configuration',
     });
   }
 }

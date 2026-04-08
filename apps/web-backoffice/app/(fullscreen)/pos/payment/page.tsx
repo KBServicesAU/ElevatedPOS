@@ -412,12 +412,16 @@ function AddTenderDialog({
   const [tyroConfig, setTyroConfig] = useState<TyroConfig | null>(null);
   const [eftposProvider, setEftposProvider] = useState<'stripe' | 'tyro'>('stripe');
 
-  // Fetch Tyro config on mount to determine provider
+  // Fetch device's terminal config on mount to determine EFTPOS provider
   useEffect(() => {
-    fetch('/api/tyro/config')
+    // Get deviceId from device-auth if available
+    const deviceId = typeof window !== 'undefined' ? localStorage.getItem('elevatedpos_device_id') : null;
+    const url = deviceId ? `/api/tyro/config?deviceId=${deviceId}` : '/api/tyro/config';
+    fetch(url)
       .then(r => r.ok ? r.json() : null)
-      .then((data: { configured?: boolean; apiKey?: string; merchantId?: string; terminalId?: string; testMode?: boolean; tyroHandlesSurcharge?: boolean } | null) => {
-        if (data?.configured && data.apiKey) {
+      .then((data: { configured?: boolean; provider?: string; apiKey?: string; merchantId?: string; terminalId?: string; testMode?: boolean; tyroHandlesSurcharge?: boolean } | null) => {
+        if (!data?.configured) return;
+        if (data.provider === 'tyro' && data.apiKey) {
           setEftposProvider('tyro');
           setTyroConfig({
             apiKey: data.apiKey,
@@ -426,6 +430,11 @@ function AddTenderDialog({
             testMode: data.testMode ?? true,
             tyroHandlesSurcharge: data.tyroHandlesSurcharge ?? false,
           });
+        } else if (data.provider === 'anz') {
+          // ANZ Worldline uses server-side processing, keep stripe overlay behavior
+          setEftposProvider('stripe');
+        } else {
+          setEftposProvider('stripe');
         }
       })
       .catch(() => {});

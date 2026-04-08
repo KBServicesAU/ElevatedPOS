@@ -17,6 +17,8 @@ import { AnzWorldlineTIMClient, isApproved } from '../lib/anzworldline';
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
 const saveCredentialsSchema = z.object({
+  /** Optional ID — if provided, updates existing credential; if omitted, creates new */
+  id:           z.string().uuid().optional(),
   provider:     z.enum(['anz', 'tyro', 'stripe', 'westpac', 'nab', 'cba', 'windcave']),
   label:        z.string().min(1).max(255).optional(),
   /** IPv4 address of the terminal — required for ANZ, optional for Tyro */
@@ -79,14 +81,7 @@ export async function terminalRoutes(app: FastifyInstance) {
       });
     }
 
-    const { provider, label, terminalIp, terminalPort, metadata } = body.data;
-
-    const existing = await db.query.terminalCredentials.findFirst({
-      where: and(
-        eq(schema.terminalCredentials.orgId,    orgId),
-        eq(schema.terminalCredentials.provider, provider),
-      ),
-    });
+    const { id, provider, label, terminalIp, terminalPort, metadata } = body.data;
 
     const setData: Record<string, unknown> = {
       label: label ?? null,
@@ -98,14 +93,22 @@ export async function terminalRoutes(app: FastifyInstance) {
     if (metadata) setData.metadata = metadata;
 
     let saved;
-    if (existing) {
+    if (id) {
+      // Update specific credential by ID (allows multiple terminals per provider)
       const rows = await db
         .update(schema.terminalCredentials)
         .set(setData)
-        .where(eq(schema.terminalCredentials.id, existing.id))
+        .where(and(
+          eq(schema.terminalCredentials.id, id),
+          eq(schema.terminalCredentials.orgId, orgId),
+        ))
         .returning();
+      if (!rows[0]) {
+        return reply.status(404).send({ title: 'Terminal credential not found', status: 404 });
+      }
       saved = rows[0]!;
     } else {
+      // Always create new credential — supports multiple terminals per provider per org
       const rows = await db
         .insert(schema.terminalCredentials)
         .values({ orgId, provider, label: label ?? null, terminalIp: terminalIp || '', terminalPort: terminalPort || 0, ...(metadata ? { metadata } : {}) })
