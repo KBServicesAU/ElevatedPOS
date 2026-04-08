@@ -1,7 +1,7 @@
 'use client';
 
-import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings } from 'lucide-react';
-import { useState } from 'react';
+import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug } from 'lucide-react';
+import { usePrinter } from './printer-context';
 
 type ConnectionMethod = 'serial' | 'usb' | 'bluetooth';
 
@@ -10,30 +10,16 @@ interface SettingsModalProps {
   onConnect: (printerType: 'receipt' | 'order', method: ConnectionMethod) => void;
 }
 
-type ConnectionStatus = 'connected' | 'not_connected';
-
-interface PrinterState {
-  receipt: { status: ConnectionStatus; method?: ConnectionMethod };
-  order: { status: ConnectionStatus; method?: ConnectionMethod };
-}
-
 export function SettingsModal({ onClose, onConnect }: SettingsModalProps) {
-  const [printers, setPrinters] = useState<PrinterState>({
-    receipt: { status: 'not_connected' },
-    order: { status: 'not_connected' },
-  });
+  const {
+    receiptConnected, orderConnected,
+    receiptMethod, orderMethod,
+    disconnectPrinter,
+  } = usePrinter();
 
   const hasSerial = typeof navigator !== 'undefined' && 'serial' in navigator;
   const hasUsb = typeof navigator !== 'undefined' && 'usb' in navigator;
   const hasBluetooth = typeof navigator !== 'undefined' && 'bluetooth' in navigator;
-
-  function handleConnect(printerType: 'receipt' | 'order', method: ConnectionMethod) {
-    onConnect(printerType, method);
-    setPrinters(prev => ({
-      ...prev,
-      [printerType]: { status: 'connected' as ConnectionStatus, method },
-    }));
-  }
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
@@ -56,22 +42,24 @@ export function SettingsModal({ onClose, onConnect }: SettingsModalProps) {
           <PrinterSection
             title="Receipt Printer (80mm)"
             printerType="receipt"
-            connectionStatus={printers.receipt.status}
-            connectedMethod={printers.receipt.method}
+            isConnected={receiptConnected}
+            connectedMethod={receiptMethod ?? undefined}
             hasSerial={hasSerial}
             hasUsb={hasUsb}
             hasBluetooth={hasBluetooth}
-            onConnect={handleConnect}
+            onConnect={onConnect}
+            onDisconnect={() => disconnectPrinter('receipt')}
           />
           <PrinterSection
             title="Order Printer"
             printerType="order"
-            connectionStatus={printers.order.status}
-            connectedMethod={printers.order.method}
+            isConnected={orderConnected}
+            connectedMethod={orderMethod ?? undefined}
             hasSerial={hasSerial}
             hasUsb={hasUsb}
             hasBluetooth={hasBluetooth}
-            onConnect={handleConnect}
+            onConnect={onConnect}
+            onDisconnect={() => disconnectPrinter('order')}
           />
 
           <div className="pt-1">
@@ -91,26 +79,26 @@ export function SettingsModal({ onClose, onConnect }: SettingsModalProps) {
 interface PrinterSectionProps {
   title: string;
   printerType: 'receipt' | 'order';
-  connectionStatus: ConnectionStatus;
+  isConnected: boolean;
   connectedMethod?: ConnectionMethod;
   hasSerial: boolean;
   hasUsb: boolean;
   hasBluetooth: boolean;
   onConnect: (printerType: 'receipt' | 'order', method: ConnectionMethod) => void;
+  onDisconnect: () => void;
 }
 
 function PrinterSection({
   title,
   printerType,
-  connectionStatus,
+  isConnected,
   connectedMethod,
   hasSerial,
   hasUsb,
   hasBluetooth,
   onConnect,
+  onDisconnect,
 }: PrinterSectionProps) {
-  const isConnected = connectionStatus === 'connected';
-
   const methodLabel = (method: ConnectionMethod) => {
     switch (method) {
       case 'usb':       return 'USB';
@@ -204,6 +192,17 @@ function PrinterSection({
           </div>
         )}
       </div>
+
+      {/* Disconnect button when connected */}
+      {isConnected && (
+        <button
+          onClick={onDisconnect}
+          className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-medium text-red-400 hover:text-red-300 bg-red-900/20 hover:bg-red-900/30 border border-red-800/30 transition-colors"
+        >
+          <Unplug size={13} />
+          Disconnect
+        </button>
+      )}
 
       {/* Hint text */}
       {!isConnected && (
