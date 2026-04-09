@@ -1936,11 +1936,30 @@ function DeputyCard({
 
 function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; onRefresh: () => void }) {
   const { toast } = useToast();
-  const [merchantId, setMerchantId] = useState(status.merchantId ?? '');
-  const [terminalId, setTerminalId] = useState(status.terminalId ?? '');
+  // Sanitise persisted values: only digits and dashes are allowed for Tyro MID/TID
+  const sanitiseId = (v: string) => /^[0-9-]+$/.test(v) ? v : '';
+  const [merchantId, setMerchantId] = useState(sanitiseId(status.merchantId ?? ''));
+  const [terminalId, setTerminalId] = useState(sanitiseId(status.terminalId ?? ''));
   const [surchargeToggle, setSurchargeToggle] = useState(status.tyroHandlesSurcharge ?? false);
   const [saving, setSaving] = useState(false);
   const [pairing, setPairing] = useState(false);
+
+  // Defensive: clear browser autofill garbage shortly after mount
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const mid = document.getElementById('tyro-mid') as HTMLInputElement | null;
+      const tid = document.getElementById('tyro-tid') as HTMLInputElement | null;
+      if (mid && mid.value && !/^[0-9-]+$/.test(mid.value)) {
+        mid.value = '';
+        setMerchantId('');
+      }
+      if (tid && tid.value && !/^[0-9-]+$/.test(tid.value)) {
+        tid.value = '';
+        setTerminalId('');
+      }
+    }, 100);
+    return () => clearTimeout(t);
+  }, []);
 
   async function handleSave() {
     if (!merchantId || !terminalId) {
@@ -2020,8 +2039,19 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
         <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Merchant ID</label>
+            <label htmlFor="tyro-mid" className="mb-1 block text-xs font-medium text-gray-500">Merchant ID</label>
             <input
+              id="tyro-mid"
+              name="tyro-mid"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-form-type="other"
+              data-lpignore="true"
+              data-1p-ignore="true"
               value={merchantId}
               onChange={e => setMerchantId(e.target.value)}
               placeholder="e.g. 400012345"
@@ -2029,8 +2059,19 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Terminal ID</label>
+            <label htmlFor="tyro-tid" className="mb-1 block text-xs font-medium text-gray-500">Terminal ID</label>
             <input
+              id="tyro-tid"
+              name="tyro-tid"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-form-type="other"
+              data-lpignore="true"
+              data-1p-ignore="true"
               value={terminalId}
               onChange={e => setTerminalId(e.target.value)}
               placeholder="e.g. 1"
