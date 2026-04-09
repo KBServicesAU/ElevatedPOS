@@ -19,7 +19,7 @@ import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { usePrinterStore } from '../../store/printers';
-import { printReceipt, isConnected as isPrinterConnected, connectPrinter } from '../../lib/printer';
+import { printReceipt, printOrderTicket, isConnected as isPrinterConnected, connectPrinter } from '../../lib/printer';
 import CustomerDisplay from '../../components/CustomerDisplay';
 import { useRouter } from 'expo-router';
 
@@ -45,7 +45,7 @@ function parsePrice(v: string | number): number {
 /* ------------------------------------------------------------------ */
 
 export default function PosSellScreen() {
-  const { cart, addItem, removeItem, clearCart, customerName, customerId, setCustomer } =
+  const { cart, addItem, removeItem, updateItem, clearCart, customerName, customerId, setCustomer } =
     usePosStore();
   const { products, categories, loading, error, fetchAll } = useCatalogStore();
   const { identity } = useDeviceStore();
@@ -65,10 +65,14 @@ export default function PosSellScreen() {
   // Payment method modal
   const [showPayment, setShowPayment] = useState(false);
   const [cashTendered, setCashTendered] = useState('');
+  const [splitMode, setSplitMode] = useState(false);
+  const [splitCardAmount, setSplitCardAmount] = useState('');
+  const [splitCashAmount, setSplitCashAmount] = useState('');
 
   // Cart item edit modal
-  const [editingCartItem, setEditingCartItem] = useState<{ id: string; name: string; qty: number; price: number } | null>(null);
+  const [editingCartItem, setEditingCartItem] = useState<{ id: string; name: string; qty: number; price: number; note?: string; discount?: number; discountType?: '%' | '$' } | null>(null);
   const [itemDiscount, setItemDiscount] = useState('');
+  const [itemDiscountType, setItemDiscountType] = useState<'%' | '$'>('$');
   const [itemNote, setItemNote] = useState('');
 
   // Order discount modal
@@ -92,6 +96,19 @@ export default function PosSellScreen() {
     await fetchAll();
     setRefreshing(false);
   }, [fetchAll]);
+
+  // ── Device heartbeat (revocation check) ──────────────────────────
+  useEffect(() => {
+    const interval = setInterval(() => {
+      useDeviceStore.getState().checkHeartbeat().then(() => {
+        const id = useDeviceStore.getState().identity;
+        if (!id) {
+          router.replace('/pair');
+        }
+      });
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   // ── Category colour map ──────────────────────────────────────────
   const colorMap = useMemo(() => {
@@ -118,7 +135,12 @@ export default function PosSellScreen() {
   }, [products, selectedCategoryId, search]);
 
   // ── Cart totals (tax-inclusive — AU GST) ─────────────────────────
-  const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  const subtotal = cart.reduce((s, i) => {
+    const itemDisc = i.discount
+      ? (i.discountType === '%' ? (i.price * i.discount / 100) : i.discount)
+      : 0;
+    return s + (i.price - Math.min(itemDisc, i.price)) * i.qty;
+  }, 0);
   const discountedTotal = orderDiscountAmount > 0 ? Math.max(0, subtotal - orderDiscountAmount) : subtotal;
   const total = discountedTotal;
   const gst = total / 11; // GST portion of the tax-inclusive total
@@ -216,6 +238,19 @@ export default function PosSellScreen() {
       }
     }
 
+    // Print kitchen order ticket if enabled
+    if (printerConfig.printOrderTicket && printerConfig.type) {
+      try {
+        if (!isPrinterConnected()) await connectPrinter();
+        await printOrderTicket({
+          orderNumber,
+          items: cart.map((i) => ({ name: i.name, qty: i.qty })),
+        });
+      } catch {
+        // Order ticket print failed — don't block order
+      }
+    }
+
     clearCart();
     if (displaySettings.enabled) showThankYou();
     Alert.alert('Order Placed', `Order #${orderNumber} — $${orderTotal.toFixed(2)}`);
@@ -273,6 +308,26 @@ export default function PosSellScreen() {
     handleCharge();
     if (change > 0) {
       Alert.alert('Change Due', `$${change.toFixed(2)}`);
+    }
+  }
+
+  function handlePaySplit() {
+    const cardAmt = parseFloat(splitCardAmount) || 0;
+    const cashAmt = parseFloat(splitCashAmount) || 0;
+    if (cardAmt + cashAmt < total) {
+      Alert.alert('Insufficient', `Card ($${cardAmt.toFixed(2)}) + Cash ($${cashAmt.toFixed(2)}) = $${(cardAmt + cashAmt).toFixed(2)}. Need at least $${total.toFixed(2)}`);
+      return;
+    }
+    const change = (cardAmt + cashAmt) - total;
+    setShowPayment(false);
+    setSplitMode(false);
+    setSplitCardAmount('');
+    setSplitCashAmount('');
+    handleCharge();
+    if (change > 0) {
+      Alert.alert('Split Payment Complete', `Card: $${cardAmt.toFixed(2)}, Cash: $${cashAmt.toFixed(2)}\nChange: $${change.toFixed(2)}`);
+    } else {
+      Alert.alert('Split Payment Complete', `Card: $${cardAmt.toFixed(2)}, Cash: $${cashAmt.toFixed(2)}`);
     }
   }
 
@@ -491,7 +546,7 @@ export default function PosSellScreen() {
                 <TouchableOpacity
                   key={item.id}
                   style={styles.cartRow}
-                  onPress={() => { setEditingCartItem(item); setItemDiscount(''); setItemNote(''); }}
+                  onPress={() => { setEditingCartItem(item); setItemDiscount(item.discount ? String(item.discount) : ''); setItemDiscountType(item.discountType ?? '$'); setItemNote(item.note ?? ''); }}
                   activeOpacity={0.7}
                 >
                   <View style={styles.cartItemLeft}>
@@ -507,7 +562,9 @@ export default function PosSellScreen() {
                       </Text>
                       <Text style={styles.cartItemSub}>
                         ${item.price.toFixed(2)} ea
+                        {item.discount ? ` (-${item.discountType === '%' ? `${item.discount}%` : `$${item.discount.toFixed(2)}`})` : ''}
                       </Text>
+                      {item.note ? <Text style={{ fontSize: 10, color: '#f59e0b', marginTop: 1 }} numberOfLines={1}>{item.note}</Text> : null}
                     </View>
                   </View>
                   <View style={styles.qtyRow}>
@@ -580,36 +637,94 @@ export default function PosSellScreen() {
       </View>
 
       {/* ═══ Payment Method Modal ═══ */}
-      <Modal visible={showPayment} transparent animationType="fade" onRequestClose={() => setShowPayment(false)}>
-        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setShowPayment(false)}>
+      <Modal visible={showPayment} transparent animationType="fade" onRequestClose={() => { setShowPayment(false); setSplitMode(false); }}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }} onPress={() => { setShowPayment(false); setSplitMode(false); }}>
           <Pressable style={{ backgroundColor: '#1a1a2e', borderRadius: 20, padding: 24, width: 340, borderWidth: 1, borderColor: '#2a2a3a' }} onPress={() => {}}>
             <Text style={{ fontSize: 20, fontWeight: '900', color: '#fff', marginBottom: 20, textAlign: 'center' }}>Payment — ${total.toFixed(2)}</Text>
-            <TouchableOpacity style={{ backgroundColor: '#6366f1', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 10 }} onPress={handlePayCard}>
-              <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Card / EFTPOS</Text>
-            </TouchableOpacity>
-            <View style={{ backgroundColor: '#141425', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 10 }}>
-              <Text style={{ color: '#888', fontSize: 13, marginBottom: 8 }}>Cash Tendered</Text>
-              <TextInput
-                style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 20, color: '#fff', textAlign: 'center', borderWidth: 1, borderColor: '#2a2a3a' }}
-                value={cashTendered}
-                onChangeText={setCashTendered}
-                keyboardType="decimal-pad"
-                placeholder={`$${total.toFixed(2)}`}
-                placeholderTextColor="#444"
-              />
-              {cashTendered && parseFloat(cashTendered) >= total && (
-                <Text style={{ color: '#22c55e', fontSize: 14, fontWeight: '700', textAlign: 'center', marginTop: 8 }}>
-                  Change: ${(parseFloat(cashTendered) - total).toFixed(2)}
-                </Text>
-              )}
-              <TouchableOpacity
-                style={{ backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 10 }}
-                onPress={handlePayCash}
-              >
-                <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Pay Cash</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity onPress={() => setShowPayment(false)} style={{ alignItems: 'center', paddingVertical: 10 }}>
+
+            {!splitMode ? (
+              <>
+                <TouchableOpacity style={{ backgroundColor: '#6366f1', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 10 }} onPress={handlePayCard}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Card / EFTPOS</Text>
+                </TouchableOpacity>
+                <View style={{ backgroundColor: '#141425', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 10 }}>
+                  <Text style={{ color: '#888', fontSize: 13, marginBottom: 8 }}>Cash Tendered</Text>
+                  <TextInput
+                    style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 20, color: '#fff', textAlign: 'center', borderWidth: 1, borderColor: '#2a2a3a' }}
+                    value={cashTendered}
+                    onChangeText={setCashTendered}
+                    keyboardType="decimal-pad"
+                    placeholder={`$${total.toFixed(2)}`}
+                    placeholderTextColor="#444"
+                  />
+                  {cashTendered && parseFloat(cashTendered) >= total && (
+                    <Text style={{ color: '#22c55e', fontSize: 14, fontWeight: '700', textAlign: 'center', marginTop: 8 }}>
+                      Change: ${(parseFloat(cashTendered) - total).toFixed(2)}
+                    </Text>
+                  )}
+                  <TouchableOpacity
+                    style={{ backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 10 }}
+                    onPress={handlePayCash}
+                  >
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Pay Cash</Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity
+                  style={{ backgroundColor: '#141425', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: '#f59e0b44' }}
+                  onPress={() => { setSplitMode(true); setSplitCardAmount(''); setSplitCashAmount(''); }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: '#f59e0b' }}>Split Payment</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <View style={{ backgroundColor: '#141425', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#f59e0b44', marginBottom: 10 }}>
+                <Text style={{ color: '#f59e0b', fontSize: 14, fontWeight: '700', marginBottom: 12, textAlign: 'center' }}>Split Payment</Text>
+                <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Card Amount</Text>
+                <TextInput
+                  style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 18, color: '#fff', textAlign: 'center', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 10 }}
+                  value={splitCardAmount}
+                  onChangeText={(v) => {
+                    setSplitCardAmount(v);
+                    const cardVal = parseFloat(v) || 0;
+                    const remainder = Math.max(0, total - cardVal);
+                    setSplitCashAmount(remainder > 0 ? remainder.toFixed(2) : '');
+                  }}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor="#444"
+                />
+                <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Cash Amount</Text>
+                <TextInput
+                  style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 18, color: '#fff', textAlign: 'center', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 10 }}
+                  value={splitCashAmount}
+                  onChangeText={setSplitCashAmount}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor="#444"
+                />
+                {(() => {
+                  const cardVal = parseFloat(splitCardAmount) || 0;
+                  const cashVal = parseFloat(splitCashAmount) || 0;
+                  const remaining = total - cardVal - cashVal;
+                  return (
+                    <Text style={{ fontSize: 13, fontWeight: '700', textAlign: 'center', marginBottom: 10, color: remaining <= 0 ? '#22c55e' : '#ef4444' }}>
+                      {remaining <= 0 ? (remaining < 0 ? `Change: $${Math.abs(remaining).toFixed(2)}` : 'Fully covered') : `Remaining: $${remaining.toFixed(2)}`}
+                    </Text>
+                  );
+                })()}
+                <TouchableOpacity
+                  style={{ backgroundColor: '#f59e0b', borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}
+                  onPress={handlePaySplit}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Confirm Split</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setSplitMode(false)} style={{ alignItems: 'center', paddingVertical: 8, marginTop: 4 }}>
+                  <Text style={{ color: '#888', fontSize: 13 }}>Back</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <TouchableOpacity onPress={() => { setShowPayment(false); setSplitMode(false); }} style={{ alignItems: 'center', paddingVertical: 10 }}>
               <Text style={{ color: '#666', fontSize: 14 }}>Cancel</Text>
             </TouchableOpacity>
           </Pressable>
@@ -622,15 +737,40 @@ export default function PosSellScreen() {
           <Pressable style={{ backgroundColor: '#1a1a2e', borderRadius: 20, padding: 24, width: 340, borderWidth: 1, borderColor: '#2a2a3a' }} onPress={() => {}}>
             <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 4 }}>{editingCartItem?.name}</Text>
             <Text style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>{editingCartItem?.qty}x @ ${editingCartItem?.price.toFixed(2)}</Text>
-            <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Discount ($)</Text>
+
+            <Text style={{ color: '#888', fontSize: 13, marginBottom: 8 }}>Discount Type</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: itemDiscountType === '%' ? '#6366f1' : '#141425', borderWidth: 1, borderColor: '#2a2a3a', alignItems: 'center' }}
+                onPress={() => setItemDiscountType('%')}
+              >
+                <Text style={{ color: itemDiscountType === '%' ? '#fff' : '#888', fontWeight: '700' }}>Percentage %</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: itemDiscountType === '$' ? '#6366f1' : '#141425', borderWidth: 1, borderColor: '#2a2a3a', alignItems: 'center' }}
+                onPress={() => setItemDiscountType('$')}
+              >
+                <Text style={{ color: itemDiscountType === '$' ? '#fff' : '#888', fontWeight: '700' }}>Dollar $</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Discount {itemDiscountType === '%' ? '(%)' : '($)'}</Text>
             <TextInput
-              style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 16, color: '#fff', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 12 }}
+              style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 16, color: '#fff', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 4 }}
               value={itemDiscount}
               onChangeText={setItemDiscount}
               keyboardType="decimal-pad"
-              placeholder="0.00"
+              placeholder={itemDiscountType === '%' ? '10' : '0.00'}
               placeholderTextColor="#444"
             />
+            {editingCartItem && itemDiscount ? (
+              <Text style={{ fontSize: 12, color: '#f59e0b', marginBottom: 10 }}>
+                Saves {itemDiscountType === '%'
+                  ? `$${((editingCartItem.price * (parseFloat(itemDiscount) || 0)) / 100).toFixed(2)} per item`
+                  : `$${(parseFloat(itemDiscount) || 0).toFixed(2)} per item`}
+              </Text>
+            ) : <View style={{ height: 10 }} />}
+
             <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Note</Text>
             <TextInput
               style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: '#fff', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 16 }}
@@ -639,16 +779,37 @@ export default function PosSellScreen() {
               placeholder="e.g. No onions"
               placeholderTextColor="#444"
             />
-            <TouchableOpacity
-              style={{ backgroundColor: '#6366f1', borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}
-              onPress={() => {
-                // TODO: Apply discount/note to the cart item in store
-                Alert.alert('Saved', `Discount: $${itemDiscount || '0'}, Note: ${itemNote || 'none'}`);
-                setEditingCartItem(null);
-              }}
-            >
-              <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Apply</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              {(editingCartItem?.discount || editingCartItem?.note) && (
+                <TouchableOpacity
+                  style={{ flex: 1, backgroundColor: '#1e1e2e', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#ef444444' }}
+                  onPress={() => {
+                    if (editingCartItem) {
+                      updateItem(editingCartItem.id, { discount: undefined, discountType: undefined, note: undefined });
+                    }
+                    setEditingCartItem(null);
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#ef4444' }}>Clear</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#6366f1', borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}
+                onPress={() => {
+                  if (editingCartItem) {
+                    const discVal = parseFloat(itemDiscount) || 0;
+                    updateItem(editingCartItem.id, {
+                      discount: discVal > 0 ? discVal : undefined,
+                      discountType: discVal > 0 ? itemDiscountType : undefined,
+                      note: itemNote.trim() || undefined,
+                    });
+                  }
+                  setEditingCartItem(null);
+                }}
+              >
+                <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Apply</Text>
+              </TouchableOpacity>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>

@@ -727,6 +727,21 @@ export default function MoreScreen() {
               thumbColor={printerConfig.autoPrint ? '#6366f1' : '#555'}
             />
           </View>
+          <View style={s.divider} />
+          <View style={s.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.label}>Print Order Ticket</Text>
+              <Text style={[s.valueSmall, { marginTop: 2 }]}>
+                Kitchen ticket (items + qty only)
+              </Text>
+            </View>
+            <Switch
+              value={printerConfig.printOrderTicket}
+              onValueChange={v => setPrinterConfig({ printOrderTicket: v })}
+              trackColor={{ false: '#2a2a3a', true: '#f59e0b80' }}
+              thumbColor={printerConfig.printOrderTicket ? '#f59e0b' : '#555'}
+            />
+          </View>
         </View>
 
         {/* Scan + Connect + Test buttons */}
