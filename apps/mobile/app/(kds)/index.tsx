@@ -17,7 +17,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import Constants from 'expo-constants';
 import { useDeviceStore } from '../../store/device';
-import { printText } from '../../lib/printer';
+import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
+import {
+  printText,
+  printTestPage,
+  discoverPrinters,
+  connectPrinter,
+  type DiscoveredPrinter,
+} from '../../lib/printer';
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 const DOWNLOADS_API =
@@ -127,7 +134,17 @@ function TicketCard({ ticket, onBump }: { ticket: KdsTicket; onBump: (id: string
 }
 
 export default function KDSScreen() {
-  const { identity } = useDeviceStore();
+  const {
+    identity,
+    activeLocationId,
+    availableLocations,
+    fetchAvailableLocations,
+    setActiveLocationId,
+  } = useDeviceStore();
+  const { config: printerConfig, setConfig: setPrinterConfig, hydrate: hydratePrinter } = usePrinterStore();
+
+  /** Location to actually subscribe to — override or device default. */
+  const effectiveLocationId = activeLocationId ?? identity?.locationId ?? null;
   const [tickets, setTickets] = useState<KdsTicket[]>([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +152,10 @@ export default function KDSScreen() {
   const reconnectAttempt = useRef(0);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(true);
+  /** Incremented each time the connection target changes, so stale onclose
+   * handlers from a previous target don't trigger a reconnect after the
+   * location has already been swapped. */
+  const connectionVersion = useRef(0);
 
   // Sound settings
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -142,6 +163,88 @@ export default function KDSScreen() {
 
   // Label print on bump
   const [printOnBump, setPrintOnBump] = useState(false);
+
+  // Label printer discovery
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveredPrinters, setDiscoveredPrinters] = useState<DiscoveredPrinter[]>([]);
+
+  // Hydrate printer config on mount
+  useEffect(() => {
+    hydratePrinter();
+  }, [hydratePrinter]);
+
+  // Fetch available locations on mount (for multi-location orgs)
+  useEffect(() => {
+    if (identity) {
+      fetchAvailableLocations().catch(() => { /* non-critical */ });
+    }
+  }, [identity, fetchAvailableLocations]);
+
+  async function handleSwitchLocation(newLocationId: string) {
+    if (newLocationId === effectiveLocationId) return;
+    await setActiveLocationId(newLocationId === identity?.locationId ? null : newLocationId);
+    // `connect` useCallback's dependency on effectiveLocationId will trigger
+    // the WebSocket to reconnect automatically.
+  }
+
+  async function handleDiscoverPrinters(type: PrinterConnectionType) {
+    setDiscovering(true);
+    try {
+      const devices = await discoverPrinters(type);
+      setDiscoveredPrinters(devices);
+      if (devices.length === 0) {
+        Alert.alert(
+          'No Printers Found',
+          `No ${type.toUpperCase()} printers detected. Check the connection.`,
+        );
+      }
+    } catch (err) {
+      Alert.alert(
+        'Discovery Failed',
+        err instanceof Error ? err.message : 'Could not scan for printers',
+      );
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  async function handleSelectPrinter(printer: DiscoveredPrinter) {
+    try {
+      await setPrinterConfig({
+        type: printer.type,
+        address: printer.id,
+        name: printer.name,
+      });
+      setDiscoveredPrinters([]);
+      Alert.alert(
+        'Printer Saved',
+        `${printer.name} will print labels when you bump orders.`,
+      );
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Could not save printer');
+    }
+  }
+
+  async function handleTestPrinter() {
+    if (!printerConfig.type) {
+      Alert.alert('No Printer', 'Please configure a label printer first.');
+      return;
+    }
+    try {
+      await printTestPage();
+      Alert.alert('Success', 'Test page sent to printer.');
+    } catch (err) {
+      Alert.alert(
+        'Print Failed',
+        err instanceof Error ? err.message : 'Could not print',
+      );
+    }
+  }
+
+  async function handleClearPrinter() {
+    await setPrinterConfig({ type: null, address: '', name: '' });
+    setDiscoveredPrinters([]);
+  }
 
   // Play beep on new ticket
   useEffect(() => {
@@ -213,25 +316,28 @@ export default function KDSScreen() {
   }
 
   const connect = useCallback(() => {
-    if (!identity) return;
+    if (!identity || !effectiveLocationId) return;
     const wsBase = ORDERS_API.replace(/^http/, 'ws');
-    const url = `${wsBase}/api/v1/kds/stream?locationId=${identity.locationId}`;
+    const url = `${wsBase}/api/v1/kds/stream?locationId=${effectiveLocationId}`;
+    const myVersion = ++connectionVersion.current;
 
     try {
       const ws = new WebSocket(url, undefined);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        if (!isMounted.current) return;
+        if (!isMounted.current || myVersion !== connectionVersion.current) return;
         setConnected(true);
         setError(null);
         reconnectAttempt.current = 0;
+        // Clear existing tickets on fresh connect (e.g., after location switch)
+        setTickets([]);
         // Send auth
         ws.send(JSON.stringify({ type: 'auth', token: identity.deviceToken }));
       };
 
       ws.onmessage = (event) => {
-        if (!isMounted.current) return;
+        if (!isMounted.current || myVersion !== connectionVersion.current) return;
         try {
           const msg = JSON.parse(event.data as string) as { type: string; tickets?: KdsTicket[]; ticket?: KdsTicket; ticketId?: string };
           if (msg.type === 'snapshot' && msg.tickets) {
@@ -248,13 +354,13 @@ export default function KDSScreen() {
       };
 
       ws.onclose = () => {
-        if (!isMounted.current) return;
+        if (!isMounted.current || myVersion !== connectionVersion.current) return;
         setConnected(false);
         scheduleReconnect();
       };
 
       ws.onerror = () => {
-        if (!isMounted.current) return;
+        if (!isMounted.current || myVersion !== connectionVersion.current) return;
         setError('Connection error');
         setConnected(false);
       };
@@ -262,7 +368,7 @@ export default function KDSScreen() {
       setError('Failed to connect');
       scheduleReconnect();
     }
-  }, [identity]);
+  }, [identity, effectiveLocationId]);
 
   function scheduleReconnect() {
     const attempt = reconnectAttempt.current;
@@ -321,7 +427,14 @@ export default function KDSScreen() {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Kitchen Display</Text>
+        <View>
+          <Text style={styles.headerTitle}>Kitchen Display</Text>
+          {availableLocations.length > 1 && effectiveLocationId && (
+            <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+              {availableLocations.find((l) => l.id === effectiveLocationId)?.name ?? ''}
+            </Text>
+          )}
+        </View>
         <View style={styles.headerRight}>
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           <View style={[styles.connDot, { backgroundColor: connected ? '#22c55e' : '#ef4444' }]} />
@@ -341,6 +454,40 @@ export default function KDSScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Settings</Text>
+            <ScrollView style={{ maxHeight: '80%' }} showsVerticalScrollIndicator={false}>
+
+            {/* ── Active Location ── */}
+            {availableLocations.length > 1 && (
+              <>
+                <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', marginBottom: 6, letterSpacing: 1 }}>ACTIVE LOCATION</Text>
+                <View style={styles.modalCard}>
+                  {availableLocations.map((loc, i) => {
+                    const selected = effectiveLocationId === loc.id;
+                    const isDevicePrimary = loc.id === identity?.locationId;
+                    return (
+                      <React.Fragment key={loc.id}>
+                        {i > 0 && <View style={styles.modalDivider} />}
+                        <TouchableOpacity
+                          style={styles.modalRow}
+                          onPress={() => handleSwitchLocation(loc.id)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.modalLabel, selected && { color: '#6366f1', fontWeight: '700' }]} numberOfLines={1}>
+                              {loc.name}
+                            </Text>
+                            {isDevicePrimary && (
+                              <Text style={{ color: '#555', fontSize: 10, marginTop: 2 }}>Device home</Text>
+                            )}
+                          </View>
+                          {selected && <Text style={{ color: '#6366f1', fontSize: 16, fontWeight: '900' }}>✓</Text>}
+                        </TouchableOpacity>
+                      </React.Fragment>
+                    );
+                  })}
+                </View>
+              </>
+            )}
 
             {/* ── Sound & Print ── */}
             <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', marginBottom: 6, letterSpacing: 1 }}>ALERTS & PRINTING</Text>
@@ -355,6 +502,108 @@ export default function KDSScreen() {
                 <Switch value={printOnBump} onValueChange={setPrintOnBump} trackColor={{ false: '#2a2a2a', true: '#6366f180' }} thumbColor={printOnBump ? '#6366f1' : '#555'} />
               </View>
             </View>
+
+            {/* ── Label Printer ── */}
+            <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', marginTop: 14, marginBottom: 6, letterSpacing: 1 }}>LABEL PRINTER</Text>
+            <View style={styles.modalCard}>
+              <View style={styles.modalRow}>
+                <Text style={styles.modalLabel}>Printer</Text>
+                <Text style={styles.modalValue} numberOfLines={1}>
+                  {printerConfig.type ? `${printerConfig.name || 'Unnamed'}` : 'Not configured'}
+                </Text>
+              </View>
+              {printerConfig.type ? (
+                <>
+                  <View style={styles.modalDivider} />
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>Connection</Text>
+                    <Text style={styles.modalValue}>{printerConfig.type.toUpperCase()}</Text>
+                  </View>
+                  <View style={styles.modalDivider} />
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>Paper Width</Text>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      {[58, 80].map((w) => (
+                        <TouchableOpacity
+                          key={w}
+                          onPress={() => setPrinterConfig({ paperWidth: w as 58 | 80 })}
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                            borderRadius: 6,
+                            backgroundColor: printerConfig.paperWidth === w ? '#6366f1' : '#222',
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{w}mm</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                </>
+              ) : null}
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+              <TouchableOpacity
+                style={[styles.printerBtn, { flex: 1 }]}
+                onPress={() => handleDiscoverPrinters('usb')}
+                disabled={discovering}
+                activeOpacity={0.85}
+              >
+                {discovering ? (
+                  <ActivityIndicator size="small" color="#ccc" />
+                ) : (
+                  <Text style={styles.printerBtnText}>Scan USB</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.printerBtn, { flex: 1 }]}
+                onPress={() => handleDiscoverPrinters('bluetooth')}
+                disabled={discovering}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.printerBtnText}>Scan BT</Text>
+              </TouchableOpacity>
+            </View>
+
+            {discoveredPrinters.length > 0 && (
+              <View style={[styles.modalCard, { marginBottom: 12 }]}>
+                {discoveredPrinters.map((p, i) => (
+                  <React.Fragment key={p.id}>
+                    {i > 0 && <View style={styles.modalDivider} />}
+                    <TouchableOpacity
+                      style={styles.modalRow}
+                      onPress={() => handleSelectPrinter(p)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.modalLabel, { color: '#ccc', flex: 1 }]} numberOfLines={1}>
+                        {p.name}
+                      </Text>
+                      <Text style={{ color: '#6366f1', fontSize: 12, fontWeight: '700' }}>USE</Text>
+                    </TouchableOpacity>
+                  </React.Fragment>
+                ))}
+              </View>
+            )}
+
+            {printerConfig.type ? (
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                <TouchableOpacity
+                  style={[styles.printerBtn, { flex: 1, backgroundColor: '#22c55e22', borderColor: '#22c55e55' }]}
+                  onPress={handleTestPrinter}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.printerBtnText, { color: '#22c55e' }]}>Test Print</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.printerBtn, { flex: 1, backgroundColor: '#ef444422', borderColor: '#ef444455' }]}
+                  onPress={handleClearPrinter}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.printerBtnText, { color: '#ef4444' }]}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
 
             {/* ── Timer Colors ── */}
             <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', marginTop: 14, marginBottom: 6, letterSpacing: 1 }}>TIMER THRESHOLDS</Text>
@@ -445,6 +694,7 @@ export default function KDSScreen() {
               <Text style={{ fontSize: 14, fontWeight: '700', color: '#ef4444' }}>Unpair Device</Text>
             </TouchableOpacity>
 
+            </ScrollView>
             <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowSettings(false)} activeOpacity={0.85}>
               <Text style={styles.modalCloseBtnText}>Close</Text>
             </TouchableOpacity>
@@ -572,7 +822,7 @@ const styles = StyleSheet.create({
 
   // Settings modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: '#141414', borderRadius: 20, padding: 24, width: 380, maxWidth: '90%', borderWidth: 1, borderColor: '#2a2a2a' },
+  modalContent: { backgroundColor: '#141414', borderRadius: 20, padding: 24, width: 380, maxWidth: '90%', maxHeight: '90%', borderWidth: 1, borderColor: '#2a2a2a' },
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#fff', marginBottom: 20 },
   modalCard: { backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#2a2a2a', marginBottom: 16 },
   modalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12 },
@@ -589,4 +839,15 @@ const styles = StyleSheet.create({
   modalCheckBtnText: { fontSize: 14, fontWeight: '600', color: '#ccc' },
   modalCloseBtn: { paddingVertical: 10, alignItems: 'center' },
   modalCloseBtnText: { fontSize: 14, fontWeight: '600', color: '#666' },
+
+  // Printer config buttons
+  printerBtn: {
+    backgroundColor: '#1e1e1e',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+  },
+  printerBtnText: { fontSize: 13, fontWeight: '700', color: '#ccc' },
 });

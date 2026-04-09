@@ -278,4 +278,53 @@ export async function deviceRoutes(app: FastifyInstance) {
 
     return reply.send({ data: { deviceId: device.id, role: device.role, locationId: device.locationId } });
   });
+
+  // POST /api/v1/devices/heartbeat — alias for PATCH (mobile clients use POST)
+  app.post('/heartbeat', async (request, reply) => {
+    const header = request.headers['authorization'];
+    if (!header?.startsWith('Bearer ')) return reply.status(401).send({ title: 'Unauthorized', status: 401 });
+    const token = header.slice(7);
+    const tokenHash = hashToken(token);
+
+    const device = await db.query.devices.findFirst({
+      where: and(eq(schema.devices.tokenHash, tokenHash), eq(schema.devices.status, 'active')),
+    });
+    if (!device) return reply.status(401).send({ title: 'Device not found or revoked', status: 401 });
+
+    const body = request.body as { appVersion?: string } | null;
+    await db.update(schema.devices)
+      .set({ lastSeenAt: new Date(), ...(body?.appVersion ? { appVersion: body.appVersion } : {}) })
+      .where(eq(schema.devices.id, device.id));
+
+    return reply.send({ data: { deviceId: device.id, role: device.role, locationId: device.locationId } });
+  });
+
+  // GET /api/v1/devices/locations — list locations for the device's org (device token auth)
+  // Used by KDS for runtime location switching in multi-location orgs.
+  app.get('/locations', async (request, reply) => {
+    const header = request.headers['authorization'];
+    if (!header?.startsWith('Bearer ')) return reply.status(401).send({ title: 'Unauthorized', status: 401 });
+    const token = header.slice(7);
+    const tokenHash = hashToken(token);
+
+    const device = await db.query.devices.findFirst({
+      where: and(eq(schema.devices.tokenHash, tokenHash), eq(schema.devices.status, 'active')),
+    });
+    if (!device) return reply.status(401).send({ title: 'Device not found or revoked', status: 401 });
+
+    const locations = await db.query.locations.findMany({
+      where: and(
+        eq(schema.locations.orgId, device.orgId),
+        eq(schema.locations.isActive, true),
+      ),
+    });
+
+    return reply.send({
+      data: locations.map((l) => ({
+        id: l.id,
+        name: l.name,
+        type: l.type,
+      })),
+    });
+  });
 }

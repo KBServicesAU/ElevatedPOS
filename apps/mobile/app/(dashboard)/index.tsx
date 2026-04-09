@@ -69,33 +69,86 @@ export default function DashboardScreen() {
   }
 
   async function launchApp(app: (typeof EXTERNAL_APPS)[number]) {
-    if (Platform.OS !== 'android') return;
+    if (Platform.OS !== 'android') {
+      Alert.alert('Not Supported', 'External app launch is only available on Android.');
+      return;
+    }
+    // Android Intent URI: launches the LAUNCHER activity of the specified
+    // package. This is the most reliable way to launch another installed
+    // Android app from an Expo project without expo-intent-launcher.
+    //
+    // Note: canOpenURL() is unreliable for intent:// URIs on Android 11+
+    // due to package visibility restrictions. We just try to openURL and
+    // fall back to Play Store on failure.
+    const intentUrl =
+      `intent:#Intent;` +
+      `action=android.intent.action.MAIN;` +
+      `category=android.intent.category.LAUNCHER;` +
+      `package=${app.packageName};` +
+      `end`;
     try {
-      const intentUrl = `intent://main#Intent;scheme=elevatedpos;package=${app.packageName};end`;
       await Linking.openURL(intentUrl);
     } catch {
+      // Fallback: try Play Store then direct download
       Alert.alert(
         `${app.label} Not Installed`,
-        `Download from elevatedpos.com.au/downloads`,
+        `The ${app.label} app doesn't appear to be installed on this device.`,
         [
-          { text: 'OK' },
-          { text: 'Download', onPress: () => Linking.openURL('https://elevatedpos.com.au/downloads') },
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Play Store',
+            onPress: () =>
+              Linking.openURL(`market://details?id=${app.packageName}`).catch(() =>
+                Linking.openURL(`https://play.google.com/store/apps/details?id=${app.packageName}`),
+              ),
+          },
+          {
+            text: 'Direct Download',
+            onPress: () => Linking.openURL('https://elevatedpos.com.au/downloads'),
+          },
         ],
       );
     }
   }
 
-  // Inject CSS to hide POS/KDS/Kiosk from sidebar
+  // Inject CSS to hide POS/KDS/Kiosk entries from the web sidebar, since
+  // this is the dashboard-only tablet build and those routes are intended
+  // to launch the external native apps instead.
   const injectedJS = `
     (function() {
-      var style = document.createElement('style');
-      style.textContent = 'a[href*="/pos"], a[href*="/kds"], a[href*="/kiosk"] { display: none !important; }';
-      document.head.appendChild(style);
-      setTimeout(function() {
-        document.querySelectorAll('a').forEach(function(a) {
-          if ((a.textContent || '').match(/POS Terminal|KDS Display|Kiosk/)) a.style.display = 'none';
-        });
-      }, 2000);
+      function applyHides() {
+        try {
+          // Exact-match selectors to avoid catching /dashboard/... routes.
+          var style = document.getElementById('__epos_hide_css__');
+          if (!style) {
+            style = document.createElement('style');
+            style.id = '__epos_hide_css__';
+            style.textContent =
+              'a[href="/pos"], a[href="/kds"], a[href="/kiosk"],' +
+              'a[href$="/pos/"], a[href$="/kds/"], a[href$="/kiosk/"] ' +
+              '{ display: none !important; }';
+            (document.head || document.documentElement).appendChild(style);
+          }
+          // Text-matching fallback for buttons or wrappers without direct hrefs.
+          var labels = ['POS Terminal', 'KDS Display', 'Kiosk'];
+          document.querySelectorAll('a, li, button').forEach(function(el) {
+            var txt = (el.textContent || '').trim();
+            if (labels.indexOf(txt) !== -1) {
+              el.style.display = 'none';
+            }
+          });
+        } catch (e) { /* non-critical */ }
+      }
+      // Apply immediately and on DOM changes (nav may mount after first paint).
+      applyHides();
+      var obs = new MutationObserver(applyHides);
+      obs.observe(document.documentElement, { childList: true, subtree: true });
+      // Also re-apply periodically for the first 10 seconds to catch late renders.
+      var applied = 0;
+      var iv = setInterval(function() {
+        applyHides();
+        if (++applied >= 10) clearInterval(iv);
+      }, 1000);
     })();
     true;`;
 
@@ -144,8 +197,13 @@ export default function DashboardScreen() {
         source={{ uri: `${DASHBOARD_URL}/login` }}
         style={s.webview}
         injectedJavaScriptBeforeContentLoaded={injectedJS}
+        injectedJavaScript={injectedJS}
         onLoadStart={() => setLoading(true)}
-        onLoadEnd={() => setLoading(false)}
+        onLoadEnd={() => {
+          setLoading(false);
+          // Re-inject after load in case BeforeContentLoaded lost the handle
+          webRef.current?.injectJavaScript(injectedJS);
+        }}
         onNavigationStateChange={(nav) => setCanGoBack(nav.canGoBack)}
         javaScriptEnabled
         domStorageEnabled

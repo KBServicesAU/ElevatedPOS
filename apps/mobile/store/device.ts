@@ -13,8 +13,23 @@ export interface DeviceIdentity {
   label: string | null;
 }
 
+export interface DeviceLocation {
+  id: string;
+  name: string;
+  type: string;
+}
+
 interface DeviceStore {
   identity: DeviceIdentity | null;
+  /**
+   * Runtime override for the active location. When set (via the KDS location
+   * picker for multi-location orgs), this takes precedence over
+   * `identity.locationId` for things like WebSocket subscriptions. It is
+   * persisted to SecureStore so the selection survives app restarts.
+   */
+  activeLocationId: string | null;
+  /** Cached list of the org's available locations. */
+  availableLocations: DeviceLocation[];
   /** true once _hydrate() has resolved — gate rendering on this */
   ready: boolean;
   _hydrate: () => Promise<void>;
@@ -22,6 +37,10 @@ interface DeviceStore {
   clearIdentity: () => Promise<void>;
   /** Check if device is still valid (not revoked). Call periodically. */
   checkHeartbeat: () => Promise<void>;
+  /** Fetch the list of locations the device's org has access to. */
+  fetchAvailableLocations: () => Promise<DeviceLocation[]>;
+  /** Override the active location id for this session (persisted). */
+  setActiveLocationId: (id: string | null) => Promise<void>;
 }
 
 const KEYS = {
@@ -32,15 +51,18 @@ const KEYS = {
   registerId: 'elevatedpos_register_id',
   orgId: 'elevatedpos_org_id',
   label: 'elevatedpos_device_label',
+  activeLocationId: 'elevatedpos_active_location_id',
 } as const;
 
 export const useDeviceStore = create<DeviceStore>((set) => ({
   identity: null,
+  activeLocationId: null,
+  availableLocations: [],
   ready: false,
 
   _hydrate: async () => {
     try {
-      const [deviceId, deviceToken, role, locationId, registerId, orgId, label] =
+      const [deviceId, deviceToken, role, locationId, registerId, orgId, label, activeLocationId] =
         await Promise.all([
           SecureStore.getItemAsync(KEYS.deviceId),
           SecureStore.getItemAsync(KEYS.deviceToken),
@@ -49,6 +71,7 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
           SecureStore.getItemAsync(KEYS.registerId),
           SecureStore.getItemAsync(KEYS.orgId),
           SecureStore.getItemAsync(KEYS.label),
+          SecureStore.getItemAsync(KEYS.activeLocationId),
         ]);
 
       if (
@@ -63,13 +86,14 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
             orgId,
             label: label || null,
           },
+          activeLocationId: activeLocationId || null,
           ready: true,
         });
       } else {
-        set({ identity: null, ready: true });
+        set({ identity: null, activeLocationId: null, ready: true });
       }
     } catch {
-      set({ identity: null, ready: true });
+      set({ identity: null, activeLocationId: null, ready: true });
     }
   },
 
@@ -88,7 +112,7 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
 
   clearIdentity: async () => {
     await Promise.all(Object.values(KEYS).map((k) => SecureStore.deleteItemAsync(k)));
-    set({ identity: null });
+    set({ identity: null, activeLocationId: null, availableLocations: [] });
   },
 
   /** Check if device is still valid (not revoked). Call periodically. */
@@ -111,5 +135,32 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
     } catch {
       // Network error — don't clear on connectivity issues
     }
+  },
+
+  fetchAvailableLocations: async () => {
+    const { identity } = useDeviceStore.getState();
+    if (!identity) return [];
+    const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/devices/locations`, {
+        headers: { Authorization: `Bearer ${identity.deviceToken}` },
+      });
+      if (!res.ok) return [];
+      const json = (await res.json()) as { data?: DeviceLocation[] };
+      const locations = json.data ?? [];
+      set({ availableLocations: locations });
+      return locations;
+    } catch {
+      return [];
+    }
+  },
+
+  setActiveLocationId: async (id: string | null) => {
+    if (id) {
+      await SecureStore.setItemAsync(KEYS.activeLocationId, id);
+    } else {
+      await SecureStore.deleteItemAsync(KEYS.activeLocationId);
+    }
+    set({ activeLocationId: id });
   },
 }));
