@@ -2080,6 +2080,7 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
             {pairing ? 'Pairing...' : 'Pair Terminal'}
           </button>
         </div>
+        </div>
       </div>
     </div>
   );
