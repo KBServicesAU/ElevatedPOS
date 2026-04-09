@@ -21,6 +21,7 @@ import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { useEmployeeStore, type Shift } from '../../store/employee';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
+import { initTyro, pairTyroTerminal, isTyroInitialized } from '../../modules/tyro-tta';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 import { catalogApiFetch } from '../../lib/catalog-api';
@@ -792,6 +793,56 @@ export default function MoreScreen() {
           <TouchableOpacity style={s.outlineBtn} onPress={openPrinterModal} activeOpacity={0.85}>
             <Ionicons name="settings-outline" size={16} color="#ccc" />
             <Text style={s.outlineBtnText}>Advanced</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ═══════ Tyro EFTPOS ═══════ */}
+        <Text style={[s.sectionTitle, { marginTop: 32 }]}>EFTPOS Terminal</Text>
+
+        <View style={s.card}>
+          <View style={s.row}>
+            <Text style={s.label}>Provider</Text>
+            <Text style={s.value}>Tyro</Text>
+          </View>
+          <View style={s.divider} />
+          <View style={s.row}>
+            <Text style={s.label}>Status</Text>
+            <Text style={[s.value, { color: isTyroInitialized() ? '#22c55e' : '#666' }]}>
+              {isTyroInitialized() ? 'Initialized' : 'Not configured'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={s.btnRow}>
+          <TouchableOpacity
+            style={s.outlineBtn}
+            onPress={() => {
+              try {
+                initTyro('', 'simulator');
+                Alert.alert('Tyro Initialized', 'Tyro TTA initialized in simulator mode. Tap "Pair Terminal" to connect.');
+              } catch (err) {
+                Alert.alert('Init Failed', err instanceof Error ? err.message : 'Could not initialize Tyro');
+              }
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="flash-outline" size={16} color="#ccc" />
+            <Text style={s.outlineBtnText}>Initialize</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.outlineBtn}
+            onPress={() => {
+              if (!isTyroInitialized()) {
+                Alert.alert('Not Initialized', 'Initialize Tyro first.');
+                return;
+              }
+              pairTyroTerminal();
+              Alert.alert('Pairing', 'Tyro pairing page opened. Enter your Merchant ID and Terminal ID.');
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="link-outline" size={16} color="#ccc" />
+            <Text style={s.outlineBtnText}>Pair Terminal</Text>
           </TouchableOpacity>
         </View>
 

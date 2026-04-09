@@ -20,8 +20,8 @@ import { useAuthStore } from '../../store/auth';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { usePrinterStore } from '../../store/printers';
 import { printReceipt, printOrderTicket, isConnected as isPrinterConnected, connectPrinter } from '../../lib/printer';
-import CustomerDisplay from '../../components/CustomerDisplay';
 import { useRouter } from 'expo-router';
+import { initTyro, tyroPurchase, isTyroInitialized, type TyroTTAResult } from '../../modules/tyro-tta';
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -290,8 +290,31 @@ export default function PosSellScreen() {
   }
 
   // ── Handle payment method selection ──────────────────────────────
-  function handlePayCard() {
+  async function handlePayCard() {
     setShowPayment(false);
+
+    // Try Tyro TTA first if initialized
+    if (isTyroInitialized()) {
+      setCharging(true);
+      try {
+        const amountCents = String(Math.round(total * 100));
+        const result = await tyroPurchase(amountCents, true);
+        if (result.result === 'APPROVED') {
+          // Tyro approved — complete the order
+          handleCharge();
+          return;
+        } else {
+          Alert.alert('Payment Failed', `${result.result}: Card was ${result.result?.toLowerCase()}.`);
+          setCharging(false);
+          return;
+        }
+      } catch (err) {
+        // Tyro failed — fall back to direct charge
+        console.warn('[Tyro TTA] Error:', err);
+      }
+    }
+
+    // Fallback: direct charge without EFTPOS
     handleCharge();
   }
 
