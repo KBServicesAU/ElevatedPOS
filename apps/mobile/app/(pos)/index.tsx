@@ -415,8 +415,8 @@ export default function PosSellScreen() {
                     { text: 'OK' },
                   ]);
                 } else {
-                  // TODO: Open customer search/picker modal
-                  Alert.alert('Customer', 'Customer selection coming soon');
+                  // Navigate to customers tab to search and select
+                  router.push('/(pos)/customers');
                 }
               }}
               activeOpacity={0.7}
@@ -888,8 +888,6 @@ export default function PosSellScreen() {
         </Pressable>
       </Modal>
 
-      {/* Customer Display for dual-screen */}
-      {displaySettings.enabled && <CustomerDisplay />}
     </SafeAreaView>
   );
 }

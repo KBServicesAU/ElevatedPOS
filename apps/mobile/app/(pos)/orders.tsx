@@ -36,15 +36,20 @@ export default function OrdersScreen() {
     setError(null);
     const token = employeeToken ?? identity?.deviceToken ?? '';
     try {
-      const res = await fetch(`${API_BASE}/api/v1/orders?limit=50&sort=-createdAt`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const locationId = identity?.locationId ?? '';
+      const res = await fetch(`${API_BASE}/api/v1/orders?limit=50&locationId=${locationId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         signal: AbortSignal.timeout(8000),
       });
       if (res.ok) {
         const data = await res.json();
-        setOrders(data.data ?? []);
+        setOrders(data.data ?? data ?? []);
       } else {
-        setError(`Server error ${res.status}`);
+        const body = await res.text().catch(() => '');
+        setError(`Error ${res.status}: ${body.substring(0, 100)}`);
       }
     } catch {
       setError('Could not load orders');
