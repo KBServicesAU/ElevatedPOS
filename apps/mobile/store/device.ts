@@ -20,6 +20,8 @@ interface DeviceStore {
   _hydrate: () => Promise<void>;
   setIdentity: (identity: DeviceIdentity) => Promise<void>;
   clearIdentity: () => Promise<void>;
+  /** Check if device is still valid (not revoked). Call periodically. */
+  checkHeartbeat: () => Promise<void>;
 }
 
 const KEYS = {
