@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: elevatedpos-ingress-timeclock
+  namespace: elevatedpos
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+  labels:
+    app.kubernetes.io/name: elevatedpos
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api.elevatedpos.com.au
+    http:
+      paths:
+      - path: /api/v1/time-clock(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: auth
+            port:
+              number: 4001
+  tls:
+  - hosts:
+    - api.elevatedpos.com.au
+    secretName: elevatedpos-api-tls
