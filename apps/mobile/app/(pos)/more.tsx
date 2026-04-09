@@ -796,20 +796,28 @@ export default function MoreScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ═══════ Tyro EFTPOS ═══════ */}
+        {/* ═══════ EFTPOS Terminal ═══════ */}
         <Text style={[s.sectionTitle, { marginTop: 32 }]}>EFTPOS Terminal</Text>
 
         <View style={s.card}>
           <View style={s.row}>
             <Text style={s.label}>Provider</Text>
-            <Text style={s.value}>Tyro</Text>
+            <Text style={s.value}>{isTyroInitialized() ? 'Tyro' : 'Not configured'}</Text>
           </View>
           <View style={s.divider} />
           <View style={s.row}>
             <Text style={s.label}>Status</Text>
-            <Text style={[s.value, { color: isTyroInitialized() ? '#22c55e' : '#666' }]}>
-              {isTyroInitialized() ? 'Initialized' : 'Not configured'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isTyroInitialized() ? '#22c55e' : '#666' }} />
+              <Text style={[s.value, { color: isTyroInitialized() ? '#22c55e' : '#666' }]}>
+                {isTyroInitialized() ? 'Connected' : 'Not connected'}
+              </Text>
+            </View>
+          </View>
+          <View style={s.divider} />
+          <View style={s.row}>
+            <Text style={s.label}>Setup</Text>
+            <Text style={[s.value, { color: '#6366f1' }]}>Configure in Dashboard → Integrations</Text>
           </View>
         </View>
 
@@ -817,23 +825,7 @@ export default function MoreScreen() {
           <TouchableOpacity
             style={s.outlineBtn}
             onPress={() => {
-              try {
-                initTyro('', 'simulator');
-                Alert.alert('Tyro Initialized', 'Tyro TTA initialized in simulator mode. Tap "Pair Terminal" to connect.');
-              } catch (err) {
-                Alert.alert('Init Failed', err instanceof Error ? err.message : 'Could not initialize Tyro');
-              }
-            }}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="flash-outline" size={16} color="#ccc" />
-            <Text style={s.outlineBtnText}>Initialize</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={s.outlineBtn}
-            onPress={() => {
               if (!isTyroInitialized()) {
-                // Auto-init in simulator mode then pair
                 try { initTyro('', 'simulator'); } catch { /* ignore */ }
               }
               pairTyroTerminal();
@@ -842,6 +834,19 @@ export default function MoreScreen() {
           >
             <Ionicons name="link-outline" size={16} color="#ccc" />
             <Text style={s.outlineBtnText}>Pair Terminal</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.outlineBtn}
+            onPress={() => {
+              Alert.alert(
+                'EFTPOS Setup',
+                'To configure your Tyro EFTPOS terminal:\n\n1. Go to the Dashboard (web or app)\n2. Navigate to Integrations → Payment Terminals\n3. Enter your Merchant ID and Terminal ID\n4. Click Save, then Pair Terminal\n\nThe POS will automatically connect to the configured terminal.',
+              );
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="help-circle-outline" size={16} color="#ccc" />
+            <Text style={s.outlineBtnText}>How to Setup</Text>
           </TouchableOpacity>
         </View>
 
