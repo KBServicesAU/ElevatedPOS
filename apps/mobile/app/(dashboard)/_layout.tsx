@@ -14,6 +14,10 @@ export default function DashboardLayout() {
         name="index"
         options={{ title: 'ElevatedPOS', headerShown: false }}
       />
+      <Stack.Screen
+        name="web"
+        options={{ title: 'Dashboard', headerShown: false }}
+      />
     </Stack>
   );
 }

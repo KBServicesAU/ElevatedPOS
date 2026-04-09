@@ -1,11 +1,11 @@
 import React, { useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Linking,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,29 +14,118 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { WebView } from 'react-native-webview';
+import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
 /* ------------------------------------------------------------------ */
 
-const DASHBOARD_URL = process.env['EXPO_PUBLIC_APP_URL'] ?? 'https://app.elevatedpos.com.au';
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 const ADMIN_PIN = '0000'; // Default admin PIN — should be configurable
 
-const EXTERNAL_APPS = [
-  { key: 'pos', label: 'POS', icon: 'cart' as const, color: '#6366f1', packageName: 'com.au.elevatedpos.pos' },
-  { key: 'kds', label: 'KDS', icon: 'restaurant' as const, color: '#f59e0b', packageName: 'com.au.elevatedpos.kds' },
-  { key: 'kiosk', label: 'Kiosk', icon: 'tablet-portrait' as const, color: '#06b6d4', packageName: 'com.au.elevatedpos.kiosk' },
+interface ExternalApp {
+  key: string;
+  label: string;
+  tagline: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  packageName: string;
+}
+
+const EXTERNAL_APPS: ExternalApp[] = [
+  {
+    key: 'pos',
+    label: 'POS',
+    tagline: 'Sell products, take payments',
+    icon: 'cart',
+    color: '#6366f1',
+    packageName: 'com.au.elevatedpos.pos',
+  },
+  {
+    key: 'kds',
+    label: 'Kitchen Display',
+    tagline: 'View and bump orders',
+    icon: 'restaurant',
+    color: '#f59e0b',
+    packageName: 'com.au.elevatedpos.kds',
+  },
+  {
+    key: 'kiosk',
+    label: 'Self-Order Kiosk',
+    tagline: 'Customer self-service',
+    icon: 'tablet-portrait',
+    color: '#06b6d4',
+    packageName: 'com.au.elevatedpos.kiosk',
+  },
+];
+
+interface DashboardFeature {
+  key: string;
+  label: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  route: string;
+}
+
+const DASHBOARD_FEATURES: DashboardFeature[] = [
+  {
+    key: 'reports',
+    label: 'Reports',
+    description: 'Sales, revenue, top products',
+    icon: 'bar-chart',
+    color: '#10b981',
+    route: '/dashboard/reports',
+  },
+  {
+    key: 'orders',
+    label: 'Orders',
+    description: 'Manage pending and past orders',
+    icon: 'clipboard',
+    color: '#8b5cf6',
+    route: '/dashboard/orders',
+  },
+  {
+    key: 'catalog',
+    label: 'Catalog',
+    description: 'Products, categories, pricing',
+    icon: 'cube',
+    color: '#f59e0b',
+    route: '/dashboard/catalog',
+  },
+  {
+    key: 'staff',
+    label: 'Staff',
+    description: 'Employees and schedules',
+    icon: 'people',
+    color: '#ef4444',
+    route: '/dashboard/staff',
+  },
+  {
+    key: 'customers',
+    label: 'Customers',
+    description: 'Customer database and loyalty',
+    icon: 'person-circle',
+    color: '#06b6d4',
+    route: '/dashboard/customers',
+  },
+  {
+    key: 'settings',
+    label: 'Settings',
+    description: 'Org, locations, integrations',
+    icon: 'settings',
+    color: '#94a3b8',
+    route: '/dashboard/settings',
+  },
 ];
 
 /* ------------------------------------------------------------------ */
 /* Screen                                                              */
 /* ------------------------------------------------------------------ */
 
-export default function DashboardScreen() {
-  const webRef = useRef<WebView>(null);
-  const [loading, setLoading] = useState(true);
-  const [canGoBack, setCanGoBack] = useState(false);
+export default function DashboardHomeScreen() {
+  const router = useRouter();
 
   // Hidden settings: 5-tap logo
   const [logoTaps, setLogoTaps] = useState(0);
@@ -48,7 +137,6 @@ export default function DashboardScreen() {
   function handleLogoTap() {
     const newCount = logoTaps + 1;
     setLogoTaps(newCount);
-    // Reset counter after 3 seconds of inactivity
     if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
     tapTimerRef.current = setTimeout(() => setLogoTaps(0), 3000);
     if (newCount >= 5) {
@@ -68,18 +156,11 @@ export default function DashboardScreen() {
     }
   }
 
-  async function launchApp(app: (typeof EXTERNAL_APPS)[number]) {
+  async function launchApp(app: ExternalApp) {
     if (Platform.OS !== 'android') {
       Alert.alert('Not Supported', 'External app launch is only available on Android.');
       return;
     }
-    // Android Intent URI: launches the LAUNCHER activity of the specified
-    // package. This is the most reliable way to launch another installed
-    // Android app from an Expo project without expo-intent-launcher.
-    //
-    // Note: canOpenURL() is unreliable for intent:// URIs on Android 11+
-    // due to package visibility restrictions. We just try to openURL and
-    // fall back to Play Store on failure.
     const intentUrl =
       `intent:#Intent;` +
       `action=android.intent.action.MAIN;` +
@@ -89,7 +170,6 @@ export default function DashboardScreen() {
     try {
       await Linking.openURL(intentUrl);
     } catch {
-      // Fallback: try Play Store then direct download
       Alert.alert(
         `${app.label} Not Installed`,
         `The ${app.label} app doesn't appear to be installed on this device.`,
@@ -111,114 +191,89 @@ export default function DashboardScreen() {
     }
   }
 
-  // Inject CSS to hide POS/KDS/Kiosk entries from the web sidebar, since
-  // this is the dashboard-only tablet build and those routes are intended
-  // to launch the external native apps instead.
-  const injectedJS = `
-    (function() {
-      function applyHides() {
-        try {
-          // Exact-match selectors to avoid catching /dashboard/... routes.
-          var style = document.getElementById('__epos_hide_css__');
-          if (!style) {
-            style = document.createElement('style');
-            style.id = '__epos_hide_css__';
-            style.textContent =
-              'a[href="/pos"], a[href="/kds"], a[href="/kiosk"],' +
-              'a[href$="/pos/"], a[href$="/kds/"], a[href$="/kiosk/"] ' +
-              '{ display: none !important; }';
-            (document.head || document.documentElement).appendChild(style);
-          }
-          // Text-matching fallback for buttons or wrappers without direct hrefs.
-          var labels = ['POS Terminal', 'KDS Display', 'Kiosk'];
-          document.querySelectorAll('a, li, button').forEach(function(el) {
-            var txt = (el.textContent || '').trim();
-            if (labels.indexOf(txt) !== -1) {
-              el.style.display = 'none';
-            }
-          });
-        } catch (e) { /* non-critical */ }
-      }
-      // Apply immediately and on DOM changes (nav may mount after first paint).
-      applyHides();
-      var obs = new MutationObserver(applyHides);
-      obs.observe(document.documentElement, { childList: true, subtree: true });
-      // Also re-apply periodically for the first 10 seconds to catch late renders.
-      var applied = 0;
-      var iv = setInterval(function() {
-        applyHides();
-        if (++applied >= 10) clearInterval(iv);
-      }, 1000);
-    })();
-    true;`;
+  function openWebDashboard() {
+    router.push('/(dashboard)/web');
+  }
 
   return (
-    <SafeAreaView style={s.container} edges={['top']}>
-      {/* ── Top Bar with Logo + App Drawer ── */}
+    <SafeAreaView style={s.container} edges={['top', 'left', 'right']}>
+      {/* ── Top Bar ── */}
       <View style={s.topBar}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {canGoBack && (
-            <TouchableOpacity style={s.navBtn} onPress={() => webRef.current?.goBack()}>
-              <Ionicons name="arrow-back" size={20} color="#ccc" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity onPress={handleLogoTap} activeOpacity={0.8}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#6366f1', alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#fff', fontWeight: '900', fontSize: 14 }}>E</Text>
-              </View>
-              <Text style={s.topTitle}>ElevatedPOS</Text>
+        <TouchableOpacity onPress={handleLogoTap} activeOpacity={0.8}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={s.logoBadge}>
+              <Text style={s.logoText}>E</Text>
             </View>
-          </TouchableOpacity>
-        </View>
-
-        {/* App Drawer */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          {EXTERNAL_APPS.map((app) => (
-            <TouchableOpacity
-              key={app.key}
-              style={{ alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: `${app.color}15` }}
-              onPress={() => launchApp(app)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name={app.icon} size={16} color={app.color} />
-              <Text style={{ fontSize: 9, color: app.color, fontWeight: '700', marginTop: 1 }}>{app.label}</Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={s.navBtn} onPress={() => webRef.current?.reload()}>
-            <Ionicons name="refresh" size={16} color="#888" />
+            <View>
+              <Text style={s.topTitle}>ElevatedPOS</Text>
+              <Text style={s.topSub}>Dashboard</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity style={s.headerBtn} onPress={openWebDashboard} activeOpacity={0.85}>
+            <Ionicons name="globe-outline" size={16} color="#ccc" />
+            <Text style={s.headerBtnText}>Open Web</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* ── WebView — loads login page directly, no native login ── */}
-      <WebView
-        ref={webRef}
-        source={{ uri: `${DASHBOARD_URL}/login` }}
-        style={s.webview}
-        injectedJavaScriptBeforeContentLoaded={injectedJS}
-        injectedJavaScript={injectedJS}
-        onLoadStart={() => setLoading(true)}
-        onLoadEnd={() => {
-          setLoading(false);
-          // Re-inject after load in case BeforeContentLoaded lost the handle
-          webRef.current?.injectJavaScript(injectedJS);
-        }}
-        onNavigationStateChange={(nav) => setCanGoBack(nav.canGoBack)}
-        javaScriptEnabled
-        domStorageEnabled
-        sharedCookiesEnabled
-        startInLoadingState
-        renderLoading={() => (
-          <View style={s.loadingOverlay}>
-            <ActivityIndicator size="large" color="#6366f1" />
-            <Text style={s.loadingText}>Loading Dashboard...</Text>
-          </View>
-        )}
-        onError={() => {
-          Alert.alert('Connection Error', 'Could not load the dashboard.');
-        }}
-      />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* ── Hero: App Launcher ── */}
+        <Text style={s.sectionTitle}>LAUNCH APP</Text>
+        <Text style={s.sectionSub}>Tap to open your installed ElevatedPOS apps</Text>
+
+        <View style={s.appGrid}>
+          {EXTERNAL_APPS.map((app) => (
+            <TouchableOpacity
+              key={app.key}
+              style={[s.appCard, { borderColor: `${app.color}55` }]}
+              onPress={() => launchApp(app)}
+              activeOpacity={0.85}
+            >
+              <View style={[s.appIconWrap, { backgroundColor: `${app.color}22` }]}>
+                <Ionicons name={app.icon} size={36} color={app.color} />
+              </View>
+              <Text style={s.appLabel}>{app.label}</Text>
+              <Text style={s.appTagline}>{app.tagline}</Text>
+              <View style={[s.appLaunchBtn, { backgroundColor: app.color }]}>
+                <Text style={s.appLaunchText}>LAUNCH</Text>
+                <Ionicons name="arrow-forward" size={14} color="#fff" />
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* ── Quick Access — opens web dashboard to specific page ── */}
+        <Text style={s.sectionTitle}>QUICK ACCESS</Text>
+        <Text style={s.sectionSub}>Jump into the web dashboard</Text>
+
+        <View style={s.featureGrid}>
+          {DASHBOARD_FEATURES.map((feat) => (
+            <TouchableOpacity
+              key={feat.key}
+              style={s.featureCard}
+              onPress={openWebDashboard}
+              activeOpacity={0.85}
+            >
+              <View style={[s.featIcon, { backgroundColor: `${feat.color}22` }]}>
+                <Ionicons name={feat.icon} size={22} color={feat.color} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.featLabel}>{feat.label}</Text>
+                <Text style={s.featDesc}>{feat.description}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* ── Footer ── */}
+        <View style={s.footer}>
+          <Text style={s.footerText}>ElevatedPOS Dashboard v{APP_VERSION}</Text>
+          <Text style={s.footerText}>Powered by ElevatedPOS</Text>
+        </View>
+      </ScrollView>
 
       {/* ── Admin PIN Modal (5-tap hidden settings) ── */}
       <Modal visible={showPinModal} transparent animationType="fade" onRequestClose={() => setShowPinModal(false)}>
@@ -256,48 +311,33 @@ export default function DashboardScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Device Info */}
             <View style={s.settCard}>
               <Text style={s.settLabel}>App</Text>
               <Text style={s.settValue}>ElevatedPOS Dashboard</Text>
             </View>
             <View style={s.settCard}>
               <Text style={s.settLabel}>Version</Text>
-              <Text style={s.settValue}>1.0.0</Text>
+              <Text style={s.settValue}>{APP_VERSION}</Text>
             </View>
             <View style={s.settCard}>
               <Text style={s.settLabel}>Platform</Text>
-              <Text style={s.settValue}>{Platform.OS} {Platform.Version}</Text>
+              <Text style={s.settValue}>
+                {Platform.OS} {Platform.Version}
+              </Text>
             </View>
 
-            {/* Actions */}
             <TouchableOpacity
               style={[s.settBtn, { backgroundColor: '#6366f1', marginTop: 16 }]}
-              onPress={() => { setShowSettings(false); webRef.current?.reload(); }}
-            >
-              <Text style={{ color: '#fff', fontWeight: '700' }}>Reload Dashboard</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[s.settBtn, { backgroundColor: '#ef444420', borderWidth: 1, borderColor: '#ef4444', marginTop: 8 }]}
               onPress={() => {
                 setShowSettings(false);
-                webRef.current?.clearCache?.(true);
-                webRef.current?.reload();
-                Alert.alert('Cache Cleared', 'Dashboard cache has been cleared.');
+                openWebDashboard();
               }}
             >
-              <Text style={{ color: '#ef4444', fontWeight: '700' }}>Clear Cache & Reload</Text>
+              <Text style={{ color: '#fff', fontWeight: '700' }}>Open Web Dashboard</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
-      {loading && (
-        <View style={s.loadingBar}>
-          <View style={s.loadingBarInner} />
-        </View>
-      )}
     </SafeAreaView>
   );
 }
@@ -307,22 +347,138 @@ export default function DashboardScreen() {
 /* ------------------------------------------------------------------ */
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d0d14' },
+  container: { flex: 1, backgroundColor: '#0a0a0f' },
+
+  // Top bar
   topBar: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 12, paddingVertical: 6,
-    backgroundColor: '#0d0d14', borderBottomWidth: 1, borderBottomColor: '#1e1e2e',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#0d0d14',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e1e2e',
   },
-  navBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  topTitle: { fontSize: 15, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
-  webview: { flex: 1 },
-  loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#0d0d14', alignItems: 'center', justifyContent: 'center' },
-  loadingText: { color: '#666', marginTop: 12, fontSize: 14 },
-  loadingBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 2, backgroundColor: '#1e1e2e' },
-  loadingBarInner: { width: '60%', height: 2, backgroundColor: '#6366f1' },
+  logoBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#6366f1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoText: { color: '#fff', fontWeight: '900', fontSize: 18 },
+  topTitle: { fontSize: 17, fontWeight: '900', color: '#fff', letterSpacing: 0.3 },
+  topSub: { fontSize: 11, color: '#888', fontWeight: '600' },
+  headerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#141425',
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+  },
+  headerBtnText: { color: '#ccc', fontSize: 12, fontWeight: '700' },
+
+  // Scroll content
+  scrollContent: { padding: 20, paddingBottom: 40 },
+
+  // Section headings
+  sectionTitle: {
+    fontSize: 11,
+    color: '#888',
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginBottom: 4,
+    marginTop: 8,
+  },
+  sectionSub: { fontSize: 13, color: '#555', marginBottom: 14 },
+
+  // App launcher grid
+  appGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 28,
+  },
+  appCard: {
+    flex: 1,
+    backgroundColor: '#141425',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    minHeight: 180,
+  },
+  appIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  appLabel: { fontSize: 16, fontWeight: '900', color: '#fff', marginBottom: 4 },
+  appTagline: { fontSize: 11, color: '#888', textAlign: 'center', marginBottom: 14 },
+  appLaunchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  appLaunchText: { color: '#fff', fontWeight: '800', fontSize: 11, letterSpacing: 0.5 },
+
+  // Feature grid (quick access)
+  featureGrid: {
+    gap: 10,
+    marginBottom: 20,
+  },
+  featureCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#141425',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: '#1e1e2e',
+  },
+  featIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featLabel: { fontSize: 15, fontWeight: '800', color: '#fff' },
+  featDesc: { fontSize: 12, color: '#666', marginTop: 2 },
+
+  // Footer
+  footer: { alignItems: 'center', marginTop: 10, gap: 2 },
+  footerText: { fontSize: 11, color: '#444' },
+
+  // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { backgroundColor: '#1a1a2e', borderRadius: 20, padding: 24, width: 320, borderWidth: 1, borderColor: '#2a2a3a' },
-  pinInput: { backgroundColor: '#0d0d14', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 24, color: '#fff', textAlign: 'center', letterSpacing: 8, borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 12 },
+  pinInput: {
+    backgroundColor: '#0d0d14',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 24,
+    color: '#fff',
+    textAlign: 'center',
+    letterSpacing: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+    marginBottom: 12,
+  },
   pinBtn: { backgroundColor: '#6366f1', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   settCard: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e1e2e' },
   settLabel: { color: '#888', fontSize: 13 },
