@@ -106,36 +106,69 @@ export default function EmployeeLoginScreen() {
       // Now clock in using the employee token
       const authState = useAuthStore.getState();
       const token = authState.employeeToken;
-      if (token && identity) {
-        try {
-          const res = await fetch(`${AUTH_BASE}/api/v1/time-clock/clock-in`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              locationId: identity.locationId,
-              registerId: identity.registerId || undefined,
-            }),
-          });
-          if (res.ok) {
-            const name = authState.employee
-              ? `${authState.employee.firstName} ${authState.employee.lastName}`
-              : 'Employee';
-            setMessage(`${name} clocked in successfully`);
-          } else {
-            const err = (await res.json().catch(() => ({}))) as { title?: string };
-            // 409 = already clocked in
-            if (res.status === 409) {
-              setMessage('Already clocked in');
-            } else {
-              setMessage(err.title ?? 'Clock in failed');
-            }
-          }
-        } catch {
-          setMessage('Clock in failed — network error');
+      const employee = authState.employee;
+
+      if (!token || !employee) {
+        setMessage('Login succeeded but token missing — try again');
+        setPin('');
+        return;
+      }
+
+      // Resolve a usable locationId. Prefer the device's paired location,
+      // but fall back to the employee's first assigned location so clock-in
+      // still works on devices that were paired without a specific location.
+      const resolvedLocationId =
+        identity?.locationId ||
+        (employee.locationIds && employee.locationIds.length > 0
+          ? employee.locationIds[0]
+          : undefined);
+
+      if (!resolvedLocationId) {
+        setMessage('No location assigned — please pair the device or assign a location.');
+        setPin('');
+        setSelectedEmployee(null);
+        logout();
+        return;
+      }
+
+      // Only send registerId if it looks like a real UUID — empty strings or
+      // non-UUID values would fail server-side validation.
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const registerId =
+        identity?.registerId && UUID_RE.test(identity.registerId)
+          ? identity.registerId
+          : undefined;
+
+      try {
+        const res = await fetch(`${AUTH_BASE}/api/v1/time-clock/clock-in`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            locationId: resolvedLocationId,
+            ...(registerId ? { registerId } : {}),
+          }),
+        });
+
+        if (res.ok) {
+          const name = `${employee.firstName} ${employee.lastName}`;
+          setMessage(`${name} clocked in successfully`);
+        } else if (res.status === 409) {
+          setMessage('Already clocked in');
+        } else {
+          const err = (await res.json().catch(() => ({}))) as {
+            title?: string;
+            detail?: string;
+            status?: number;
+          };
+          const detail = err.detail ? ` (${err.detail.slice(0, 80)})` : '';
+          setMessage(`${err.title ?? `Clock in failed (${res.status})`}${detail}`);
         }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Network error';
+        setMessage(`Clock in failed — ${msg}`);
       }
 
       // Reset for next employee
@@ -143,6 +176,8 @@ export default function EmployeeLoginScreen() {
       setSelectedEmployee(null);
       logout();
     } catch {
+      // pinLogin / quickPinLogin already set the auth-store error which the
+      // banner picks up; just clear the PIN entry box.
       setPin('');
     } finally {
       setClockingIn(false);

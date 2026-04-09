@@ -253,10 +253,49 @@ export async function printOrderTicket(opts: {
   items: { name: string; qty: number }[];
 }): Promise<void> {
   if (!loadPrinterModules()) throw new Error('Printer module not available.');
-  const { type, paperWidth } = usePrinterStore.getState().config;
-  const printer = getPrinter(type);
+  const cfg = usePrinterStore.getState().config;
+  // Prefer the dedicated order printer if it has been configured. The library
+  // only supports one active connection per transport, so we may need to
+  // disconnect from the receipt printer and reconnect to the order printer.
+  const useOrderPrinter = !!(cfg.orderPrinter?.type && cfg.orderPrinter.address);
+  const targetType = useOrderPrinter ? cfg.orderPrinter.type : cfg.type;
+  const targetAddress = useOrderPrinter ? cfg.orderPrinter.address : cfg.address;
+  const paperWidth = useOrderPrinter ? cfg.orderPrinter.paperWidth : cfg.paperWidth;
+  const printer = getPrinter(targetType);
   if (!printer) throw new Error('No printer configured');
-  if (!connected) await connectPrinter();
+
+  // If we're switching to a different physical printer, drop the existing
+  // connection and reconnect to the new device.
+  if (useOrderPrinter && (cfg.type !== targetType || cfg.address !== targetAddress)) {
+    try { await disconnectPrinter(); } catch { /* ignore */ }
+    if (targetType === 'network') {
+      try { await NetPrinter?.init(); } catch { /* ignore */ }
+      const [host, portStr] = (targetAddress || '').split(':');
+      try { await NetPrinter?.connectPrinter(host!, parseInt(portStr ?? '9100')); }
+      catch (e: any) { throw new Error('Order printer connect failed: ' + (e?.message ?? 'unknown')); }
+    } else if (targetType === 'usb') {
+      try { await USBPrinter?.init(); } catch { /* ignore */ }
+      let devices: any[] = [];
+      try { devices = await USBPrinter.getDeviceList(); }
+      catch { devices = []; }
+      const target = devices.find((d: any) => String(d.device_id) === targetAddress) ?? devices[0];
+      if (target) {
+        try {
+          await USBPrinter.connectPrinter(
+            String(target.vendor_id ?? ''),
+            String(target.product_id ?? ''),
+          );
+        } catch (e: any) { throw new Error('Order printer USB connect failed: ' + (e?.message ?? 'unknown')); }
+      }
+    } else if (targetType === 'bluetooth') {
+      try { await BLEPrinter?.init(); } catch { /* ignore */ }
+      try { await BLEPrinter?.connectPrinter(targetAddress); }
+      catch (e: any) { throw new Error('Order printer BT connect failed: ' + (e?.message ?? 'unknown')); }
+    }
+    connected = true;
+  } else if (!connected) {
+    await connectPrinter();
+  }
 
   const w = paperWidth === 58 ? 32 : 48;
   const line = '='.repeat(w);
@@ -284,6 +323,60 @@ export async function printOrderTicket(opts: {
     await printer.printText(ticket, { cut: true });
   } catch (e: any) {
     throw new Error('Order ticket print failed: ' + (e?.message ?? 'unknown'));
+  }
+}
+
+export async function printOrderPrinterTestPage(): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+  const cfg = usePrinterStore.getState().config;
+  const op = cfg.orderPrinter;
+  if (!op?.type || !op.address) {
+    throw new Error('Order printer not configured');
+  }
+
+  // Disconnect any current printer and connect to the order printer.
+  try { await disconnectPrinter(); } catch { /* ignore */ }
+  if (op.type === 'network') {
+    try { await NetPrinter?.init(); } catch { /* ignore */ }
+    const [host, portStr] = op.address.split(':');
+    try { await NetPrinter?.connectPrinter(host!, parseInt(portStr ?? '9100')); }
+    catch (e: any) { throw new Error('Order printer connect failed: ' + (e?.message ?? 'unknown')); }
+  } else if (op.type === 'usb') {
+    try { await USBPrinter?.init(); } catch { /* ignore */ }
+    let devices: any[] = [];
+    try { devices = await USBPrinter.getDeviceList(); } catch { devices = []; }
+    const target = devices.find((d: any) => String(d.device_id) === op.address) ?? devices[0];
+    if (!target) throw new Error('Order printer not found on USB bus');
+    try {
+      await USBPrinter.connectPrinter(
+        String(target.vendor_id ?? ''),
+        String(target.product_id ?? ''),
+      );
+    } catch (e: any) { throw new Error('Order printer USB connect failed: ' + (e?.message ?? 'unknown')); }
+  } else if (op.type === 'bluetooth') {
+    try { await BLEPrinter?.init(); } catch { /* ignore */ }
+    try { await BLEPrinter?.connectPrinter(op.address); }
+    catch (e: any) { throw new Error('Order printer BT connect failed: ' + (e?.message ?? 'unknown')); }
+  }
+  connected = true;
+
+  const printer = getPrinter(op.type);
+  if (!printer) throw new Error('Order printer not initialised');
+  const w = op.paperWidth === 58 ? 32 : 48;
+  let text = '';
+  text += `<C><B>ElevatedPOS</B></C>\n`;
+  text += `<C>Order Printer Test</C>\n`;
+  text += '='.repeat(w) + '\n';
+  text += `Printer: ${op.name || 'Unknown'}\n`;
+  text += `Connection: ${op.type?.toUpperCase()}\n`;
+  text += `Paper: ${op.paperWidth}mm\n`;
+  text += `Time: ${new Date().toLocaleString('en-AU')}\n`;
+  text += '='.repeat(w) + '\n';
+  text += `<C>Order printer ready</C>\n\n\n`;
+  try {
+    await printer.printText(text, { cut: true });
+  } catch (e: any) {
+    throw new Error('Order printer print failed: ' + (e?.message ?? 'unknown'));
   }
 }
 

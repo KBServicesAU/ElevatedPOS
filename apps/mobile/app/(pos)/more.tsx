@@ -30,6 +30,7 @@ import {
   disconnectPrinter,
   discoverPrinters,
   printTestPage,
+  printOrderPrinterTestPage,
   isConnected as isPrinterConnected,
   type DiscoveredPrinter,
 } from '../../lib/printer';
@@ -477,6 +478,70 @@ export default function MoreScreen() {
     );
   }
 
+  /* ── Order printer (separate kitchen / bar printer) ─────────── */
+  const [discoveringOrder, setDiscoveringOrder] = useState(false);
+  const [discoveredOrderPrinters, setDiscoveredOrderPrinters] = useState<DiscoveredPrinter[]>([]);
+
+  async function handleDiscoverOrderPrinters(type: PrinterConnectionType) {
+    setDiscoveringOrder(true);
+    try {
+      const devices = await discoverPrinters(type);
+      setDiscoveredOrderPrinters(devices);
+      if (devices.length === 0) {
+        Alert.alert(
+          'No Printers Found',
+          `No ${type.toUpperCase()} printers detected. Check the connection.`,
+        );
+      }
+    } catch (err) {
+      Alert.alert(
+        'Discovery Failed',
+        err instanceof Error ? err.message : 'Could not scan for printers',
+      );
+    } finally {
+      setDiscoveringOrder(false);
+    }
+  }
+
+  async function handleSelectOrderPrinter(printer: DiscoveredPrinter) {
+    try {
+      await setPrinterConfig({
+        orderPrinter: {
+          type: printer.type,
+          address: printer.id,
+          name: printer.name,
+          paperWidth: printerConfig.orderPrinter?.paperWidth ?? 80,
+        },
+      });
+      setDiscoveredOrderPrinters([]);
+      Alert.alert(
+        'Order Printer Saved',
+        `${printer.name} will receive kitchen / bar tickets.`,
+      );
+    } catch (err) {
+      Alert.alert(
+        'Error',
+        err instanceof Error ? err.message : 'Could not save order printer',
+      );
+    }
+  }
+
+  async function handleTestOrderPrinter() {
+    if (!printerConfig.orderPrinter?.type) {
+      Alert.alert('No Order Printer', 'Please configure an order printer first.');
+      return;
+    }
+    try {
+      await printOrderPrinterTestPage();
+      Alert.alert('Success', 'Test page sent to order printer.');
+    } catch (err) {
+      Alert.alert(
+        'Print Failed',
+        err instanceof Error ? err.message : 'Could not print',
+      );
+    }
+  }
+
   /* ── Unpair ───────────────────────────────────────────────────── */
 
   function handleUnpair() {
@@ -795,6 +860,94 @@ export default function MoreScreen() {
             <Text style={s.outlineBtnText}>Advanced</Text>
           </TouchableOpacity>
         </View>
+
+        {/* ═══════ Order Printer ═══════ */}
+        <Text style={[s.sectionTitle, { marginTop: 24 }]}>Order Printer</Text>
+        <Text style={[s.valueSmall, { paddingHorizontal: 4, marginTop: -6, marginBottom: 8 }]}>
+          Optional second printer for kitchen / bar tickets
+        </Text>
+
+        <View style={s.card}>
+          <View style={s.row}>
+            <Text style={s.label}>Order Printer</Text>
+            <Text style={s.value}>
+              {printerConfig.orderPrinter?.name ||
+                (printerConfig.orderPrinter?.type
+                  ? printerConfig.orderPrinter.address
+                  : 'Not configured')}
+            </Text>
+          </View>
+          <View style={s.divider} />
+          <View style={s.row}>
+            <Text style={s.label}>Connection</Text>
+            <Text style={s.value}>
+              {printerConfig.orderPrinter?.type?.toUpperCase() ?? '—'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={s.btnRow}>
+          <TouchableOpacity
+            style={s.outlineBtn}
+            onPress={() => handleDiscoverOrderPrinters('usb')}
+            activeOpacity={0.85}
+          >
+            {discoveringOrder ? (
+              <ActivityIndicator size="small" color="#ccc" />
+            ) : (
+              <Ionicons name="search-outline" size={16} color="#ccc" />
+            )}
+            <Text style={s.outlineBtnText}>Scan USB</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.outlineBtn}
+            onPress={handleTestOrderPrinter}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="print-outline" size={16} color="#ccc" />
+            <Text style={s.outlineBtnText}>Test</Text>
+          </TouchableOpacity>
+        </View>
+
+        {discoveredOrderPrinters.length > 0 && (
+          <View style={[s.card, { marginTop: 8 }]}>
+            <Text style={[s.label, { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }]}>
+              Found Printers
+            </Text>
+            {discoveredOrderPrinters.map((p) => (
+              <TouchableOpacity
+                key={p.id}
+                style={[s.manageRow, { paddingHorizontal: 16 }]}
+                onPress={() => handleSelectOrderPrinter(p)}
+                activeOpacity={0.6}
+              >
+                <Ionicons name="print" size={18} color="#f59e0b" style={{ marginRight: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.manageName}>{p.name}</Text>
+                  <Text style={s.manageSub}>{p.type.toUpperCase()} · {p.id}</Text>
+                </View>
+                <Ionicons name="add-circle-outline" size={22} color="#f59e0b" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {printerConfig.orderPrinter?.type && (
+          <View style={[s.btnRow, { marginTop: 8 }]}>
+            <TouchableOpacity
+              style={[s.outlineBtn, { borderColor: '#ef444444' }]}
+              onPress={() =>
+                setPrinterConfig({
+                  orderPrinter: { type: null, address: '', name: '', paperWidth: 80 },
+                })
+              }
+              activeOpacity={0.85}
+            >
+              <Ionicons name="close-circle-outline" size={16} color="#ef4444" />
+              <Text style={[s.outlineBtnText, { color: '#ef4444' }]}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* ═══════ EFTPOS Terminal ═══════ */}
         <Text style={[s.sectionTitle, { marginTop: 32 }]}>EFTPOS Terminal</Text>

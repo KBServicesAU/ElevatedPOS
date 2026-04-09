@@ -70,7 +70,8 @@ export default function OrdersScreen() {
   function renderOrder({ item }: { item: Order }) {
     const time = new Date(item.createdAt).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
     const date = new Date(item.createdAt).toLocaleDateString('en-AU', { day: '2-digit', month: 'short' });
-    const total = typeof item.total === 'number' ? (item.total / 100).toFixed(2) : '0.00';
+    // Orders microservice returns `total` as decimal dollars (e.g. 9.01), not cents.
+    const total = typeof item.total === 'number' ? item.total.toFixed(2) : (Number(item.total) || 0).toFixed(2);
 
     return (
       <View style={s.orderCard}>
