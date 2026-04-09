@@ -458,8 +458,34 @@ jobs:
       - name: Wait for production rollout
         if: steps.check-prod-cluster.outputs.exists == 'true'
         run: |
-          for SVC in auth catalog orders payments web-backoffice; do
+          for SVC in auth catalog orders payments web-backoffice storefront; do
             kubectl rollout status deployment/$SVC -n elevatedpos --timeout=10m \
               && echo "$SVC: rolled out" \
               || echo "$SVC: WARN rollout timeout (old pods still serving)"
           done
+
+      - name: Clean up old replicasets
+        if: steps.check-prod-cluster.outputs.exists == 'true'
+        run: |
+          # Scale down all old replicasets that have 0 desired but still have pods
+          # This prevents mixed-version CSS/JS issues from stale pods
+          for DEPLOY in web-backoffice storefront auth catalog orders payments; do
+            LATEST_RS=$(kubectl get rs -n elevatedpos -l app=$DEPLOY --sort-by='.metadata.creationTimestamp' -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null || true)
+            if [ -n "$LATEST_RS" ]; then
+              kubectl get rs -n elevatedpos -l app=$DEPLOY --no-headers -o custom-columns="NAME:.metadata.name" 2>/dev/null | while read RS; do
+                if [ "$RS" != "$LATEST_RS" ]; then
+                  kubectl scale rs/$RS --replicas=0 -n elevatedpos 2>/dev/null || true
+                fi
+              done
+              echo "$DEPLOY: cleaned old replicasets (kept $LATEST_RS)"
+            fi
+          done
+
+      - name: Scale down non-critical services
+        if: steps.check-prod-cluster.outputs.exists == 'true'
+        run: |
+          kubectl scale deployment ai automations campaigns franchise hardware-bridge \
+            kds-display notifications reporting webhooks developer-portal partner-portal \
+            reseller-portal sales-portal pay godmode org-portal \
+            --replicas=0 -n elevatedpos 2>/dev/null || true
+          echo "Non-critical services scaled to 0"
