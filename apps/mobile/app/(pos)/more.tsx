@@ -21,7 +21,7 @@ import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { useEmployeeStore, type Shift } from '../../store/employee';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
-import { initTyro, pairTyroTerminal, isTyroInitialized } from '../../modules/tyro-tta';
+import { initTyro, pairTyroTerminal, closeTyroPairing, isTyroInitialized } from '../../modules/tyro-tta';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 import { catalogApiFetch } from '../../lib/catalog-api';
@@ -833,11 +833,10 @@ export default function MoreScreen() {
             style={s.outlineBtn}
             onPress={() => {
               if (!isTyroInitialized()) {
-                Alert.alert('Not Initialized', 'Initialize Tyro first.');
-                return;
+                // Auto-init in simulator mode then pair
+                try { initTyro('', 'simulator'); } catch { /* ignore */ }
               }
               pairTyroTerminal();
-              Alert.alert('Pairing', 'Tyro pairing page opened. Enter your Merchant ID and Terminal ID.');
             }}
             activeOpacity={0.85}
           >

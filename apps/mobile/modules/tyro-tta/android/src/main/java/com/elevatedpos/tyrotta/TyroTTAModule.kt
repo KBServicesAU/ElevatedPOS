@@ -1,8 +1,11 @@
 package com.elevatedpos.tyrotta
 
+import android.app.AlertDialog
 import android.os.Handler
 import android.os.Looper
+import android.view.ViewGroup
 import android.webkit.WebView
+import android.widget.FrameLayout
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
@@ -12,6 +15,7 @@ class TyroTTAModule : Module() {
 
     private var tyroClient: TyroClient? = null
     private var webView: WebView? = null
+    private var pairingDialog: AlertDialog? = null
     private val handler = Handler(Looper.getMainLooper())
 
     override fun definition() = ModuleDefinition {
@@ -27,11 +31,15 @@ class TyroTTAModule : Module() {
                     else -> IclientSource.SIMULATOR
                 }
 
-                // Create hidden WebView for Tyro communication
+                // Create WebView for Tyro communication
                 if (webView == null) {
                     webView = WebView(activity).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
                     }
                 }
 
@@ -44,10 +52,44 @@ class TyroTTAModule : Module() {
             }
         }
 
-        // Pair terminal — opens Tyro configuration page in WebView
+        // Pair terminal — shows WebView in a dialog so user can enter MID/TID
         Function("pairTerminal") {
             handler.post {
-                tyroClient?.pairTerminal()
+                val activity = appContext.currentActivity ?: return@post
+                val client = tyroClient ?: return@post
+                val wv = webView ?: return@post
+
+                // Remove WebView from any existing parent
+                (wv.parent as? ViewGroup)?.removeView(wv)
+
+                // Create a full-screen dialog with the WebView
+                val container = FrameLayout(activity).apply {
+                    addView(wv, FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    ))
+                }
+
+                pairingDialog?.dismiss()
+                pairingDialog = AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_NoActionBar)
+                    .setView(container)
+                    .setOnDismissListener {
+                        (wv.parent as? ViewGroup)?.removeView(wv)
+                    }
+                    .create()
+
+                pairingDialog?.show()
+
+                // Load Tyro's pairing/configuration page
+                client.pairTerminal()
+            }
+        }
+
+        // Close the pairing dialog
+        Function("closePairing") {
+            handler.post {
+                pairingDialog?.dismiss()
+                pairingDialog = null
             }
         }
 
@@ -68,11 +110,7 @@ class TyroTTAModule : Module() {
                 client.performOperation(
                     "purchase",
                     params,
-                    // Receipt callback
-                    ReceiptReceivedCallback { receiptData ->
-                        // Receipt data available — stored for later use
-                    },
-                    // Transaction complete callback
+                    ReceiptReceivedCallback { _ -> },
                     TransactionCompleteCallback { responseData ->
                         try {
                             val json = JSONObject()
@@ -121,7 +159,6 @@ class TyroTTAModule : Module() {
             }
         }
 
-        // Check if TyroClient is initialized
         Function("isInitialized") {
             tyroClient != null
         }

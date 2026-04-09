@@ -25,6 +25,7 @@ type TyroEnvironment = 'simulator' | 'test' | 'production';
 interface TyroTTANative {
   init(apiKey: string, vendor: string, productName: string, version: string, environment: string): void;
   pairTerminal(): void;
+  closePairing(): void;
   purchase(amountCents: string, integratedReceipt: boolean): Promise<string>;
   refund(amountCents: string, integratedReceipt: boolean): Promise<string>;
   isInitialized(): boolean;
@@ -33,6 +34,7 @@ interface TyroTTANative {
 const noop: TyroTTANative = {
   init: () => {},
   pairTerminal: () => {},
+  closePairing: () => {},
   purchase: async () => JSON.stringify({ result: 'SYSTEM ERROR', message: 'Not available on this platform' }),
   refund: async () => JSON.stringify({ result: 'SYSTEM ERROR', message: 'Not available on this platform' }),
   isInitialized: () => false,
@@ -66,10 +68,18 @@ export function initTyro(
 
 /**
  * Open the Tyro terminal pairing configuration page.
- * The user enters Merchant ID and Terminal ID on the pairing screen.
+ * Shows a full-screen dialog with Tyro's pairing WebView
+ * where the user enters Merchant ID and Terminal ID.
  */
 export function pairTyroTerminal(): void {
   TyroTTANativeModule.pairTerminal();
+}
+
+/**
+ * Close the pairing dialog.
+ */
+export function closeTyroPairing(): void {
+  TyroTTANativeModule.closePairing();
 }
 
 /**
