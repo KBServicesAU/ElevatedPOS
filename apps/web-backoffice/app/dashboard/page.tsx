@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { cookies } from 'next/headers';
 import { getSessionUser } from '@/lib/session';
-import { formatCurrency, timeAgo } from '@/lib/formatting';
+import { formatDollars, timeAgo } from '@/lib/formatting';
 import { DashboardControls } from '@/components/dashboard-controls';
 
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -167,10 +167,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const suggestions: string[] = aiSuggestions ?? [];
 
   // Revenue & transactions — prefer reports endpoint, fall back to sum of recent orders
+  // Both `totalRevenue` (from reports `sum(total)`) and `order.total` are in dollars (NUMERIC decimal),
+  // so use formatDollars not formatCurrency.
   const sales = salesResult?.data;
-  const revenue = sales?.totalRevenue ?? recentOrders.reduce((s, o) => s + (o.total ?? 0), 0);
+  const revenue = Number(sales?.totalRevenue ?? recentOrders.reduce((s, o) => s + (Number(o.total) || 0), 0));
   const txns = sales?.totalOrders ?? recentOrders.length;
-  const aov = txns > 0 ? Math.round(revenue / txns) : 0;
+  const aov = txns > 0 ? revenue / txns : 0;
 
   // Customers total — the microservice may return the count in meta.totalCount or pagination.total
   const totalCustomers = customersResult?.meta?.totalCount ?? customersResult?.pagination?.total ?? null;
@@ -242,7 +244,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <StatCard
           label="Revenue Today"
-          value={revenue > 0 ? formatCurrency(revenue) : '$0.00'}
+          value={revenue > 0 ? formatDollars(revenue) : '$0.00'}
           icon={DollarSign}
           color="bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
           period={period}
@@ -256,7 +258,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         />
         <StatCard
           label="Avg Order Value"
-          value={aov > 0 ? formatCurrency(aov) : '$0.00'}
+          value={aov > 0 ? formatDollars(aov) : '$0.00'}
           icon={TrendingUp}
           color="bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400"
           period={period}
@@ -342,7 +344,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{formatCurrency(order.total)}</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{formatDollars(order.total)}</p>
                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${order.status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>{order.status}</span>
                   </div>
                 </div>
