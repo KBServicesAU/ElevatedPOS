@@ -102,7 +102,7 @@ declare global {
 /* Constants                                                           */
 /* ------------------------------------------------------------------ */
 
-const TYRO_SCRIPT_TEST = 'https://iclient-test.tyro.com/iclient-v1.js';
+const TYRO_SCRIPT_TEST = 'https://iclient.test.tyro.com/iclient-v1.js';
 const TYRO_SCRIPT_PROD = 'https://iclient.tyro.com/iclient-v1.js';
 
 const POS_PRODUCT = {

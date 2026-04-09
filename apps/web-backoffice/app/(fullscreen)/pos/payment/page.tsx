@@ -410,7 +410,7 @@ function AddTenderDialog({
   const [showTerminal, setShowTerminal] = useState<false | 'stripe' | 'tyro'>(false);
   const [paymentSettings, setPaymentSettings] = useState<{ cardSurchargeRate: number; cashRoundingEnabled: boolean } | null>(null);
   const [tyroConfig, setTyroConfig] = useState<TyroConfig | null>(null);
-  const [eftposProvider, setEftposProvider] = useState<'stripe' | 'tyro'>('stripe');
+  const [eftposProvider, setEftposProvider] = useState<'stripe' | 'tyro'>('tyro'); // Default to Tyro for in-store
 
   // Fetch device's terminal config on mount to determine EFTPOS provider
   useEffect(() => {
@@ -431,10 +431,10 @@ function AddTenderDialog({
             tyroHandlesSurcharge: data.tyroHandlesSurcharge ?? false,
           });
         } else if (data.provider === 'anz') {
-          // ANZ Worldline uses server-side processing, keep stripe overlay behavior
-          setEftposProvider('stripe');
+          // ANZ Worldline uses server-side processing
+          setEftposProvider('tyro'); // Still use Tyro overlay for now, ANZ has its own flow
         } else {
-          setEftposProvider('stripe');
+          setEftposProvider('tyro'); // Default to Tyro for all in-store payments
         }
       })
       .catch(() => {});

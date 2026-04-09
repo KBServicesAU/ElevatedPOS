@@ -2025,7 +2025,7 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
               value={merchantId}
               onChange={e => setMerchantId(e.target.value)}
               placeholder="e.g. 400012345"
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-indigo-500 focus:outline-none"
+              className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:border-indigo-500 focus:outline-none"
             />
           </div>
           <div>
@@ -2034,7 +2034,7 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
               value={terminalId}
               onChange={e => setTerminalId(e.target.value)}
               placeholder="e.g. 1"
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-indigo-500 focus:outline-none"
+              className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:border-indigo-500 focus:outline-none"
             />
           </div>
         </div>
