@@ -248,6 +248,45 @@ export async function printReceipt(opts: {
   }
 }
 
+export async function printOrderTicket(opts: {
+  orderNumber?: string;
+  items: { name: string; qty: number }[];
+}): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+  const { type, paperWidth } = usePrinterStore.getState().config;
+  const printer = getPrinter(type);
+  if (!printer) throw new Error('No printer configured');
+  if (!connected) await connectPrinter();
+
+  const w = paperWidth === 58 ? 32 : 48;
+  const line = '='.repeat(w);
+  const dash = '-'.repeat(w);
+
+  const now = new Date();
+  const time = now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+
+  let ticket = '';
+  ticket += `<C><B>ORDER TICKET</B></C>\n`;
+  if (opts.orderNumber) ticket += `<C>Order #${opts.orderNumber}</C>\n`;
+  ticket += `<C>${time}</C>\n`;
+  ticket += line + '\n';
+
+  for (const item of opts.items) {
+    const qtyStr = `x${item.qty}`;
+    const nameStr = item.name.substring(0, w - qtyStr.length - 2);
+    const space = w - nameStr.length - qtyStr.length;
+    ticket += nameStr + ' '.repeat(Math.max(1, space)) + qtyStr + '\n';
+  }
+
+  ticket += line + '\n\n\n';
+
+  try {
+    await printer.printText(ticket, { cut: true });
+  } catch (e: any) {
+    throw new Error('Order ticket print failed: ' + (e?.message ?? 'unknown'));
+  }
+}
+
 export async function printTestPage(): Promise<void> {
   if (!loadPrinterModules()) throw new Error('Printer module not available.');
   const { type, name, paperWidth } = usePrinterStore.getState().config;

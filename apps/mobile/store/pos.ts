@@ -6,6 +6,11 @@ export interface PosCartItem {
   price: number;       // tax-inclusive price (AU GST included)
   qty: number;
   categoryColor?: string;
+  note?: string;
+  /** Per-item discount in dollars (applied per unit) */
+  discount?: number;
+  /** Discount type: '%' = percentage, '$' = flat dollar amount */
+  discountType?: '%' | '$';
 }
 
 interface PosStore {
@@ -16,6 +21,7 @@ interface PosStore {
   addItem: (item: Omit<PosCartItem, 'qty'>) => void;
   removeItem: (id: string) => void;
   updateQty: (id: string, qty: number) => void;
+  updateItem: (id: string, updates: Partial<Pick<PosCartItem, 'note' | 'discount' | 'discountType'>>) => void;
   clearCart: () => void;
   setCustomer: (id: string | null, name: string | null) => void;
 }
@@ -37,6 +43,13 @@ export const usePosStore = create<PosStore>((set) => ({
       }
       return { cart: [...state.cart, { ...item, qty: 1 }] };
     }),
+
+  updateItem: (id, updates) =>
+    set((state) => ({
+      cart: state.cart.map((i) =>
+        i.id === id ? { ...i, ...updates } : i,
+      ),
+    })),
 
   removeItem: (id) =>
     set((state) => {

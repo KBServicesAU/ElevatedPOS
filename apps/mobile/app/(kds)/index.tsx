@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import Constants from 'expo-constants';
 import { useDeviceStore } from '../../store/device';
+import { printText } from '../../lib/printer';
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 const DOWNLOADS_API =
@@ -138,6 +139,9 @@ export default function KDSScreen() {
   // Sound settings
   const [soundEnabled, setSoundEnabled] = useState(true);
   const ticketCountRef = useRef(0);
+
+  // Label print on bump
+  const [printOnBump, setPrintOnBump] = useState(false);
 
   // Play beep on new ticket
   useEffect(() => {
@@ -281,6 +285,10 @@ export default function KDSScreen() {
 
   async function handleBump(ticketId: string) {
     if (!identity) return;
+
+    // Capture ticket data before removal for label printing
+    const ticket = tickets.find((t) => t.id === ticketId);
+
     try {
       await fetch(`${ORDERS_API}/api/v1/kds/tickets/${ticketId}/bump`, {
         method: 'POST',
@@ -293,6 +301,18 @@ export default function KDSScreen() {
       // Bump API call failed — ticket removed optimistically; WS event will confirm
       console.warn('[KDS] Bump API call failed for ticket', ticketId);
     }
+
+    // Print label if enabled
+    if (printOnBump && ticket) {
+      try {
+        const itemLines = ticket.items.map((i) => `${i.qty}x ${i.name}`).join('\n');
+        const label = `ORDER #${ticket.orderNumber}\n-----------\n${itemLines}\n-----------\n\n`;
+        await printText(label);
+      } catch (e) {
+        console.warn('[KDS] Label print failed:', e);
+      }
+    }
+
     // Optimistic removal
     setTickets((prev) => prev.filter((t) => t.id !== ticketId));
   }
@@ -330,6 +350,16 @@ export default function KDSScreen() {
                   onValueChange={setSoundEnabled}
                   trackColor={{ false: '#2a2a2a', true: '#6366f180' }}
                   thumbColor={soundEnabled ? '#6366f1' : '#555'}
+                />
+              </View>
+              <View style={styles.modalDivider} />
+              <View style={styles.modalRow}>
+                <Text style={styles.modalLabel}>Print Label on Bump</Text>
+                <Switch
+                  value={printOnBump}
+                  onValueChange={setPrintOnBump}
+                  trackColor={{ false: '#2a2a2a', true: '#6366f180' }}
+                  thumbColor={printOnBump ? '#6366f1' : '#555'}
                 />
               </View>
               <View style={styles.modalDivider} />

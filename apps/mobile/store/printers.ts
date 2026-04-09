@@ -19,6 +19,8 @@ export interface PrinterConfig {
   autoPrint: boolean;
   /** Paper width in mm (58 or 80) */
   paperWidth: 58 | 80;
+  /** Also print a simplified kitchen order ticket after receipt */
+  printOrderTicket: boolean;
 }
 
 interface PrinterStore {
@@ -43,6 +45,7 @@ const DEFAULTS: PrinterConfig = {
   name: '',
   autoPrint: false,
   paperWidth: 80,
+  printOrderTicket: false,
 };
 
 /* ------------------------------------------------------------------ */
