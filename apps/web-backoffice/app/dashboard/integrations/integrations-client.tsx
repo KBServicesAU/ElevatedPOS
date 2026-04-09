@@ -1936,7 +1936,6 @@ function DeputyCard({
 
 function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; onRefresh: () => void }) {
   const { toast } = useToast();
-  const [apiKey, setApiKey] = useState('');
   const [merchantId, setMerchantId] = useState(status.merchantId ?? '');
   const [terminalId, setTerminalId] = useState(status.terminalId ?? '');
   const [surchargeToggle, setSurchargeToggle] = useState(status.tyroHandlesSurcharge ?? false);
@@ -1944,10 +1943,6 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
   const [pairing, setPairing] = useState(false);
 
   async function handleSave() {
-    if (!apiKey && !status.connected) {
-      toast({ title: 'API Key Required', description: 'Enter your Tyro iClient API key.', variant: 'destructive' });
-      return;
-    }
     if (!merchantId || !terminalId) {
       toast({ title: 'Missing Fields', description: 'Merchant ID and Terminal ID are required.', variant: 'destructive' });
       return;
@@ -1958,19 +1953,17 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
         method: 'POST',
         body: JSON.stringify({
           provider: 'tyro',
-          label: `Tyro ${terminalId}`,
+          label: `Tyro Terminal ${terminalId}`,
           terminalIp: '',
           terminalPort: 0,
           metadata: {
-            apiKey: apiKey || undefined,
             merchantId,
             terminalId,
             tyroHandlesSurcharge: surchargeToggle,
           },
         }),
       });
-      toast({ title: 'Tyro Saved', description: 'Tyro EFTPOS credentials saved.', variant: 'success' });
-      setApiKey('');
+      toast({ title: 'Tyro Saved', description: 'Terminal paired. Merchant ID: ' + merchantId, variant: 'success' });
       onRefresh();
     } catch (err) {
       toast({ title: 'Save Failed', description: err instanceof Error ? err.message : 'Could not save', variant: 'destructive' });
@@ -1984,11 +1977,14 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
     try {
       const { loadTyroScript, pairTyroTerminal } = await import('@/lib/tyro-provider');
       await loadTyroScript(true);
+      // API key comes from server env (TYRO_API_KEY), not from merchant
+      const configRes = await fetch('/api/tyro/config');
+      const configData = await configRes.json();
       const result = await pairTyroTerminal({
-        apiKey: apiKey || 'stored',
+        apiKey: configData.apiKey ?? '',
         merchantId,
         terminalId,
-        testMode: true,
+        testMode: configData.testMode ?? true,
         tyroHandlesSurcharge: surchargeToggle,
       });
       if (result.status === 'success') {
@@ -2022,16 +2018,6 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
           Integrated EFTPOS with Tyro terminals. Browser-based — no IP required.
         </p>
         <div className="space-y-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">API Key</label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            placeholder={status.connected ? '••••••••' : 'Enter Tyro API key'}
-            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-indigo-500 focus:outline-none"
-          />
-        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500">Merchant ID</label>

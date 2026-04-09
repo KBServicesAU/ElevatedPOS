@@ -3,6 +3,8 @@ import { cookies } from 'next/headers';
 
 const PAYMENTS_API_URL = process.env['PAYMENTS_API_URL'] ?? process.env['AUTH_API_URL'] ?? 'http://payments:4005';
 const TYRO_TEST_MODE = process.env['TYRO_TEST_MODE'] !== 'false'; // default to test mode
+// API key belongs to ElevatedPOS as integration partner — set via env, never exposed to merchants
+const TYRO_API_KEY = process.env['TYRO_API_KEY'] ?? '';
 
 /**
  * GET /api/tyro/config?deviceId=xxx
@@ -79,7 +81,7 @@ export async function GET(request: Request) {
         configured: true,
         provider: 'tyro',
         testMode: TYRO_TEST_MODE,
-        apiKey: metadata.apiKey ?? '',
+        apiKey: TYRO_API_KEY, // From server env, not merchant config
         merchantId: metadata.merchantId ?? '',
         terminalId: metadata.terminalId ?? '',
         tyroHandlesSurcharge: metadata.tyroHandlesSurcharge ?? false,
