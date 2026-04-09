@@ -44,32 +44,36 @@ interface TyroIClientOptions {
 }
 
 interface TyroPurchaseRequest {
-  amount: number;        // cents (integer)
-  cashout?: number;      // cents (integer)
-  integratedReceipt?: boolean;
-  enableSurcharge?: boolean;
+  amount: string;        // cents as string per Tyro docs
+  cashout?: string;      // cents as string
+  integratedReceipt: boolean;
+  mid?: number;          // override paired merchant ID
+  tid?: number;          // override paired terminal ID
+  integrationKey?: string;
 }
 
 interface TyroRefundRequest {
-  amount: number;        // cents (integer)
-  integratedReceipt?: boolean;
+  amount: string;        // cents as string per Tyro docs
+  integratedReceipt: boolean;
+  mid?: number;
+  tid?: number;
 }
 
 /** Shape of the TYRO.IClient class from the SDK */
 interface TyroIClient {
   initiatePurchase(
     request: TyroPurchaseRequest,
-    transactionCompleteCallback: (result: TyroTransactionResult) => void,
+    transactionCallbacks: { transactionCompleteCallback: (result: TyroTransactionResult) => void },
   ): void;
 
   initiateRefund(
     request: TyroRefundRequest,
-    transactionCompleteCallback: (result: TyroTransactionResult) => void,
+    transactionCallbacks: { transactionCompleteCallback: (result: TyroTransactionResult) => void },
   ): void;
 
-  pairing(
-    merchantId: string,
-    terminalId: string,
+  pairTerminal(
+    mid: string,
+    tid: string,
     responseReceivedCallback: (response: { status: string; message?: string }) => void,
   ): void;
 
@@ -208,12 +212,15 @@ export function initiateTyroPurchase(
 
       client.initiatePurchase(
         {
-          amount: Math.round(amountCents), // must be integer
+          amount: String(Math.round(amountCents)), // string in cents per Tyro docs
           integratedReceipt: true,
-          enableSurcharge: config.tyroHandlesSurcharge,
+          mid: config.merchantId ? parseInt(config.merchantId) : undefined,
+          tid: config.terminalId ? parseInt(config.terminalId) : undefined,
         },
-        (result: TyroTransactionResult) => {
-          resolve(result);
+        {
+          transactionCompleteCallback: (result: TyroTransactionResult) => {
+            resolve(result);
+          },
         },
       );
     } catch (err) {
@@ -247,11 +254,15 @@ export function initiateTyroRefund(
 
       client.initiateRefund(
         {
-          amount: Math.round(amountCents),
+          amount: String(Math.round(amountCents)),
           integratedReceipt: true,
+          mid: config.merchantId ? parseInt(config.merchantId) : undefined,
+          tid: config.terminalId ? parseInt(config.terminalId) : undefined,
         },
-        (result: TyroTransactionResult) => {
-          resolve(result);
+        {
+          transactionCompleteCallback: (result: TyroTransactionResult) => {
+            resolve(result);
+          },
         },
       );
     } catch (err) {
@@ -270,10 +281,10 @@ export function pairTyroTerminal(
   return new Promise((resolve, reject) => {
     try {
       const client = getTyroClient(config);
-      client.pairing(
+      client.pairTerminal(
         config.merchantId,
         config.terminalId,
-        (response) => resolve(response),
+        (response: { status: string; message?: string }) => resolve(response),
       );
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
