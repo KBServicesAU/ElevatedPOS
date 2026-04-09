@@ -3,6 +3,8 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -35,6 +37,12 @@ export default function CustomersScreen() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [newFirst, setNewFirst] = useState('');
+  const [newLast, setNewLast] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
@@ -85,10 +93,39 @@ export default function CustomersScreen() {
     );
   }
 
+  async function handleAddCustomer() {
+    if (!newFirst.trim()) { Alert.alert('Required', 'First name is required.'); return; }
+    setSaving(true);
+    const token = employeeToken ?? identity?.deviceToken ?? '';
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/customers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ firstName: newFirst.trim(), lastName: newLast.trim(), email: newEmail.trim() || undefined, phone: newPhone.trim() || undefined }),
+      });
+      if (res.ok) {
+        setShowAdd(false);
+        setNewFirst(''); setNewLast(''); setNewEmail(''); setNewPhone('');
+        fetchCustomers();
+        Alert.alert('Customer Added', `${newFirst} ${newLast} has been added.`);
+      } else {
+        Alert.alert('Error', `Could not add customer (${res.status})`);
+      }
+    } catch { Alert.alert('Error', 'Network error'); }
+    finally { setSaving(false); }
+  }
+
   return (
     <SafeAreaView style={s.container} edges={['bottom']}>
       <View style={s.header}>
         <Text style={s.title}>Customers</Text>
+        <TouchableOpacity
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#6366f1', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 }}
+          onPress={() => setShowAdd(true)}
+        >
+          <Ionicons name="add" size={16} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Add</Text>
+        </TouchableOpacity>
       </View>
       <View style={s.searchWrap}>
         <Ionicons name="search" size={16} color="#555" style={{ marginLeft: 12 }} />
@@ -121,6 +158,27 @@ export default function CustomersScreen() {
           onRefresh={fetchCustomers}
         />
       )}
+      {/* Add Customer Modal */}
+      <Modal visible={showAdd} transparent animationType="fade" onRequestClose={() => setShowAdd(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setShowAdd(false)}>
+          <Pressable style={{ backgroundColor: '#1a1a2e', borderRadius: 20, padding: 24, width: 360, borderWidth: 1, borderColor: '#2a2a3a' }} onPress={() => {}}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 16 }}>Add Customer</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+              <TextInput style={[s.addInput, { flex: 1 }]} value={newFirst} onChangeText={setNewFirst} placeholder="First Name *" placeholderTextColor="#555" />
+              <TextInput style={[s.addInput, { flex: 1 }]} value={newLast} onChangeText={setNewLast} placeholder="Last Name" placeholderTextColor="#555" />
+            </View>
+            <TextInput style={[s.addInput, { marginBottom: 10 }]} value={newEmail} onChangeText={setNewEmail} placeholder="Email" placeholderTextColor="#555" keyboardType="email-address" autoCapitalize="none" />
+            <TextInput style={[s.addInput, { marginBottom: 16 }]} value={newPhone} onChangeText={setNewPhone} placeholder="Phone" placeholderTextColor="#555" keyboardType="phone-pad" />
+            <TouchableOpacity
+              style={{ backgroundColor: '#6366f1', borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}
+              onPress={handleAddCustomer}
+              disabled={saving}
+            >
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>{saving ? 'Saving...' : 'Add Customer'}</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -139,4 +197,5 @@ const s = StyleSheet.create({
   name: { fontSize: 15, fontWeight: '700', color: '#fff' },
   sub: { fontSize: 12, color: '#888', marginTop: 2 },
   visits: { fontSize: 11, color: '#666', marginBottom: 4 },
+  addInput: { backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: '#fff', borderWidth: 1, borderColor: '#2a2a3a' },
 });
