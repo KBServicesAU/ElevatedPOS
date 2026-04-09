@@ -437,6 +437,20 @@ jobs:
             fi
           done
 
+      # Scale down non-critical services BEFORE updating images so resources
+      # are freed for new pods to schedule. This prevents rollout timeouts
+      # from resource constraints during demo prep.
+      - name: Scale down non-critical services
+        if: steps.check-prod-cluster.outputs.exists == 'true'
+        run: |
+          kubectl scale deployment ai automations campaigns franchise hardware-bridge \
+            kds-display notifications reporting webhooks developer-portal partner-portal \
+            reseller-portal sales-portal pay godmode org-portal \
+            --replicas=0 -n elevatedpos 2>/dev/null || true
+          echo "Non-critical services scaled to 0"
+          # Give the scheduler a moment to release resources
+          sleep 5
+
       - name: Update image tags
         if: steps.check-prod-cluster.outputs.exists == 'true'
         run: |
@@ -459,7 +473,7 @@ jobs:
         if: steps.check-prod-cluster.outputs.exists == 'true'
         run: |
           for SVC in auth catalog orders payments web-backoffice storefront; do
-            kubectl rollout status deployment/$SVC -n elevatedpos --timeout=10m \
+            kubectl rollout status deployment/$SVC -n elevatedpos --timeout=5m \
               && echo "$SVC: rolled out" \
               || echo "$SVC: WARN rollout timeout (old pods still serving)"
           done
@@ -480,12 +494,3 @@ jobs:
               echo "$DEPLOY: cleaned old replicasets (kept $LATEST_RS)"
             fi
           done
-
-      - name: Scale down non-critical services
-        if: steps.check-prod-cluster.outputs.exists == 'true'
-        run: |
-          kubectl scale deployment ai automations campaigns franchise hardware-bridge \
-            kds-display notifications reporting webhooks developer-portal partner-portal \
-            reseller-portal sales-portal pay godmode org-portal \
-            --replicas=0 -n elevatedpos 2>/dev/null || true
-          echo "Non-critical services scaled to 0"
