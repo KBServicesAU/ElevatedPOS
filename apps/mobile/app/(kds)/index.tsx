@@ -342,27 +342,37 @@ export default function KDSScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Settings</Text>
 
+            {/* ── Sound & Print ── */}
+            <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', marginBottom: 6, letterSpacing: 1 }}>ALERTS & PRINTING</Text>
             <View style={styles.modalCard}>
               <View style={styles.modalRow}>
                 <Text style={styles.modalLabel}>New Order Sound</Text>
-                <Switch
-                  value={soundEnabled}
-                  onValueChange={setSoundEnabled}
-                  trackColor={{ false: '#2a2a2a', true: '#6366f180' }}
-                  thumbColor={soundEnabled ? '#6366f1' : '#555'}
-                />
+                <Switch value={soundEnabled} onValueChange={setSoundEnabled} trackColor={{ false: '#2a2a2a', true: '#6366f180' }} thumbColor={soundEnabled ? '#6366f1' : '#555'} />
               </View>
               <View style={styles.modalDivider} />
               <View style={styles.modalRow}>
                 <Text style={styles.modalLabel}>Print Label on Bump</Text>
-                <Switch
-                  value={printOnBump}
-                  onValueChange={setPrintOnBump}
-                  trackColor={{ false: '#2a2a2a', true: '#6366f180' }}
-                  thumbColor={printOnBump ? '#6366f1' : '#555'}
-                />
+                <Switch value={printOnBump} onValueChange={setPrintOnBump} trackColor={{ false: '#2a2a2a', true: '#6366f180' }} thumbColor={printOnBump ? '#6366f1' : '#555'} />
+              </View>
+            </View>
+
+            {/* ── Timer Colors ── */}
+            <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', marginTop: 14, marginBottom: 6, letterSpacing: 1 }}>TIMER THRESHOLDS</Text>
+            <View style={styles.modalCard}>
+              <View style={styles.modalRow}>
+                <Text style={styles.modalLabel}>Green → Yellow</Text>
+                <Text style={styles.modalValue}>5 min</Text>
               </View>
               <View style={styles.modalDivider} />
+              <View style={styles.modalRow}>
+                <Text style={styles.modalLabel}>Yellow → Red</Text>
+                <Text style={styles.modalValue}>10 min</Text>
+              </View>
+            </View>
+
+            {/* ── Device ── */}
+            <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', marginTop: 14, marginBottom: 6, letterSpacing: 1 }}>DEVICE</Text>
+            <View style={styles.modalCard}>
               <View style={styles.modalRow}>
                 <Text style={styles.modalLabel}>App Version</Text>
                 <Text style={styles.modalValue}>{APP_VERSION}</Text>
@@ -415,6 +425,24 @@ export default function KDSScreen() {
               activeOpacity={0.85}
             >
               <Text style={styles.modalCheckBtnText}>Check for Updates</Text>
+            </TouchableOpacity>
+
+            {/* Unpair */}
+            <TouchableOpacity
+              style={{ backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginBottom: 8, borderWidth: 1, borderColor: '#ef4444' }}
+              onPress={() => {
+                Alert.alert('Unpair Device', 'This will remove all credentials. You will need to pair again.', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Unpair', style: 'destructive', onPress: async () => {
+                    const { clearIdentity } = useDeviceStore.getState();
+                    await clearIdentity();
+                    setShowSettings(false);
+                  }},
+                ]);
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#ef4444' }}>Unpair Device</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowSettings(false)} activeOpacity={0.85}>
