@@ -57,9 +57,20 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     permissions: [
+      // USB thermal printer support
       'android.permission.USB_PERMISSION',
+      // Network
       'android.permission.INTERNET',
       'android.permission.ACCESS_NETWORK_STATE',
+      // Bluetooth printer support (classic + BLE)
+      // Android ≤11 (API 30) legacy permissions
+      'android.permission.BLUETOOTH',
+      'android.permission.BLUETOOTH_ADMIN',
+      // Android 12+ (API 31+) runtime permissions — required before BLEPrinter.init()
+      'android.permission.BLUETOOTH_CONNECT',
+      'android.permission.BLUETOOTH_SCAN',
+      // Location required for BT device discovery on Android ≤11
+      'android.permission.ACCESS_FINE_LOCATION',
     ],
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',

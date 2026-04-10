@@ -5,6 +5,45 @@
 import { Platform, Alert } from 'react-native';
 import { usePrinterStore, type PrinterConnectionType } from '../store/printers';
 
+// ── Android Bluetooth runtime permissions ────────────────────────────────────
+// Android 12+ (API 31+) introduced BLUETOOTH_SCAN and BLUETOOTH_CONNECT as
+// "dangerous" permissions that must be requested at runtime. Calling
+// BLEPrinter.init() without them throws a SecurityException and crashes the app.
+// This guard requests them before any BLE operation; it is a no-op on iOS and
+// on Android 11 and below (where the legacy BLUETOOTH/BLUETOOTH_ADMIN manifest
+// permissions are sufficient).
+async function ensureBluetoothPermissions(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PermissionsAndroid } = require('react-native') as typeof import('react-native');
+    const results = await PermissionsAndroid.requestMultiple([
+      'android.permission.BLUETOOTH_SCAN' as any,
+      'android.permission.BLUETOOTH_CONNECT' as any,
+    ]);
+    const scan = results['android.permission.BLUETOOTH_SCAN' as any];
+    const connect = results['android.permission.BLUETOOTH_CONNECT' as any];
+    if (scan === 'denied' || connect === 'denied') {
+      throw new Error(
+        'Bluetooth permission denied. Go to Settings → Apps → ElevatedPOS → Permissions and allow Nearby devices.',
+      );
+    }
+    if (scan === 'never_ask_again' || connect === 'never_ask_again') {
+      throw new Error(
+        'Bluetooth permission permanently denied. Please enable it in Android Settings → Apps.',
+      );
+    }
+  } catch (err: any) {
+    // Re-throw our own friendly errors; swallow internal PermissionsAndroid
+    // errors (e.g. on old API levels where the permission doesn't exist).
+    if (err?.message?.toLowerCase().includes('bluetooth') || err?.message?.toLowerCase().includes('permission')) {
+      throw err;
+    }
+    // On Android ≤11 requestMultiple may throw for unrecognised permission
+    // strings — that is fine, the legacy manifest permissions are enough.
+  }
+}
+
 // Lazy-load printer modules to prevent crash if native module is unavailable
 let USBPrinter: any = null;
 let BLEPrinter: any = null;
@@ -69,6 +108,8 @@ export async function connectPrinter(): Promise<void> {
     });
     connected = true;
   } else if (type === 'bluetooth') {
+    // Request Android 12+ runtime permissions before any BLE operation.
+    await ensureBluetoothPermissions();
     try { await BLEPrinter.init(); } catch (e: any) {
       throw new Error('Bluetooth init failed: ' + (e?.message ?? 'unknown'));
     }
@@ -151,6 +192,8 @@ export async function discoverPrinters(type: PrinterConnectionType): Promise<Dis
     }));
   }
   if (type === 'bluetooth') {
+    // Request Android 12+ runtime permissions before any BLE operation.
+    await ensureBluetoothPermissions();
     try { await BLEPrinter.init(); } catch { /* ignore */ }
     let devices: any[] = [];
     try { devices = await BLEPrinter.getDeviceList(); } catch (e: any) {

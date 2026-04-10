@@ -102,6 +102,12 @@ export default function PosSellScreen() {
   // Product detail modal (long-press)
   const [detailProduct, setDetailProduct] = useState<CatalogProduct | null>(null);
 
+  // Customer search modal (P8)
+  const [showCustomerSearch, setShowCustomerSearch] = useState(false);
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customerResults, setCustomerResults] = useState<Array<{ id: string; firstName: string; lastName: string; email?: string; phone?: string; loyaltyPoints?: number }>>([]);
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+
   // Tyro EFTPOS transaction modal
   const [showTyroModal, setShowTyroModal] = useState(false);
   const [tyroAmount, setTyroAmount] = useState(0);
@@ -605,6 +611,38 @@ export default function PosSellScreen() {
     router.replace('/employee-login');
   }
 
+  // ── Customer search ──────────────────────────────────────────────
+  async function searchCustomers(query: string) {
+    setCustomerSearchLoading(true);
+    try {
+      const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
+      const token = useAuthStore.getState().employeeToken ?? identity?.deviceToken ?? '';
+      const res = await fetch(
+        `${base}/api/v1/customers?search=${encodeURIComponent(query)}&limit=20`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(4000),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setCustomerResults(Array.isArray(data) ? data : (data.data ?? []));
+      }
+    } catch {
+      // ignore — user can retry
+    } finally {
+      setCustomerSearchLoading(false);
+    }
+  }
+
+  function openCustomerSearch() {
+    setCustomerQuery('');
+    setCustomerResults([]);
+    setShowCustomerSearch(true);
+    // Pre-load recent customers immediately
+    searchCustomers('');
+  }
+
   // ── Render ───────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -675,8 +713,7 @@ export default function PosSellScreen() {
                   });
                   if (removeIt) setCustomer(null, null);
                 } else {
-                  // Navigate to customers tab to search and select
-                  router.push('/(pos)/customers');
+                  openCustomerSearch();
                 }
               }}
               activeOpacity={0.7}
@@ -1238,6 +1275,93 @@ export default function PosSellScreen() {
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setDetailProduct(null)} style={{ alignItems: 'center', paddingVertical: 10 }}>
               <Text style={{ color: '#666', fontSize: 14 }}>Close</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ═══ Customer Search Modal (P8) ═══ */}
+      <Modal visible={showCustomerSearch} transparent animationType="fade" onRequestClose={() => setShowCustomerSearch(false)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }}
+          onPress={() => setShowCustomerSearch(false)}
+        >
+          <Pressable
+            style={{ backgroundColor: '#1a1a2e', borderRadius: 20, padding: 20, width: 400, maxHeight: '80%', borderWidth: 1, borderColor: '#2a2a3a' }}
+            onPress={() => {}}
+          >
+            <Text style={{ fontSize: 18, fontWeight: '900', color: '#fff', marginBottom: 14 }}>Select Customer</Text>
+
+            {/* Search input */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#0d0d14', borderRadius: 12, borderWidth: 1, borderColor: '#2a2a3a', paddingHorizontal: 12, marginBottom: 12 }}>
+              <Ionicons name="search" size={16} color="#555" />
+              <TextInput
+                style={{ flex: 1, color: '#fff', fontSize: 15, paddingVertical: 10, paddingHorizontal: 8 }}
+                placeholder="Name, email or phone..."
+                placeholderTextColor="#444"
+                value={customerQuery}
+                onChangeText={(v) => {
+                  setCustomerQuery(v);
+                  searchCustomers(v);
+                }}
+                autoFocus
+                returnKeyType="search"
+                onSubmitEditing={() => searchCustomers(customerQuery)}
+              />
+              {customerSearchLoading && <ActivityIndicator size="small" color="#6366f1" />}
+              {customerQuery !== '' && !customerSearchLoading && (
+                <TouchableOpacity onPress={() => { setCustomerQuery(''); searchCustomers(''); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close-circle" size={16} color="#555" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Results list */}
+            {customerResults.length === 0 && !customerSearchLoading ? (
+              <View style={{ alignItems: 'center', paddingVertical: 28 }}>
+                <Ionicons name="people-outline" size={32} color="#333" />
+                <Text style={{ color: '#555', fontSize: 13, marginTop: 8 }}>
+                  {customerQuery ? 'No customers found' : 'Type to search customers'}
+                </Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+                {customerResults.map((c) => (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1e1e2e', gap: 12 }}
+                    onPress={() => {
+                      setCustomer(c.id, `${c.firstName} ${c.lastName}`);
+                      setShowCustomerSearch(false);
+                    }}
+                  >
+                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#6366f1', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
+                        {c.firstName.charAt(0)}{c.lastName.charAt(0)}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>{c.firstName} {c.lastName}</Text>
+                      {c.email ? <Text style={{ color: '#666', fontSize: 12 }} numberOfLines={1}>{c.email}</Text> : null}
+                      {c.phone ? <Text style={{ color: '#555', fontSize: 11 }}>{c.phone}</Text> : null}
+                    </View>
+                    {c.loyaltyPoints != null && (
+                      <View style={{ backgroundColor: 'rgba(245,158,11,0.15)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: '#f59e0b44' }}>
+                        <Text style={{ color: '#f59e0b', fontSize: 11, fontWeight: '700' }}>{c.loyaltyPoints} pts</Text>
+                      </View>
+                    )}
+                    <Ionicons name="chevron-forward" size={14} color="#444" />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            {/* Walk-in / no-customer shortcut */}
+            <TouchableOpacity
+              style={{ marginTop: 14, paddingVertical: 12, alignItems: 'center', borderRadius: 12, borderWidth: 1, borderColor: '#2a2a3a' }}
+              onPress={() => { setCustomer(null, null); setShowCustomerSearch(false); }}
+            >
+              <Text style={{ color: '#666', fontSize: 14 }}>Continue without customer</Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>
