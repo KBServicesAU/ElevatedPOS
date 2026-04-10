@@ -40,7 +40,7 @@ interface ApiSignupLinkResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const SIGNUP_BASE = 'https://app.elevatedpos.com.au/signup';
+const SIGNUP_BASE = process.env.NEXT_PUBLIC_SIGNUP_URL ?? 'https://app.elevatedpos.com.au/signup';
 const PAGE_SIZE = 25;
 
 async function apiFetch(path: string, options?: RequestInit): Promise<unknown> {

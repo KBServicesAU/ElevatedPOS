@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from '../components/Sidebar';
 import { Download, CheckCircle } from 'lucide-react';
+import { PLAN_STYLES } from '../../lib/styles';
 
 interface BillingRow {
   id: string;
@@ -13,41 +14,31 @@ interface BillingRow {
   invoiceDate: string;
 }
 
-const BILLING_ROWS: BillingRow[] = [
-  { id: 'b1', name: 'Brew & Bean Coffee Co', plan: 'Growth', monthlyFee: 499, status: 'paid', invoiceDate: 'Mar 1, 2026' },
-  { id: 'b2', name: 'Harborview Bistro', plan: 'Pro', monthlyFee: 999, status: 'paid', invoiceDate: 'Mar 1, 2026' },
-  { id: 'b3', name: 'Sunrise Bakery', plan: 'Growth', monthlyFee: 499, status: 'paid', invoiceDate: 'Mar 1, 2026' },
-  { id: 'b4', name: 'Metro Grill', plan: 'Pro', monthlyFee: 999, status: 'paid', invoiceDate: 'Mar 1, 2026' },
-  { id: 'b5', name: 'Old Riverside Bar', plan: 'Starter', monthlyFee: 299, status: 'overdue', invoiceDate: 'Feb 1, 2026' },
-  { id: 'b6', name: 'Coastal Eats', plan: 'Growth', monthlyFee: 499, status: 'paid', invoiceDate: 'Mar 1, 2026' },
-  { id: 'b7', name: 'The Corner Store', plan: 'Starter', monthlyFee: 299, status: 'pending', invoiceDate: 'Mar 1, 2026' },
-  { id: 'b8', name: 'Fusion Kitchen', plan: 'Pro', monthlyFee: 999, status: 'paid', invoiceDate: 'Mar 1, 2026' },
-  { id: 'b9', name: 'The Bun Factory', plan: 'Growth', monthlyFee: 499, status: 'pending', invoiceDate: 'Mar 1, 2026' },
-  { id: 'b10', name: 'Queenstown Diner', plan: 'Starter', monthlyFee: 299, status: 'paid', invoiceDate: 'Mar 1, 2026' },
-];
-
-const STATUS_STYLES: Record<BillingRow['status'], string> = {
+// PLAN_STYLES and STATUS_STYLES (active/suspended/trial) are imported from ../../lib/styles.
+// Billing has additional invoice statuses not covered by STATUS_STYLES — keep those local.
+const INVOICE_STATUS_OVERRIDES: Record<string, string> = {
   paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
   pending: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   overdue: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
 };
 
-const PLAN_STYLES: Record<BillingRow['plan'], string> = {
-  Starter: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  Growth: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-  Pro: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300',
-};
-
-const stats = [
-  { label: 'Total MRR', value: '$18,400', sub: 'Current billing period' },
-  { label: 'Outstanding', value: '$2,100', sub: '3 invoices unpaid' },
-  { label: 'Next Invoice', value: 'April 1', sub: 'Scheduled generation' },
-  { label: 'Avg per Tenant', value: '$767', sub: 'Across 24 tenants' },
-];
-
 export default function BillingPage() {
-  const total = BILLING_ROWS.reduce((sum, r) => sum + r.monthlyFee, 0);
+  const [billingRows, setBillingRows] = useState<BillingRow[]>([]);
+  const [loadingBilling, setLoadingBilling] = useState(true);
   const [downloaded, setDownloaded] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/billing')
+      .then((r) => r.ok ? r.json() : Promise.reject(r))
+      .then((data: { data?: BillingRow[] } | BillingRow[]) => {
+        if (Array.isArray(data)) setBillingRows(data);
+        else setBillingRows((data as { data?: BillingRow[] }).data ?? []);
+      })
+      .catch((err) => { console.error('Failed to load billing rows:', err); setBillingRows([]); })
+      .finally(() => setLoadingBilling(false));
+  }, []);
+
+  const total = billingRows.reduce((sum, r) => sum + r.monthlyFee, 0);
 
   function handleDownload() {
     setDownloaded(true);
@@ -102,7 +93,7 @@ export default function BillingPage() {
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Current Billing Period — March 2026</h2>
-              <span className="text-xs text-slate-400">{BILLING_ROWS.length} tenants</span>
+              <span className="text-xs text-slate-400">{billingRows.length} tenants</span>
             </div>
             <table className="w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
@@ -115,7 +106,7 @@ export default function BillingPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {BILLING_ROWS.map((row) => (
+                {billingRows.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                     <td className="px-5 py-3.5 font-medium text-slate-900 dark:text-white">{row.name}</td>
                     <td className="px-5 py-3.5">
@@ -125,7 +116,7 @@ export default function BillingPage() {
                     </td>
                     <td className="px-5 py-3.5 font-mono text-slate-800 dark:text-slate-200">${row.monthlyFee.toLocaleString()}</td>
                     <td className="px-5 py-3.5">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[row.status]}`}>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${INVOICE_STATUS_OVERRIDES[row.status]}`}>
                         {row.status}
                       </span>
                     </td>

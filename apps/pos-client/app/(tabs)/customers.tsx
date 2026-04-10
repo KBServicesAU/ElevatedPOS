@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,10 @@ import {
   TextInput,
   SafeAreaView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { posApiFetch } from '../../lib/api';
 
 type Tier = 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
 
@@ -25,37 +27,6 @@ interface Customer {
   totalSpend: number;
 }
 
-// TODO: Replace hardcoded customer data with API call to GET /api/v1/customers
-const CUSTOMERS: Customer[] = [
-  {
-    id: 'c1', name: 'Sarah Mitchell', email: 'sarah.m@email.com', phone: '(555) 012-3456',
-    tier: 'Platinum', points: 4820, visits: 143, lastVisit: 'Today', totalSpend: 892.40,
-  },
-  {
-    id: 'c2', name: 'James Okafor', email: 'james.o@email.com', phone: '(555) 234-5678',
-    tier: 'Gold', points: 2150, visits: 67, lastVisit: 'Yesterday', totalSpend: 418.75,
-  },
-  {
-    id: 'c3', name: 'Priya Nair', email: 'priya.n@email.com', phone: '(555) 345-6789',
-    tier: 'Gold', points: 1890, visits: 52, lastVisit: '2 days ago', totalSpend: 361.20,
-  },
-  {
-    id: 'c4', name: 'Tom Becker', email: 'tom.b@email.com', phone: '(555) 456-7890',
-    tier: 'Silver', points: 780, visits: 24, lastVisit: '1 week ago', totalSpend: 154.90,
-  },
-  {
-    id: 'c5', name: 'Chloe Dupont', email: 'chloe.d@email.com', phone: '(555) 567-8901',
-    tier: 'Silver', points: 610, visits: 19, lastVisit: '3 days ago', totalSpend: 122.60,
-  },
-  {
-    id: 'c6', name: 'Marcus Lee', email: 'marcus.l@email.com', phone: '(555) 678-9012',
-    tier: 'Bronze', points: 230, visits: 8, lastVisit: '2 weeks ago', totalSpend: 46.80,
-  },
-  {
-    id: 'c7', name: 'Amara Jones', email: 'amara.j@email.com', phone: '(555) 789-0123',
-    tier: 'Bronze', points: 90, visits: 3, lastVisit: '1 month ago', totalSpend: 18.20,
-  },
-];
 
 const tierConfig: Record<Tier, { bg: string; text: string; icon: string }> = {
   Bronze:   { bg: '#3b2a1a', text: '#d97706', icon: '🥉' },
@@ -65,10 +36,19 @@ const tierConfig: Record<Tier, { bg: string; text: string; icon: string }> = {
 };
 
 export default function CustomersScreen() {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(true);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Customer | null>(null);
 
-  const filtered = CUSTOMERS.filter(
+  useEffect(() => {
+    posApiFetch<{ data: Customer[] }>('/api/v1/customers')
+      .then((res) => setCustomers(res.data ?? []))
+      .catch((err) => { console.error('[Customers] Failed to load:', err); setCustomers([]); })
+      .finally(() => setLoadingCustomers(false));
+  }, []);
+
+  const filtered = customers.filter(
     (c) =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||
       c.email.toLowerCase().includes(search.toLowerCase()) ||
@@ -195,9 +175,14 @@ export default function CustomersScreen() {
       </View>
 
       <View style={styles.listHeader}>
-        <Text style={styles.listHeaderText}>{filtered.length} customers</Text>
+        <Text style={styles.listHeaderText}>
+          {loadingCustomers ? 'Loading…' : `${filtered.length} customers`}
+        </Text>
       </View>
 
+      {loadingCustomers ? (
+        <ActivityIndicator color="#818cf8" style={{ marginTop: 40 }} />
+      ) : (
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {filtered.map((customer) => {
           const tc = tierConfig[customer.tier];
@@ -245,6 +230,7 @@ export default function CustomersScreen() {
           </View>
         )}
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 }

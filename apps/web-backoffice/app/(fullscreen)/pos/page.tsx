@@ -289,7 +289,7 @@ function CloseTillModal({
     if (!countedStr) return;
     setSubmitting(true);
     try {
-      await fetch('/api/proxy/till-sessions/close', {
+      const res = await fetch('/api/proxy/till-sessions/close', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -300,7 +300,8 @@ function CloseTillModal({
           variance: variance ?? 0,
           reason: reason.trim() || undefined,
         }),
-      }).catch(() => {});
+      });
+      if (!res.ok) throw new Error(`Till close failed: ${res.status}`);
 
       // Print Z-Report
       window.print();
@@ -308,6 +309,13 @@ function CloseTillModal({
       clearTillSession();
       toast({ title: 'Till closed. Z-Report printed.', variant: 'success' });
       onClose();
+    } catch (err) {
+      console.error('Till close error:', err);
+      toast({
+        title: 'Failed to close till',
+        description: 'Please try again or contact support.',
+        variant: 'destructive',
+      });
     } finally {
       setSubmitting(false);
     }
@@ -740,25 +748,61 @@ function useNetworkStatus() {
   return { isOnline, justReconnected, setJustReconnected };
 }
 
+/**
+ * Sync offline transactions when connectivity is restored.
+ *
+ * NOTE: There is no batch /sync-offline endpoint on the orders service yet.
+ * TODO (server-side): Implement POST /api/v1/orders/sync-offline that accepts
+ *   { transactions: OfflineTransaction[] } and processes them atomically.
+ *
+ * For now we replay each queued transaction individually via the standard
+ * order creation endpoint. Successfully replayed items are removed from the
+ * queue so a partial failure doesn't re-submit already-synced transactions.
+ */
 async function syncOfflineQueue(toast: ReturnType<typeof useToast>['toast']) {
   const queue = getOfflineQueue();
   if (queue.length === 0) return;
-  try {
-    const res = await fetch('/api/proxy/orders/sync-offline', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transactions: queue }),
-    });
-    if (res.ok) {
-      clearOfflineQueue();
-      toast({
-        title: 'Offline transactions synced',
-        description: `${queue.length} queued transaction${queue.length !== 1 ? 's' : ''} uploaded.`,
-        variant: 'success',
+
+  let synced = 0;
+  const remaining: OfflineTransaction[] = [];
+
+  for (const transaction of queue) {
+    try {
+      const res = await fetch('/api/proxy/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(transaction.payload),
       });
+      if (res.ok) {
+        synced++;
+      } else {
+        console.error('[POS] Offline sync failed for transaction', transaction.id, res.status);
+        remaining.push(transaction);
+      }
+    } catch (err) {
+      console.error('[POS] Offline sync network error for transaction', transaction.id, err);
+      remaining.push(transaction);
     }
-  } catch {
-    // Silently ignore — will retry next reconnection
+  }
+
+  // Persist only the transactions that failed to sync
+  try {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
+  } catch { /* ignore storage errors */ }
+
+  if (synced > 0) {
+    toast({
+      title: 'Offline transactions synced',
+      description: `${synced} queued transaction${synced !== 1 ? 's' : ''} uploaded.`,
+      variant: 'success',
+    });
+  }
+  if (remaining.length > 0) {
+    toast({
+      title: 'Some transactions failed to sync',
+      description: `${remaining.length} transaction${remaining.length !== 1 ? 's' : ''} could not be uploaded. Will retry on next reconnection.`,
+      variant: 'destructive',
+    });
   }
 }
 
@@ -1050,7 +1094,7 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
       if (updated) setTillSession(updated);
     }
     if (receiptConnected) {
-      await printerOpenCashDrawer().catch(() => {});
+      await printerOpenCashDrawer().catch((err) => console.error('[POS] Cash drawer open failed:', err));
     }
   }, [tillSession, staff, receiptConnected, printerOpenCashDrawer]);
 
@@ -1410,7 +1454,7 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
       {showSettings && (
         <SettingsModal
           onClose={() => setShowSettings(false)}
-          onConnect={(printerType, method) => connectPrinter(printerType, method).catch(() => {})}
+          onConnect={(printerType, method) => connectPrinter(printerType, method).catch((err) => console.error('[POS] Printer connect failed:', err))}
         />
       )}
 

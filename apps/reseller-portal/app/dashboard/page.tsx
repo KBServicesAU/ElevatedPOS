@@ -13,13 +13,16 @@ interface Organisation {
   status?: string;
 }
 
-/** Known plan monthly prices (AUD) — matches storefront pricing */
+// TODO: fetch plan prices from API (e.g. GET /api/proxy/billing/plans) instead of
+// hardcoding them here — prices may vary per reseller agreement and change over time.
 const PLAN_MONTHLY_PRICE: Record<string, number> = {
-  starter: 49,
-  growth: 149,
+  starter: 49, // TODO: fetch from API
+  growth: 149, // TODO: fetch from API
 };
 
-const DEFAULT_COMMISSION_RATE = 0.2; // 20% reseller commission
+// TODO: fetch commission rate from the reseller profile API rather than hardcoding it —
+// different resellers may have negotiated different rates.
+const DEFAULT_COMMISSION_RATE = 0.2; // TODO: fetch from API
 
 interface ApiResponse {
   organisations?: Organisation[];

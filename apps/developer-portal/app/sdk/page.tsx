@@ -352,8 +352,8 @@ export async function POST(request: Request) {
   label: 'Production handler',
 });
 
-// IMPORTANT: save the secret now — it is never shown again
-console.log('Webhook secret:', webhook.secret);
+// IMPORTANT: save webhook.secret securely now — it is never shown again
+// Store it in an environment variable or secrets manager, never log it
 
 // Later: list deliveries for debugging
 const { data: deliveries } = await epos.webhooks.deliveries(webhook.id);

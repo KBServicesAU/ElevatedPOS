@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, Suspense, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
@@ -14,17 +14,22 @@ function LoginContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Handle impersonation token from Godmode — auto-login support staff as a merchant
-  const impersonateToken = searchParams.get('impersonate');
-  if (impersonateToken && typeof window !== 'undefined') {
-    fetch('/api/auth/impersonate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: impersonateToken }),
-    }).then((res) => {
-      if (res.ok) router.replace('/dashboard?impersonation=1');
-    }).catch(() => null);
-  }
+  // Handle impersonation token from Godmode — auto-login support staff as a merchant.
+  // Uses a ref guard so this runs exactly once even under React Strict Mode double-invoke.
+  const impersonateFired = useRef(false);
+  useEffect(() => {
+    const impersonateToken = searchParams.get('impersonate');
+    if (impersonateToken && !impersonateFired.current) {
+      impersonateFired.current = true;
+      fetch('/api/auth/impersonate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: impersonateToken }),
+      })
+        .then((res) => { if (res.ok) router.replace('/dashboard?impersonation=1'); })
+        .catch(() => null);
+    }
+  }, [searchParams, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

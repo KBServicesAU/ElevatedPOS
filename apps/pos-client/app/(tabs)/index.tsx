@@ -1242,4 +1242,22 @@ const styles = StyleSheet.create({
     minHeight: 80,
     textAlignVertical: 'top',
   },
+
+  // ── Offline mode banner ──────────────────────────────────────────────────
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 6,
+    borderRadius: 6,
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  offlineBannerText: {
+    fontSize: 13,
+    color: '#92400e',
+    fontWeight: '600',
+  },
 });

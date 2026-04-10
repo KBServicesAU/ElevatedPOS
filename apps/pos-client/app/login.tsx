@@ -83,7 +83,7 @@ function ClockModal({ visible, onClose }: { visible: boolean; onClose: () => voi
         const res = await fetch(`${AUTH_API}/api/v1/time-clock/clock-out`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ locationId: 'LOC_001' }),
+          body: JSON.stringify({ locationId: process.env.EXPO_PUBLIC_DEFAULT_LOCATION_ID ?? 'LOC_001' }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { title?: string };
@@ -95,7 +95,7 @@ function ClockModal({ visible, onClose }: { visible: boolean; onClose: () => voi
         const res = await fetch(`${AUTH_API}/api/v1/time-clock/clock-in`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ locationId: 'LOC_001' }),
+          body: JSON.stringify({ locationId: process.env.EXPO_PUBLIC_DEFAULT_LOCATION_ID ?? 'LOC_001' }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { title?: string };

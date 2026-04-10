@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '../components/Sidebar';
 import { useState, useEffect, useRef } from 'react';
+import { PLAN_STYLES, STATUS_STYLES } from '../../lib/styles';
 import {
   Search,
   Plus,
@@ -26,33 +27,29 @@ interface Tenant {
   email: string;
 }
 
-const MOCK_TENANTS: Tenant[] = [
-  { id: 't1', name: 'Brew & Bean Coffee Co', plan: 'Growth', locations: 4, mrr: 890, status: 'active', lastActivity: '2 hours ago', email: 'ops@brewandbean.com' },
-  { id: 't2', name: 'Harborview Bistro', plan: 'Pro', locations: 7, mrr: 1850, status: 'active', lastActivity: '1 day ago', email: 'manager@harborview.com' },
-  { id: 't3', name: 'Sunrise Bakery', plan: 'Growth', locations: 2, mrr: 490, status: 'active', lastActivity: '3 hours ago', email: 'admin@sunrisebakery.com' },
-  { id: 't4', name: 'Metro Grill', plan: 'Pro', locations: 5, mrr: 1200, status: 'active', lastActivity: '5 minutes ago', email: 'it@metrogrill.com.au' },
-  { id: 't5', name: 'Old Riverside Bar', plan: 'Starter', locations: 1, mrr: 0, status: 'suspended', lastActivity: '8 days ago', email: 'contact@riversidebar.com.au' },
-];
-
-const PLAN_BADGES = {
-  Starter: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  Growth: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-  Pro: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300',
-};
-
-const STATUS_BADGES = {
-  active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-  suspended: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
-  trial: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
-};
+// PLAN_STYLES and STATUS_STYLES are imported from ../../lib/styles
 
 export default function TenantsPage() {
   const router = useRouter();
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [planFilter, setPlanFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Fetch tenants from the partner API
+  useEffect(() => {
+    fetch('/api/tenants')
+      .then((r) => r.ok ? r.json() : Promise.reject(r))
+      .then((data: { data?: Tenant[] } | Tenant[]) => {
+        if (Array.isArray(data)) setTenants(data);
+        else setTenants((data as { data?: Tenant[] }).data ?? []);
+      })
+      .catch((err) => { console.error('Failed to load tenants:', err); setTenants([]); })
+      .finally(() => setLoading(false));
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -65,7 +62,7 @@ export default function TenantsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [openMenu]);
 
-  const filtered = MOCK_TENANTS.filter((t) => {
+  const filtered = tenants.filter((t) => {
     const matchSearch =
       t.name.toLowerCase().includes(search.toLowerCase()) ||
       t.email.toLowerCase().includes(search.toLowerCase());
@@ -81,7 +78,7 @@ export default function TenantsPage() {
         <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-8 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-900 dark:text-white">Tenants</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">{MOCK_TENANTS.length} total tenants</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{loading ? '…' : `${tenants.length} total tenants`}</p>
           </div>
           <Link
             href="/tenants/new"
@@ -147,7 +144,7 @@ export default function TenantsPage() {
                       <div className="text-xs text-slate-400 dark:text-slate-500">{tenant.email}</div>
                     </td>
                     <td className="px-5 py-4">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLAN_BADGES[tenant.plan]}`}>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLAN_STYLES[tenant.plan]}`}>
                         {tenant.plan}
                       </span>
                     </td>
@@ -156,7 +153,7 @@ export default function TenantsPage() {
                       {tenant.mrr > 0 ? `$${tenant.mrr.toLocaleString()}` : <span className="text-slate-400 dark:text-slate-500">—</span>}
                     </td>
                     <td className="px-5 py-4">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${STATUS_BADGES[tenant.status]}`}>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[tenant.status]}`}>
                         {tenant.status}
                       </span>
                     </td>

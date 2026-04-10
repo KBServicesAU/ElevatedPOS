@@ -344,6 +344,11 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
     prefix: '/api/v1/organisations',
   },
+  // Till sessions — cash management, Z-reports, float tracking (orders service)
+  'till-sessions': {
+    base: process.env.ORDERS_API_URL ?? 'http://localhost:4004',
+    prefix: '/api/v1/till-sessions',
+  },
   // Notifications service routes
   notifications: {
     base: process.env.NOTIFICATIONS_API_URL ?? 'http://localhost:4009',

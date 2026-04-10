@@ -154,7 +154,7 @@ export default function MyMerchantsPage() {
                     </td>
                     <td className="px-5 py-3 text-right">
                       <a
-                        href={`https://organisation.elevatedpos.com.au/dashboard/merchants/${org.id}`}
+                        href={`${process.env.NEXT_PUBLIC_ORG_PORTAL_URL ?? 'https://organisation.elevatedpos.com.au'}/dashboard/merchants/${org.id}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-200 font-medium"

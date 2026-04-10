@@ -1,55 +1,27 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
+import { PLAN_STYLES, STATUS_STYLES } from '../../../lib/styles';
 import { ArrowLeft, MapPin, DollarSign, ShoppingCart, Calendar, Edit2, Save, Ban } from 'lucide-react';
 
-// Mock data for a single tenant (in production this would be fetched by id)
-const TENANT = {
-  id: 't2',
-  name: 'Harborview Bistro',
-  plan: 'Pro' as const,
-  status: 'active' as const,
-  mrr: 999,
-  totalOrders: 12480,
-  locations: 7,
-  createdAt: 'Jan 14, 2024',
-  email: 'manager@harborview.com',
-  phone: '+61 2 9221 4000',
-  owner: 'David Chen',
-  address: '1 Circular Quay East, Sydney NSW 2000',
-  abn: '44 098 217 645',
-};
-
-const ACTIVITY = [
-  { time: '2h ago', event: 'New order processed', detail: 'Order #12480 — $89.50 via dine-in' },
-  { time: '1d ago', event: 'Staff member added', detail: 'Sophie Wilson joined as Cashier' },
-  { time: '3d ago', event: 'Inventory reorder', detail: '8 items restocked via purchase order PO-2041' },
-  { time: '5d ago', event: 'Menu item updated', detail: '"Grilled Salmon" price updated to $38' },
-  { time: '1w ago', event: 'New location activated', detail: 'Darling Harbour branch is now live' },
-];
-
-const INVOICES = [
-  { num: 'INV-2026-03', period: 'March 2026', amount: 999, status: 'paid', date: 'Mar 1, 2026' },
-  { num: 'INV-2026-02', period: 'February 2026', amount: 999, status: 'paid', date: 'Feb 1, 2026' },
-  { num: 'INV-2026-01', period: 'January 2026', amount: 999, status: 'paid', date: 'Jan 1, 2026' },
-  { num: 'INV-2025-12', period: 'December 2025', amount: 999, status: 'paid', date: 'Dec 1, 2025' },
-  { num: 'INV-2025-11', period: 'November 2025', amount: 499, status: 'paid', date: 'Nov 1, 2025' },
-  { num: 'INV-2025-10', period: 'October 2025', amount: 499, status: 'paid', date: 'Oct 1, 2025' },
-];
-
-const PLAN_STYLES = {
-  Starter: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  Growth: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-  Pro: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300',
-};
-
-const STATUS_STYLES = {
-  active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-  suspended: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
-  trial: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
-};
+interface TenantDetail {
+  id: string;
+  name: string;
+  plan: 'Starter' | 'Growth' | 'Pro';
+  status: 'active' | 'suspended' | 'trial';
+  mrr: number;
+  totalOrders: number;
+  locations: number;
+  createdAt: string;
+  email: string;
+  phone?: string;
+  owner?: string;
+  address?: string;
+  abn?: string;
+}
 
 const INVOICE_STATUS_STYLES: Record<string, string> = {
   paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
@@ -60,11 +32,54 @@ const INVOICE_STATUS_STYLES: Record<string, string> = {
 type Tab = 'overview' | 'locations' | 'billing' | 'settings';
 
 export default function TenantDetailPage() {
+  const params = useParams();
+  const tenantId = params['id'] as string;
+  const [tenant, setTenant] = useState<TenantDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activity, setActivity] = useState<Array<{ time: string; event: string; detail: string }>>([]);
+  const [invoices, setInvoices] = useState<Array<{ num: string; period: string; amount: number; status: string; date: string }>>([]);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [settingsSaved, setSettingsSaved] = useState(false);
-  const [editName, setEditName] = useState(TENANT.name);
-  const [editOwner, setEditOwner] = useState(TENANT.owner);
-  const [editEmail, setEditEmail] = useState(TENANT.email);
+  const [editName, setEditName] = useState('');
+  const [editOwner, setEditOwner] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+
+  // Fetch tenant details from the partner API
+  useEffect(() => {
+    fetch(`/api/tenants/${tenantId}`)
+      .then((r) => r.ok ? r.json() : Promise.reject(r))
+      .then((data: { data?: TenantDetail } | TenantDetail) => {
+        const t = (data as { data?: TenantDetail }).data ?? (data as TenantDetail);
+        setTenant(t);
+        setEditName(t.name ?? '');
+        setEditOwner(t.owner ?? '');
+        setEditEmail(t.email ?? '');
+      })
+      .catch((err) => { console.error('Failed to load tenant:', err); })
+      .finally(() => setLoading(false));
+  }, [tenantId]);
+
+  // Fetch tenant activity feed
+  useEffect(() => {
+    fetch(`/api/tenants/${tenantId}/activity`)
+      .then((r) => r.ok ? r.json() : Promise.reject(r))
+      .then((data: { data?: typeof activity } | typeof activity) => {
+        if (Array.isArray(data)) setActivity(data);
+        else setActivity((data as { data?: typeof activity }).data ?? []);
+      })
+      .catch((err) => { console.error('Failed to load tenant activity:', err); setActivity([]); });
+  }, [tenantId]);
+
+  // Fetch tenant invoices
+  useEffect(() => {
+    fetch(`/api/tenants/${tenantId}/invoices`)
+      .then((r) => r.ok ? r.json() : Promise.reject(r))
+      .then((data: { data?: typeof invoices } | typeof invoices) => {
+        if (Array.isArray(data)) setInvoices(data);
+        else setInvoices((data as { data?: typeof invoices }).data ?? []);
+      })
+      .catch((err) => { console.error('Failed to load tenant invoices:', err); setInvoices([]); });
+  }, [tenantId]);
 
   function handleSaveSettings() {
     setSettingsSaved(true);
@@ -77,6 +92,24 @@ export default function TenantDetailPage() {
     { id: 'billing', label: 'Billing' },
     { id: 'settings', label: 'Settings' },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen bg-gray-50 dark:bg-slate-950">
+        <Sidebar />
+        <main className="flex-1 flex items-center justify-center text-sm text-slate-400">Loading…</main>
+      </div>
+    );
+  }
+
+  if (!tenant) {
+    return (
+      <div className="flex min-h-screen bg-gray-50 dark:bg-slate-950">
+        <Sidebar />
+        <main className="flex-1 flex items-center justify-center text-sm text-red-500">Tenant not found.</main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-slate-950">
@@ -93,19 +126,19 @@ export default function TenantDetailPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-lg">
-                {TENANT.name[0]}
+                {tenant.name[0]}
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="text-xl font-bold text-slate-900 dark:text-white">{TENANT.name}</h1>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLAN_STYLES[TENANT.plan]}`}>
-                    {TENANT.plan}
+                  <h1 className="text-xl font-bold text-slate-900 dark:text-white">{tenant.name}</h1>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLAN_STYLES[tenant.plan]}`}>
+                    {tenant.plan}
                   </span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[TENANT.status]}`}>
-                    {TENANT.status}
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[tenant.status]}`}>
+                    {tenant.status}
                   </span>
                 </div>
-                <p className="text-sm text-slate-500 dark:text-slate-400">{TENANT.email}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">{tenant.email}</p>
               </div>
             </div>
             <button
@@ -122,10 +155,10 @@ export default function TenantDetailPage() {
         <div className="px-8 py-5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
           <div className="grid grid-cols-4 gap-5">
             {[
-              { label: 'MRR', value: `$${TENANT.mrr.toLocaleString()}`, icon: DollarSign, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-950' },
-              { label: 'Total Orders', value: TENANT.totalOrders.toLocaleString(), icon: ShoppingCart, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
-              { label: 'Locations', value: String(TENANT.locations), icon: MapPin, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
-              { label: 'Customer Since', value: TENANT.createdAt, icon: Calendar, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
+              { label: 'MRR', value: `$${tenant.mrr.toLocaleString()}`, icon: DollarSign, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-950' },
+              { label: 'Total Orders', value: tenant.totalOrders.toLocaleString(), icon: ShoppingCart, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
+              { label: 'Locations', value: String(tenant.locations), icon: MapPin, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
+              { label: 'Customer Since', value: tenant.createdAt, icon: Calendar, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
             ].map(({ label, value, icon: Icon, color, bg }) => (
               <div key={label} className="flex items-center gap-3">
                 <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
@@ -169,7 +202,9 @@ export default function TenantDetailPage() {
                   <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Recent Activity</h2>
                 </div>
                 <div className="divide-y divide-slate-50 dark:divide-slate-800">
-                  {ACTIVITY.map((item, i) => (
+                  {activity.length === 0 ? (
+                    <div className="px-6 py-8 text-center text-sm text-slate-400">No recent activity</div>
+                  ) : activity.map((item, i) => (
                     <div key={i} className="px-6 py-3.5 flex items-start gap-4">
                       <div className="text-xs text-slate-400 w-12 flex-shrink-0 mt-0.5">{item.time}</div>
                       <div>
@@ -189,11 +224,11 @@ export default function TenantDetailPage() {
                   </div>
                   <div className="p-5 space-y-3 text-sm">
                     {[
-                      { label: 'Owner', value: TENANT.owner },
-                      { label: 'Email', value: TENANT.email },
-                      { label: 'Phone', value: TENANT.phone },
-                      { label: 'Address', value: TENANT.address },
-                      { label: 'ABN', value: TENANT.abn },
+                      { label: 'Owner', value: tenant.owner },
+                      { label: 'Email', value: tenant.email },
+                      { label: 'Phone', value: tenant.phone },
+                      { label: 'Address', value: tenant.address },
+                      { label: 'ABN', value: tenant.abn },
                     ].map(({ label, value }) => (
                       <div key={label}>
                         <p className="text-xs text-slate-400">{label}</p>
@@ -210,11 +245,11 @@ export default function TenantDetailPage() {
                   <div className="p-5 space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-slate-500">Current plan</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLAN_STYLES[TENANT.plan]}`}>{TENANT.plan}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLAN_STYLES[tenant.plan]}`}>{tenant.plan}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Monthly fee</span>
-                      <span className="font-mono font-medium text-slate-800">${TENANT.mrr}/mo</span>
+                      <span className="font-mono font-medium text-slate-800">${tenant.mrr}/mo</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Billing date</span>
@@ -233,7 +268,7 @@ export default function TenantDetailPage() {
           {activeTab === 'locations' && (
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
               <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
-                <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Locations ({TENANT.locations})</h2>
+                <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Locations ({tenant.locations})</h2>
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {[
@@ -279,7 +314,7 @@ export default function TenantDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {INVOICES.map((inv) => (
+                  {invoices.map((inv) => (
                     <tr key={inv.num} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-5 py-3.5 font-mono text-xs text-slate-600">{inv.num}</td>
                       <td className="px-5 py-3.5 text-slate-700">{inv.period}</td>
