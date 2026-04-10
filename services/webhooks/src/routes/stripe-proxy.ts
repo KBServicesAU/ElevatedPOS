@@ -46,9 +46,9 @@ export async function stripeProxyRoutes(app: FastifyInstance) {
         .send(data);
     } catch (err) {
       app.log.error({ err, target }, '[stripe-proxy] failed to reach integrations service');
-      // Return 200 so Stripe doesn't keep retrying if the service is temporarily down
-      // The event will be logged and can be replayed from Stripe dashboard
-      return reply.status(502).send({ error: 'Upstream unavailable' });
+      // Return 200 so Stripe stops retrying — the event can be replayed from the Stripe dashboard.
+      // Returning 5xx would cause Stripe to retry indefinitely.
+      return reply.status(200).send({ received: true, processed: false });
     }
   });
 }

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import Stripe from 'stripe';
 import { db } from '../db/index.js';
-import { stripeConnectAccounts, stripeSubscriptions, stripeInvoices } from '../db/schema.js';
+import { organisations, stripeConnectAccounts, stripeSubscriptions, stripeInvoices } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 
 const stripe = new Stripe(process.env['STRIPE_SECRET_KEY'] ?? '', {
@@ -15,19 +15,16 @@ export async function connectRoutes(app: FastifyInstance) {
   // ── POST /connect/platform-account ──────────────────────────────────────────
   // Storefront onboarding: creates (or retrieves) a Stripe Connect Express
   // account for the org and returns an onboarding URL.
-  // Body: { orgId, email?, businessName?, returnUrl, refreshUrl }
-  app.post('/connect/platform-account', async (request, reply) => {
-    const { orgId, email, businessName, returnUrl, refreshUrl } = request.body as {
-      orgId: string;
+  // Body: { email?, businessName?, returnUrl, refreshUrl }
+  // orgId is always taken from the authenticated JWT — never from the request body.
+  app.post('/connect/platform-account', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const { email, businessName, returnUrl, refreshUrl } = request.body as {
       email?: string;
       businessName?: string;
       returnUrl: string;
       refreshUrl: string;
     };
-
-    if (!orgId) {
-      return reply.status(400).send({ error: 'orgId is required' });
-    }
 
     // Graceful fallback when Stripe is not configured (dev / CI environments)
     if (!process.env['STRIPE_SECRET_KEY']) {
@@ -91,10 +88,11 @@ export async function connectRoutes(app: FastifyInstance) {
   });
 
   // ── Create / get onboarding link ────────────────────────────────────────────
-  app.post('/connect/onboard', {
-  }, async (request, reply) => {
-    const { orgId, businessName, returnUrl, refreshUrl } = request.body as {
-      orgId: string; businessName?: string; returnUrl?: string; refreshUrl?: string;
+  // orgId is always taken from the authenticated JWT — never from the request body.
+  app.post('/connect/onboard', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const { businessName, returnUrl, refreshUrl } = request.body as {
+      businessName?: string; returnUrl?: string; refreshUrl?: string;
     };
 
     const baseUrl = process.env['APP_URL'] ?? 'https://app.elevatedpos.com.au';
@@ -206,13 +204,16 @@ export async function connectRoutes(app: FastifyInstance) {
   });
 
   // ── Create subscription for merchant's customer ──────────────────────────────
-  app.post('/connect/subscriptions', {
-  }, async (request, reply) => {
+  // orgId is always taken from the authenticated JWT — never from the request body.
+  app.post('/connect/subscriptions', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId: jwtOrgId } = request.user as { orgId: string };
     const body = request.body as {
-      orgId: string; customerId?: string; stripeCustomerId?: string;
+      orgId?: string; customerId?: string; stripeCustomerId?: string;
       customerEmail?: string; customerName?: string; priceId: string;
       trialDays?: number; metadata?: Record<string, string>;
     };
+    // Always use JWT orgId, ignore any orgId in body
+    body.orgId = jwtOrgId;
 
     const account = await db.select().from(stripeConnectAccounts)
       .where(eq(stripeConnectAccounts.orgId, body.orgId)).limit(1);
@@ -283,14 +284,17 @@ export async function connectRoutes(app: FastifyInstance) {
   });
 
   // ── Create invoice for merchant's customer ───────────────────────────────────
-  app.post('/connect/invoices', {
-  }, async (request, reply) => {
+  // orgId is always taken from the authenticated JWT — never from the request body.
+  app.post('/connect/invoices', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId: jwtOrgId } = request.user as { orgId: string };
     const body = request.body as {
-      orgId: string; stripeCustomerId?: string; customerEmail?: string;
+      orgId?: string; stripeCustomerId?: string; customerEmail?: string;
       customerName?: string; customerId?: string;
       items: { description: string; amount: number; quantity: number }[];
       dueDate?: string; memo?: string; autoSend: boolean;
     };
+    // Always use JWT orgId, ignore any orgId in body
+    body.orgId = jwtOrgId;
 
     const account = await db.select().from(stripeConnectAccounts)
       .where(eq(stripeConnectAccounts.orgId, body.orgId)).limit(1);
@@ -382,6 +386,8 @@ export async function connectRoutes(app: FastifyInstance) {
   });
 
   // ── Storefront checkout session (Stripe Hosted Checkout) ─────────────────────
+  // This is a customer-facing route — no user JWT. The orgId is resolved from
+  // the slug via a database lookup against the organisations table.
   app.post('/connect/checkout-session', {
   }, async (request, reply) => {
     const body = request.body as {
@@ -392,13 +398,20 @@ export async function connectRoutes(app: FastifyInstance) {
       cancelUrl: string;
     };
 
-    // TODO: Replace with DB lookup via a storefronts table once multi-tenant config exists.
-    // For now, a static mapping covers the demo environment.
-    const SLUG_TO_ORG: Record<string, string> = {
-      demo: '00000000-0000-0000-0000-000000000001',
-    };
-    const orgId = SLUG_TO_ORG[body.slug] ?? process.env['DEFAULT_ORG_ID'];
-    if (!orgId) return reply.status(404).send({ error: 'Store not found' });
+    // Resolve org from slug via DB lookup — never fall back to a hardcoded default
+    const orgRow = await db
+      .select({ id: organisations.id })
+      .from(organisations)
+      .where(eq(organisations.slug, body.slug))
+      .limit(1);
+    if (orgRow.length === 0) {
+      return reply.status(404).send({
+        type: 'https://elevatedpos.com/errors/not-found',
+        title: 'Storefront not found',
+        status: 404,
+      });
+    }
+    const orgId = orgRow[0]!.id;
 
     const account = await db.select()
       .from(stripeConnectAccounts)
@@ -435,11 +448,14 @@ export async function connectRoutes(app: FastifyInstance) {
   });
 
   // ── Create payment intent via connected account (with 1% fee) ───────────────
-  app.post('/connect/payment-intent', {
-  }, async (request, reply) => {
+  // orgId is always taken from the authenticated JWT — never from the request body.
+  app.post('/connect/payment-intent', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId: jwtOrgId } = request.user as { orgId: string };
     const body = request.body as {
-      orgId: string; amount: number; currency: string; description?: string; metadata?: Record<string, string>;
+      orgId?: string; amount: number; currency: string; description?: string; metadata?: Record<string, string>;
     };
+    // Always use JWT orgId, ignore any orgId in body
+    body.orgId = jwtOrgId;
 
     const account = await db.select().from(stripeConnectAccounts)
       .where(eq(stripeConnectAccounts.orgId, body.orgId)).limit(1);

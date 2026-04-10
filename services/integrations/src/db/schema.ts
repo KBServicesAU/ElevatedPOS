@@ -2,6 +2,14 @@ import {
   pgTable, uuid, text, varchar, boolean, timestamp, jsonb, integer,
 } from 'drizzle-orm/pg-core';
 
+// Read-only reference to the shared organisations table (owned by auth service).
+// Used for slug-based lookups (e.g. storefront checkout) without a cross-service HTTP call.
+export const organisations = pgTable('organisations', {
+  id: uuid('id').primaryKey(),
+  slug: varchar('slug', { length: 100 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+});
+
 export const installedApps = pgTable('installed_apps', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').notNull(),

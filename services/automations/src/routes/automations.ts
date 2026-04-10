@@ -206,12 +206,11 @@ export async function automationRoutes(app: FastifyInstance) {
     const client = await getTemporalClient();
 
     if (!client) {
-      return reply.status(200).send({
-        data: {
-          status: 'queued',
-          executionId: execution?.id,
-          message: 'Temporal not available, execution queued',
-        },
+      return reply.status(503).send({
+        type: 'https://elevatedpos.com/errors/automation-engine-unavailable',
+        title: 'Automation engine temporarily unavailable',
+        status: 503,
+        detail: 'The workflow engine is not reachable. Please try again shortly.',
       });
     }
 
@@ -244,12 +243,11 @@ export async function automationRoutes(app: FastifyInstance) {
       });
     } catch (err) {
       app.log.error({ err }, 'Failed to start Temporal workflow');
-      return reply.status(200).send({
-        data: {
-          status: 'queued',
-          executionId: execution?.id,
-          message: `Temporal workflow start failed, execution queued: ${String(err)}`,
-        },
+      return reply.status(503).send({
+        type: 'https://elevatedpos.com/errors/automation-engine-unavailable',
+        title: 'Automation engine temporarily unavailable',
+        status: 503,
+        detail: 'The workflow engine is not reachable. Please try again shortly.',
       });
     }
   });

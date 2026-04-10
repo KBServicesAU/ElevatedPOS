@@ -1,6 +1,7 @@
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import http from 'http';
+import { verify } from 'jsonwebtoken';
 import { printReceipt, ReceiptData } from './printers/escpos';
 import { openCashDrawer } from './printers/cashDrawer';
 
@@ -9,6 +10,24 @@ app.use(express.json());
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+
+// ─── FIX 4: SSRF validation helpers ──────────────────────────────────────────
+
+function isValidPrinterHost(host: string): boolean {
+  if (!host || typeof host !== 'string') return false;
+  if (host.length > 253) return false;
+  // If an explicit allowlist is configured, enforce it
+  const allowedHosts = (process.env['ALLOWED_PRINTER_HOSTS'] ?? '').split(',').filter(Boolean);
+  if (allowedHosts.length > 0) return allowedHosts.includes(host);
+  // Without an allowlist, block known cloud metadata endpoints
+  const blocked = ['metadata.google.internal', 'instance-data', '169.254.169.254'];
+  return !blocked.includes(host.toLowerCase());
+}
+
+function isValidPrinterPort(port: unknown): boolean {
+  const p = Number(port);
+  return Number.isInteger(p) && p >= 1 && p <= 65535;
+}
 
 // GET /health — device status
 app.get('/health', (_req, res) => {
@@ -41,6 +60,16 @@ app.post('/print', (req, res) => {
   const { host, port } = body.printer;
   const receipt = body.receipt;
 
+  // FIX 4: Validate host/port before opening a TCP connection (SSRF prevention)
+  if (!isValidPrinterHost(host)) {
+    res.status(400).json({ error: 'Invalid printer host' });
+    return;
+  }
+  if (!isValidPrinterPort(port)) {
+    res.status(400).json({ error: 'Invalid printer port' });
+    return;
+  }
+
   console.log(`[HardwareBridge] ESC/POS print to ${host}:${port}`);
 
   // Fire-and-forget; respond immediately so POS isn't blocked
@@ -61,6 +90,16 @@ app.post('/cash-drawer', (req, res) => {
   }
 
   const { host, port } = body.printer;
+
+  // FIX 4: Validate host/port before opening a TCP connection (SSRF prevention)
+  if (!isValidPrinterHost(host)) {
+    res.status(400).json({ error: 'Invalid printer host' });
+    return;
+  }
+  if (!isValidPrinterPort(port)) {
+    res.status(400).json({ error: 'Invalid printer port' });
+    return;
+  }
 
   console.log(`[HardwareBridge] Cash drawer kick to ${host}:${port}`);
 
@@ -85,10 +124,41 @@ app.post('/drawer/open', (_req, res) => {
 });
 
 // WebSocket — forward scanner/peripheral events to connected POS clients
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, request) => {
+  // FIX 5: Authenticate WebSocket upgrade via ?token=<jwt> query parameter
+  const jwtSecret = process.env['JWT_SECRET'];
+  if (!jwtSecret) {
+    ws.close(1011, 'Server misconfiguration');
+    return;
+  }
+
+  const url = new URL(request.url ?? '/', 'http://localhost');
+  const token = url.searchParams.get('token');
+  if (!token) {
+    ws.close(1008, 'Authentication required');
+    return;
+  }
+  try {
+    verify(token, jwtSecret);
+  } catch {
+    ws.close(1008, 'Invalid token');
+    return;
+  }
+
   console.log('[HardwareBridge] POS client connected');
+
   ws.on('message', (data) => {
-    const msg = JSON.parse(data.toString()) as { type: string; payload: unknown };
+    // FIX 6: Wrap JSON.parse in try/catch to avoid crashing on malformed input
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data.toString());
+    } catch {
+      ws.send(JSON.stringify({ error: 'Invalid JSON' }));
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object') return;
+
+    const msg = parsed as { type?: unknown; payload?: unknown };
     console.log('[HardwareBridge] Message from POS client', msg.type);
     wss.clients.forEach((client) => {
       if (client !== ws && client.readyState === 1) {

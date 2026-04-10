@@ -20,12 +20,28 @@ const previewSchema = z.object({
 });
 
 /**
+ * Escapes HTML special characters to prevent XSS when substituting
+ * user-supplied values into email templates.
+ */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
  * Replaces {{variable}} placeholders in a template string with values from
  * the provided sample data map. Unknown placeholders are left as-is.
+ * For email channel, substitution values are HTML-escaped to prevent XSS.
  */
-function renderTemplate(template: string, sampleData: Record<string, string>): string {
+function renderTemplate(template: string, sampleData: Record<string, string>, channel?: string): string {
   return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => {
-    return sampleData[key] !== undefined ? sampleData[key] : match;
+    if (sampleData[key] === undefined) return match;
+    const safeValue = channel === 'email' ? escapeHtml(String(sampleData[key])) : String(sampleData[key]);
+    return safeValue;
   });
 }
 
@@ -133,8 +149,8 @@ export async function templateRoutes(app: FastifyInstance) {
     }
 
     const sampleData = parsed.data.sampleData;
-    const renderedBody = renderTemplate(template.body, sampleData);
-    const renderedSubject = template.subject ? renderTemplate(template.subject, sampleData) : null;
+    const renderedBody = renderTemplate(template.body, sampleData, template.channel);
+    const renderedSubject = template.subject ? renderTemplate(template.subject, sampleData, template.channel) : null;
 
     return reply.status(200).send({
       data: {
