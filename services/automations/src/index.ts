@@ -28,7 +28,8 @@ async function start() {
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   const jwtSecret = process.env['JWT_SECRET'];
   if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
-  await app.register(jwt, {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await app.register(jwt as any, {
     secret: jwtSecret,
     verify: { issuer: 'elevatedpos-auth' },
   });

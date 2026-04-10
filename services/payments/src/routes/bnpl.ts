@@ -35,7 +35,9 @@ export async function bnplRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
 
   // POST /initiate — initiate a BNPL checkout session
-  app.post('/initiate', async (_request, reply) => {
+  app.post('/initiate', async (request, reply) => {
+    const body = initiateSchema.safeParse(request.body);
+    if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422, detail: body.error.message });
     return reply.status(501).send({
       type: 'https://elevatedpos.com/errors/not-implemented',
       title: 'BNPL provider integration not yet implemented',
@@ -45,7 +47,9 @@ export async function bnplRoutes(app: FastifyInstance) {
   });
 
   // POST /confirm — confirm BNPL payment completion (called after customer returns from provider)
-  app.post('/confirm', async (_request, reply) => {
+  app.post('/confirm', async (request, reply) => {
+    const body = confirmSchema.safeParse(request.body);
+    if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422, detail: body.error.message });
     return reply.status(501).send({
       type: 'https://elevatedpos.com/errors/not-implemented',
       title: 'BNPL provider integration not yet implemented',
@@ -55,7 +59,9 @@ export async function bnplRoutes(app: FastifyInstance) {
   });
 
   // POST /refund — initiate a BNPL refund
-  app.post('/refund', async (_request, reply) => {
+  app.post('/refund', async (request, reply) => {
+    const body = refundSchema.safeParse(request.body);
+    if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422, detail: body.error.message });
     return reply.status(501).send({
       type: 'https://elevatedpos.com/errors/not-implemented',
       title: 'BNPL provider integration not yet implemented',

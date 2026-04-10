@@ -246,6 +246,7 @@ export async function transferRoutes(app: FastifyInstance) {
           .where(eq(schema.stockItems.id, toItem.id));
       } else {
         await db.insert(schema.stockItems).values({
+          orgId: transfer.orgId,
           locationId: transfer.toLocationId,
           productId: line.productId,
           onHand: String(qty),

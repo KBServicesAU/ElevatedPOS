@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, asc, or, ilike } from 'drizzle-orm';
+import { eq, and, asc, or, ilike } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { hashPassword, hashPin } from '../lib/tokens';
 

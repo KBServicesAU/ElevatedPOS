@@ -69,7 +69,7 @@ export async function organisationRoutes(app: FastifyInstance) {
         const [org] = await tx.insert(schema.organisations).values({
           name: businessName,
           slug: `${slug}-${Date.now()}`,
-          plan,
+          plan: plan as 'starter' | 'growth' | 'pro' | 'enterprise' | 'custom',
           maxLocations: limits.maxLocations,
           maxDevices: limits.maxDevices,
           abn: abn ?? null,

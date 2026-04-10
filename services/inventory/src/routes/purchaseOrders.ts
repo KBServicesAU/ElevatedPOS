@@ -129,6 +129,7 @@ export async function purchaseOrderRoutes(app: FastifyInstance) {
           await trx.update(schema.stockItems).set({ onHand: String(newQty), updatedAt: new Date() }).where(eq(schema.stockItems.id, stockItem.id));
         } else {
           await trx.insert(schema.stockItems).values({
+            orgId: po.orgId,
             locationId: po.locationId,
             productId: line.productId,
             onHand: String(newQty),

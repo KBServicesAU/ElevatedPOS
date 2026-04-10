@@ -249,7 +249,7 @@ export async function storeCreditRoutes(app: FastifyInstance) {
     await db.insert(schema.storeCreditTransactions).values({
       accountId: account.id,
       orgId,
-      type: 'void',
+      type: 'adjust', // 'void' is a semantic alias for adjustment — enum uses 'adjust'
       amount: tx.amount,
       reason: body.data.reason,
       employeeId: userId,

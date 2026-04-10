@@ -13,8 +13,8 @@ const loginSchema = z.object({
 });
 
 const patchOrgSchema = z.object({
-  plan: z.string().optional(),
-  planStatus: z.enum(['active', 'suspended', 'cancelled']).optional(),
+  plan: z.enum(['starter', 'growth', 'pro', 'enterprise', 'custom']).optional(),
+  planStatus: z.enum(['trialing', 'active', 'past_due', 'cancelled', 'paused']).optional(),
   maxLocations: z.number().int().min(1).optional(),
   maxDevices: z.number().int().min(1).optional(),
   onboardingStep: z.string().optional(),
@@ -147,7 +147,7 @@ export async function platformRoutes(app: FastifyInstance) {
     }
 
     if (q.plan) {
-      conditions.push(eq(schema.organisations.plan, q.plan));
+      conditions.push(eq(schema.organisations.plan, q.plan as 'starter' | 'growth' | 'pro' | 'enterprise' | 'custom'));
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -251,8 +251,8 @@ export async function platformRoutes(app: FastifyInstance) {
       orgId: id,
       platformUserId: platformUser.sub,
       actorName: platformUser.email,
-      action: body.data.planStatus === 'suspended' ? 'org_suspended'
-            : body.data.planStatus === 'active'    ? 'org_reactivated'
+      action: body.data.planStatus === 'paused'    ? 'org_suspended'
+            : body.data.planStatus === 'active'   ? 'org_reactivated'
             : 'org_plan_updated',
       resourceType: 'organisation',
       resourceId: id,

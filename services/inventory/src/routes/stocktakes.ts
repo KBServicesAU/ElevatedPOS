@@ -216,6 +216,7 @@ export async function stocktakeRoutes(app: FastifyInstance) {
           .where(eq(schema.stockItems.id, stockItem.id));
       } else {
         await db.insert(schema.stockItems).values({
+          orgId: stocktake.orgId,
           locationId: stocktake.locationId,
           productId: line.productId,
           onHand: String(afterQty),

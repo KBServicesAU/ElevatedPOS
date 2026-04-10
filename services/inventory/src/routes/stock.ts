@@ -36,7 +36,7 @@ export async function stockRoutes(app: FastifyInstance) {
     const items = await db.query.stockItems.findMany({
       where: and(
         eq(schema.stockItems.orgId, orgId),
-        lte(schema.stockItems.quantity, schema.stockItems.reorderPoint),
+        lte(schema.stockItems.onHand, String(Number(process.env['LOW_STOCK_THRESHOLD'] ?? 5))),
         q.locationId ? eq(schema.stockItems.locationId, q.locationId) : undefined,
       ),
     });
@@ -93,6 +93,7 @@ export async function stockRoutes(app: FastifyInstance) {
         .where(eq(schema.stockItems.id, existing.id));
     } else {
       await db.insert(schema.stockItems).values({
+        orgId,
         locationId,
         productId,
         onHand: String(newQty),

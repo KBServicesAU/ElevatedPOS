@@ -172,8 +172,9 @@ export async function payrollRoutes(app: FastifyInstance) {
 
         // Hourly rate is not stored on the employee record yet — gross pay requires
         // hourly rates to be configured per employee before this field is populated.
-        const hourlyRate: number | null = null;
-        const grossPay = hourlyRate != null ? Math.round(totalHours * hourlyRate * 100) / 100 : null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const hourlyRate = null as any as (number | null); // placeholder — populated from employee record once hourly rates are configured
+        const grossPay: number | null = hourlyRate != null ? Math.round(totalHours * (hourlyRate as number) * 100) / 100 : null;
 
         return {
           employeeName: `${emp.firstName} ${emp.lastName}`,

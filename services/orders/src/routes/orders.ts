@@ -369,7 +369,7 @@ export async function orderRoutes(app: FastifyInstance) {
         }).returning();
 
         const newTotalRefunded = alreadyRefunded + newRefundTotal;
-        const finalStatus = newTotalRefunded >= parseFloat(order.total) ? 'fully_refunded' : 'partially_refunded';
+        const finalStatus = newTotalRefunded >= parseFloat(order.total) ? 'refunded' : 'partially_refunded';
 
         await trx.update(schema.orders).set({ status: finalStatus, updatedAt: new Date() }).where(eq(schema.orders.id, id));
 

@@ -156,7 +156,7 @@ export async function royaltyRoutes(app: FastifyInstance) {
     const whereClause = and(
       eq(schema.royaltyStatements.groupId, groupId),
       q.period ? eq(schema.royaltyStatements.period, q.period) : undefined,
-      q.status ? eq(schema.royaltyStatements.status, q.status) : undefined,
+      q.status ? eq(schema.royaltyStatements.status, q.status as 'draft' | 'issued' | 'paid' | 'disputed') : undefined,
       q.locationId ? eq(schema.royaltyStatements.locationId, q.locationId) : undefined,
     );
     const statements = await db.query.royaltyStatements.findMany({
@@ -336,7 +336,7 @@ export async function royaltyRoutes(app: FastifyInstance) {
       where: and(
         inArray(schema.royaltyStatements.locationId, locationIds),
         q.period ? eq(schema.royaltyStatements.period, q.period) : undefined,
-        q.status ? eq(schema.royaltyStatements.status, q.status) : undefined,
+        q.status ? eq(schema.royaltyStatements.status, q.status as 'draft' | 'issued' | 'paid' | 'disputed') : undefined,
       ),
       orderBy: [desc(schema.royaltyStatements.createdAt)],
       limit: q.limit ?? 100,

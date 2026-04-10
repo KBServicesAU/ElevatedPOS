@@ -66,7 +66,6 @@ export async function crmRoutes(app: FastifyInstance) {
         orgId,
         content: parsed.data.content,
         type: parsed.data.type,
-        authorId,
         isInternal: parsed.data.isInternal,
         employeeId: authorId,
       })
@@ -140,7 +139,7 @@ export async function crmRoutes(app: FastifyInstance) {
     const isManager = permissions['view_internal_notes'] === true ||
                       permissions['manage_customers'] === true ||
                       role === 'superadmin';  // fallback for platform tokens
-    const isOwner = note.authorId === authorId;
+    const isOwner = note.employeeId === authorId;
 
     if (!isManager && !isOwner) {
       return reply.status(403).send({
@@ -263,7 +262,7 @@ export async function crmRoutes(app: FastifyInstance) {
         metadata: {
           noteId: note.id,
           isInternal: note.isInternal,
-          authorId: note.authorId,
+          authorId: note.employeeId,
         },
       });
     }
