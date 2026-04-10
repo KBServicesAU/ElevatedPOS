@@ -13,7 +13,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useKioskStore, type CartItem } from '../../store/kiosk';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 
-const TAX_RATE = 0.10;
 const UPSELL_LIMIT = 6;
 
 export default function CartScreen() {
@@ -44,9 +43,8 @@ export default function CartScreen() {
     if (products.length === 0) fetchAll();
   }, [upsellHydrated, products.length, hydrateUpsell, fetchAll]);
 
-  const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const tax = subtotal * TAX_RATE;
-  const total = subtotal + tax;
+  const total = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const gstIncluded = total / 11;
 
   // Suggested products = configured upsells that aren't already in the cart.
   const upsellSuggestions: CatalogProduct[] = useMemo(() => {
@@ -172,17 +170,13 @@ export default function CartScreen() {
       />
 
       <View style={styles.summary}>
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Subtotal</Text>
-          <Text style={styles.summaryValue}>${subtotal.toFixed(2)}</Text>
-        </View>
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>GST (10%)</Text>
-          <Text style={styles.summaryValue}>${tax.toFixed(2)}</Text>
-        </View>
         <View style={[styles.summaryRow, styles.summaryTotal]}>
           <Text style={styles.totalLabel}>Total</Text>
           <Text style={styles.totalValue}>${total.toFixed(2)}</Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Incl. GST</Text>
+          <Text style={styles.summaryValue}>${gstIncluded.toFixed(2)}</Text>
         </View>
         <TouchableOpacity style={styles.checkoutButton} onPress={handleCheckout}>
           <Text style={styles.checkoutText}>Proceed to Payment →</Text>

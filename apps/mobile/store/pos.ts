@@ -46,7 +46,10 @@ export const usePosStore = create<PosStore>((set) => ({
 
   addItem: (item) =>
     set((state) => {
-      const existing = state.cart.find((i) => i.id === item.id && i.seat === undefined);
+      // Only merge into a plain (unmodified) existing line
+      const existing = state.cart.find(
+        (i) => i.id === item.id && i.seat === undefined && !i.note && !i.discount,
+      );
       if (existing) {
         return {
           cart: state.cart.map((i) =>

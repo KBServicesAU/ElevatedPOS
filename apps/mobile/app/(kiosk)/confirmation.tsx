@@ -2,13 +2,14 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useKioskStore } from '../../store/kiosk';
 
 const AUTO_RESET_SECONDS = 12;
 
 export default function ConfirmationScreen() {
   const router = useRouter();
-  const { orderNumber, loyaltyAccount, resetKiosk } = useKioskStore();
+  const { orderNumber, loyaltyAccount, earnedPoints, resetKiosk } = useKioskStore();
   const [countdown, setCountdown] = useState(AUTO_RESET_SECONDS);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -60,19 +61,23 @@ export default function ConfirmationScreen() {
         </View>
       </View>
 
-      {loyaltyAccount && (
+      {loyaltyAccount && earnedPoints != null && (
         <View style={styles.pointsCard}>
           <Text style={styles.pointsText}>
-            🎉 You earned <Text style={styles.pointsHighlight}>+25 points</Text> on this order!
+            🎉 You earned <Text style={styles.pointsHighlight}>+{earnedPoints} points</Text> on this order!
           </Text>
-          <Text style={styles.pointsBalance}>New balance: {(loyaltyAccount.points + 25).toLocaleString()} pts</Text>
+          <Text style={styles.pointsBalance}>
+            New balance: {(loyaltyAccount.points + earnedPoints).toLocaleString()} pts
+          </Text>
         </View>
       )}
 
-      <View style={styles.qrPlaceholder}>
-        <Text style={styles.qrText}>⬛ QR Receipt</Text>
-        <Text style={styles.qrSub}>Scan to get a digital receipt</Text>
-      </View>
+      {loyaltyAccount && (
+        <View style={styles.qrPlaceholder}>
+          <Ionicons name="mail-outline" size={28} color="#555" />
+          <Text style={styles.qrSub}>Receipt linked to your loyalty account</Text>
+        </View>
+      )}
 
       <Text style={styles.countdown}>Returning to home in {countdown}s...</Text>
 

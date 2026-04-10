@@ -12,8 +12,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useKioskStore } from '../../store/kiosk';
+import { useDeviceStore } from '../../store/device';
 
-const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? '';
 
 const DIGIT_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '←', '0', '✓'] as const;
 
@@ -115,9 +116,14 @@ export default function KioskLoyaltyScreen() {
       setLoading(true);
       setLookup(null);
       try {
+        const identity = useDeviceStore.getState().identity;
+        const token = identity?.deviceToken ?? '';
         const res = await fetch(
           `${API_BASE}/api/v1/loyalty/accounts/lookup?phone=${encodeURIComponent(phoneNumber)}`,
-          { signal: AbortSignal.timeout(4000) },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(4000),
+          },
         );
         if (res.ok) {
           const data = await res.json();

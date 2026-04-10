@@ -790,7 +790,7 @@ export default function PosSellScreen() {
             >
               {cart.map((item) => (
                 <TouchableOpacity
-                  key={item.id}
+                  key={item.cartKey}
                   style={styles.cartRow}
                   onPress={() => { setEditingCartItem(item); setItemDiscount(item.discount ? String(item.discount) : ''); setItemDiscountType(item.discountType ?? '$'); setItemNote(item.note ?? ''); }}
                   activeOpacity={0.7}

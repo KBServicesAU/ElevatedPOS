@@ -128,24 +128,23 @@ export default function QuickSaleScreen() {
       ...(customerId ? { customerId } : {}),
     };
 
-    try {
-      const res = await fetch(`${base}/api/v1/orders`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(5000),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.orderNumber ?? `Q${Math.floor(100 + Math.random() * 900)}`;
-      }
-    } catch {
-      // Offline — fall through
+    const res = await fetch(`${base}/api/v1/orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      throw new Error(`Order creation failed with status ${res.status}`);
     }
-    return `Q${Math.floor(100 + Math.random() * 900)}`;
+    const data = await res.json();
+    if (!data?.orderNumber) {
+      throw new Error('No order number returned from server');
+    }
+    return data.orderNumber as string;
   }
 
   async function printReceiptIfConfigured(orderNumber: string, paymentMethod: string) {

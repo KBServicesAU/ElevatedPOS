@@ -1,4 +1,4 @@
-const BASE_URL = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+const BASE_URL = process.env['EXPO_PUBLIC_API_URL'] ?? '';
 
 export interface PairResult {
   deviceId: string; deviceToken: string; role: 'pos' | 'kds' | 'kiosk' | 'dashboard';

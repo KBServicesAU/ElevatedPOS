@@ -175,7 +175,7 @@ export default function SplitCheckScreen() {
               ) : (
                 bucket.items.map((line) => (
                   <TouchableOpacity
-                    key={`${line.id}_${line.seat ?? 'shared'}`}
+                    key={line.cartKey}
                     style={styles.line}
                     onPress={() => setMovingItem(line)}
                     activeOpacity={0.7}

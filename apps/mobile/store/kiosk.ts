@@ -58,6 +58,8 @@ interface KioskState {
   setPendingAgeRestrictedProductId: (id: string | null) => void;
   loyaltyAccount: LoyaltyAccount | null;
   setLoyaltyAccount: (account: LoyaltyAccount | null) => void;
+  earnedPoints: number | null;
+  setEarnedPoints: (pts: number | null) => void;
   appliedDiscount: AppliedDiscount | null;
   setAppliedDiscount: (discount: AppliedDiscount | null) => void;
   orderNumber: string | null;
@@ -76,6 +78,7 @@ const initialOrderState = {
   ageVerified: false,
   pendingAgeRestrictedProductId: null as string | null,
   loyaltyAccount: null as LoyaltyAccount | null,
+  earnedPoints: null as number | null,
   appliedDiscount: null as AppliedDiscount | null,
   orderNumber: null as string | null,
 };
@@ -110,6 +113,7 @@ export const useKioskStore = create<KioskState>((set) => ({
   setAgeVerified: (ageVerified) => set({ ageVerified }),
   setPendingAgeRestrictedProductId: (pendingAgeRestrictedProductId) => set({ pendingAgeRestrictedProductId }),
   setLoyaltyAccount: (loyaltyAccount) => set({ loyaltyAccount }),
+  setEarnedPoints: (earnedPoints) => set({ earnedPoints }),
   setAppliedDiscount: (appliedDiscount) => set({ appliedDiscount }),
   setOrderNumber: (orderNumber) => set({ orderNumber }),
   resetOrder: () => set((state) => ({ ...initialOrderState, language: state.language })),

@@ -14,8 +14,6 @@ import { useDeviceStore } from '../../store/device';
 
 type PaymentMethod = 'card' | 'cash' | 'qr';
 
-const TAX_RATE = 0.10;
-
 const METHODS: { id: PaymentMethod; label: string; icon: string; subtitle: string }[] = [
   { id: 'card', label: 'Card', icon: '💳', subtitle: 'Tap, insert or swipe' },
   { id: 'cash', label: 'Cash', icon: '💵', subtitle: 'Pay at counter' },
@@ -24,13 +22,12 @@ const METHODS: { id: PaymentMethod; label: string; icon: string; subtitle: strin
 
 export default function PaymentScreen() {
   const router = useRouter();
-  const { cartItems, clearCart, setOrderNumber, orderType, tableNumber, loyaltyAccount } = useKioskStore();
+  const { cartItems, clearCart, setOrderNumber, setEarnedPoints, orderType, tableNumber, loyaltyAccount } = useKioskStore();
   const [selected, setSelected] = useState<PaymentMethod>('card');
   const [processing, setProcessing] = useState(false);
 
-  const subtotal = cartItems.reduce((sum, i) => sum + i.price * i.qty, 0);
-  const tax = subtotal * TAX_RATE;
-  const total = subtotal + tax;
+  const total = cartItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+  const gstIncluded = total / 11;
 
   async function handlePay() {
     setProcessing(true);
@@ -40,6 +37,7 @@ export default function PaymentScreen() {
       locationId: identity?.locationId,
       registerId: identity?.registerId || undefined,
       channel: 'kiosk' as const,
+      paymentMethod: selected,
       orderType: orderType === 'dine_in' ? 'dine_in' : 'takeaway',
       lines: cartItems.map((i) => ({
         productId: i.id,
@@ -75,11 +73,14 @@ export default function PaymentScreen() {
         } catch { /* ignore parse error */ }
         throw new Error(msg);
       }
-      const data = await res.json() as { orderNumber?: string };
+      const data = await res.json() as { orderNumber?: string; pointsEarned?: number };
       if (!data?.orderNumber) {
         throw new Error('No order number returned from server');
       }
       setOrderNumber(data.orderNumber);
+      if (loyaltyAccount && data.pointsEarned != null) {
+        setEarnedPoints(data.pointsEarned);
+      }
     } catch (err) {
       setProcessing(false);
       Alert.alert(
@@ -130,15 +131,15 @@ export default function PaymentScreen() {
       <View style={styles.summaryCard}>
         <Text style={styles.summaryTitle}>Order Summary</Text>
         {cartItems.map((item) => (
-          <View key={item.id} style={styles.summaryRow}>
+          <View key={item.cartKey} style={styles.summaryRow}>
             <Text style={styles.summaryItemName}>{item.qty}x {item.name}</Text>
             <Text style={styles.summaryItemPrice}>${(item.price * item.qty).toFixed(2)}</Text>
           </View>
         ))}
         <View style={styles.divider} />
         <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>GST (10%)</Text>
-          <Text style={styles.summaryValue}>${tax.toFixed(2)}</Text>
+          <Text style={styles.summaryLabel}>Incl. GST</Text>
+          <Text style={styles.summaryValue}>${gstIncluded.toFixed(2)}</Text>
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.totalLabel}>TOTAL</Text>
