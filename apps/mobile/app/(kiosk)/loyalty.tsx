@@ -295,7 +295,7 @@ export default function KioskLoyaltyScreen() {
             </View>
           </Animated.View>
 
-          <Text style={styles.cameraHint}
+          <Text style={styles.cameraHint}>
             Open your ElevatedPOS loyalty app and show your QR code
           </Text>
         </View>
