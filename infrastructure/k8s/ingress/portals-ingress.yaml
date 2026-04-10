@@ -14,15 +14,6 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - organisation.elevatedpos.com.au
-      secretName: elevatedpos-organisation-tls
-    - hosts:
-        - reseller.elevatedpos.com.au
-      secretName: elevatedpos-reseller-tls
-    - hosts:
-        - godmode.elevatedpos.com.au
-      secretName: elevatedpos-godmode-tls
-    - hosts:
         - epsales.elevatedpos.com.au
       secretName: elevatedpos-sales-portal-tls
     - hosts:
@@ -35,36 +26,10 @@ spec:
         - kds.elevatedpos.com.au
       secretName: elevatedpos-kds-tls
   rules:
-    - host: organisation.elevatedpos.com.au
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: org-portal
-                port:
-                  number: 3011
-    - host: reseller.elevatedpos.com.au
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: reseller-portal
-                port:
-                  number: 3012
-    - host: godmode.elevatedpos.com.au
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: godmode
-                port:
-                  number: 3010
+    # NOTE: godmode, org-portal, reseller-portal are managed by the Helm
+    # chart as individual Ingress objects (elevatedpos-godmode-ingress,
+    # elevatedpos-org-portal-ingress, elevatedpos-reseller-portal-ingress).
+    # They MUST NOT appear here — NGINX rejects duplicate host definitions.
     - host: epsales.elevatedpos.com.au
       http:
         paths:

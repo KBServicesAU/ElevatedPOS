@@ -149,6 +149,20 @@ jobs:
             adopt_helm_resources "$KIND"
           done
 
+          # ── Pre-flight: remove the combined portals ingress ───────────────
+          # The Helm chart creates individual Ingress objects for godmode,
+          # org-portal, reseller-portal, and pay (via godmodePortal.enabled,
+          # orgPortal.enabled, etc.). The legacy elevatedpos-portals-ingress
+          # defines the SAME hostnames, so the NGINX admission webhook rejects
+          # Helm's individual ingresses with "host already defined". Delete it
+          # here so Helm can create/update the per-portal ingresses cleanly.
+          # portals-ingress.yaml is re-applied AFTER Helm with only the routes
+          # Helm does NOT manage (sales-portal, partner-portal, developer-portal,
+          # kds-display).
+          kubectl delete ingress elevatedpos-portals-ingress \
+            -n elevatedpos --ignore-not-found
+          echo "elevatedpos-portals-ingress deleted (will be re-applied post-Helm with trimmed rules)"
+
           # Clear any stuck or failed Helm release before attempting upgrade.
           HELM_STATUS=$(helm status elevatedpos -n elevatedpos -o json 2>/dev/null \
             | jq -r '.info.status' 2>/dev/null || echo "not-found")
@@ -178,11 +192,11 @@ jobs:
           kubectl apply -f infrastructure/k8s/migrations-job.yaml
           echo "Migrations job submitted — running asynchronously in cluster."
 
-          # Apply ingress rules only — Deployments/Services/HPAs for these apps
-          # are fully managed by the Helm chart above and must not be re-applied
-          # via kubectl (doing so strips the Helm ownership annotations and causes
-          # "invalid ownership metadata" failures on the next upgrade).
-          kubectl apply -f infrastructure/k8s/ingress/pay-ingress.yaml
+          # Apply the trimmed portals ingress (sales-portal, partner-portal,
+          # developer-portal, kds-display only — godmode/org-portal/reseller-portal
+          # are managed by the Helm chart above and must not appear here).
+          # pay-ingress.yaml is NOT applied — Helm manages elevatedpos-pay-ingress
+          # via payPortal.enabled in values.yaml.
           kubectl apply -f infrastructure/k8s/ingress/portals-ingress.yaml
 
           # Wait for auth rollout then exec seed directly to upsert platform staff
