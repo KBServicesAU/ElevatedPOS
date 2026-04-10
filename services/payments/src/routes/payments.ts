@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { processPayment } from '../lib/acquirer';
 
@@ -50,19 +50,29 @@ export async function paymentRoutes(app: FastifyInstance) {
       offset: z.coerce.number().int().min(0).default(0),
     });
     const q = querySchema.parse(request.query);
-    const payments = await db.query.payments.findMany({
-      where: and(
-        eq(schema.payments.orgId, orgId),
-        q.orderId ? eq(schema.payments.orderId, q.orderId) : undefined,
-        q.locationId ? eq(schema.payments.locationId, q.locationId) : undefined,
-      ),
-      orderBy: [desc(schema.payments.createdAt)],
-      limit: q.limit,
-      offset: q.offset,
-    });
+
+    const whereClause = and(
+      eq(schema.payments.orgId, orgId),
+      q.orderId ? eq(schema.payments.orderId, q.orderId) : undefined,
+      q.locationId ? eq(schema.payments.locationId, q.locationId) : undefined,
+    );
+
+    const [payments, [countResult]] = await Promise.all([
+      db.query.payments.findMany({
+        where: whereClause,
+        orderBy: [desc(schema.payments.createdAt)],
+        limit: q.limit,
+        offset: q.offset,
+      }),
+      db.select({ count: sql<number>`count(*)::int` })
+        .from(schema.payments)
+        .where(whereClause),
+    ]);
+
+    const totalCount = countResult?.count ?? 0;
     return reply.status(200).send({
       data: payments,
-      meta: { limit: q.limit, offset: q.offset, returned: payments.length },
+      meta: { totalCount, hasMore: q.offset + payments.length < totalCount, limit: q.limit, offset: q.offset, returned: payments.length },
     });
   });
 

@@ -42,17 +42,29 @@ export async function stockRoutes(app: FastifyInstance) {
 
     const { locationId, productId, variantId, newQty, reason } = body.data;
 
-    // Verify location belongs to this org via purchase orders (locationId + orgId constraint)
-    const locationCheck = await db.query.purchaseOrders.findFirst({
-      where: and(
-        eq(schema.purchaseOrders.locationId, locationId),
-        eq(schema.purchaseOrders.orgId, orgId)
-      ),
-    });
-    if (!locationCheck) {
+    // Verify location belongs to this org — allow if a PO exists for this location
+    // OR if there is already stock recorded at this location for this org.
+    // The PO-only check would incorrectly deny new locations that have no POs yet.
+    const [poResult, stockResult] = await Promise.all([
+      db.query.purchaseOrders.findFirst({
+        where: and(
+          eq(schema.purchaseOrders.locationId, locationId),
+          eq(schema.purchaseOrders.orgId, orgId),
+        ),
+      }),
+      db.query.stockItems.findFirst({
+        where: and(
+          eq(schema.stockItems.locationId, locationId),
+          eq(schema.stockItems.orgId, orgId),
+        ),
+      }),
+    ]);
+    if (!poResult && !stockResult) {
       return reply.status(403).send({
-        title: 'Location not found or access denied',
+        type: 'about:blank',
+        title: 'Forbidden',
         status: 403,
+        detail: 'Location does not belong to your organisation.',
       });
     }
 

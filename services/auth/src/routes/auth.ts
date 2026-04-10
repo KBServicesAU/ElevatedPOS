@@ -386,7 +386,7 @@ export async function authRoutes(app: FastifyInstance) {
     const { token, emp } = request.query as { token?: string; emp?: string };
 
     if (!token || !emp) {
-      return reply.status(400).send({ error: 'Missing token or emp parameter' });
+      return reply.status(400).send({ type: 'about:blank', title: 'Bad Request', status: 400, detail: 'Invalid or expired verification token.' });
     }
 
     const employee = await db.query.employees.findFirst({
@@ -394,7 +394,7 @@ export async function authRoutes(app: FastifyInstance) {
     });
 
     if (!employee) {
-      return reply.status(404).send({ error: 'Account not found' });
+      return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404, detail: 'Account not found.' });
     }
 
     if (employee.emailVerified) {
@@ -406,7 +406,7 @@ export async function authRoutes(app: FastifyInstance) {
       !employee.emailVerificationExpiresAt ||
       employee.emailVerificationExpiresAt < new Date()
     ) {
-      return reply.status(400).send({ error: 'Invalid or expired verification link' });
+      return reply.status(400).send({ type: 'about:blank', title: 'Bad Request', status: 400, detail: 'Invalid or expired verification token.' });
     }
 
     await db

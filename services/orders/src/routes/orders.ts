@@ -51,21 +51,45 @@ export async function orderRoutes(app: FastifyInstance) {
   // GET /api/v1/orders
   app.get('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
-    const q = request.query as { locationId?: string; status?: string; customerId?: string; from?: string; to?: string; limit?: string };
-    const limit = Math.min(Number(q.limit ?? 50), 200);
-
-    const results = await db.query.orders.findMany({
-      where: and(
-        eq(schema.orders.orgId, orgId),
-        q.locationId ? eq(schema.orders.locationId, q.locationId) : undefined,
-        q.customerId ? eq(schema.orders.customerId, q.customerId) : undefined,
-      ),
-      with: { lines: true },
-      orderBy: [desc(schema.orders.createdAt)],
-      limit,
+    const querySchema = z.object({
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+      status: z.string().optional(),
+      locationId: z.string().uuid().optional(),
+      customerId: z.string().uuid().optional(),
     });
+    const query = querySchema.parse(request.query);
 
-    return reply.status(200).send({ data: results, meta: { totalCount: results.length, hasMore: results.length === limit } });
+    const whereClause = and(
+      eq(schema.orders.orgId, orgId),
+      query.locationId ? eq(schema.orders.locationId, query.locationId) : undefined,
+      query.customerId ? eq(schema.orders.customerId, query.customerId) : undefined,
+      query.status ? eq(schema.orders.status, query.status as any) : undefined,
+    );
+
+    const [orders, [countResult]] = await Promise.all([
+      db.query.orders.findMany({
+        where: whereClause,
+        limit: query.limit,
+        offset: query.offset,
+        orderBy: [desc(schema.orders.createdAt)],
+        with: { lines: true },
+      }),
+      db.select({ count: sql<number>`count(*)::int` })
+        .from(schema.orders)
+        .where(whereClause),
+    ]);
+
+    const totalCount = countResult?.count ?? 0;
+    return reply.status(200).send({
+      data: orders,
+      meta: {
+        totalCount,
+        hasMore: query.offset + orders.length < totalCount,
+        limit: query.limit,
+        offset: query.offset,
+      },
+    });
   });
 
   // GET /api/v1/orders/:id
@@ -78,7 +102,7 @@ export async function orderRoutes(app: FastifyInstance) {
       with: { lines: true, refunds: true },
     });
 
-    if (!order) return reply.status(404).send({ title: 'Not Found', status: 404 });
+    if (!order) return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404 });
     return reply.status(200).send({ data: order });
   });
 
@@ -220,10 +244,10 @@ export async function orderRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
     const body = z.object({ paidTotal: z.number(), changeGiven: z.number().default(0), receiptChannel: z.string().optional() }).safeParse(request.body);
-    if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
+    if (!body.success) return reply.status(422).send({ type: 'about:blank', title: 'Validation Error', status: 422 });
 
     const order = await db.query.orders.findFirst({ where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)) });
-    if (!order) return reply.status(404).send({ title: 'Not Found', status: 404 });
+    if (!order) return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404 });
     if (order.status !== 'open') return reply.status(409).send({ title: 'Order not open', status: 409 });
 
     const completeRows = await db.update(schema.orders).set({
@@ -264,8 +288,8 @@ export async function orderRoutes(app: FastifyInstance) {
   app.post('/:id/hold', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
-    await db.update(schema.orders).set({ status: 'held', updatedAt: new Date() }).where(and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)));
-    return reply.status(200).send({ data: { status: 'held' } });
+    const [heldOrder] = await db.update(schema.orders).set({ status: 'held', updatedAt: new Date() }).where(and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId))).returning();
+    return reply.status(200).send({ data: { id: heldOrder?.id ?? id, status: 'held' } });
   });
 
   // POST /api/v1/orders/:id/cancel

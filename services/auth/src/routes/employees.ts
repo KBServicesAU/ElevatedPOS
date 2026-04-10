@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, asc, or, ilike } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { hashPassword, hashPin } from '../lib/tokens';
 
@@ -37,27 +37,33 @@ export async function employeeRoutes(app: FastifyInstance) {
   // GET /api/v1/employees
   app.get('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
-    const query = (request.query as { search?: string; locationId?: string });
-
-    let whereClause = eq(schema.employees.orgId, orgId);
+    const querySchema = z.object({
+      search: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+    });
+    const parsed = querySchema.safeParse(request.query);
+    const { search, limit, offset } = parsed.success ? parsed.data : { search: undefined, limit: 50, offset: 0 };
 
     const employees = await db.query.employees.findMany({
-      where: whereClause,
+      where: and(
+        eq(schema.employees.orgId, orgId),
+        search
+          ? or(
+              ilike(schema.employees.firstName, `%${search}%`),
+              ilike(schema.employees.lastName, `%${search}%`),
+              ilike(schema.employees.email, `%${search}%`),
+            )
+          : undefined,
+      ),
       with: { role: true },
       columns: { passwordHash: false, pin: false, mfaSecret: false },
-      orderBy: [desc(schema.employees.createdAt)],
+      limit,
+      offset,
+      orderBy: [asc(schema.employees.firstName), asc(schema.employees.lastName)],
     });
 
-    const filtered = query.search
-      ? employees.filter(
-          (e) =>
-            e.firstName.toLowerCase().includes(query.search!.toLowerCase()) ||
-            e.lastName.toLowerCase().includes(query.search!.toLowerCase()) ||
-            e.email.toLowerCase().includes(query.search!.toLowerCase()),
-        )
-      : employees;
-
-    return reply.status(200).send({ data: filtered, meta: { totalCount: filtered.length } });
+    return reply.status(200).send({ data: employees, meta: { totalCount: employees.length } });
   });
 
   // GET /api/v1/employees/:id
@@ -181,7 +187,7 @@ export async function employeeRoutes(app: FastifyInstance) {
       .where(and(eq(schema.employees.id, id), eq(schema.employees.orgId, user.orgId)))
       .returning();
 
-    return reply.send({ data: updated });
+    return reply.code(200).send({ data: updated });
   });
 
   // DELETE /api/v1/employees/:id (soft delete)

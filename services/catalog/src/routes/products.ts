@@ -193,7 +193,7 @@ export async function productRoutes(app: FastifyInstance) {
     });
 
     if (!product) {
-      return reply.code(404).send({ error: 'Product not found', barcode });
+      return reply.code(404).send({ type: 'about:blank', title: 'Not Found', status: 404, detail: `No product found with barcode '${barcode}'.` });
     }
 
     return reply.send({ data: product });
