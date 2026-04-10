@@ -19,7 +19,7 @@ import { useAuthStore, type AuthEmployee } from '../store/auth';
 /* ------------------------------------------------------------------ */
 
 const PIN_LENGTH = 4;
-const AUTH_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+const AUTH_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? '';
 
 const AVATAR_COLORS = [
   '#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4',
