@@ -19,9 +19,21 @@ import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { usePrinterStore } from '../../store/printers';
-import { printReceipt, printOrderTicket, isConnected as isPrinterConnected, connectPrinter } from '../../lib/printer';
+import { confirm, toast } from '../../components/ui';
+import {
+  printReceipt,
+  printOrderTicket,
+  printTyroMerchantReceipt,
+  isConnected as isPrinterConnected,
+  connectPrinter,
+} from '../../lib/printer';
 import { useRouter } from 'expo-router';
-import { initTyro, tyroPurchase, isTyroInitialized, type TyroTTAResult } from '../../modules/tyro-tta';
+import { initTyro, tyroPurchase, isTyroInitialized } from '../../modules/tyro-tta';
+import { useTyroStore } from '../../store/tyro';
+import {
+  TyroTransactionModal,
+  type TyroTransactionOutcome,
+} from '../../components/TyroTransactionModal';
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -48,6 +60,9 @@ export default function PosSellScreen() {
   const { cart, addItem, removeItem, updateItem, clearCart, customerName, customerId, setCustomer } =
     usePosStore();
   const { products, categories, loading, error, fetchAll } = useCatalogStore();
+  const unavailable = useCatalogStore((s) => s.unavailable);
+  const hydrateUnavailable = useCatalogStore((s) => s.hydrateUnavailable);
+  const toggleUnavailable = useCatalogStore((s) => s.toggleUnavailable);
   const { identity } = useDeviceStore();
 
   const { settings: displaySettings, syncTransaction, showThankYou, hydrate: hydrateDisplay } =
@@ -69,8 +84,11 @@ export default function PosSellScreen() {
   const [splitCardAmount, setSplitCardAmount] = useState('');
   const [splitCashAmount, setSplitCashAmount] = useState('');
 
+  // Optional Tyro extras (cert: Integrated Cashout, Surcharging, Tipping)
+  const [cashoutDollars, setCashoutDollars] = useState('');
+
   // Cart item edit modal
-  const [editingCartItem, setEditingCartItem] = useState<{ id: string; name: string; qty: number; price: number; note?: string; discount?: number; discountType?: '%' | '$' } | null>(null);
+  const [editingCartItem, setEditingCartItem] = useState<{ id: string; cartKey: string; name: string; qty: number; price: number; note?: string; discount?: number; discountType?: '%' | '$' } | null>(null);
   const [itemDiscount, setItemDiscount] = useState('');
   const [itemDiscountType, setItemDiscountType] = useState<'%' | '$'>('$');
   const [itemNote, setItemNote] = useState('');
@@ -84,11 +102,30 @@ export default function PosSellScreen() {
   // Product detail modal (long-press)
   const [detailProduct, setDetailProduct] = useState<CatalogProduct | null>(null);
 
+  // Tyro EFTPOS transaction modal
+  const [showTyroModal, setShowTyroModal] = useState(false);
+  const [tyroAmount, setTyroAmount] = useState(0);
+  const tyroConfig = useTyroStore((s) => s.config);
+  const hydrateTyro = useTyroStore((s) => s.hydrate);
+
   // Fetch catalog + hydrate customer display on mount
   useEffect(() => {
     fetchAll();
     hydrateDisplay();
+    hydrateTyro();
+    hydrateUnavailable();
   }, []);
+
+  // Auto-initialise Tyro SDK if we have a saved API key
+  useEffect(() => {
+    if (tyroConfig.autoInit && tyroConfig.apiKey && !isTyroInitialized()) {
+      try {
+        initTyro(tyroConfig.apiKey, tyroConfig.environment);
+      } catch (err) {
+        console.warn('[Tyro] auto-init failed:', err);
+      }
+    }
+  }, [tyroConfig.apiKey, tyroConfig.environment, tyroConfig.autoInit]);
 
   // Pull-to-refresh
   const onRefresh = useCallback(async () => {
@@ -161,6 +198,10 @@ export default function PosSellScreen() {
 
   // ── Add product to cart ──────────────────────────────────────────
   function handleAdd(p: CatalogProduct) {
+    if (unavailable.has(p.id)) {
+      toast.warning('86\u2019d', `${p.name} is marked as unavailable. Long-press the item to bring it back.`);
+      return;
+    }
     addItem({
       id: p.id,
       name: p.name,
@@ -169,8 +210,19 @@ export default function PosSellScreen() {
     });
   }
 
+  // ── Toggle the Auto 86 (out-of-stock) flag for a product ─────────
+  async function handleToggle86(p: CatalogProduct) {
+    const wasUnavailable = unavailable.has(p.id);
+    await toggleUnavailable(p.id);
+    if (wasUnavailable) {
+      toast.success('Back in stock', `${p.name} is now available.`);
+    } else {
+      toast.info('86\u2019d', `${p.name} is hidden from sale until you re-enable it.`);
+    }
+  }
+
   // ── Charge ───────────────────────────────────────────────────────
-  async function handleCharge() {
+  async function handleCharge(paymentMethod: 'Card' | 'Cash' | 'Split' = 'Card') {
     if (cart.length === 0) return;
     setCharging(true);
 
@@ -188,10 +240,10 @@ export default function PosSellScreen() {
       taxRate: 10,
     }));
 
-    let orderNumber = `P${Math.floor(100 + Math.random() * 900)}`;
+    let orderNumber: string;
 
     try {
-      const base = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+      const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
       const token = authToken ?? identity?.deviceToken ?? '';
       const res = await fetch(`${base}/api/v1/orders`, {
         method: 'POST',
@@ -209,12 +261,17 @@ export default function PosSellScreen() {
         }),
         signal: AbortSignal.timeout(5000),
       });
-      if (res.ok) {
-        const data = await res.json();
-        orderNumber = data.orderNumber ?? orderNumber;
+      if (!res.ok) {
+        setCharging(false);
+        Alert.alert('Error', 'Failed to create order. Please check your connection and try again.');
+        return;
       }
+      const data = await res.json();
+      orderNumber = data.orderNumber;
     } catch {
-      // Offline — use fallback order number
+      setCharging(false);
+      Alert.alert('Error', 'Failed to create order. Please check your connection and try again.');
+      return;
     }
 
     // Auto-print receipt if configured
@@ -228,7 +285,7 @@ export default function PosSellScreen() {
           subtotal: orderTotal - orderGst,
           gst: orderGst,
           total: orderTotal,
-          paymentMethod: 'Card',
+          paymentMethod,
           cashierName: authEmployee
             ? `${authEmployee.firstName} ${authEmployee.lastName}`
             : undefined,
@@ -253,7 +310,7 @@ export default function PosSellScreen() {
 
     clearCart();
     if (displaySettings.enabled) showThankYou();
-    Alert.alert('Order Placed', `Order #${orderNumber} — $${orderTotal.toFixed(2)}`);
+    toast.success('Order Placed', `Order #${orderNumber} — $${orderTotal.toFixed(2)}`);
     setCharging(false);
   }
 
@@ -263,26 +320,36 @@ export default function PosSellScreen() {
     const inCart = cart.find((c) => c.id === item.id);
     const cc =
       item.categoryId ? (colorMap.get(item.categoryId) ?? '#6366f1') : '#6366f1';
+    const is86 = unavailable.has(item.id);
 
     return (
       <TouchableOpacity
-        style={[styles.card, inCart && styles.cardActive]}
+        style={[styles.card, inCart && styles.cardActive, is86 && styles.cardDisabled]}
         onPress={() => handleAdd(item)}
         onLongPress={() => setDetailProduct(item)}
         activeOpacity={0.7}
       >
-        <View style={[styles.cardColorBar, { backgroundColor: cc }]} />
+        <View style={[styles.cardColorBar, { backgroundColor: cc, opacity: is86 ? 0.35 : 1 }]} />
         <View style={styles.cardBody}>
-          <Text style={styles.cardName} numberOfLines={2}>
+          <Text
+            style={[styles.cardName, is86 && { color: '#666', textDecorationLine: 'line-through' }]}
+            numberOfLines={2}
+          >
             {item.name}
           </Text>
           <View style={styles.cardFooter}>
-            <Text style={styles.cardPrice}>${price.toFixed(2)}</Text>
-            {inCart && (
+            <Text style={[styles.cardPrice, is86 && { color: '#555' }]}>
+              ${price.toFixed(2)}
+            </Text>
+            {is86 ? (
+              <View style={styles.outOfStockBadge}>
+                <Text style={styles.outOfStockText}>86&apos;d</Text>
+              </View>
+            ) : inCart ? (
               <View style={styles.cardBadge}>
                 <Text style={styles.cardBadgeText}>{inCart.qty}</Text>
               </View>
-            )}
+            ) : null}
           </View>
         </View>
       </TouchableOpacity>
@@ -290,67 +357,223 @@ export default function PosSellScreen() {
   }
 
   // ── Handle payment method selection ──────────────────────────────
-  async function handlePayCard() {
+  function handlePayCard() {
     setShowPayment(false);
 
-    // Try Tyro TTA first if initialized
+    // If Tyro is ready → open the headless transaction modal and
+    // start a purchase. The modal handles status/question/cancel UI
+    // itself per iClient.Retail.Headless cert rules.
     if (isTyroInitialized()) {
-      setCharging(true);
+      const cashoutDollarsNum =
+        tyroConfig.cashoutEnabled && cashoutDollars ? parseFloat(cashoutDollars) || 0 : 0;
+      const cashoutCents = cashoutDollarsNum > 0 ? String(Math.round(cashoutDollarsNum * 100)) : '';
+
+      // The Tyro amount shown in the modal includes the cashout so the
+      // merchant knows what the customer will be charged.
+      setTyroAmount(total + cashoutDollarsNum);
+      setShowTyroModal(true);
+
+      const amountCents = String(Math.round(total * 100));
       try {
-        const amountCents = String(Math.round(total * 100));
-        const result = await tyroPurchase(amountCents, true);
-        if (result.result === 'APPROVED') {
-          // Tyro approved — complete the order
-          handleCharge();
-          return;
-        } else {
-          Alert.alert('Payment Failed', `${result.result}: Card was ${result.result?.toLowerCase()}.`);
-          setCharging(false);
-          return;
-        }
+        tyroPurchase(amountCents, {
+          cashoutCents,
+          integratedReceipt: tyroConfig.integratedReceipts,
+          enableSurcharge: tyroConfig.enableSurcharge,
+          transactionId: `POS-${Date.now()}`,
+        });
+        setCashoutDollars('');
       } catch (err) {
-        // Tyro failed — fall back to direct charge
-        console.warn('[Tyro TTA] Error:', err);
+        console.warn('[Tyro] start purchase failed:', err);
+        setShowTyroModal(false);
+        toast.error(
+          'EFTPOS Error',
+          err instanceof Error
+            ? err.message
+            : 'Failed to start a Tyro transaction. Please try again.',
+        );
       }
+      return;
     }
 
-    // Fallback: direct charge without EFTPOS
-    handleCharge();
+    // Fallback: direct charge without EFTPOS (dev / demo mode)
+    handleCharge('Card');
+  }
+
+  // ── Handle Tyro transaction completion ───────────────────────────
+  async function handleTyroComplete(outcomeEvent: TyroTransactionOutcome) {
+    setShowTyroModal(false);
+
+    const result = outcomeEvent.result;
+    const outcome = String(result.result || 'UNKNOWN').toUpperCase();
+    const split = pendingSplit;
+    // Always clear the pending split after reading it.
+    if (split) setPendingSplit(null);
+
+    if (outcome === 'APPROVED') {
+      // Print the Tyro merchant receipt (with signature line if required)
+      // before finalising the sale. Best-effort — never block the success
+      // flow if the printer is offline.
+      const printerConfig = usePrinterStore.getState().config;
+      if (printerConfig.type && outcomeEvent.merchantReceipt) {
+        try {
+          if (!isPrinterConnected()) await connectPrinter();
+          await printTyroMerchantReceipt({
+            merchantReceipt: outcomeEvent.merchantReceipt,
+            signatureRequired: outcomeEvent.signatureRequired,
+          });
+        } catch (err) {
+          console.warn('[Tyro] merchant receipt print failed:', err);
+        }
+      }
+
+      // Finalise the sale. If this was a split payment we also report
+      // the cash portion + change due.
+      handleCharge(split ? 'Split' : 'Card');
+
+      if (split) {
+        setSplitCardAmount('');
+        setSplitCashAmount('');
+        const msg =
+          split.change > 0
+            ? `Card $${split.cardAmt.toFixed(2)} · Cash $${split.cashAmt.toFixed(2)} · Change $${split.change.toFixed(2)}`
+            : `Card $${split.cardAmt.toFixed(2)} · Cash $${split.cashAmt.toFixed(2)}`;
+        toast.success('Split Payment Complete', msg);
+      }
+      return;
+    }
+
+    if (outcome === 'CANCELLED') {
+      toast.warning('Payment Cancelled', 'The EFTPOS transaction was cancelled.');
+      return;
+    }
+
+    if (outcome === 'DECLINED') {
+      toast.error(
+        'Card Declined',
+        'The card was declined by the bank. Try another card or payment method.',
+      );
+      return;
+    }
+
+    if (outcome === 'REVERSED') {
+      toast.warning(
+        'Transaction Reversed',
+        'The terminal auto-reversed the transaction. No funds were taken.',
+      );
+      return;
+    }
+
+    if (outcome === 'SYSTEM ERROR') {
+      const msg = result.errorMessage || '';
+      // Tyro documents a 503 / terminal busy scenario that comes back as
+      // SYSTEM ERROR — give the merchant a more actionable message.
+      if (msg.toLowerCase().includes('503') || msg.toLowerCase().includes('busy')) {
+        toast.warning(
+          'Terminal Busy',
+          'The Tyro terminal is handling another transaction. Wait and try again.',
+        );
+        return;
+      }
+      toast.error(
+        'EFTPOS System Error',
+        msg || 'Tyro reported a system error. Check the terminal and retry.',
+      );
+      return;
+    }
+
+    if (outcome === 'NOT STARTED') {
+      toast.error(
+        'Transaction Not Started',
+        'The terminal could not begin the transaction. Check the terminal and try again.',
+      );
+      return;
+    }
+
+    // UNKNOWN / anything else
+    toast.warning(
+      'Payment Incomplete',
+      `Ended with status "${result.result}". Please verify on the terminal before retrying.`,
+    );
   }
 
   function handlePayCash() {
     const tendered = parseFloat(cashTendered) || 0;
     if (tendered < total) {
-      Alert.alert('Insufficient', `Need at least $${total.toFixed(2)}`);
+      toast.warning('Insufficient', `Need at least $${total.toFixed(2)}`);
       return;
     }
     const change = tendered - total;
     setShowPayment(false);
     setCashTendered('');
     // Process as cash
-    handleCharge();
+    handleCharge('Cash');
     if (change > 0) {
-      Alert.alert('Change Due', `$${change.toFixed(2)}`);
+      toast.info('Change Due', `$${change.toFixed(2)}`);
     }
   }
+
+  // Track cash/change from a split so we can report after Tyro approves.
+  const [pendingSplit, setPendingSplit] = useState<{
+    cardAmt: number;
+    cashAmt: number;
+    change: number;
+  } | null>(null);
 
   function handlePaySplit() {
     const cardAmt = parseFloat(splitCardAmount) || 0;
     const cashAmt = parseFloat(splitCashAmount) || 0;
     if (cardAmt + cashAmt < total) {
-      Alert.alert('Insufficient', `Card ($${cardAmt.toFixed(2)}) + Cash ($${cashAmt.toFixed(2)}) = $${(cardAmt + cashAmt).toFixed(2)}. Need at least $${total.toFixed(2)}`);
+      toast.warning(
+        'Insufficient',
+        `Card $${cardAmt.toFixed(2)} + Cash $${cashAmt.toFixed(2)} = $${(cardAmt + cashAmt).toFixed(2)}. Need $${total.toFixed(2)}.`,
+      );
       return;
     }
-    const change = (cardAmt + cashAmt) - total;
+    const change = cardAmt + cashAmt - total;
+
+    // Route the card portion through Tyro if available.
+    if (cardAmt > 0 && isTyroInitialized()) {
+      setShowPayment(false);
+      setSplitMode(false);
+      setPendingSplit({ cardAmt, cashAmt, change });
+      setTyroAmount(cardAmt);
+      setShowTyroModal(true);
+
+      const amountCents = String(Math.round(cardAmt * 100));
+      try {
+        tyroPurchase(amountCents, {
+          integratedReceipt: tyroConfig.integratedReceipts,
+          enableSurcharge: tyroConfig.enableSurcharge,
+          transactionId: `POS-SPLIT-${Date.now()}`,
+        });
+      } catch (err) {
+        console.warn('[Tyro] start split purchase failed:', err);
+        setShowTyroModal(false);
+        setPendingSplit(null);
+        toast.error(
+          'EFTPOS Error',
+          err instanceof Error ? err.message : 'Failed to start Tyro transaction.',
+        );
+      }
+      return;
+    }
+
+    // Cash-only or Tyro unavailable — fall through to the legacy flow.
     setShowPayment(false);
     setSplitMode(false);
     setSplitCardAmount('');
     setSplitCashAmount('');
-    handleCharge();
+    handleCharge('Split');
     if (change > 0) {
-      Alert.alert('Split Payment Complete', `Card: $${cardAmt.toFixed(2)}, Cash: $${cashAmt.toFixed(2)}\nChange: $${change.toFixed(2)}`);
+      toast.success(
+        'Split Payment Complete',
+        `Card $${cardAmt.toFixed(2)} · Cash $${cashAmt.toFixed(2)} · Change $${change.toFixed(2)}`,
+      );
     } else {
-      Alert.alert('Split Payment Complete', `Card: $${cardAmt.toFixed(2)}, Cash: $${cashAmt.toFixed(2)}`);
+      toast.success(
+        'Split Payment Complete',
+        `Card $${cardAmt.toFixed(2)} · Cash $${cashAmt.toFixed(2)}`,
+      );
     }
   }
 
@@ -427,16 +650,16 @@ export default function PosSellScreen() {
             </View>
             <TouchableOpacity
               style={[styles.custBtn, customerName ? styles.custBtnActive : null]}
-              onPress={() => {
+              onPress={async () => {
                 if (customerName) {
-                  Alert.alert('Customer', customerName, [
-                    {
-                      text: 'Remove',
-                      style: 'destructive',
-                      onPress: () => setCustomer(null, null),
-                    },
-                    { text: 'OK' },
-                  ]);
+                  const removeIt = await confirm({
+                    title: 'Customer',
+                    description: customerName,
+                    confirmLabel: 'Remove',
+                    cancelLabel: 'Keep',
+                    destructive: true,
+                  });
+                  if (removeIt) setCustomer(null, null);
                 } else {
                   // Navigate to customers tab to search and select
                   router.push('/(pos)/customers');
@@ -593,7 +816,7 @@ export default function PosSellScreen() {
                   <View style={styles.qtyRow}>
                     <TouchableOpacity
                       style={styles.qtyBtn}
-                      onPress={() => removeItem(item.id)}
+                      onPress={() => removeItem(item.cartKey)}
                     >
                       <Text style={styles.qtyBtnLabel}>
                         {item.qty === 1 ? '×' : '−'}
@@ -647,6 +870,9 @@ export default function PosSellScreen() {
                 </Text>
               </TouchableOpacity>
               <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity style={[styles.clearBtn, { flex: 1 }]} onPress={() => router.push('/(pos)/split-check' as never)}>
+                  <Text style={[styles.clearText, { color: '#6366f1' }]}>Split</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={[styles.clearBtn, { flex: 1 }]} onPress={() => setShowOrderDiscount(true)}>
                   <Text style={[styles.clearText, { color: '#f59e0b' }]}>Discount</Text>
                 </TouchableOpacity>
@@ -667,8 +893,31 @@ export default function PosSellScreen() {
 
             {!splitMode ? (
               <>
-                <TouchableOpacity style={{ backgroundColor: '#6366f1', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 10 }} onPress={handlePayCard}>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Card / EFTPOS</Text>
+                {tyroConfig.cashoutEnabled && isTyroInitialized() && (
+                  <View style={{ backgroundColor: '#141425', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 10 }}>
+                    <Text style={{ color: '#888', fontSize: 12, marginBottom: 6 }}>Cashout (optional)</Text>
+                    <TextInput
+                      style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 16, color: '#fff', textAlign: 'center', borderWidth: 1, borderColor: '#2a2a3a' }}
+                      value={cashoutDollars}
+                      onChangeText={setCashoutDollars}
+                      keyboardType="decimal-pad"
+                      placeholder="$0.00"
+                      placeholderTextColor="#444"
+                    />
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={{ backgroundColor: '#6366f1', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 10 }}
+                  onPress={handlePayCard}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>
+                    Card / EFTPOS{tyroConfig.enableSurcharge ? ' (Surcharge applies)' : ''}
+                  </Text>
+                  {tyroConfig.cashoutEnabled && parseFloat(cashoutDollars) > 0 && (
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff', opacity: 0.85, marginTop: 2 }}>
+                      ${total.toFixed(2)} + ${(parseFloat(cashoutDollars) || 0).toFixed(2)} cashout
+                    </Text>
+                  )}
                 </TouchableOpacity>
                 <View style={{ backgroundColor: '#141425', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 10 }}>
                   <Text style={{ color: '#888', fontSize: 13, marginBottom: 8 }}>Cash Tendered</Text>
@@ -808,7 +1057,7 @@ export default function PosSellScreen() {
                   style={{ flex: 1, backgroundColor: '#1e1e2e', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#ef444444' }}
                   onPress={() => {
                     if (editingCartItem) {
-                      updateItem(editingCartItem.id, { discount: undefined, discountType: undefined, note: undefined });
+                      updateItem(editingCartItem.cartKey, { discount: undefined, discountType: undefined, note: undefined });
                     }
                     setEditingCartItem(null);
                   }}
@@ -821,7 +1070,7 @@ export default function PosSellScreen() {
                 onPress={() => {
                   if (editingCartItem) {
                     const discVal = parseFloat(itemDiscount) || 0;
-                    updateItem(editingCartItem.id, {
+                    updateItem(editingCartItem.cartKey, {
                       discount: discVal > 0 ? discVal : undefined,
                       discountType: discVal > 0 ? itemDiscountType : undefined,
                       note: itemNote.trim() || undefined,
@@ -898,11 +1147,54 @@ export default function PosSellScreen() {
               <Text style={{ color: '#666', fontSize: 13, width: 80 }}>Status</Text>
               <Text style={{ color: detailProduct?.isActive ? '#22c55e' : '#ef4444', fontSize: 13 }}>{detailProduct?.isActive ? 'Active' : 'Inactive'}</Text>
             </View>
+            {detailProduct && unavailable.has(detailProduct.id) && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: '#ef444455', borderRadius: 10, padding: 10, marginTop: 10, gap: 8 }}>
+                <Ionicons name="warning" size={16} color="#ef4444" />
+                <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '700', flex: 1 }}>
+                  This item is 86&apos;d on this device
+                </Text>
+              </View>
+            )}
             <TouchableOpacity
-              style={{ backgroundColor: '#6366f1', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 16 }}
+              style={{
+                backgroundColor: detailProduct && unavailable.has(detailProduct.id) ? '#2a2a3a' : '#6366f1',
+                borderRadius: 12,
+                paddingVertical: 14,
+                alignItems: 'center',
+                marginTop: 16,
+                opacity: detailProduct && unavailable.has(detailProduct.id) ? 0.5 : 1,
+              }}
+              disabled={!!(detailProduct && unavailable.has(detailProduct.id))}
               onPress={() => { if (detailProduct) handleAdd(detailProduct); setDetailProduct(null); }}
             >
               <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Add to Cart</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{
+                borderRadius: 12,
+                paddingVertical: 12,
+                alignItems: 'center',
+                marginTop: 8,
+                borderWidth: 1,
+                borderColor: detailProduct && unavailable.has(detailProduct.id) ? '#22c55e' : '#ef4444',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                gap: 8,
+              }}
+              onPress={() => { if (detailProduct) { handleToggle86(detailProduct); setDetailProduct(null); } }}
+            >
+              <Ionicons
+                name={detailProduct && unavailable.has(detailProduct.id) ? 'checkmark-circle' : 'remove-circle'}
+                size={16}
+                color={detailProduct && unavailable.has(detailProduct.id) ? '#22c55e' : '#ef4444'}
+              />
+              <Text style={{
+                fontSize: 13,
+                fontWeight: '800',
+                color: detailProduct && unavailable.has(detailProduct.id) ? '#22c55e' : '#ef4444',
+              }}>
+                {detailProduct && unavailable.has(detailProduct.id) ? 'Mark Back In Stock' : '86 This Item'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setDetailProduct(null)} style={{ alignItems: 'center', paddingVertical: 10 }}>
               <Text style={{ color: '#666', fontSize: 14 }}>Close</Text>
@@ -910,6 +1202,15 @@ export default function PosSellScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ═══ Tyro EFTPOS Transaction Modal ═══ */}
+      <TyroTransactionModal
+        visible={showTyroModal}
+        amount={tyroAmount}
+        title="Card Payment"
+        onComplete={handleTyroComplete}
+        onClose={() => setShowTyroModal(false)}
+      />
 
     </SafeAreaView>
   );
@@ -1005,6 +1306,25 @@ const styles = StyleSheet.create({
     minHeight: 80,
   },
   cardActive: { borderColor: '#6366f1', backgroundColor: '#1a1a35' },
+  cardDisabled: {
+    borderColor: '#3a1a1a',
+    backgroundColor: '#1a0d10',
+    opacity: 0.7,
+  },
+  outOfStockBadge: {
+    backgroundColor: 'rgba(239,68,68,0.18)',
+    borderColor: '#ef444466',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  outOfStockText: {
+    color: '#ef4444',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
   cardColorBar: { height: 3 },
   cardBody: {
     padding: 8,
