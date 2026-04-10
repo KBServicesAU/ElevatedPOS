@@ -381,6 +381,68 @@ export async function productRoutes(app: FastifyInstance) {
     });
   });
 
+  // POST /api/v1/products/:id/countdown/decrement — internal: called after an order contains a
+  // countdown product. Decrements countdownQty by the sold quantity; auto-86s when qty ≤ 0.
+  // Accepts both authenticated (employee JWT) and internal service calls (x-internal-secret).
+  app.post('/:id/countdown/decrement', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const internalSecret = process.env['INTERNAL_SERVICE_TOKEN'] ?? process.env['JWT_SECRET'];
+    const authHeader = request.headers['authorization'] ?? '';
+    const xInternal = request.headers['x-internal-secret'];
+
+    // Allow internal service calls — skip org-scoped auth check
+    let orgId: string | null = null;
+    if (xInternal && xInternal === internalSecret) {
+      orgId = null; // look up by id only
+    } else {
+      try {
+        await request.jwtVerify();
+        orgId = (request.user as { orgId: string }).orgId;
+      } catch {
+        // Try internal secret in Bearer position
+        const token = authHeader.replace('Bearer ', '');
+        if (token !== internalSecret) {
+          return reply.status(401).send({ title: 'Unauthorized', status: 401 });
+        }
+        orgId = null;
+      }
+    }
+
+    const bodySchema = z.object({ quantity: z.number().positive().default(1) });
+    const body = bodySchema.safeParse(request.body);
+    if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
+
+    const existing = await db.query.products.findFirst({
+      where: orgId ? and(eq(schema.products.id, id), eq(schema.products.orgId, orgId)) : eq(schema.products.id, id),
+    });
+    if (!existing) return reply.status(404).send({ title: 'Not Found', status: 404 });
+    if (!existing.isCountdown || existing.countdownQty == null) {
+      return reply.status(200).send({ data: { skipped: true, reason: 'not a countdown product' } });
+    }
+
+    const newQty = Math.max(0, existing.countdownQty - body.data.quantity);
+    const shouldAuto86 = newQty <= 0;
+
+    const [updated] = await db
+      .update(schema.products)
+      .set({
+        countdownQty: newQty,
+        ...(shouldAuto86 ? { isActive: false } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.products.id, id))
+      .returning();
+
+    if (shouldAuto86) {
+      console.log(`[catalog] Auto-86'd product ${id} (${existing.name}) — countdown reached 0`);
+      await invalidateCache(`products:${existing.orgId}:*`);
+    }
+
+    return reply.status(200).send({
+      data: { ...updated, countdownQty: newQty, auto86: shouldAuto86 },
+    });
+  });
+
   // NOTE: GET /api/v1/products/availability-changes is registered at the top level in index.ts
   // as a public (no-auth) endpoint. Do not add it here in the authenticated plugin.
 }

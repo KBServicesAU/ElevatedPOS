@@ -1161,11 +1161,37 @@ export default function PosSellScreen() {
               <Text style={{ color: '#666', fontSize: 13, width: 80 }}>Status</Text>
               <Text style={{ color: detailProduct?.isActive ? '#22c55e' : '#ef4444', fontSize: 13 }}>{detailProduct?.isActive ? 'Active' : 'Inactive'}</Text>
             </View>
+            {detailProduct?.prepTimeMinutes != null && (
+              <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+                <Text style={{ color: '#666', fontSize: 13, width: 80 }}>Prep time</Text>
+                <Text style={{ color: '#ccc', fontSize: 13 }}>{detailProduct.prepTimeMinutes} min</Text>
+              </View>
+            )}
+            {detailProduct?.calories != null && (
+              <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+                <Text style={{ color: '#666', fontSize: 13, width: 80 }}>Calories</Text>
+                <Text style={{ color: '#ccc', fontSize: 13 }}>{detailProduct.calories} kcal</Text>
+              </View>
+            )}
+            {detailProduct?.allergens && detailProduct.allergens.length > 0 && (
+              <View style={{ marginBottom: 10 }}>
+                <Text style={{ color: '#f59e0b', fontSize: 12, fontWeight: '700', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  ⚠ Allergens
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {detailProduct.allergens.map((a) => (
+                    <View key={a} style={{ backgroundColor: 'rgba(245,158,11,0.15)', borderWidth: 1, borderColor: '#f59e0b55', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Text style={{ color: '#f59e0b', fontSize: 11, fontWeight: '700', textTransform: 'capitalize' }}>{a}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
             {detailProduct && unavailable.has(detailProduct.id) && (
               <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: '#ef444455', borderRadius: 10, padding: 10, marginTop: 10, gap: 8 }}>
                 <Ionicons name="warning" size={16} color="#ef4444" />
                 <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '700', flex: 1 }}>
-                  This item is 86&apos;d on this device
+                  This item is 86&apos;d — hidden from sale
                 </Text>
               </View>
             )}

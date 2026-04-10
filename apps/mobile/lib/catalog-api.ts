@@ -32,6 +32,25 @@ function getToken(): string | null {
     ?? null;
 }
 
+/** POST / PATCH helper for mutating catalog resources */
+export async function catalogApiPost<T = unknown>(path: string, body: unknown, method = 'POST'): Promise<T> {
+  const token = getToken();
+  const url = resolveUrl(path);
+  const res = await fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({ title: res.statusText }))) as { title?: string };
+    throw new Error(err.title ?? `Request failed (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
 export async function catalogApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const url = resolveUrl(path);

@@ -232,6 +232,7 @@ export async function orderRoutes(app: FastifyInstance) {
             name: l.name,
             qty: Number(l.quantity),
             modifiers: (l.modifiers as { name: string }[]).map((m) => m.name),
+            notes: l.notes ?? undefined,
             seatNumber: l.seatNumber,
             course: l.course,
             kdsDestination: l.kdsDestination ?? undefined,

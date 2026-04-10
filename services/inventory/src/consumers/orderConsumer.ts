@@ -4,6 +4,8 @@ import { createConsumer, publishEvent } from '../lib/kafka';
 
 const GROUP_ID = 'inventory-service';
 const LOW_STOCK_THRESHOLD = Number(process.env['LOW_STOCK_THRESHOLD'] ?? 5);
+const CATALOG_URL = process.env['CATALOG_SERVICE_URL'] ?? 'http://catalog:4002';
+const INTERNAL_TOKEN = process.env['INTERNAL_SERVICE_TOKEN'] ?? process.env['JWT_SECRET'] ?? '';
 
 interface OrderCreatedPayload {
   payload?: {
@@ -66,6 +68,20 @@ async function handleOrderCreated(raw: Record<string, unknown>): Promise<void> {
         .update(schema.stockItems)
         .set({ onHand: String(newQty), updatedAt: new Date() })
         .where(eq(schema.stockItems.id, stockItem.id));
+
+      // Decrement countdown products and auto-86 when qty hits 0
+      try {
+        await fetch(`${CATALOG_URL}/api/v1/products/${item.productId}/countdown/decrement`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-secret': INTERNAL_TOKEN,
+          },
+          body: JSON.stringify({ quantity: item.quantity }),
+        });
+      } catch {
+        // Non-fatal — catalog service may be unavailable
+      }
 
       // Publish low_stock event if quantity falls below reorder threshold
       if (newQty <= LOW_STOCK_THRESHOLD && currentQty > LOW_STOCK_THRESHOLD) {

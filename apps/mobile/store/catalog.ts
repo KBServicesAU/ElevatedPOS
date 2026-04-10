@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { catalogApiFetch } from '../lib/catalog-api';
+import { catalogApiFetch, catalogApiPost } from '../lib/catalog-api';
 
 const UNAVAILABLE_KEY = '@elevatedpos/catalog/unavailable_v1';
 const SALES_TYPE_KEY = '@elevatedpos/catalog/sales_type_v1';
@@ -22,6 +22,15 @@ export interface CatalogProduct {
   category?: { id: string; name: string; color: string | null } | null;
   isActive: boolean;
   imageUrl?: string | null;
+  // Allergens & nutrition
+  allergens?: string[] | null;
+  calories?: number | null;
+  // 86 countdown
+  isCountdown?: boolean;
+  countdownQty?: number | null;
+  // Display
+  description?: string | null;
+  prepTimeMinutes?: number | null;
 }
 
 export interface CatalogCategory {
@@ -185,13 +194,18 @@ export const useCatalogStore = create<CatalogStore>((set, get) => ({
 
   toggleUnavailable: async (productId: string) => {
     const next = new Set(get().unavailable);
-    if (next.has(productId)) {
-      next.delete(productId);
-    } else {
+    const nowUnavailable = !next.has(productId);
+    if (nowUnavailable) {
       next.add(productId);
+    } else {
+      next.delete(productId);
     }
     set({ unavailable: next });
     await persistUnavailable(next);
+    // Sync to catalog service so all devices at this location see the change
+    catalogApiPost(`/api/v1/products/${productId}/availability`, { available: !nowUnavailable }).catch(() => {
+      // Non-fatal — local state is source of truth for this session
+    });
   },
 
   setUnavailable: async (productId: string, value: boolean) => {
@@ -203,6 +217,8 @@ export const useCatalogStore = create<CatalogStore>((set, get) => ({
     }
     set({ unavailable: next });
     await persistUnavailable(next);
+    // Sync to catalog service
+    catalogApiPost(`/api/v1/products/${productId}/availability`, { available: !value }).catch(() => {});
   },
 
   clearUnavailable: async () => {

@@ -44,6 +44,8 @@ interface KdsItem {
   name: string;
   qty: number;
   modifiers?: string[];
+  allergens?: string[];
+  notes?: string;
   station?: string; // grill, fryer, salad, bar, expo
 }
 
@@ -146,6 +148,14 @@ function TicketCard({ ticket, onBump }: { ticket: KdsTicket; onBump: (id: string
               {item.modifiers?.map((mod, mi) => (
                 <Text key={mi} style={styles.itemMod}>· {mod}</Text>
               ))}
+              {item.notes && (
+                <Text style={{ fontSize: 11, color: '#f59e0b', fontStyle: 'italic', marginTop: 2 }}>📝 {item.notes}</Text>
+              )}
+              {item.allergens && item.allergens.length > 0 && (
+                <Text style={{ fontSize: 10, color: '#ef4444', fontWeight: '700', marginTop: 2 }}>
+                  ⚠ {item.allergens.join(', ')}
+                </Text>
+              )}
             </View>
           </View>
         ))}
