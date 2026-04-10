@@ -1,6 +1,7 @@
 import { useDeviceStore } from '../store/device';
 
-const BASE_URL = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+if (!process.env['EXPO_PUBLIC_API_URL']) console.warn('EXPO_PUBLIC_API_URL is not configured');
+const BASE_URL = process.env['EXPO_PUBLIC_API_URL'] ?? '';
 
 export async function deviceApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const identity = useDeviceStore.getState().identity;

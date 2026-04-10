@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -52,7 +53,10 @@ export default function PaymentScreen() {
     };
 
     try {
-      const apiBase = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+      const apiBase =
+        process.env['EXPO_PUBLIC_API_URL'] ??
+        process.env['EXPO_PUBLIC_ORDERS_API_URL'] ??
+        '';
       const token = identity?.deviceToken ?? '';
       const res = await fetch(`${apiBase}/api/v1/orders`, {
         method: 'POST',
@@ -63,15 +67,27 @@ export default function PaymentScreen() {
         body: JSON.stringify(orderPayload),
         signal: AbortSignal.timeout(5000),
       });
-      if (res.ok) {
-        const data = await res.json() as { orderNumber?: string };
-        setOrderNumber(data?.orderNumber ?? `K${Math.floor(100 + Math.random() * 900)}`);
-      } else {
-        throw new Error('order api error');
+      if (!res.ok) {
+        let msg = `Order creation failed (${res.status})`;
+        try {
+          const errBody = await res.json() as { message?: string };
+          if (errBody?.message) msg = errBody.message;
+        } catch { /* ignore parse error */ }
+        throw new Error(msg);
       }
-    } catch {
-      await new Promise((r) => setTimeout(r, 1800));
-      setOrderNumber(`K${Math.floor(100 + Math.random() * 900)}`);
+      const data = await res.json() as { orderNumber?: string };
+      if (!data?.orderNumber) {
+        throw new Error('No order number returned from server');
+      }
+      setOrderNumber(data.orderNumber);
+    } catch (err) {
+      setProcessing(false);
+      Alert.alert(
+        'Order Failed',
+        err instanceof Error ? err.message : 'Could not create order. Please try again.',
+        [{ text: 'OK' }],
+      );
+      return;
     }
 
     clearCart();

@@ -59,16 +59,31 @@ export default function MenuScreen() {
   // Map catalog products to the Product shape used by the UI
   const realProducts: Product[] = useMemo(() => {
     const catMap = new Map(catalogCategories.map(c => [c.id, c.name]));
-    return catalogProducts.map(p => ({
-      id: p.id,
-      name: p.name,
-      price: parseFloat(String(p.basePrice)) || 0, // already in dollars from catalog store
-      category: (p.categoryId && catMap.get(p.categoryId)) ?? 'Other',
-      emoji: '',
-      description: '',
-      ageRestricted: false,
-      tags: [],
-    }));
+    return catalogProducts.map(p => {
+      // The API may return extra fields not declared in CatalogProduct.
+      // Cast to access ageRestricted and tags when present.
+      const raw = p as typeof p & {
+        ageRestricted?: boolean;
+        tags?: string[];
+        description?: string;
+        emoji?: string;
+      };
+      const tags: string[] = Array.isArray(raw.tags) ? raw.tags : [];
+      // Accept explicit ageRestricted flag OR the presence of an 'age-restricted' tag.
+      const ageRestricted =
+        raw.ageRestricted === true ||
+        tags.some((t) => t.toLowerCase() === 'age-restricted');
+      return {
+        id: p.id,
+        name: p.name,
+        price: parseFloat(String(p.basePrice)) || 0, // already in dollars from catalog store
+        category: (p.categoryId && catMap.get(p.categoryId)) ?? 'Other',
+        emoji: raw.emoji ?? '',
+        description: raw.description ?? '',
+        ageRestricted,
+        tags,
+      };
+    });
   }, [catalogProducts, catalogCategories]);
 
   const [fontSize, setFontSize] = useState<FontSize>('medium');

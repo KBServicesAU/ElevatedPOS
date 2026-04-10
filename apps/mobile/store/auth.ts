@@ -5,7 +5,7 @@ import { useDeviceStore } from './device';
 /* Types                                                               */
 /* ------------------------------------------------------------------ */
 
-const AUTH_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+const AUTH_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? '';
 
 export interface AuthEmployee {
   id: string;

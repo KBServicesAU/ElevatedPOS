@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
+  Animated,
   FlatList,
   Linking,
   Modal,
@@ -10,14 +10,22 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { confirm, toast } from '../../components/ui';
 import { Audio } from 'expo-av';
 import Constants from 'expo-constants';
+import { useRouter } from 'expo-router';
 import { useDeviceStore } from '../../store/device';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
+import {
+  useSmsStore,
+  renderSmsBody,
+  normaliseMobile,
+} from '../../store/sms';
 import {
   printText,
   printTestPage,
@@ -36,6 +44,7 @@ interface KdsItem {
   name: string;
   qty: number;
   modifiers?: string[];
+  station?: string; // grill, fryer, salad, bar, expo
 }
 
 interface KdsTicket {
@@ -45,6 +54,31 @@ interface KdsTicket {
   items: KdsItem[];
   createdAt: string;
   status: 'pending' | 'in_progress' | 'ready';
+  station?: string;
+  customerName?: string;
+  customerPhone?: string;
+}
+
+interface BumpedTicket extends KdsTicket {
+  bumpedAt: number;
+}
+
+const STATIONS = [
+  { id: 'all', label: 'All', color: '#6366f1' },
+  { id: 'grill', label: 'Grill', color: '#ef4444' },
+  { id: 'fryer', label: 'Fryer', color: '#f59e0b' },
+  { id: 'salad', label: 'Salad', color: '#22c55e' },
+  { id: 'bar', label: 'Bar', color: '#06b6d4' },
+  { id: 'expo', label: 'Expo', color: '#a78bfa' },
+] as const;
+
+type StationId = (typeof STATIONS)[number]['id'];
+
+function ticketStation(ticket: KdsTicket): string {
+  if (ticket.station) return ticket.station;
+  // Infer from first item with a station
+  const itemWithStation = ticket.items.find((i) => i.station);
+  return itemWithStation?.station ?? 'all';
 }
 
 const ORDERS_API = process.env['EXPO_PUBLIC_ORDERS_API_URL'] ?? 'http://localhost:4004';
@@ -133,15 +167,171 @@ function TicketCard({ ticket, onBump }: { ticket: KdsTicket; onBump: (id: string
   );
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Expeditor card — compact ticket showing per-item ready status
+// across all stations. Lets the expo lead "tick off" each item
+// as it's plated and bump the entire order when ready to send.
+// ─────────────────────────────────────────────────────────────────
+function ExpoTicketCard({
+  ticket,
+  isItemReady,
+  onToggleItem,
+  onBump,
+  allReady,
+}: {
+  ticket: KdsTicket;
+  isItemReady: (id: string, idx: number) => boolean;
+  onToggleItem: (id: string, idx: number) => void;
+  onBump: (id: string) => void;
+  allReady: boolean;
+}) {
+  const [elapsed, setElapsed] = useState(getElapsedSeconds(ticket.createdAt));
+  const [bumping, setBumping] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed(getElapsedSeconds(ticket.createdAt)), 1000);
+    return () => clearInterval(interval);
+  }, [ticket.createdAt]);
+
+  const timerColor = getTimerColor(elapsed);
+  const channelColor = getChannelColor(ticket.channel);
+  const readyCount = ticket.items.filter((_, i) => isItemReady(ticket.id, i)).length;
+
+  const handleBump = async () => {
+    setBumping(true);
+    try { await onBump(ticket.id); } finally { setBumping(false); }
+  };
+
+  return (
+    <View
+      style={[
+        styles.expoCard,
+        { borderTopColor: timerColor },
+        allReady && { borderColor: '#22c55e', borderWidth: 2, backgroundColor: '#0f1f15' },
+      ]}
+    >
+      <View style={styles.expoCardHead}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+          <Text style={styles.orderNumber}>#{ticket.orderNumber}</Text>
+          <View style={[styles.channelBadge, { backgroundColor: `${channelColor}22`, borderColor: `${channelColor}55` }]}>
+            <Text style={[styles.channelText, { color: channelColor }]}>{ticket.channel.toUpperCase()}</Text>
+          </View>
+        </View>
+        <Text style={styles.expoProgress}>
+          {readyCount}/{ticket.items.length}
+        </Text>
+        <Text style={[styles.timer, { color: timerColor, marginLeft: 8 }]}>{formatElapsed(elapsed)}</Text>
+      </View>
+
+      <View style={styles.expoItems}>
+        {ticket.items.map((item, idx) => {
+          const ready = isItemReady(ticket.id, idx);
+          const stationId = item.station ?? 'all';
+          const stationDef = STATIONS.find((st) => st.id === stationId) ?? STATIONS[0];
+          return (
+            <TouchableOpacity
+              key={idx}
+              activeOpacity={0.7}
+              onPress={() => onToggleItem(ticket.id, idx)}
+              style={[
+                styles.expoItemRow,
+                ready && styles.expoItemRowReady,
+              ]}
+            >
+              <View
+                style={[
+                  styles.expoCheck,
+                  ready && { backgroundColor: '#22c55e', borderColor: '#22c55e' },
+                ]}
+              >
+                {ready ? <Text style={styles.expoCheckMark}>✓</Text> : null}
+              </View>
+              <View
+                style={[styles.stationDot, { backgroundColor: stationDef.color, marginRight: 6 }]}
+              />
+              <Text style={[styles.expoItemQty, ready && styles.expoItemTextReady]}>
+                {item.qty}x
+              </Text>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    styles.expoItemName,
+                    ready && styles.expoItemTextReady,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {item.name}
+                </Text>
+                {item.modifiers && item.modifiers.length > 0 ? (
+                  <Text
+                    style={[styles.expoItemMods, ready && styles.expoItemTextReady]}
+                    numberOfLines={1}
+                  >
+                    {item.modifiers.join(' · ')}
+                  </Text>
+                ) : null}
+              </View>
+              <Text
+                style={[styles.expoItemStation, { color: stationDef.color }]}
+              >
+                {stationDef.label.toUpperCase()}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <TouchableOpacity
+        style={[
+          styles.expoBumpBtn,
+          allReady ? styles.expoBumpReady : styles.expoBumpWaiting,
+          bumping && { opacity: 0.6 },
+        ]}
+        onPress={handleBump}
+        disabled={bumping}
+        activeOpacity={0.85}
+      >
+        {bumping ? (
+          <ActivityIndicator color="#000" size="small" />
+        ) : (
+          <Text style={[styles.bumpBtnText, allReady && { color: '#000' }]}>
+            {allReady ? 'SERVE & BUMP' : 'BUMP'}
+          </Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function KDSScreen() {
+  const router = useRouter();
   const {
     identity,
     activeLocationId,
     availableLocations,
     fetchAvailableLocations,
     setActiveLocationId,
+    checkHeartbeat,
   } = useDeviceStore();
   const { config: printerConfig, setConfig: setPrinterConfig, hydrate: hydratePrinter } = usePrinterStore();
+  const {
+    config: smsConfig,
+    setConfig: setSmsConfig,
+    hydrate: hydrateSms,
+    recordSend: recordSmsSend,
+  } = useSmsStore();
+
+  // ── Device heartbeat (revocation check) ────────────────────────
+  useEffect(() => {
+    const interval = setInterval(() => {
+      checkHeartbeat().then(() => {
+        if (!useDeviceStore.getState().identity) {
+          router.replace('/pair');
+        }
+      });
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [checkHeartbeat, router]);
 
   /** Location to actually subscribe to — override or device default. */
   const effectiveLocationId = activeLocationId ?? identity?.locationId ?? null;
@@ -159,7 +349,28 @@ export default function KDSScreen() {
 
   // Sound settings
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const ticketCountRef = useRef(0);
+  const prevTicketIdsRef = useRef<Set<string>>(new Set());
+
+  // Station filter
+  const [activeStation, setActiveStation] = useState<StationId>('all');
+
+  // Expeditor mode — aggregated multi-station readiness view
+  const [expoMode, setExpoMode] = useState(false);
+  const [itemReady, setItemReady] = useState<Record<string, boolean>>({});
+
+  // Recall panel
+  const [showRecall, setShowRecall] = useState(false);
+  const [bumpedHistory, setBumpedHistory] = useState<BumpedTicket[]>([]);
+
+  // Undo bump toast
+  const [undoTicket, setUndoTicket] = useState<KdsTicket | null>(null);
+  const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTranslate = useRef(new Animated.Value(80)).current;
+
+  // Bump error toast
+  const [bumpError, setBumpError] = useState<string | null>(null);
+  const errorOpacity = useRef(new Animated.Value(0)).current;
 
   // Label print on bump
   const [printOnBump, setPrintOnBump] = useState(false);
@@ -168,10 +379,11 @@ export default function KDSScreen() {
   const [discovering, setDiscovering] = useState(false);
   const [discoveredPrinters, setDiscoveredPrinters] = useState<DiscoveredPrinter[]>([]);
 
-  // Hydrate printer config on mount
+  // Hydrate printer + SMS config on mount
   useEffect(() => {
     hydratePrinter();
-  }, [hydratePrinter]);
+    hydrateSms();
+  }, [hydratePrinter, hydrateSms]);
 
   // Fetch available locations on mount (for multi-location orgs)
   useEffect(() => {
@@ -193,13 +405,13 @@ export default function KDSScreen() {
       const devices = await discoverPrinters(type);
       setDiscoveredPrinters(devices);
       if (devices.length === 0) {
-        Alert.alert(
+        toast.warning(
           'No Printers Found',
           `No ${type.toUpperCase()} printers detected. Check the connection.`,
         );
       }
     } catch (err) {
-      Alert.alert(
+      toast.error(
         'Discovery Failed',
         err instanceof Error ? err.message : 'Could not scan for printers',
       );
@@ -216,25 +428,25 @@ export default function KDSScreen() {
         name: printer.name,
       });
       setDiscoveredPrinters([]);
-      Alert.alert(
+      toast.success(
         'Printer Saved',
         `${printer.name} will print labels when you bump orders.`,
       );
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Could not save printer');
+      toast.error('Error', err instanceof Error ? err.message : 'Could not save printer');
     }
   }
 
   async function handleTestPrinter() {
     if (!printerConfig.type) {
-      Alert.alert('No Printer', 'Please configure a label printer first.');
+      toast.warning('No Printer', 'Please configure a label printer first.');
       return;
     }
     try {
       await printTestPage();
-      Alert.alert('Success', 'Test page sent to printer.');
+      toast.success('Test Print Sent', 'Check the printer for a test page.');
     } catch (err) {
-      Alert.alert(
+      toast.error(
         'Print Failed',
         err instanceof Error ? err.message : 'Could not print',
       );
@@ -246,10 +458,11 @@ export default function KDSScreen() {
     setDiscoveredPrinters([]);
   }
 
-  // Play beep on new ticket
+  // Play beep only when a genuinely NEW ticket (unrecognised ID) appears
   useEffect(() => {
-    if (tickets.length > ticketCountRef.current && soundEnabled) {
-      // New ticket arrived — play beep
+    const currentIds = new Set(tickets.map((t) => t.id));
+    const hasNewTicket = tickets.some((t) => !prevTicketIdsRef.current.has(t.id));
+    if (hasNewTicket && prevTicketIdsRef.current.size > 0 && soundEnabled) {
       (async () => {
         try {
           const { sound } = await Audio.Sound.createAsync(
@@ -260,13 +473,24 @@ export default function KDSScreen() {
         } catch { /* sound failed — non-critical */ }
       })();
     }
-    ticketCountRef.current = tickets.length;
-  }, [tickets.length, soundEnabled]);
+    prevTicketIdsRef.current = currentIds;
+  }, [tickets, soundEnabled]);
 
-  // Order summary — aggregate item counts across all tickets
+  // Filtered tickets by station
+  const visibleTickets = useMemo(() => {
+    if (activeStation === 'all') return tickets;
+    return tickets.filter((t) => {
+      const station = ticketStation(t);
+      if (station === activeStation) return true;
+      // Also include if any item belongs to the station
+      return t.items.some((i) => i.station === activeStation);
+    });
+  }, [tickets, activeStation]);
+
+  // Order summary — aggregate item counts across visible tickets
   const orderSummary = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const t of tickets) {
+    for (const t of visibleTickets) {
       for (const item of t.items) {
         counts.set(item.name, (counts.get(item.name) ?? 0) + item.qty);
       }
@@ -274,7 +498,179 @@ export default function KDSScreen() {
     return Array.from(counts.entries())
       .map(([name, qty]) => ({ name, qty }))
       .sort((a, b) => b.qty - a.qty);
+  }, [visibleTickets]);
+
+  // Per-station counts for filter chip badges
+  const stationCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: tickets.length };
+    for (const t of tickets) {
+      const station = ticketStation(t);
+      counts[station] = (counts[station] ?? 0) + 1;
+      for (const item of t.items) {
+        if (item.station && item.station !== station) {
+          counts[item.station] = (counts[item.station] ?? 0) + 1;
+        }
+      }
+    }
+    return counts;
   }, [tickets]);
+
+  // ── Expeditor helpers ───────────────────────────────────────────
+  function getItemKey(ticketId: string, idx: number): string {
+    return `${ticketId}::${idx}`;
+  }
+
+  function toggleItemReady(ticketId: string, idx: number) {
+    const k = getItemKey(ticketId, idx);
+    setItemReady((prev) => ({ ...prev, [k]: !prev[k] }));
+  }
+
+  function isItemReady(ticketId: string, idx: number): boolean {
+    return itemReady[getItemKey(ticketId, idx)] === true;
+  }
+
+  function isTicketAllReady(t: KdsTicket): boolean {
+    if (t.items.length === 0) return false;
+    for (let i = 0; i < t.items.length; i++) {
+      if (!isItemReady(t.id, i)) return false;
+    }
+    return true;
+  }
+
+  // Per-station progress (ready/pending) across all tickets
+  const stationProgress = useMemo(() => {
+    const acc: Record<string, { ready: number; pending: number }> = {};
+    for (const t of tickets) {
+      t.items.forEach((item, idx) => {
+        const stn = item.station ?? ticketStation(t) ?? 'all';
+        if (!acc[stn]) acc[stn] = { ready: 0, pending: 0 };
+        const ready = isItemReady(t.id, idx);
+        if (ready) acc[stn]!.ready += item.qty;
+        else acc[stn]!.pending += item.qty;
+      });
+    }
+    return acc;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickets, itemReady]);
+
+  // Clean up stale itemReady entries when tickets disappear (bumped/removed)
+  useEffect(() => {
+    setItemReady((prev) => {
+      const validIds = new Set(tickets.map((t) => t.id));
+      let changed = false;
+      const next: Record<string, boolean> = {};
+      for (const k of Object.keys(prev)) {
+        const ticketId = k.split('::')[0];
+        if (ticketId && validIds.has(ticketId)) {
+          next[k] = prev[k]!;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tickets]);
+
+  // ── Toast helpers ──
+  function showUndoToast(ticket: KdsTicket) {
+    setUndoTicket(ticket);
+    Animated.parallel([
+      Animated.timing(toastOpacity, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+      Animated.spring(toastTranslate, {
+        toValue: 0,
+        damping: 14,
+        stiffness: 110,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    undoTimeoutRef.current = setTimeout(() => {
+      hideUndoToast();
+    }, 5000);
+  }
+
+  function hideUndoToast() {
+    Animated.parallel([
+      Animated.timing(toastOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(toastTranslate, {
+        toValue: 80,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setUndoTicket(null));
+  }
+
+  function showBumpErrorToast(message: string) {
+    setBumpError(message);
+    Animated.timing(errorOpacity, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+    setTimeout(() => {
+      Animated.timing(errorOpacity, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }).start(() => setBumpError(null));
+    }, 4000);
+  }
+
+  function handleUndoBump() {
+    if (!undoTicket) return;
+    // Re-add the ticket to the active list
+    setTickets((prev) => {
+      if (prev.some((t) => t.id === undoTicket.id)) return prev;
+      return [...prev, undoTicket];
+    });
+    // Remove from history
+    setBumpedHistory((prev) => prev.filter((t) => t.id !== undoTicket.id));
+    // Best-effort: tell server to unbump
+    if (identity) {
+      fetch(`${ORDERS_API}/api/v1/kds/tickets/${undoTicket.id}/recall`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${identity.deviceToken}`,
+        },
+      }).catch(() => {
+        /* non-critical */
+      });
+    }
+    hideUndoToast();
+  }
+
+  async function handleRecall(ticket: BumpedTicket) {
+    setTickets((prev) => {
+      if (prev.some((t) => t.id === ticket.id)) return prev;
+      return [...prev, ticket];
+    });
+    setBumpedHistory((prev) => prev.filter((t) => t.id !== ticket.id));
+    setShowRecall(false);
+    // Best-effort: tell server to recall
+    if (identity) {
+      try {
+        await fetch(`${ORDERS_API}/api/v1/kds/tickets/${ticket.id}/recall`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${identity.deviceToken}`,
+          },
+        });
+      } catch {
+        /* non-critical */
+      }
+    }
+  }
 
   // Settings modal state
   const [showSettings, setShowSettings] = useState(false);
@@ -293,7 +689,7 @@ export default function KDSScreen() {
       setUpdateUrl(data.downloadUrl);
       setUpdateChangelog(data.changelog ?? []);
     } catch {
-      Alert.alert('Update Check Failed', 'Could not reach the update server. Check your network connection.');
+      toast.error('Update Check Failed', 'Could not reach the update server. Check your network connection.');
     } finally {
       setUpdateChecking(false);
     }
@@ -389,38 +785,102 @@ export default function KDSScreen() {
     };
   }, [connect]);
 
+  /**
+   * Best-effort: ask the server to dispatch a "your order is ready" SMS to
+   * the customer attached to a bumped ticket. Failures are non-blocking and
+   * surfaced to the operator via the same bump-error toast strip.
+   */
+  async function dispatchReadySms(ticket: KdsTicket): Promise<void> {
+    if (!smsConfig.enabled) return;
+    const to = normaliseMobile(ticket.customerPhone);
+    if (!to) return; // ticket has no usable phone number
+    const endpoint = smsConfig.endpoint?.trim();
+    if (!endpoint || !identity) return;
+
+    const body = renderSmsBody(smsConfig.template, {
+      name: ticket.customerName,
+      order: ticket.orderNumber,
+      merchant: smsConfig.merchantName,
+    });
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${identity.deviceToken}`,
+        },
+        body: JSON.stringify({
+          to,
+          body,
+          from: smsConfig.fromName || smsConfig.merchantName || 'POS',
+          orderId: ticket.id,
+          orderNumber: ticket.orderNumber,
+        }),
+      });
+      if (!res.ok) {
+        showBumpErrorToast(`SMS failed (${res.status}). Order still bumped.`);
+        return;
+      }
+      await recordSmsSend();
+    } catch {
+      showBumpErrorToast('SMS network error. Order still bumped.');
+    }
+  }
+
   async function handleBump(ticketId: string) {
     if (!identity) return;
 
-    // Capture ticket data before removal for label printing
+    // Capture ticket data before removal for label printing & history
     const ticket = tickets.find((t) => t.id === ticketId);
+    if (!ticket) return;
 
+    // Optimistic removal
+    setTickets((prev) => prev.filter((t) => t.id !== ticketId));
+
+    // Add to bumped history (keep last 30)
+    setBumpedHistory((prev) =>
+      [{ ...ticket, bumpedAt: Date.now() }, ...prev].slice(0, 30),
+    );
+
+    // Show undo toast immediately
+    showUndoToast(ticket);
+
+    let serverOk = true;
     try {
-      await fetch(`${ORDERS_API}/api/v1/kds/tickets/${ticketId}/bump`, {
+      const res = await fetch(`${ORDERS_API}/api/v1/kds/tickets/${ticketId}/bump`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${identity.deviceToken}`,
         },
       });
-    } catch {
-      // Bump API call failed — ticket removed optimistically; WS event will confirm
+      if (!res.ok) {
+        serverOk = false;
+        showBumpErrorToast(`Bump failed (${res.status}). Will retry on reconnect.`);
+      }
+    } catch (err) {
+      serverOk = false;
       console.warn('[KDS] Bump API call failed for ticket', ticketId);
+      showBumpErrorToast('Bump failed: network error. Will retry on reconnect.');
     }
 
     // Print label if enabled
-    if (printOnBump && ticket) {
+    if (printOnBump && serverOk) {
       try {
         const itemLines = ticket.items.map((i) => `${i.qty}x ${i.name}`).join('\n');
         const label = `ORDER #${ticket.orderNumber}\n-----------\n${itemLines}\n-----------\n\n`;
         await printText(label);
       } catch (e) {
         console.warn('[KDS] Label print failed:', e);
+        showBumpErrorToast('Label printer error');
       }
     }
 
-    // Optimistic removal
-    setTickets((prev) => prev.filter((t) => t.id !== ticketId));
+    // Notify customer via SMS if enabled and phone available
+    if (serverOk) {
+      void dispatchReadySms(ticket);
+    }
   }
 
   return (
@@ -440,6 +900,27 @@ export default function KDSScreen() {
           <View style={[styles.connDot, { backgroundColor: connected ? '#22c55e' : '#ef4444' }]} />
           <Text style={styles.connLabel}>{connected ? 'Live' : 'Reconnecting...'}</Text>
           <TouchableOpacity
+            onPress={() => setExpoMode((m) => !m)}
+            style={[styles.expoToggle, expoMode && styles.expoToggleActive]}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.expoToggleText, expoMode && styles.expoToggleTextActive]}>
+              EXPO
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowRecall(true)}
+            style={styles.gearBtn}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.gearIcon, { fontSize: 18 }]}>↺</Text>
+            {bumpedHistory.length > 0 && (
+              <View style={styles.recallBadge}>
+                <Text style={styles.recallBadgeText}>{bumpedHistory.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={() => { setShowSettings(true); checkForUpdate(); }}
             style={styles.gearBtn}
             activeOpacity={0.7}
@@ -447,6 +928,66 @@ export default function KDSScreen() {
             <Text style={styles.gearIcon}>⚙</Text>
           </TouchableOpacity>
         </View>
+      </View>
+
+      {/* ── Station Filter Chips ── */}
+      <View style={styles.stationBar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.stationScroll}
+        >
+          {STATIONS.map((s) => {
+            const active = activeStation === s.id;
+            const count = stationCounts[s.id] ?? 0;
+            return (
+              <TouchableOpacity
+                key={s.id}
+                onPress={() => setActiveStation(s.id)}
+                activeOpacity={0.85}
+                style={[
+                  styles.stationChip,
+                  active && {
+                    backgroundColor: `${s.color}25`,
+                    borderColor: s.color,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.stationDot,
+                    { backgroundColor: s.color },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.stationChipText,
+                    active && { color: s.color, fontWeight: '900' },
+                  ]}
+                >
+                  {s.label}
+                </Text>
+                {count > 0 && (
+                  <View
+                    style={[
+                      styles.stationChipBadge,
+                      active && { backgroundColor: s.color },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.stationChipBadgeText,
+                        active && { color: '#000' },
+                      ]}
+                    >
+                      {count}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {/* Settings / Update Modal */}
@@ -605,6 +1146,91 @@ export default function KDSScreen() {
               </View>
             ) : null}
 
+            {/* ── SMS on Bump ── */}
+            <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', marginTop: 14, marginBottom: 6, letterSpacing: 1 }}>SMS ON BUMP</Text>
+            <View style={styles.modalCard}>
+              <View style={styles.modalRow}>
+                <Text style={styles.modalLabel}>Send SMS when bumped</Text>
+                <Switch
+                  value={smsConfig.enabled}
+                  onValueChange={(v) => setSmsConfig({ enabled: v })}
+                  trackColor={{ false: '#2a2a2a', true: '#22c55e80' }}
+                  thumbColor={smsConfig.enabled ? '#22c55e' : '#555'}
+                />
+              </View>
+              {smsConfig.enabled && (
+                <>
+                  <View style={styles.modalDivider} />
+                  <View style={[styles.modalRow, { paddingVertical: 10 }]}>
+                    <Text style={styles.modalLabel}>Merchant name</Text>
+                    <TextInput
+                      style={styles.smsInput}
+                      value={smsConfig.merchantName}
+                      onChangeText={(t) => setSmsConfig({ merchantName: t })}
+                      placeholder="e.g. The Boatshed"
+                      placeholderTextColor="#444"
+                    />
+                  </View>
+                  <View style={styles.modalDivider} />
+                  <View style={[styles.modalRow, { paddingVertical: 10 }]}>
+                    <Text style={styles.modalLabel}>Sender ID</Text>
+                    <TextInput
+                      style={styles.smsInput}
+                      value={smsConfig.fromName}
+                      onChangeText={(t) => setSmsConfig({ fromName: t })}
+                      placeholder="Max 11 chars"
+                      placeholderTextColor="#444"
+                      maxLength={11}
+                    />
+                  </View>
+                  <View style={styles.modalDivider} />
+                  <View style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
+                    <Text style={[styles.modalLabel, { marginBottom: 6 }]}>
+                      Message template
+                    </Text>
+                    <TextInput
+                      style={styles.smsTemplateInput}
+                      value={smsConfig.template}
+                      onChangeText={(t) => setSmsConfig({ template: t })}
+                      placeholder="Hi {name}, your order #{order} is ready."
+                      placeholderTextColor="#444"
+                      multiline
+                      numberOfLines={3}
+                    />
+                    <Text style={{ color: '#444', fontSize: 10, marginTop: 4 }}>
+                      Placeholders: {'{name}'}, {'{order}'}, {'{merchant}'}
+                    </Text>
+                  </View>
+                  <View style={styles.modalDivider} />
+                  <View style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
+                    <Text style={[styles.modalLabel, { marginBottom: 6 }]}>
+                      Gateway endpoint
+                    </Text>
+                    <TextInput
+                      style={[styles.smsTemplateInput, { fontSize: 11 }]}
+                      value={smsConfig.endpoint}
+                      onChangeText={(t) => setSmsConfig({ endpoint: t })}
+                      placeholder="https://api.example.com/sms/send"
+                      placeholderTextColor="#444"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
+                  {smsConfig.totalSent > 0 && (
+                    <>
+                      <View style={styles.modalDivider} />
+                      <View style={styles.modalRow}>
+                        <Text style={styles.modalLabel}>Total sent</Text>
+                        <Text style={[styles.modalValue, { color: '#22c55e', fontWeight: '700' }]}>
+                          {smsConfig.totalSent}
+                        </Text>
+                      </View>
+                    </>
+                  )}
+                </>
+              )}
+            </View>
+
             {/* ── Timer Colors ── */}
             <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', marginTop: 14, marginBottom: 6, letterSpacing: 1 }}>TIMER THRESHOLDS</Text>
             <View style={styles.modalCard}>
@@ -679,15 +1305,18 @@ export default function KDSScreen() {
             {/* Unpair */}
             <TouchableOpacity
               style={{ backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginBottom: 8, borderWidth: 1, borderColor: '#ef4444' }}
-              onPress={() => {
-                Alert.alert('Unpair Device', 'This will remove all credentials. You will need to pair again.', [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Unpair', style: 'destructive', onPress: async () => {
-                    const { clearIdentity } = useDeviceStore.getState();
-                    await clearIdentity();
-                    setShowSettings(false);
-                  }},
-                ]);
+              onPress={async () => {
+                const ok = await confirm({
+                  title: 'Unpair Device',
+                  description: 'This will remove all credentials. You will need to pair again.',
+                  confirmLabel: 'Unpair',
+                  destructive: true,
+                });
+                if (ok) {
+                  const { clearIdentity } = useDeviceStore.getState();
+                  await clearIdentity();
+                  setShowSettings(false);
+                }
               }}
               activeOpacity={0.85}
             >
@@ -704,7 +1333,7 @@ export default function KDSScreen() {
 
       <View style={{ flex: 1, flexDirection: 'row' }}>
         {/* Left: Order Summary Sidebar */}
-        {tickets.length > 0 && (
+        {visibleTickets.length > 0 && (
           <View style={{ width: 180, backgroundColor: '#111', borderRightWidth: 1, borderRightColor: '#222', paddingTop: 12 }}>
             <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', paddingHorizontal: 12, marginBottom: 8, letterSpacing: 1 }}>TO MAKE</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
@@ -716,21 +1345,76 @@ export default function KDSScreen() {
               ))}
             </ScrollView>
             <View style={{ padding: 12, borderTopWidth: 1, borderTopColor: '#222' }}>
-              <Text style={{ color: '#555', fontSize: 11 }}>{tickets.length} orders · {orderSummary.reduce((s, i) => s + i.qty, 0)} items</Text>
+              <Text style={{ color: '#555', fontSize: 11 }}>{visibleTickets.length} orders · {orderSummary.reduce((s, i) => s + i.qty, 0)} items</Text>
             </View>
           </View>
         )}
 
         {/* Right: Ticket Grid */}
-        {tickets.length === 0 ? (
+        {visibleTickets.length === 0 ? (
           <View style={styles.clearKitchen}>
             <Text style={styles.clearEmoji}>✅</Text>
-            <Text style={styles.clearTitle}>Kitchen Clear</Text>
-            <Text style={styles.clearSub}>No pending tickets</Text>
+            <Text style={styles.clearTitle}>
+              {tickets.length === 0 ? 'Kitchen Clear' : 'No tickets for this station'}
+            </Text>
+            <Text style={styles.clearSub}>
+              {tickets.length === 0 ? 'No pending tickets' : 'Switch filter to see other stations'}
+            </Text>
+          </View>
+        ) : expoMode ? (
+          <View style={{ flex: 1 }}>
+            {/* Station progress strip */}
+            <View style={styles.expoStrip}>
+              {STATIONS.filter((s) => s.id !== 'all').map((s) => {
+                const prog = stationProgress[s.id] ?? { ready: 0, pending: 0 };
+                const total = prog.ready + prog.pending;
+                const pct = total === 0 ? 0 : Math.round((prog.ready / total) * 100);
+                return (
+                  <View key={s.id} style={styles.expoStripCell}>
+                    <View
+                      style={[
+                        styles.expoStripDot,
+                        { backgroundColor: s.color },
+                      ]}
+                    />
+                    <Text style={styles.expoStripLabel}>{s.label}</Text>
+                    <Text style={[styles.expoStripCount, { color: s.color }]}>
+                      {prog.ready}/{total}
+                    </Text>
+                    <View style={styles.expoStripBarBg}>
+                      <View
+                        style={[
+                          styles.expoStripBar,
+                          { width: `${pct}%`, backgroundColor: s.color },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+
+            <FlatList
+              data={visibleTickets}
+              keyExtractor={(t) => t.id}
+              numColumns={2}
+              contentContainerStyle={styles.ticketGrid}
+              renderItem={({ item }) => (
+                <ExpoTicketCard
+                  ticket={item}
+                  isItemReady={isItemReady}
+                  onToggleItem={toggleItemReady}
+                  onBump={handleBump}
+                  allReady={isTicketAllReady(item)}
+                />
+              )}
+              style={{ flex: 1 }}
+              extraData={itemReady}
+            />
           </View>
         ) : (
           <FlatList
-            data={tickets}
+            data={visibleTickets}
             keyExtractor={(t) => t.id}
             numColumns={3}
             contentContainerStyle={styles.ticketGrid}
@@ -739,6 +1423,134 @@ export default function KDSScreen() {
           />
         )}
       </View>
+
+      {/* ── Recall Panel Modal ── */}
+      <Modal
+        visible={showRecall}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRecall(false)}
+      >
+        <View style={styles.recallOverlay}>
+          <View style={styles.recallSheet}>
+            <View style={styles.recallHeader}>
+              <Text style={styles.recallTitle}>Recall Bumped Tickets</Text>
+              <TouchableOpacity
+                onPress={() => setShowRecall(false)}
+                style={styles.recallClose}
+              >
+                <Text style={{ color: '#888', fontSize: 22 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.recallSub}>
+              Recently bumped tickets — tap to bring back
+            </Text>
+
+            {bumpedHistory.length === 0 ? (
+              <View style={styles.recallEmpty}>
+                <Text style={styles.recallEmptyEmoji}>🍽️</Text>
+                <Text style={styles.recallEmptyText}>No bumped tickets yet</Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={{ maxHeight: 480 }}
+                showsVerticalScrollIndicator={false}
+              >
+                {bumpedHistory.map((t) => {
+                  const elapsed = Math.floor((Date.now() - t.bumpedAt) / 1000);
+                  const elapsedMin = Math.floor(elapsed / 60);
+                  return (
+                    <TouchableOpacity
+                      key={t.id}
+                      style={styles.recallRow}
+                      onPress={() => handleRecall(t)}
+                      activeOpacity={0.85}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <View
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                        >
+                          <Text style={styles.recallOrderNumber}>#{t.orderNumber}</Text>
+                          <View
+                            style={[
+                              styles.channelBadge,
+                              {
+                                backgroundColor: `${getChannelColor(t.channel)}22`,
+                                borderColor: `${getChannelColor(t.channel)}55`,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.channelText,
+                                { color: getChannelColor(t.channel) },
+                              ]}
+                            >
+                              {t.channel.toUpperCase()}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.recallItems} numberOfLines={2}>
+                          {t.items.map((i) => `${i.qty}x ${i.name}`).join(' · ')}
+                        </Text>
+                        <Text style={styles.recallTime}>
+                          Bumped {elapsedMin === 0 ? 'just now' : `${elapsedMin}m ago`}
+                        </Text>
+                      </View>
+                      <View style={styles.recallBtn}>
+                        <Text style={styles.recallBtnText}>RECALL</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Undo Bump Toast ── */}
+      {undoTicket && (
+        <Animated.View
+          style={[
+            styles.toast,
+            {
+              opacity: toastOpacity,
+              transform: [{ translateY: toastTranslate }],
+            },
+          ]}
+          pointerEvents="box-none"
+        >
+          <View style={styles.toastInner}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.toastTitle}>
+                Bumped #{undoTicket.orderNumber}
+              </Text>
+              <Text style={styles.toastSub} numberOfLines={1}>
+                {undoTicket.items.map((i) => `${i.qty}x ${i.name}`).join(' · ')}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={handleUndoBump}
+              activeOpacity={0.85}
+              style={styles.toastUndoBtn}
+            >
+              <Text style={styles.toastUndoText}>UNDO</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* ── Bump Error Toast ── */}
+      {bumpError && (
+        <Animated.View
+          style={[styles.errorToast, { opacity: errorOpacity }]}
+          pointerEvents="none"
+        >
+          <Text style={styles.errorToastIcon}>⚠</Text>
+          <Text style={styles.errorToastText}>{bumpError}</Text>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -850,4 +1662,442 @@ const styles = StyleSheet.create({
     borderColor: '#2a2a2a',
   },
   printerBtnText: { fontSize: 13, fontWeight: '700', color: '#ccc' },
+
+  // SMS settings inputs
+  smsInput: {
+    flex: 1,
+    maxWidth: 180,
+    backgroundColor: '#0d0d0d',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    color: '#ddd',
+    fontSize: 12,
+    borderWidth: 1,
+    borderColor: '#222',
+    textAlign: 'right',
+  },
+  smsTemplateInput: {
+    backgroundColor: '#0d0d0d',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#ddd',
+    fontSize: 12,
+    borderWidth: 1,
+    borderColor: '#222',
+    minHeight: 60,
+    textAlignVertical: 'top',
+  },
+
+  // ── Recall icon badge in header ──
+  recallBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#f59e0b',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1,
+    borderColor: '#0a0a0a',
+  },
+  recallBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#000',
+  },
+
+  // ── Station filter chip bar ──
+  stationBar: {
+    backgroundColor: '#0d0d0d',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+    paddingVertical: 10,
+  },
+  stationScroll: {
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  stationChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#222',
+    backgroundColor: '#141414',
+    marginRight: 8,
+  },
+  stationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  stationChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#bbb',
+    letterSpacing: 0.3,
+  },
+  stationChipBadge: {
+    minWidth: 20,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#222',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  stationChipBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#888',
+  },
+
+  // ── Expeditor mode ──
+  expoToggle: {
+    marginLeft: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#141414',
+  },
+  expoToggleActive: {
+    backgroundColor: '#a78bfa',
+    borderColor: '#a78bfa',
+  },
+  expoToggleText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#888',
+    letterSpacing: 1,
+  },
+  expoToggleTextActive: {
+    color: '#000',
+  },
+  expoStrip: {
+    flexDirection: 'row',
+    backgroundColor: '#0d0d0d',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+    padding: 10,
+    gap: 10,
+  },
+  expoStripCell: {
+    flex: 1,
+    backgroundColor: '#141414',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#222',
+    padding: 10,
+    alignItems: 'center',
+  },
+  expoStripDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginBottom: 4,
+  },
+  expoStripLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#888',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  expoStripCount: {
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 6,
+  },
+  expoStripBarBg: {
+    width: '100%',
+    height: 4,
+    backgroundColor: '#1f1f1f',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  expoStripBar: {
+    height: 4,
+    borderRadius: 2,
+  },
+  expoCard: {
+    flex: 1,
+    backgroundColor: '#141414',
+    borderRadius: 16,
+    margin: 6,
+    borderTopWidth: 4,
+    borderTopColor: '#22c55e',
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    overflow: 'hidden',
+    minWidth: 280,
+  },
+  expoCardHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  expoProgress: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#a78bfa',
+    backgroundColor: '#a78bfa22',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  expoItems: {
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+  },
+  expoItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 9,
+    borderRadius: 10,
+    marginBottom: 4,
+    backgroundColor: '#1a1a1a',
+    gap: 6,
+  },
+  expoItemRowReady: {
+    backgroundColor: '#0f1f15',
+    opacity: 0.78,
+  },
+  expoCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 4,
+  },
+  expoCheckMark: {
+    color: '#000',
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 16,
+  },
+  expoItemQty: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#fff',
+    minWidth: 28,
+  },
+  expoItemName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#eee',
+  },
+  expoItemMods: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 1,
+  },
+  expoItemStation: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    marginLeft: 6,
+  },
+  expoItemTextReady: {
+    textDecorationLine: 'line-through',
+    color: '#5a7a64',
+  },
+  expoBumpBtn: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#2a2a2a',
+  },
+  expoBumpReady: {
+    backgroundColor: '#22c55e',
+  },
+  expoBumpWaiting: {
+    backgroundColor: '#1e1e1e',
+  },
+
+  // ── Recall panel modal ──
+  recallOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  recallSheet: {
+    backgroundColor: '#141414',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 32,
+    borderTopWidth: 1,
+    borderTopColor: '#2a2a2a',
+    maxHeight: '85%',
+  },
+  recallHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  recallTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#fff',
+    letterSpacing: 0.3,
+  },
+  recallClose: {
+    padding: 6,
+  },
+  recallSub: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 18,
+  },
+  recallEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  recallEmptyEmoji: {
+    fontSize: 56,
+    marginBottom: 12,
+  },
+  recallEmptyText: {
+    fontSize: 14,
+    color: '#555',
+    fontWeight: '600',
+  },
+  recallRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+  },
+  recallOrderNumber: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#fff',
+  },
+  recallItems: {
+    fontSize: 13,
+    color: '#999',
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  recallTime: {
+    fontSize: 11,
+    color: '#555',
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  recallBtn: {
+    backgroundColor: '#f59e0b',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginLeft: 12,
+  },
+  recallBtnText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#000',
+    letterSpacing: 0.5,
+  },
+
+  // ── Undo bump toast ──
+  toast: {
+    position: 'absolute',
+    bottom: 24,
+    left: 16,
+    right: 16,
+    alignItems: 'center',
+  },
+  toastInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    maxWidth: 520,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  toastTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#fff',
+    marginBottom: 2,
+  },
+  toastSub: {
+    fontSize: 12,
+    color: '#888',
+  },
+  toastUndoBtn: {
+    backgroundColor: '#22c55e',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginLeft: 12,
+  },
+  toastUndoText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#000',
+    letterSpacing: 0.5,
+  },
+
+  // ── Bump error toast ──
+  errorToast: {
+    position: 'absolute',
+    bottom: 110,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(239,68,68,0.16)',
+    borderWidth: 1,
+    borderColor: '#ef4444',
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    alignSelf: 'center',
+  },
+  errorToastIcon: {
+    fontSize: 18,
+    color: '#ef4444',
+  },
+  errorToastText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fca5a5',
+    flexShrink: 1,
+  },
 });
