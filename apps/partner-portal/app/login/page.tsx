@@ -1,5 +1,9 @@
 'use client';
 
+// useSearchParams() requires either a Suspense boundary or dynamic rendering.
+// For a login page that reads ?next= from the URL, force-dynamic is correct.
+export const dynamic = 'force-dynamic';
+
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
