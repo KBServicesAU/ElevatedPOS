@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "drizzle-kit migrate",
     "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
     "db:seed": "tsx --env-file .env src/db/seed.ts"
   },
   "dependencies": {

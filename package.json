@@ -16,6 +16,8 @@
     "typecheck": "turbo typecheck",
     "clean": "turbo clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\" --ignore-path .gitignore",
+    "db:generate": "turbo db:generate",
+    "db:push": "turbo db:push",
     "db:migrate": "turbo db:migrate",
     "db:seed": "turbo db:seed",
     "docker:dev": "docker compose -f infrastructure/docker/docker-compose.dev.yml up -d",

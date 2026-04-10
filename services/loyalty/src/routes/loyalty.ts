@@ -74,6 +74,17 @@ export async function loyaltyRoutes(app: FastifyInstance) {
 
     // Wrap idempotency guard + transaction insert atomically to prevent duplicate earning
     const tx = await db.transaction(async (trx) => {
+      // Lock the account row first to serialize concurrent earn calls for the same account.
+      // Without this, two concurrent requests can both pass the idempotency check before
+      // either one writes its transaction record.
+      const lockedRows = await trx.execute(
+        sql`SELECT id FROM loyalty_accounts WHERE id = ${id} FOR UPDATE`,
+      );
+      if (!lockedRows.rows || lockedRows.rows.length === 0) {
+        throw new Error('Account not found');
+      }
+
+      // Idempotency check (now safe — we hold the row lock)
       const existingTx = await trx.query.loyaltyTransactions.findFirst({
         where: and(
           eq(schema.loyaltyTransactions.orgId, orgId),
