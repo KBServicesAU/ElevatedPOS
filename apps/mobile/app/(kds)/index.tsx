@@ -138,15 +138,16 @@ export default function KDSScreen() {
 
   // Sound settings
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const ticketCountRef = useRef(0);
+  const prevTicketIdsRef = useRef<Set<string>>(new Set());
 
   // Label print on bump
   const [printOnBump, setPrintOnBump] = useState(false);
 
-  // Play beep on new ticket
+  // Play beep only when a genuinely NEW ticket (unrecognised ID) appears
   useEffect(() => {
-    if (tickets.length > ticketCountRef.current && soundEnabled) {
-      // New ticket arrived — play beep
+    const currentIds = new Set(tickets.map((t) => t.id));
+    const hasNewTicket = tickets.some((t) => !prevTicketIdsRef.current.has(t.id));
+    if (hasNewTicket && prevTicketIdsRef.current.size > 0 && soundEnabled) {
       (async () => {
         try {
           const { sound } = await Audio.Sound.createAsync(
@@ -157,8 +158,8 @@ export default function KDSScreen() {
         } catch { /* sound failed — non-critical */ }
       })();
     }
-    ticketCountRef.current = tickets.length;
-  }, [tickets.length, soundEnabled]);
+    prevTicketIdsRef.current = currentIds;
+  }, [tickets, soundEnabled]);
 
   // Order summary — aggregate item counts across all tickets
   const orderSummary = useMemo(() => {

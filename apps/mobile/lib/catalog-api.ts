@@ -9,7 +9,7 @@ import { useAuthStore } from '../store/auth';
  * For local development point EXPO_PUBLIC_CATALOG_API_URL at port 4002.
  */
 const API_BASE =
-  process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+  process.env['EXPO_PUBLIC_API_URL'] ?? process.env['EXPO_PUBLIC_CATALOG_API_URL'] ?? '';
 
 const CATALOG_BASE =
   process.env['EXPO_PUBLIC_CATALOG_API_URL'] ?? '';

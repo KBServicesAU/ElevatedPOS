@@ -95,7 +95,7 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
   checkHeartbeat: async () => {
     const { identity } = useDeviceStore.getState();
     if (!identity) return;
-    const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+    const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? '';
     try {
       const res = await fetch(`${API_BASE}/api/v1/devices/heartbeat`, {
         method: 'POST',
