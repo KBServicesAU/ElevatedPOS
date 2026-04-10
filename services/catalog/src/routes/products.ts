@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, ilike, or, arrayContains, count } from 'drizzle-orm';
+import { eq, and, desc, ilike, or, arrayContains, count, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { searchProducts, indexProduct, deleteProductFromIndex } from '../lib/typesense';
 import { getCached, setCached, invalidateCache } from '../lib/cache';
@@ -183,20 +183,14 @@ export async function productRoutes(app: FastifyInstance) {
     const { barcode } = (request.params as { barcode: string });
     const { orgId } = request.user as { orgId: string };
 
-    // Search in barcodes array (it's stored as jsonb/text array)
-    const products = await db
-      .select()
-      .from(schema.products)
-      .where(
-        and(
-          eq(schema.products.orgId, orgId),
-          eq(schema.products.isActive, true)
-        )
-      );
-
-    const product = products.find(p =>
-      Array.isArray(p.barcodes) && (p.barcodes as string[]).includes(barcode)
-    );
+    const product = await db.query.products.findFirst({
+      where: and(
+        eq(schema.products.orgId, orgId),
+        eq(schema.products.isActive, true),
+        sql`${schema.products.barcodes} @> ARRAY[${barcode}]::text[]`
+      ),
+      with: { category: true }
+    });
 
     if (!product) {
       return reply.code(404).send({ error: 'Product not found', barcode });
@@ -268,7 +262,7 @@ export async function productRoutes(app: FastifyInstance) {
       ...(c.description != null ? { description: c.description } : {}),
       ...(c.categoryId != null ? { categoryId: c.categoryId } : {}),
       ...(Array.isArray(c.tags) && (c.tags as string[]).length > 0 ? { tags: c.tags as string[] } : {}),
-    }).catch((err) => console.error('Typesense indexProduct (create) failed:', err));
+    }).catch((err) => request.log.error({ err }, 'Typesense indexProduct failed — product may not appear in search'));
 
     // Invalidate list cache for this org
     await invalidateCache(`products:${orgId}:*`);
@@ -332,7 +326,7 @@ export async function productRoutes(app: FastifyInstance) {
       ...(u.description != null ? { description: u.description } : {}),
       ...(u.categoryId != null ? { categoryId: u.categoryId } : {}),
       ...(Array.isArray(u.tags) && (u.tags as string[]).length > 0 ? { tags: u.tags as string[] } : {}),
-    }).catch((err) => console.error('Typesense indexProduct (update) failed:', err));
+    }).catch((err) => request.log.error({ err }, 'Typesense indexProduct failed — product may not appear in search'));
 
     // Invalidate list cache for this org
     await invalidateCache(`products:${orgId}:*`);
@@ -345,7 +339,7 @@ export async function productRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     await db.update(schema.products).set({ isActive: false, updatedAt: new Date() }).where(and(eq(schema.products.id, id), eq(schema.products.orgId, orgId)));
     // Remove from Typesense index — fire-and-forget (non-fatal)
-    deleteProductFromIndex(id).catch((err) => console.error('Typesense deleteProductFromIndex failed:', err));
+    deleteProductFromIndex(id).catch((err) => request.log.error({ err }, 'Typesense indexProduct failed — product may not appear in search'));
     // Invalidate list cache for this org
     await invalidateCache(`products:${orgId}:*`);
     return reply.status(204).send();

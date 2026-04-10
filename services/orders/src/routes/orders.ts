@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { generateOrderNumber, generateRefundNumber } from '../lib/orderNumber';
 import { publishTypedEvent } from '../lib/kafka';
@@ -90,13 +90,26 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const { lines, ...orderData } = body.data;
 
-    const subtotal = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice - l.discountAmount, 0);
-    const discountTotal = lines.reduce((sum, l) => sum + l.discountAmount, 0);
-    const taxTotal = lines.reduce((sum, l) => {
-      const lineBase = l.quantity * l.unitPrice - l.discountAmount;
-      return sum + lineBase * (l.taxRate / 100);
+    // Compute totals in integer cents to avoid floating-point rounding errors
+    const subtotalCents = lines.reduce((sum, l) => {
+      const unitCents = Math.round(parseFloat(String(l.unitPrice)) * 100);
+      const discountCents = Math.round(parseFloat(String(l.discountAmount ?? 0)) * 100);
+      return sum + (l.quantity * unitCents - discountCents);
     }, 0);
-    const total = subtotal + taxTotal;
+    const discountTotalCents = lines.reduce((sum, l) => {
+      return sum + Math.round(parseFloat(String(l.discountAmount ?? 0)) * 100);
+    }, 0);
+    const taxTotalCents = lines.reduce((sum, l) => {
+      const unitCents = Math.round(parseFloat(String(l.unitPrice)) * 100);
+      const discountCents = Math.round(parseFloat(String(l.discountAmount ?? 0)) * 100);
+      const lineBaseCents = l.quantity * unitCents - discountCents;
+      return sum + Math.round(lineBaseCents * (l.taxRate / 100));
+    }, 0);
+    const totalCents = subtotalCents + taxTotalCents;
+    const subtotal = (subtotalCents / 100).toFixed(2);
+    const discountTotal = (discountTotalCents / 100).toFixed(2);
+    const taxTotal = (taxTotalCents / 100).toFixed(2);
+    const total = (totalCents / 100).toFixed(2);
 
     const orderRows = await db.insert(schema.orders).values({
       orgId,
@@ -110,17 +123,21 @@ export async function orderRoutes(app: FastifyInstance) {
       ...(orderData.tableId !== undefined && { tableId: orderData.tableId }),
       ...(orderData.covers !== undefined && { covers: orderData.covers }),
       ...(orderData.notes !== undefined && { notes: orderData.notes }),
-      subtotal: String(subtotal.toFixed(4)),
-      discountTotal: String(discountTotal.toFixed(4)),
-      taxTotal: String(taxTotal.toFixed(4)),
-      total: String(total.toFixed(4)),
+      subtotal: subtotal,
+      discountTotal: discountTotal,
+      taxTotal: taxTotal,
+      total: total,
     }).returning();
     const order = orderRows[0]!;
 
     await db.insert(schema.orderLines).values(lines.map((l) => {
-      const lineBase = l.quantity * l.unitPrice - l.discountAmount;
-      const taxAmount = lineBase * (l.taxRate / 100);
-      const lineTotal = lineBase + taxAmount;
+      const unitCents = Math.round(parseFloat(String(l.unitPrice)) * 100);
+      const discountCents = Math.round(parseFloat(String(l.discountAmount ?? 0)) * 100);
+      const lineBaseCents = l.quantity * unitCents - discountCents;
+      const taxAmountCents = Math.round(lineBaseCents * (l.taxRate / 100));
+      const lineTotalCents = lineBaseCents + taxAmountCents;
+      const taxAmount = (taxAmountCents / 100).toFixed(2);
+      const lineTotal = (lineTotalCents / 100).toFixed(2);
       return {
         orderId: order.id,
         productId: l.productId,
@@ -131,9 +148,9 @@ export async function orderRoutes(app: FastifyInstance) {
         unitPrice: String(l.unitPrice),
         costPrice: String(l.costPrice),
         taxRate: String(l.taxRate),
-        taxAmount: String(taxAmount.toFixed(4)),
+        taxAmount: taxAmount,
         discountAmount: String(l.discountAmount),
-        lineTotal: String(lineTotal.toFixed(4)),
+        lineTotal: lineTotal,
         modifiers: l.modifiers,
         ...(l.seatNumber !== undefined && { seatNumber: l.seatNumber }),
         ...(l.course !== undefined && { course: l.course }),
@@ -273,7 +290,21 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!order) return reply.status(404).send({ title: 'Not Found', status: 404 });
     if (!['completed', 'partially_refunded'].includes(order.status)) return reply.status(409).send({ title: 'Cannot refund this order', status: 409, detail: `Order status is ${order.status}` });
 
-    const totalRefundAmount = body.data.lines.reduce((sum, l) => sum + l.amount, 0);
+    // Get sum of previous refunds
+    const previousRefunds = await db.select({ total: sql<string>`SUM(total_amount)` })
+      .from(schema.refunds)
+      .where(eq(schema.refunds.originalOrderId, id));
+    const alreadyRefunded = parseFloat(previousRefunds[0]?.total ?? '0');
+    const newRefundTotal = body.data.lines.reduce((sum, l) => sum + l.amount, 0);
+    if (alreadyRefunded + newRefundTotal > parseFloat(order.total)) {
+      return reply.status(422).send({
+        title: 'Refund amount exceeds remaining refundable balance',
+        status: 422,
+        detail: `Already refunded: $${alreadyRefunded.toFixed(2)}. Order total: $${order.total}`,
+      });
+    }
+
+    const totalRefundAmount = newRefundTotal;
 
     const refundRows = await db.insert(schema.refunds).values({
       orgId,
@@ -300,11 +331,21 @@ export async function orderRoutes(app: FastifyInstance) {
     const body = z.object({ status: z.enum(['pending', 'sent_to_kitchen', 'ready', 'served', 'void', 'comp']) }).safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
 
-    const order = await db.query.orders.findFirst({ where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)) });
-    if (!order) return reply.status(404).send({ title: 'Not Found', status: 404 });
-
-    const lineRows = await db.update(schema.orderLines).set({ status: body.data.status }).where(eq(schema.orderLines.id, lineId)).returning();
-    const updated = lineRows[0]!;
-    return reply.status(200).send({ data: updated });
+    const lineRows = await db.update(schema.orderLines)
+      .set({ status: body.data.status })
+      .where(
+        and(
+          eq(schema.orderLines.id, lineId),
+          // join to verify org ownership:
+          inArray(schema.orderLines.orderId,
+            db.select({ id: schema.orders.id })
+              .from(schema.orders)
+              .where(and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)))
+          )
+        )
+      )
+      .returning();
+    if (lineRows.length === 0) return reply.status(404).send({ title: 'Order line not found', status: 404 });
+    return reply.status(200).send({ data: lineRows[0] });
   });
 }

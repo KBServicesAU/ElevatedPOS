@@ -33,8 +33,10 @@ async function start() {
   });
   await app.register(sensible);
   await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
+  const jwtSecret = process.env['JWT_SECRET'];
+  if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
   await app.register(jwt, {
-    secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production',
+    secret: jwtSecret,
   });
 
   app.decorate(
@@ -82,11 +84,16 @@ async function start() {
     '/api/v1/reports/sales',
     { preHandler: [app.authenticate] },
     async (request, reply) => {
+      const { orgId: userOrgId } = request.user as { orgId: string };
       const { orgId, from, to } = request.query as { orgId?: string; from?: string; to?: string };
-      if (!orgId || !from || !to) {
+      const requestedOrgId = orgId ?? userOrgId;
+      if (requestedOrgId !== userOrgId) {
+        return reply.status(403).send({ title: 'Access denied to this organisation\'s reports', status: 403 });
+      }
+      if (!requestedOrgId || !from || !to) {
         return reply.status(400).send({ error: 'orgId, from and to are required' });
       }
-      const data = await querySalesSummary(orgId, from, to);
+      const data = await querySalesSummary(requestedOrgId, from, to);
       return { data };
     },
   );
@@ -95,16 +102,21 @@ async function start() {
     '/api/v1/reports/products',
     { preHandler: [app.authenticate] },
     async (request, reply) => {
+      const { orgId: userOrgId } = request.user as { orgId: string };
       const { orgId, from, to, limit } = request.query as {
         orgId?: string;
         from?: string;
         to?: string;
         limit?: string;
       };
-      if (!orgId || !from || !to) {
+      const requestedOrgId = orgId ?? userOrgId;
+      if (requestedOrgId !== userOrgId) {
+        return reply.status(403).send({ title: 'Access denied to this organisation\'s reports', status: 403 });
+      }
+      if (!requestedOrgId || !from || !to) {
         return reply.status(400).send({ error: 'orgId, from and to are required' });
       }
-      const data = await queryTopProducts(orgId, from, to, limit ? Number(limit) : 10);
+      const data = await queryTopProducts(requestedOrgId, from, to, limit ? Number(limit) : 10);
       return { data };
     },
   );
@@ -113,11 +125,16 @@ async function start() {
     '/api/v1/reports/revenue-by-hour',
     { preHandler: [app.authenticate] },
     async (request, reply) => {
+      const { orgId: userOrgId } = request.user as { orgId: string };
       const { orgId, date } = request.query as { orgId?: string; date?: string };
-      if (!orgId || !date) {
+      const requestedOrgId = orgId ?? userOrgId;
+      if (requestedOrgId !== userOrgId) {
+        return reply.status(403).send({ title: 'Access denied to this organisation\'s reports', status: 403 });
+      }
+      if (!requestedOrgId || !date) {
         return reply.status(400).send({ error: 'orgId and date are required' });
       }
-      const data = await queryRevenueByHour(orgId, date);
+      const data = await queryRevenueByHour(requestedOrgId, date);
       return { data };
     },
   );
@@ -126,11 +143,16 @@ async function start() {
     '/api/v1/reports/revenue-by-channel',
     { preHandler: [app.authenticate] },
     async (request, reply) => {
+      const { orgId: userOrgId } = request.user as { orgId: string };
       const { orgId, from, to } = request.query as { orgId?: string; from?: string; to?: string };
-      if (!orgId || !from || !to) {
+      const requestedOrgId = orgId ?? userOrgId;
+      if (requestedOrgId !== userOrgId) {
+        return reply.status(403).send({ title: 'Access denied to this organisation\'s reports', status: 403 });
+      }
+      if (!requestedOrgId || !from || !to) {
         return reply.status(400).send({ error: 'orgId, from and to are required' });
       }
-      const data = await queryRevenueByChannel(orgId, from, to);
+      const data = await queryRevenueByChannel(requestedOrgId, from, to);
       return { data };
     },
   );
@@ -139,11 +161,16 @@ async function start() {
     '/api/v1/reports/revenue-by-day',
     { preHandler: [app.authenticate] },
     async (request, reply) => {
+      const { orgId: userOrgId } = request.user as { orgId: string };
       const { orgId, from, to } = request.query as { orgId?: string; from?: string; to?: string };
-      if (!orgId || !from || !to) {
+      const requestedOrgId = orgId ?? userOrgId;
+      if (requestedOrgId !== userOrgId) {
+        return reply.status(403).send({ title: 'Access denied to this organisation\'s reports', status: 403 });
+      }
+      if (!requestedOrgId || !from || !to) {
         return reply.status(400).send({ error: 'orgId, from and to are required' });
       }
-      const data = await queryRevenueByDay(orgId, from, to);
+      const data = await queryRevenueByDay(requestedOrgId, from, to);
       return { data };
     },
   );
