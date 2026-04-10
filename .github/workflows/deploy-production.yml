@@ -117,22 +117,26 @@ jobs:
             fi
           done
 
-          # Adopt any Services that were previously created by kubectl apply
-          # but are now managed by the Helm chart (services.yaml template).
-          for SVC in auth catalog inventory orders payments customers loyalty \
-                     campaigns notifications integrations automations ai franchise \
-                     reporting webhooks hardware-bridge web-backoffice storefront \
-                     godmode org-portal reseller-portal pay sales-portal \
-                     partner-portal developer-portal kds-display; do
-            if kubectl get service/$SVC -n elevatedpos &>/dev/null; then
-              kubectl annotate service/$SVC -n elevatedpos \
-                meta.helm.sh/release-name=elevatedpos \
-                meta.helm.sh/release-namespace=elevatedpos \
-                --overwrite
-              kubectl label service/$SVC -n elevatedpos \
-                app.kubernetes.io/managed-by=Helm \
-                --overwrite
-            fi
+          # Adopt Services, Deployments, and HPAs previously created by kubectl apply
+          # but now managed by the Helm chart. Helm refuses to upgrade if it finds
+          # resources it doesn't own, so we annotate/label them all up front.
+          ALL_SVCS="auth catalog inventory orders payments customers loyalty \
+            campaigns notifications integrations automations ai franchise \
+            reporting webhooks hardware-bridge web-backoffice storefront \
+            godmode org-portal reseller-portal pay sales-portal \
+            partner-portal developer-portal kds-display"
+          for SVC in $ALL_SVCS; do
+            for KIND in service deployment hpa; do
+              if kubectl get $KIND/$SVC -n elevatedpos &>/dev/null; then
+                kubectl annotate $KIND/$SVC -n elevatedpos \
+                  meta.helm.sh/release-name=elevatedpos \
+                  meta.helm.sh/release-namespace=elevatedpos \
+                  --overwrite
+                kubectl label $KIND/$SVC -n elevatedpos \
+                  app.kubernetes.io/managed-by=Helm \
+                  --overwrite
+              fi
+            done
           done
 
           # Clear any stuck or failed Helm release before attempting upgrade.
@@ -164,11 +168,10 @@ jobs:
           kubectl apply -f infrastructure/k8s/migrations-job.yaml
           echo "Migrations job submitted — running asynchronously in cluster."
 
-          # Apply standalone app manifests and ingress rules (not managed by Helm)
-          kubectl apply -f infrastructure/k8s/apps/pay.yaml
-          kubectl apply -f infrastructure/k8s/apps/sales-portal.yaml
-          kubectl apply -f infrastructure/k8s/apps/partner-portal.yaml
-          kubectl apply -f infrastructure/k8s/apps/developer-portal.yaml
+          # Apply ingress rules only — Deployments/Services/HPAs for these apps
+          # are fully managed by the Helm chart above and must not be re-applied
+          # via kubectl (doing so strips the Helm ownership annotations and causes
+          # "invalid ownership metadata" failures on the next upgrade).
           kubectl apply -f infrastructure/k8s/ingress/pay-ingress.yaml
           kubectl apply -f infrastructure/k8s/ingress/portals-ingress.yaml
 

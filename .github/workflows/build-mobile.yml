@@ -67,17 +67,3 @@ jobs:
         env:
           EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || 'https://api.elevatedpos.com.au' }}
           EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID || '5f03d9c6-0120-4047-aa27-f71a823afa7b' }}
-
-      # iOS – continue-on-error so missing Apple certs don't block Android delivery
-      - name: Build ${{ matrix.role }} IPA (iOS)
-        working-directory: apps/mobile
-        continue-on-error: true
-        run: |
-          eas build \
-            --profile production-${{ matrix.role }} \
-            --platform ios \
-            --non-interactive \
-            --no-wait
-        env:
-          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || 'https://api.elevatedpos.com.au' }}
-          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID || '5f03d9c6-0120-4047-aa27-f71a823afa7b' }}
