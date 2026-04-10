@@ -21,8 +21,9 @@ async function ensureBluetoothPermissions(): Promise<void> {
       'android.permission.BLUETOOTH_SCAN' as any,
       'android.permission.BLUETOOTH_CONNECT' as any,
     ]);
-    const scan = results['android.permission.BLUETOOTH_SCAN' as any];
-    const connect = results['android.permission.BLUETOOTH_CONNECT' as any];
+    const r = results as any;
+    const scan = r['android.permission.BLUETOOTH_SCAN'];
+    const connect = r['android.permission.BLUETOOTH_CONNECT'];
     if (scan === 'denied' || connect === 'denied') {
       throw new Error(
         'Bluetooth permission denied. Go to Settings → Apps → ElevatedPOS → Permissions and allow Nearby devices.',
