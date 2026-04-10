@@ -39,6 +39,19 @@ export default function BillingPage() {
   }, []);
 
   const total = billingRows.reduce((sum, r) => sum + r.monthlyFee, 0);
+  const paidCount = billingRows.filter((r) => r.status === 'paid').length;
+  const pendingCount = billingRows.filter((r) => r.status === 'pending').length;
+  const overdueCount = billingRows.filter((r) => r.status === 'overdue').length;
+  const overdueAmount = billingRows
+    .filter((r) => r.status === 'overdue')
+    .reduce((sum, r) => sum + r.monthlyFee, 0);
+
+  const stats = [
+    { label: 'Total MRR', value: `$${total.toLocaleString()}`, sub: `${billingRows.length} tenants billed` },
+    { label: 'Collected', value: String(paidCount), sub: `${billingRows.length > 0 ? Math.round((paidCount / billingRows.length) * 100) : 0}% collection rate` },
+    { label: 'Pending', value: String(pendingCount), sub: 'Awaiting payment' },
+    { label: 'Overdue', value: String(overdueCount), sub: overdueAmount > 0 ? `$${overdueAmount.toLocaleString()} outstanding` : 'None outstanding' },
+  ];
 
   function handleDownload() {
     setDownloaded(true);
