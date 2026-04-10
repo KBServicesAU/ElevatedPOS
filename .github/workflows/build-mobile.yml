@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        role: [pos, kds, kiosk]
+        role: [pos, kds, kiosk, dashboard]
       fail-fast: false
 
     steps:
