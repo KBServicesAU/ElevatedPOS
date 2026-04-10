@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray, desc } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 
 const NOTIFICATIONS_URL = process.env['NOTIFICATIONS_SERVICE_URL'] ?? 'http://notifications:4009';
@@ -14,10 +14,14 @@ async function sendRoyaltyStatementNotification(opts: {
   orgId: string;
 }): Promise<void> {
   const { toEmail, contactName, groupName, period, royaltyAmount, orgId } = opts;
+  const internalToken = process.env['INTERNAL_SERVICE_TOKEN'] ?? process.env['JWT_SECRET'];
   try {
-    await fetch(`${NOTIFICATIONS_URL}/email`, {
+    await fetch(`${NOTIFICATIONS_URL}/api/v1/notifications/email`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${internalToken}`,
+      },
       body: JSON.stringify({
         to: toEmail,
         subject: `Royalty Statement Issued — ${groupName} ${period}`,
@@ -34,8 +38,8 @@ async function sendRoyaltyStatementNotification(opts: {
       }),
     });
   } catch (err) {
-    // Non-fatal — log but don't fail the issue request
-    console.error('[franchise/royalties] Failed to send statement notification:', err);
+    console.error('[royalties] Failed to send notification:', err instanceof Error ? err.message : err);
+    // Non-fatal — continue
   }
 }
 
@@ -129,7 +133,13 @@ export async function royaltyRoutes(app: FastifyInstance) {
   app.get('/groups/:groupId/statements', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { groupId } = request.params as { groupId: string };
-    const q = request.query as { period?: string; status?: string; locationId?: string };
+    const q = request.query as {
+      period?: string;
+      status?: string;
+      locationId?: string;
+      limit?: number;
+      offset?: number;
+    };
 
     const group = await db.query.franchiseGroups.findFirst({
       where: and(eq(schema.franchiseGroups.id, groupId), eq(schema.franchiseGroups.orgId, orgId)),
@@ -143,13 +153,18 @@ export async function royaltyRoutes(app: FastifyInstance) {
       });
     }
 
-    let statements = await db.query.royaltyStatements.findMany({
-      where: eq(schema.royaltyStatements.groupId, groupId),
+    const whereClause = and(
+      eq(schema.royaltyStatements.groupId, groupId),
+      q.period ? eq(schema.royaltyStatements.period, q.period) : undefined,
+      q.status ? eq(schema.royaltyStatements.status, q.status) : undefined,
+      q.locationId ? eq(schema.royaltyStatements.locationId, q.locationId) : undefined,
+    );
+    const statements = await db.query.royaltyStatements.findMany({
+      where: whereClause,
+      orderBy: [desc(schema.royaltyStatements.createdAt)],
+      limit: q.limit ?? 50,
+      offset: q.offset ?? 0,
     });
-
-    if (q.period) statements = statements.filter((s) => s.period === q.period);
-    if (q.status) statements = statements.filter((s) => s.status === q.status);
-    if (q.locationId) statements = statements.filter((s) => s.locationId === q.locationId);
 
     return reply.status(200).send({ data: statements });
   });
@@ -299,7 +314,12 @@ export async function royaltyRoutes(app: FastifyInstance) {
   // GET /franchisee/statements — franchisee view of their own statements
   app.get('/franchisee/statements', async (request, reply) => {
     const { orgId: franchiseeOrgId } = request.user as { orgId: string };
-    const q = request.query as { period?: string; status?: string };
+    const q = request.query as {
+      period?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+    };
 
     // Find all locations for this franchisee org
     const locations = await db.query.franchiseLocations.findMany({
@@ -312,11 +332,16 @@ export async function royaltyRoutes(app: FastifyInstance) {
 
     const locationIds = locations.map((l) => l.locationId);
 
-    let statements = await db.query.royaltyStatements.findMany({});
-    statements = statements.filter((s) => locationIds.includes(s.locationId));
-
-    if (q.period) statements = statements.filter((s) => s.period === q.period);
-    if (q.status) statements = statements.filter((s) => s.status === q.status);
+    const statements = await db.query.royaltyStatements.findMany({
+      where: and(
+        inArray(schema.royaltyStatements.locationId, locationIds),
+        q.period ? eq(schema.royaltyStatements.period, q.period) : undefined,
+        q.status ? eq(schema.royaltyStatements.status, q.status) : undefined,
+      ),
+      orderBy: [desc(schema.royaltyStatements.createdAt)],
+      limit: q.limit ?? 100,
+      offset: q.offset ?? 0,
+    });
 
     return reply.status(200).send({ data: statements });
   });

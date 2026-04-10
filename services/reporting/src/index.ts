@@ -23,7 +23,10 @@ declare module 'fastify' {
 
 const app = Fastify({ logger: true, trustProxy: true });
 
-const INTERNAL_SECRET = process.env['INTERNAL_SECRET'] ?? 'internal-dev-secret';
+const INTERNAL_SECRET = process.env['INTERNAL_SECRET'];
+if (!INTERNAL_SECRET) {
+  throw new Error('INTERNAL_SECRET environment variable is required');
+}
 
 async function start() {
   await app.register(helmet);
@@ -175,14 +178,16 @@ async function start() {
     },
   );
 
+  // Non-fatal ClickHouse table initialisation — must complete before accepting traffic
+  try {
+    await initClickHouseTables();
+  } catch (err) {
+    app.log.warn({ err }, '[reporting] ClickHouse init warning — continuing without analytics tables');
+  }
+
   const port = Number(process.env['PORT'] ?? 4014);
   await app.listen({ port, host: '0.0.0.0' });
   app.log.info(`Reporting service listening on port ${port}`);
-
-  // Non-fatal ClickHouse table initialisation
-  initClickHouseTables().catch((e) => {
-    app.log.warn({ e }, '[reporting] ClickHouse init failed — continuing without analytics tables');
-  });
 }
 
 start().catch((err) => {

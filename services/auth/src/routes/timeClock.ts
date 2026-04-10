@@ -231,16 +231,6 @@ export async function timeClockRoutes(app: FastifyInstance) {
       });
     }
 
-    // Find the last break_start event to compute break duration
-    const lastBreakStart = await db.query.clockEvents.findFirst({
-      where: and(
-        eq(schema.clockEvents.orgId, orgId),
-        eq(schema.clockEvents.employeeId, employeeId),
-        eq(schema.clockEvents.type, 'break_start'),
-      ),
-      orderBy: [desc(schema.clockEvents.timestamp)],
-    });
-
     const openShift = await db.query.shifts.findFirst({
       where: and(
         eq(schema.shifts.orgId, orgId),
@@ -256,6 +246,17 @@ export async function timeClockRoutes(app: FastifyInstance) {
         status: 404,
       });
     }
+
+    // Find the last break_start event within the current shift's time window
+    const lastBreakStart = await db.query.clockEvents.findFirst({
+      where: and(
+        eq(schema.clockEvents.orgId, orgId),
+        eq(schema.clockEvents.employeeId, employeeId),
+        eq(schema.clockEvents.type, 'break_start'),
+        gte(schema.clockEvents.timestamp, openShift.clockInAt),  // only this shift
+      ),
+      orderBy: [desc(schema.clockEvents.timestamp)],
+    });
 
     const now = new Date();
 

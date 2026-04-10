@@ -76,7 +76,7 @@ export async function crmRoutes(app: FastifyInstance) {
 
   // GET /customers/:id/notes — list notes (filter internal if not manager role)
   app.get('/customers/:id/notes', async (request, reply) => {
-    const { orgId, role } = request.user as { orgId: string; role?: string };
+    const { orgId, role, permissions: rawPermissions } = request.user as { orgId: string; role?: string; permissions?: Record<string, boolean> };
     const { id } = request.params as { id: string };
 
     const customer = await db.query.customers.findFirst({
@@ -91,7 +91,10 @@ export async function crmRoutes(app: FastifyInstance) {
       });
     }
 
-    const isManager = role === 'manager' || role === 'owner' || role === 'admin';
+    const permissions = rawPermissions ?? {};
+    const isManager = permissions['view_internal_notes'] === true ||
+                      permissions['manage_customers'] === true ||
+                      role === 'superadmin';  // fallback for platform tokens
 
     const conditions = [
       eq(schema.customerNotes.customerId, id),
@@ -113,7 +116,7 @@ export async function crmRoutes(app: FastifyInstance) {
 
   // DELETE /customers/:id/notes/:noteId — delete note (own notes only or manager)
   app.delete('/customers/:id/notes/:noteId', async (request, reply) => {
-    const { orgId, sub: authorId, role } = request.user as { orgId: string; sub: string; role?: string };
+    const { orgId, sub: authorId, role, permissions: rawPermissions } = request.user as { orgId: string; sub: string; role?: string; permissions?: Record<string, boolean> };
     const { id, noteId } = request.params as { id: string; noteId: string };
 
     const note = await db.query.customerNotes.findFirst({
@@ -133,7 +136,10 @@ export async function crmRoutes(app: FastifyInstance) {
       });
     }
 
-    const isManager = role === 'manager' || role === 'owner' || role === 'admin';
+    const permissions = rawPermissions ?? {};
+    const isManager = permissions['view_internal_notes'] === true ||
+                      permissions['manage_customers'] === true ||
+                      role === 'superadmin';  // fallback for platform tokens
     const isOwner = note.authorId === authorId;
 
     if (!isManager && !isOwner) {
@@ -339,35 +345,39 @@ export async function crmRoutes(app: FastifyInstance) {
     const mergeTags = (mergeCustomer.tags ?? []) as string[];
     const mergedTags = [...new Set([...keepTags, ...mergeTags])];
 
-    // Update keepCustomer with merged tags
-    await db
-      .update(schema.customers)
-      .set({ tags: mergedTags, updatedAt: new Date() })
-      .where(eq(schema.customers.id, keepId));
+    const log = await db.transaction(async (trx) => {
+      // Update keepCustomer with merged tags
+      await trx
+        .update(schema.customers)
+        .set({ tags: mergedTags, updatedAt: new Date() })
+        .where(eq(schema.customers.id, keepId));
 
-    // Re-attribute notes from mergeCustomer to keepCustomer
-    await db
-      .update(schema.customerNotes)
-      .set({ customerId: keepId, updatedAt: new Date() })
-      .where(and(eq(schema.customerNotes.customerId, mergeId), eq(schema.customerNotes.orgId, orgId)));
+      // Re-attribute notes from mergeCustomer to keepCustomer
+      await trx
+        .update(schema.customerNotes)
+        .set({ customerId: keepId, updatedAt: new Date() })
+        .where(and(eq(schema.customerNotes.customerId, mergeId), eq(schema.customerNotes.orgId, orgId)));
 
-    // Re-attribute store credit accounts from mergeCustomer to keepCustomer
-    await db
-      .update(schema.storeCreditAccounts)
-      .set({ customerId: keepId, updatedAt: new Date() })
-      .where(and(eq(schema.storeCreditAccounts.customerId, mergeId), eq(schema.storeCreditAccounts.orgId, orgId)));
+      // Re-attribute store credit accounts from mergeCustomer to keepCustomer
+      await trx
+        .update(schema.storeCreditAccounts)
+        .set({ customerId: keepId, updatedAt: new Date() })
+        .where(and(eq(schema.storeCreditAccounts.customerId, mergeId), eq(schema.storeCreditAccounts.orgId, orgId)));
 
-    // Mark the merged customer as merged
-    await db
-      .update(schema.customers)
-      .set({ mergedIntoId: keepId, updatedAt: new Date() })
-      .where(eq(schema.customers.id, mergeId));
+      // Mark the merged customer as merged
+      await trx
+        .update(schema.customers)
+        .set({ mergedIntoId: keepId, updatedAt: new Date() })
+        .where(eq(schema.customers.id, mergeId));
 
-    // Record in merge log
-    const [log] = await db
-      .insert(schema.customerMergeLog)
-      .values({ orgId, keepId, mergedId: mergeId, mergedBy })
-      .returning();
+      // Record in merge log
+      const [mergeLogEntry] = await trx
+        .insert(schema.customerMergeLog)
+        .values({ orgId, keepId, mergedId: mergeId, mergedBy })
+        .returning();
+
+      return mergeLogEntry;
+    });
 
     return reply.status(200).send({
       data: {

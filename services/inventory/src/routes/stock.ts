@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, lte } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { publishEvent } from '../lib/kafka';
 
@@ -16,10 +16,14 @@ export async function stockRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
 
   app.get('/', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
     const q = request.query as { locationId?: string; lowStock?: string };
 
     const items = await db.query.stockItems.findMany({
-      where: q.locationId ? eq(schema.stockItems.locationId, q.locationId) : undefined,
+      where: and(
+        eq(schema.stockItems.orgId, orgId),
+        q.locationId ? eq(schema.stockItems.locationId, q.locationId) : undefined,
+      ),
       orderBy: [desc(schema.stockItems.updatedAt)],
     });
 
@@ -27,9 +31,14 @@ export async function stockRoutes(app: FastifyInstance) {
   });
 
   app.get('/low-stock', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
     const q = request.query as { locationId?: string };
     const items = await db.query.stockItems.findMany({
-      where: q.locationId ? eq(schema.stockItems.locationId, q.locationId) : undefined,
+      where: and(
+        eq(schema.stockItems.orgId, orgId),
+        lte(schema.stockItems.quantity, schema.stockItems.reorderPoint),
+        q.locationId ? eq(schema.stockItems.locationId, q.locationId) : undefined,
+      ),
     });
 
     return reply.status(200).send({ data: items });

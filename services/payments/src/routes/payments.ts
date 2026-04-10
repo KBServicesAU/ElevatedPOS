@@ -171,10 +171,41 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   app.get('/settlements', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
-    const settlements = await db.query.settlements.findMany({
-      where: eq(schema.settlements.orgId, orgId),
-      orderBy: [desc(schema.settlements.settlementDate)],
+
+    const querySchema = z.object({
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+      locationId: z.string().uuid().optional(),
     });
-    return reply.status(200).send({ data: settlements });
+    const q = querySchema.parse(request.query);
+
+    const whereClause = and(
+      eq(schema.settlements.orgId, orgId),
+      q.locationId ? eq(schema.settlements.locationId, q.locationId) : undefined,
+    );
+
+    const [settlements, [countResult]] = await Promise.all([
+      db.query.settlements.findMany({
+        where: whereClause,
+        orderBy: [desc(schema.settlements.settlementDate)],
+        limit: q.limit,
+        offset: q.offset,
+      }),
+      db.select({ count: sql<number>`count(*)::int` })
+        .from(schema.settlements)
+        .where(whereClause),
+    ]);
+
+    const totalCount = countResult?.count ?? 0;
+    return reply.status(200).send({
+      data: settlements,
+      meta: {
+        totalCount,
+        hasMore: q.offset + settlements.length < totalCount,
+        limit: q.limit,
+        offset: q.offset,
+        returned: settlements.length,
+      },
+    });
   });
 }

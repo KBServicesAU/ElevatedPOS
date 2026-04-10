@@ -170,9 +170,10 @@ export async function payrollRoutes(app: FastifyInstance) {
         const overtimeHours = minutesToHours(overtimeMinutes);
         const totalHours = minutesToHours(regularMinutes + overtimeMinutes);
 
-        // Hourly rate placeholder — in production this would come from the employee record
-        const hourlyRate = 0;
-        const grossPay = totalHours * hourlyRate;
+        // Hourly rate is not stored on the employee record yet — gross pay requires
+        // hourly rates to be configured per employee before this field is populated.
+        const hourlyRate: number | null = null;
+        const grossPay = hourlyRate != null ? Math.round(totalHours * hourlyRate * 100) / 100 : null;
 
         return {
           employeeName: `${emp.firstName} ${emp.lastName}`,
@@ -182,7 +183,7 @@ export async function payrollRoutes(app: FastifyInstance) {
           overtimeHours,
           totalHours,
           hourlyRate,
-          grossPay: Math.round(grossPay * 100) / 100,
+          grossPay,
         };
       });
 
@@ -199,6 +200,10 @@ export async function payrollRoutes(app: FastifyInstance) {
 
     const lines: string[] = [];
 
+    // Note: Hourly Rate and Gross Pay columns will be empty until hourly rates
+    // are configured per employee in the system.
+    lines.push(`# NOTE: Hourly Rate and Gross Pay require employee hourly rates to be configured`);
+
     // Headers
     lines.push(buildCsvRow(MYOB_HEADERS, delimiter));
 
@@ -213,8 +218,8 @@ export async function payrollRoutes(app: FastifyInstance) {
             row.regularHours.toFixed(2),
             row.overtimeHours.toFixed(2),
             row.totalHours.toFixed(2),
-            row.hourlyRate.toFixed(2),
-            row.grossPay.toFixed(2),
+            row.hourlyRate != null ? row.hourlyRate.toFixed(2) : 'N/A',
+            row.grossPay != null ? row.grossPay.toFixed(2) : 'N/A',
           ],
           delimiter,
         ),

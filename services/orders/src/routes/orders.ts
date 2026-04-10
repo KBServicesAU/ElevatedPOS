@@ -288,6 +288,17 @@ export async function orderRoutes(app: FastifyInstance) {
   app.post('/:id/hold', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
+
+    const order = await db.query.orders.findFirst({ where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)) });
+    if (!order) return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404 });
+
+    if (order.status !== 'open') {
+      return reply.code(422).send({
+        type: 'about:blank', title: 'Invalid Status Transition', status: 422,
+        detail: `Cannot hold an order with status '${order.status}'. Only open orders can be held.`,
+      });
+    }
+
     const [heldOrder] = await db.update(schema.orders).set({ status: 'held', updatedAt: new Date() }).where(and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId))).returning();
     return reply.status(200).send({ data: { id: heldOrder?.id ?? id, status: 'held' } });
   });
@@ -298,6 +309,16 @@ export async function orderRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = z.object({ reason: z.string().min(1) }).safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
+
+    const order = await db.query.orders.findFirst({ where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)) });
+    if (!order) return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404 });
+
+    if (!['open', 'held'].includes(order.status)) {
+      return reply.code(422).send({
+        type: 'about:blank', title: 'Invalid Status Transition', status: 422,
+        detail: `Cannot cancel an order with status '${order.status}'.`,
+      });
+    }
 
     await db.update(schema.orders).set({ status: 'cancelled', cancellationReason: body.data.reason, cancelledAt: new Date(), updatedAt: new Date() }).where(and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)));
     return reply.status(200).send({ data: { status: 'cancelled' } });
@@ -314,36 +335,56 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!order) return reply.status(404).send({ title: 'Not Found', status: 404 });
     if (!['completed', 'partially_refunded'].includes(order.status)) return reply.status(409).send({ title: 'Cannot refund this order', status: 409, detail: `Order status is ${order.status}` });
 
-    // Get sum of previous refunds
-    const previousRefunds = await db.select({ total: sql<string>`SUM(total_amount)` })
-      .from(schema.refunds)
-      .where(eq(schema.refunds.originalOrderId, id));
-    const alreadyRefunded = parseFloat(previousRefunds[0]?.total ?? '0');
     const newRefundTotal = body.data.lines.reduce((sum, l) => sum + l.amount, 0);
-    if (alreadyRefunded + newRefundTotal > parseFloat(order.total)) {
-      return reply.status(422).send({
-        title: 'Refund amount exceeds remaining refundable balance',
-        status: 422,
-        detail: `Already refunded: $${alreadyRefunded.toFixed(2)}. Order total: $${order.total}`,
+
+    let refund: typeof schema.refunds.$inferSelect;
+    try {
+      refund = await db.transaction(async (trx) => {
+        // Lock the order row to prevent concurrent refunds (TOCTOU protection)
+        await trx.execute(sql`SELECT id FROM orders WHERE id = ${id} FOR UPDATE`);
+
+        // Re-fetch prior refund sum inside the transaction (after the lock)
+        const previousRefunds = await trx.select({ total: sql<string>`SUM(total_amount)` })
+          .from(schema.refunds)
+          .where(eq(schema.refunds.originalOrderId, id));
+        const alreadyRefunded = parseFloat(previousRefunds[0]?.total ?? '0');
+
+        if (alreadyRefunded + newRefundTotal > parseFloat(order.total)) {
+          throw Object.assign(new Error('Refund amount exceeds remaining refundable balance'), {
+            statusCode: 422,
+            alreadyRefunded,
+            orderTotal: order.total,
+          });
+        }
+
+        const refundRows = await trx.insert(schema.refunds).values({
+          orgId,
+          originalOrderId: id,
+          refundNumber: generateRefundNumber(),
+          reason: body.data.reason,
+          lines: body.data.lines,
+          refundMethod: body.data.refundMethod,
+          totalAmount: String(newRefundTotal.toFixed(4)),
+          approvedByEmployeeId,
+        }).returning();
+
+        const newTotalRefunded = alreadyRefunded + newRefundTotal;
+        const finalStatus = newTotalRefunded >= parseFloat(order.total) ? 'fully_refunded' : 'partially_refunded';
+
+        await trx.update(schema.orders).set({ status: finalStatus, updatedAt: new Date() }).where(eq(schema.orders.id, id));
+
+        return refundRows[0]!;
       });
+    } catch (err: any) {
+      if (err?.statusCode === 422) {
+        return reply.status(422).send({
+          title: 'Refund amount exceeds remaining refundable balance',
+          status: 422,
+          detail: `Already refunded: $${(err.alreadyRefunded as number).toFixed(2)}. Order total: $${err.orderTotal}`,
+        });
+      }
+      throw err;
     }
-
-    const totalRefundAmount = newRefundTotal;
-
-    const refundRows = await db.insert(schema.refunds).values({
-      orgId,
-      originalOrderId: id,
-      refundNumber: generateRefundNumber(),
-      reason: body.data.reason,
-      lines: body.data.lines,
-      refundMethod: body.data.refundMethod,
-      totalAmount: String(totalRefundAmount.toFixed(4)),
-      approvedByEmployeeId,
-    }).returning();
-    const refund = refundRows[0]!;
-
-    // Update order status
-    await db.update(schema.orders).set({ status: 'partially_refunded', updatedAt: new Date() }).where(eq(schema.orders.id, id));
 
     return reply.status(201).send({ data: refund });
   });

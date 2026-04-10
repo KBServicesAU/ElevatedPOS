@@ -331,6 +331,16 @@ export async function platformRoutes(app: FastifyInstance) {
     const { id: orgId } = request.params as { id: string };
     const platformUser = request.user as PlatformPayload;
 
+    const { role } = platformUser;
+    if (role !== 'superadmin' && role !== 'support') {
+      return reply.code(403).send({
+        type: 'about:blank',
+        title: 'Forbidden',
+        status: 403,
+        detail: 'Impersonation requires superadmin or support role.',
+      });
+    }
+
     // Find the org
     const org = await db.query.organisations.findFirst({
       where: eq(schema.organisations.id, orgId),
@@ -414,12 +424,7 @@ export async function platformRoutes(app: FastifyInstance) {
   });
 
   // PATCH /api/v1/platform/staff/:id — update platform staff details (superadmin only)
-  app.patch('/staff/:id', { onRequest: [app.authenticate] }, async (request, reply) => {
-    const user = request.user as { role?: string };
-    if (user.role !== 'superadmin') {
-      return reply.status(403).send({ title: 'Forbidden', status: 403 });
-    }
-
+  app.patch('/staff/:id', { onRequest: [requireSuperadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = z.object({
       firstName: z.string().min(1).optional(),
@@ -461,7 +466,7 @@ export async function platformRoutes(app: FastifyInstance) {
   });
 
   // GET /api/v1/platform/organisations/:id/employees — list employees for an org
-  app.get('/organisations/:id/employees', { onRequest: [app.authenticate] }, async (request, reply) => {
+  app.get('/organisations/:id/employees', { onRequest: [authenticatePlatform] }, async (request, reply) => {
     const { id: orgId } = request.params as { id: string };
     const q = request.query as { search?: string; isActive?: string };
 
@@ -482,7 +487,7 @@ export async function platformRoutes(app: FastifyInstance) {
   });
 
   // PATCH /api/v1/platform/organisations/:id/employees/:empId — update org employee from platform
-  app.patch('/organisations/:id/employees/:empId', { onRequest: [app.authenticate] }, async (request, reply) => {
+  app.patch('/organisations/:id/employees/:empId', { onRequest: [authenticatePlatform] }, async (request, reply) => {
     const { id: orgId, empId } = request.params as { id: string; empId: string };
 
     const body = z.object({
@@ -532,12 +537,7 @@ export async function platformRoutes(app: FastifyInstance) {
   });
 
   // POST /api/v1/platform/organisations/:id/employees — create employee in org from platform
-  app.post('/organisations/:id/employees', { onRequest: [app.authenticate] }, async (request, reply) => {
-    const user = request.user as { role?: string };
-    if (user.role !== 'superadmin') {
-      return reply.status(403).send({ title: 'Forbidden — superadmin only', status: 403 });
-    }
-
+  app.post('/organisations/:id/employees', { onRequest: [requireSuperadmin] }, async (request, reply) => {
     const { id: orgId } = request.params as { id: string };
 
     const body = z.object({

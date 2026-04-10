@@ -8,6 +8,25 @@ import { openCashDrawer } from './printers/cashDrawer';
 const app = express();
 app.use(express.json());
 
+// ─── HIGH-3: Pre-shared token authentication ──────────────────────────────────
+
+const BRIDGE_TOKEN = process.env['BRIDGE_TOKEN'];
+
+function requireBridgeToken(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  if (!BRIDGE_TOKEN) {
+    // Not configured — allow in dev/local mode
+    next();
+    return;
+  }
+  const authHeader = req.headers['authorization'];
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (token !== BRIDGE_TOKEN) {
+    res.status(401).json({ type: 'about:blank', title: 'Unauthorized', status: 401, detail: 'Invalid bridge token.' });
+    return;
+  }
+  next();
+}
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
@@ -19,9 +38,19 @@ function isValidPrinterHost(host: string): boolean {
   // If an explicit allowlist is configured, enforce it
   const allowedHosts = (process.env['ALLOWED_PRINTER_HOSTS'] ?? '').split(',').filter(Boolean);
   if (allowedHosts.length > 0) return allowedHosts.includes(host);
-  // Without an allowlist, block known cloud metadata endpoints
-  const blocked = ['metadata.google.internal', 'instance-data', '169.254.169.254'];
-  return !blocked.includes(host.toLowerCase());
+  // Without an allowlist, block known cloud metadata endpoints and loopback addresses
+  // LOW-9: also block localhost / 127.0.0.1 / ::1 / 0.0.0.0 to prevent SSRF via loopback
+  const blocked = [
+    'metadata.google.internal', '169.254.169.254', 'instance-data',
+    'localhost', '127.0.0.1', '::1', '0.0.0.0',
+  ];
+  const lower = host.toLowerCase().trim();
+  if (blocked.includes(lower)) return false;
+  // Block RFC1918 ranges
+  if (/^10\./.test(lower)) return false;
+  if (/^172\.(1[6-9]|2[0-9]|3[01])\./.test(lower)) return false;
+  if (/^192\.168\./.test(lower)) return false;
+  return true;
 }
 
 function isValidPrinterPort(port: unknown): boolean {
@@ -49,7 +78,7 @@ app.post('/print/receipt', (req, res) => {
 });
 
 // POST /print — ESC/POS receipt via TCP
-app.post('/print', (req, res) => {
+app.post('/print', requireBridgeToken, (req, res) => {
   const body = req.body as { printer?: { host?: string; port?: number }; receipt?: ReceiptData };
 
   if (!body.printer?.host || !body.printer?.port || !body.receipt) {
@@ -81,7 +110,7 @@ app.post('/print', (req, res) => {
 });
 
 // POST /cash-drawer — kick cash drawer via ESC/POS TCP
-app.post('/cash-drawer', (req, res) => {
+app.post('/cash-drawer', requireBridgeToken, (req, res) => {
   const body = req.body as { printer?: { host?: string; port?: number } };
 
   if (!body.printer?.host || !body.printer?.port) {
@@ -111,7 +140,7 @@ app.post('/cash-drawer', (req, res) => {
 });
 
 // POST /display/customer — update customer-facing display
-app.post('/display/customer', (req, res) => {
+app.post('/display/customer', requireBridgeToken, (req, res) => {
   const body = req.body as { message?: string; total?: number };
   console.log('[HardwareBridge] Customer display update', { message: body.message, total: body.total });
   res.json({ success: true });

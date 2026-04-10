@@ -40,7 +40,10 @@ async function start() {
   });
   const jwtSecret = process.env['JWT_SECRET'];
   if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
-  await app.register(jwt, { secret: jwtSecret });
+  await app.register(jwt, {
+    secret: jwtSecret,
+    verify: { issuer: 'elevatedpos-auth' },
+  });
 
   app.decorate(
     'authenticate',

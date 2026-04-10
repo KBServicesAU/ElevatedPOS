@@ -210,22 +210,39 @@ export async function storeCreditRoutes(app: FastifyInstance) {
       return reply.status(422).send({ title: 'Only issue transactions can be voided', status: 422 });
     }
 
-    // Reverse balance
+    // Atomic conditional decrement — prevents a race where two concurrent void
+    // requests both pass the JS-level balance check and both subtract.
     const reverseAmount = Number(tx.amount);
-    const currentBalance = Number(account.balance);
-    if (currentBalance < reverseAmount) {
-      return reply.status(422).send({ title: 'Insufficient balance to void this credit', status: 422 });
+
+    const updated = await db
+      .update(schema.storeCreditAccounts)
+      .set({
+        balance: sql`(balance - ${reverseAmount})::numeric(12,4)`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(schema.storeCreditAccounts.id, account.id),
+          gte(schema.storeCreditAccounts.balance, String(reverseAmount)),
+        ),
+      )
+      .returning({ newBalance: schema.storeCreditAccounts.balance });
+
+    if (updated.length === 0) {
+      return reply.status(422).send({
+        type: 'about:blank',
+        title: 'Insufficient Balance',
+        status: 422,
+        detail: 'Balance is insufficient to void this amount.',
+      });
     }
 
-    const newBalance = (currentBalance - reverseAmount).toFixed(4);
-    await db
-      .update(schema.storeCreditAccounts)
-      .set({ balance: newBalance, updatedAt: new Date() })
-      .where(eq(schema.storeCreditAccounts.id, account.id));
+    const newBalance = updated[0]!.newBalance;
+    const voidedAt = new Date();
 
     await db
       .update(schema.storeCreditTransactions)
-      .set({ voidedAt: new Date(), voidedBy: userId, voidReason: body.data.reason })
+      .set({ voidedAt, voidedBy: userId, voidReason: body.data.reason })
       .where(eq(schema.storeCreditTransactions.id, body.data.creditId));
 
     // Record a void transaction for the ledger
@@ -238,7 +255,7 @@ export async function storeCreditRoutes(app: FastifyInstance) {
       employeeId: userId,
     });
 
-    return reply.status(200).send({ data: { balance: newBalance, voidedAt: new Date() } });
+    return reply.status(200).send({ data: { balance: newBalance, voidedAt } });
   });
 
   // GET /:customerId/history — credit ledger
