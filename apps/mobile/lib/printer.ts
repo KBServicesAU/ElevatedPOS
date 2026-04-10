@@ -189,6 +189,44 @@ export async function printText(text: string): Promise<void> {
   }
 }
 
+/**
+ * Print the integrated Tyro merchant receipt verbatim.
+ *
+ * Tyro returns `merchantReceipt` as a pre-formatted monospaced text
+ * block. POS-integrated mode (iClient.Retail.Signature-verified) requires
+ * the merchant to add a signature line when `signatureRequired` is true.
+ */
+export async function printTyroMerchantReceipt(opts: {
+  merchantReceipt: string;
+  signatureRequired?: boolean;
+}): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+  const { type, paperWidth } = usePrinterStore.getState().config;
+  const printer = getPrinter(type);
+  if (!printer) throw new Error('No printer configured');
+  if (!connected) await connectPrinter();
+
+  const w = paperWidth === 58 ? 32 : 48;
+  const line = '-'.repeat(w);
+
+  let body = opts.merchantReceipt.trim() + '\n';
+  if (opts.signatureRequired) {
+    body += '\n';
+    body += 'X' + line.slice(1) + '\n';
+    body += '<C>Cardholder Signature</C>\n';
+    body += line + '\n';
+    body += '<C>I agree to pay the above amount</C>\n';
+    body += '<C>as per my card issuer agreement</C>\n';
+  }
+  body += '\n\n\n';
+
+  try {
+    await printer.printText(body, { cut: true });
+  } catch (e: any) {
+    throw new Error('Tyro receipt print failed: ' + (e?.message ?? 'unknown'));
+  }
+}
+
 export async function printReceipt(opts: {
   storeName: string;
   orderNumber?: string;

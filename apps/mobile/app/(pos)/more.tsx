@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Linking,
   Modal,
@@ -13,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { confirm, toast } from '../../components/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -21,7 +21,8 @@ import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { useEmployeeStore, type Shift } from '../../store/employee';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
-import { initTyro, pairTyroTerminal, closeTyroPairing, isTyroInitialized } from '../../modules/tyro-tta';
+import { isTyroInitialized } from '../../modules/tyro-tta';
+import { useTyroStore } from '../../store/tyro';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 import { catalogApiFetch } from '../../lib/catalog-api';
@@ -193,19 +194,17 @@ export default function MoreScreen() {
     }
   }, []);
 
-  function handleDownloadUpdate() {
+  async function handleDownloadUpdate() {
     if (!release?.downloadUrl) {
-      Alert.alert('No Download URL', 'The update file is not available yet.');
+      toast.warning('No Download URL', 'The update file is not available yet.');
       return;
     }
-    Alert.alert(
-      'Download Update',
-      `Version ${release.version} will be downloaded. Install it once complete.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Download', onPress: () => Linking.openURL(release.downloadUrl) },
-      ],
-    );
+    const ok = await confirm({
+      title: 'Download Update',
+      description: `Version ${release.version} will be downloaded. Install it once complete.`,
+      confirmLabel: 'Download',
+    });
+    if (ok) Linking.openURL(release.downloadUrl);
   }
 
   /* ── Clock handlers ───────────────────────────────────────────── */
@@ -213,45 +212,43 @@ export default function MoreScreen() {
   async function handleClockIn() {
     try {
       await clockIn();
-      Alert.alert('Clocked In', 'Your shift has started.');
+      toast.success('Clocked In', 'Your shift has started.');
     } catch (err) {
-      Alert.alert('Clock In Failed', err instanceof Error ? err.message : 'Unknown error');
+      toast.error('Clock In Failed', err instanceof Error ? err.message : 'Unknown error');
     }
   }
 
   async function handleClockOut() {
-    Alert.alert('Clock Out', 'Are you sure you want to end your shift?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clock Out',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await clockOut();
-            Alert.alert('Clocked Out', 'Your shift has ended.');
-          } catch (err) {
-            Alert.alert(
-              'Clock Out Failed',
-              err instanceof Error ? err.message : 'Unknown error',
-            );
-          }
-        },
-      },
-    ]);
+    const ok = await confirm({
+      title: 'Clock Out',
+      description: 'Are you sure you want to end your shift?',
+      confirmLabel: 'Clock Out',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await clockOut();
+      toast.success('Clocked Out', 'Your shift has ended.');
+    } catch (err) {
+      toast.error(
+        'Clock Out Failed',
+        err instanceof Error ? err.message : 'Unknown error',
+      );
+    }
   }
 
   async function handleBreakToggle() {
     try {
       // Simple toggle — a more robust version would track break state
       await startBreak();
-      Alert.alert('Break Started', 'Enjoy your break!');
+      toast.success('Break Started', 'Enjoy your break!');
     } catch (err) {
       // If break already started, try ending it
       try {
         await endBreak();
-        Alert.alert('Break Ended', 'Welcome back!');
+        toast.success('Break Ended', 'Welcome back!');
       } catch {
-        Alert.alert('Error', err instanceof Error ? err.message : 'Break toggle failed');
+        toast.error('Error', err instanceof Error ? err.message : 'Break toggle failed');
       }
     }
   }
@@ -268,7 +265,7 @@ export default function MoreScreen() {
       // Refresh catalog
       await fetchCatalog();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to update product');
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to update product');
     } finally {
       setToggling(null);
     }
@@ -296,7 +293,7 @@ export default function MoreScreen() {
 
   async function saveProduct() {
     if (!prodForm.name || !prodForm.basePrice) {
-      Alert.alert('Missing Fields', 'Name and price are required.');
+      toast.warning('Missing Fields', 'Name and price are required.');
       return;
     }
     setSaving(true);
@@ -323,9 +320,9 @@ export default function MoreScreen() {
       }
       await fetchCatalog();
       setShowAddProduct(false);
-      Alert.alert('Success', editingProduct ? 'Product updated.' : 'Product added.');
+      toast.success(editingProduct ? 'Product updated' : 'Product added');
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Save failed');
+      toast.error('Error', err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSaving(false);
     }
@@ -353,7 +350,7 @@ export default function MoreScreen() {
 
   async function saveCategory() {
     if (!catForm.name) {
-      Alert.alert('Missing Fields', 'Name is required.');
+      toast.warning('Missing Fields', 'Name is required.');
       return;
     }
     setSaving(true);
@@ -379,9 +376,9 @@ export default function MoreScreen() {
       }
       await fetchCatalog();
       setShowAddCategory(false);
-      Alert.alert('Success', editingCategory ? 'Category updated.' : 'Category added.');
+      toast.success(editingCategory ? 'Category updated' : 'Category added');
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Save failed');
+      toast.error('Error', err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSaving(false);
     }
@@ -414,15 +411,15 @@ export default function MoreScreen() {
 
   async function handleTestPrint() {
     if (!printerConfig.type) {
-      Alert.alert('No Printer', 'Please configure a printer first.');
+      toast.warning('No Printer', 'Please configure a printer first.');
       return;
     }
     try {
       await printTestPage();
       setPrinterConnected(true);
-      Alert.alert('Success', 'Test page sent to printer.');
+      toast.success('Test print sent', 'Check the printer.');
     } catch (err) {
-      Alert.alert('Print Failed', err instanceof Error ? err.message : 'Could not print');
+      toast.error('Print Failed', err instanceof Error ? err.message : 'Could not print');
     }
   }
 
@@ -432,10 +429,10 @@ export default function MoreScreen() {
       const devices = await discoverPrinters(type);
       setDiscoveredPrinters(devices);
       if (devices.length === 0) {
-        Alert.alert('No Printers Found', `No ${type.toUpperCase()} printers detected. Check the connection.`);
+        toast.warning('No Printers Found', `No ${type.toUpperCase()} printers detected. Check the connection.`);
       }
     } catch (err) {
-      Alert.alert('Discovery Failed', err instanceof Error ? err.message : 'Could not scan for printers');
+      toast.error('Discovery Failed', err instanceof Error ? err.message : 'Could not scan for printers');
     } finally {
       setDiscovering(false);
     }
@@ -449,33 +446,27 @@ export default function MoreScreen() {
         name: printer.name,
       });
       setDiscoveredPrinters([]);
-      Alert.alert('Printer Saved', `${printer.name} configured. Tap "Connect" to establish connection.`);
+      toast.success('Printer Saved', `${printer.name} configured. Tap "Connect" to establish connection.`);
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Could not save printer');
+      toast.error('Error', err instanceof Error ? err.message : 'Could not save printer');
     }
   }
 
   async function handleConnectPrinter() {
-    Alert.alert(
-      'Connect Printer',
-      'Make sure your USB printer is plugged in. The system will request USB permission.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Connect',
-          onPress: async () => {
-            try {
-              await connectPrinter();
-              setPrinterConnected(true);
-              Alert.alert('Connected', 'Printer connected successfully.');
-            } catch (err) {
-              setPrinterConnected(false);
-              Alert.alert('Connection Failed', err instanceof Error ? err.message : 'Could not connect to printer. Make sure it is plugged in and try again.');
-            }
-          },
-        },
-      ],
-    );
+    const ok = await confirm({
+      title: 'Connect Printer',
+      description: 'Make sure your USB printer is plugged in. The system will request USB permission.',
+      confirmLabel: 'Connect',
+    });
+    if (!ok) return;
+    try {
+      await connectPrinter();
+      setPrinterConnected(true);
+      toast.success('Connected', 'Printer connected successfully.');
+    } catch (err) {
+      setPrinterConnected(false);
+      toast.error('Connection Failed', err instanceof Error ? err.message : 'Could not connect to printer.');
+    }
   }
 
   /* ── Order printer (separate kitchen / bar printer) ─────────── */
@@ -488,13 +479,13 @@ export default function MoreScreen() {
       const devices = await discoverPrinters(type);
       setDiscoveredOrderPrinters(devices);
       if (devices.length === 0) {
-        Alert.alert(
+        toast.warning(
           'No Printers Found',
           `No ${type.toUpperCase()} printers detected. Check the connection.`,
         );
       }
     } catch (err) {
-      Alert.alert(
+      toast.error(
         'Discovery Failed',
         err instanceof Error ? err.message : 'Could not scan for printers',
       );
@@ -514,12 +505,12 @@ export default function MoreScreen() {
         },
       });
       setDiscoveredOrderPrinters([]);
-      Alert.alert(
+      toast.success(
         'Order Printer Saved',
         `${printer.name} will receive kitchen / bar tickets.`,
       );
     } catch (err) {
-      Alert.alert(
+      toast.error(
         'Error',
         err instanceof Error ? err.message : 'Could not save order printer',
       );
@@ -528,14 +519,14 @@ export default function MoreScreen() {
 
   async function handleTestOrderPrinter() {
     if (!printerConfig.orderPrinter?.type) {
-      Alert.alert('No Order Printer', 'Please configure an order printer first.');
+      toast.warning('No Order Printer', 'Please configure an order printer first.');
       return;
     }
     try {
       await printOrderPrinterTestPage();
-      Alert.alert('Success', 'Test page sent to order printer.');
+      toast.success('Test page sent', 'Sent to order printer.');
     } catch (err) {
-      Alert.alert(
+      toast.error(
         'Print Failed',
         err instanceof Error ? err.message : 'Could not print',
       );
@@ -544,22 +535,16 @@ export default function MoreScreen() {
 
   /* ── Unpair ───────────────────────────────────────────────────── */
 
-  function handleUnpair() {
-    Alert.alert(
-      'Unpair Device',
-      'This will remove all device credentials. You will need to pair again.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Unpair',
-          style: 'destructive',
-          onPress: async () => {
-            await clearIdentity();
-            router.replace('/pair');
-          },
-        },
-      ],
-    );
+  async function handleUnpair() {
+    const ok = await confirm({
+      title: 'Unpair Device',
+      description: 'This will remove all device credentials. You will need to pair again.',
+      confirmLabel: 'Unpair',
+      destructive: true,
+    });
+    if (!ok) return;
+    await clearIdentity();
+    router.replace('/pair');
   }
 
   /* ── Open manage modal ────────────────────────────────────────── */
@@ -594,17 +579,16 @@ export default function MoreScreen() {
               </View>
               <TouchableOpacity
                 style={s.switchBtn}
-                onPress={() => {
-                  Alert.alert('Switch Employee', 'Lock the POS and return to the login screen?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Switch',
-                      onPress: () => {
-                        authLogout();
-                        router.replace('/employee-login');
-                      },
-                    },
-                  ]);
+                onPress={async () => {
+                  const ok = await confirm({
+                    title: 'Switch Employee',
+                    description: 'Lock the POS and return to the login screen?',
+                    confirmLabel: 'Switch',
+                  });
+                  if (ok) {
+                    authLogout();
+                    router.replace('/employee-login');
+                  }
                 }}
                 activeOpacity={0.7}
               >
@@ -725,9 +709,9 @@ export default function MoreScreen() {
             onPress={async () => {
               try {
                 await fetchCatalog();
-                Alert.alert('Menu Refreshed', `Loaded ${useCatalogStore.getState().products.length} products and ${useCatalogStore.getState().categories.length} categories.`);
+                toast.success('Menu Refreshed', `${useCatalogStore.getState().products.length} products · ${useCatalogStore.getState().categories.length} categories`);
               } catch (err) {
-                Alert.alert('Refresh Failed', err instanceof Error ? err.message : 'Could not refresh menu');
+                toast.error('Refresh Failed', err instanceof Error ? err.message : 'Could not refresh menu');
               }
             }}
           >
@@ -758,6 +742,131 @@ export default function MoreScreen() {
             </View>
             <View style={s.menuRowRight}>
               <Text style={s.menuRowCount}>{categories.length}</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* ═══════ Operations ═══════ */}
+        <Text style={[s.sectionTitle, { marginTop: 32 }]}>Operations</Text>
+
+        <View style={s.card}>
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={() => router.push('/(pos)/quick-sale' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="flash-outline" size={20} color="#f59e0b" />
+              <Text style={s.menuRowText}>Quick Sale</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Custom amount</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+          <View style={s.divider} />
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={() => router.push('/(pos)/gift-cards' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="gift-outline" size={20} color="#a78bfa" />
+              <Text style={s.menuRowText}>Gift Cards</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Issue · Check · Void</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+          <View style={s.divider} />
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={() => router.push('/(pos)/laybys' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="bookmark-outline" size={20} color="#06b6d4" />
+              <Text style={s.menuRowText}>Laybys</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Layaway plans</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+          <View style={s.divider} />
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={() => router.push('/(pos)/floor-plan' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="grid-outline" size={20} color="#6366f1" />
+              <Text style={s.menuRowText}>Floor Plan</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Tables · Zones · Layout</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+          <View style={s.divider} />
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={() => router.push('/(pos)/split-check' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="people-circle-outline" size={20} color="#22c55e" />
+              <Text style={s.menuRowText}>Split Check</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Divide bill by seat</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+          <View style={s.divider} />
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={() => router.push('/(pos)/wet-dry-setup' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="beer-outline" size={20} color="#06b6d4" />
+              <Text style={s.menuRowText}>Wet / Dry Setup</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Tag categories for reports</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+          <View style={s.divider} />
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={() => router.push('/(pos)/upsell-setup' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="sparkles-outline" size={20} color="#f59e0b" />
+              <Text style={s.menuRowText}>Kiosk Upsell</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Suggested items at checkout</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+          <View style={s.divider} />
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={() => router.push('/(pos)/eod' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="document-text-outline" size={20} color="#22c55e" />
+              <Text style={s.menuRowText}>End of Day</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Close shift report</Text>
               <Ionicons name="chevron-forward" size={18} color="#444" />
             </View>
           </TouchableOpacity>
@@ -955,7 +1064,7 @@ export default function MoreScreen() {
         <View style={s.card}>
           <View style={s.row}>
             <Text style={s.label}>Provider</Text>
-            <Text style={s.value}>{isTyroInitialized() ? 'Tyro' : 'Not configured'}</Text>
+            <Text style={s.value}>Tyro EFTPOS</Text>
           </View>
           <View style={s.divider} />
           <View style={s.row}>
@@ -963,43 +1072,27 @@ export default function MoreScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isTyroInitialized() ? '#22c55e' : '#666' }} />
               <Text style={[s.value, { color: isTyroInitialized() ? '#22c55e' : '#666' }]}>
-                {isTyroInitialized() ? 'Connected' : 'Not connected'}
+                {isTyroInitialized() ? 'Connected' : 'Not configured'}
               </Text>
             </View>
           </View>
           <View style={s.divider} />
           <View style={s.row}>
-            <Text style={s.label}>Setup</Text>
-            <Text style={[s.value, { color: '#6366f1' }]}>Configure in Dashboard → Integrations</Text>
+            <Text style={s.label}>Environment</Text>
+            <Text style={s.value}>
+              {useTyroStore.getState().config.environment}
+            </Text>
           </View>
         </View>
 
         <View style={s.btnRow}>
           <TouchableOpacity
             style={s.outlineBtn}
-            onPress={() => {
-              if (!isTyroInitialized()) {
-                try { initTyro('', 'simulator'); } catch { /* ignore */ }
-              }
-              pairTyroTerminal();
-            }}
+            onPress={() => router.push('/tyro-settings' as never)}
             activeOpacity={0.85}
           >
-            <Ionicons name="link-outline" size={16} color="#ccc" />
-            <Text style={s.outlineBtnText}>Pair Terminal</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={s.outlineBtn}
-            onPress={() => {
-              Alert.alert(
-                'EFTPOS Setup',
-                'To configure your Tyro EFTPOS terminal:\n\n1. Go to the Dashboard (web or app)\n2. Navigate to Integrations → Payment Terminals\n3. Enter your Merchant ID and Terminal ID\n4. Click Save, then Pair Terminal\n\nThe POS will automatically connect to the configured terminal.',
-              );
-            }}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="help-circle-outline" size={16} color="#ccc" />
-            <Text style={s.outlineBtnText}>How to Setup</Text>
+            <Ionicons name="settings-outline" size={16} color="#ccc" />
+            <Text style={s.outlineBtnText}>Configure Tyro</Text>
           </TouchableOpacity>
         </View>
 
@@ -1663,6 +1756,7 @@ const s = StyleSheet.create({
   menuRowText: { fontSize: 15, fontWeight: '600', color: '#ccc' },
   menuRowRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   menuRowCount: { fontSize: 13, color: '#666', fontWeight: '500' },
+  menuRowSub: { fontSize: 12, color: '#555', fontWeight: '500' },
 
   /* ── Generic outline button ── */
   outlineBtn: {

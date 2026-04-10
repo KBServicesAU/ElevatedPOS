@@ -1,7 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -9,8 +8,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
+import { useDashboardAuthStore } from '../../store/dashboard-auth';
+import { toast } from '../../components/ui';
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
@@ -18,21 +19,31 @@ import { WebView } from 'react-native-webview';
 
 const DASHBOARD_URL = process.env['EXPO_PUBLIC_APP_URL'] ?? 'https://app.elevatedpos.com.au';
 
+function escapeJsString(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
+}
+
 /* ------------------------------------------------------------------ */
 /* Screen                                                              */
 /* ------------------------------------------------------------------ */
 
 export default function DashboardWebScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ path?: string }>();
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
+  const email = useDashboardAuthStore((s) => s.email);
+  const password = useDashboardAuthStore((s) => s.password);
+  const hydrate = useDashboardAuthStore((s) => s.hydrate);
+  const ready = useDashboardAuthStore((s) => s.ready);
 
-  // Inject CSS to hide POS/KDS/Kiosk entries from the web sidebar, since
-  // this is the dashboard-only tablet build and those routes are intended
-  // to launch the external native apps instead.
-  const injectedJS = `
-    (function() {
+  useEffect(() => {
+    if (!ready) hydrate();
+  }, [ready, hydrate]);
+
+  // Hide POS/KDS/Kiosk entries from the sidebar.
+  const hideSidebarJS = `
       function applyHides() {
         try {
           var style = document.getElementById('__epos_hide_css__');
@@ -54,16 +65,59 @@ export default function DashboardWebScreen() {
           });
         } catch (e) { /* non-critical */ }
       }
+  `;
+
+  // Auto-login helper: when the login page is visible and we have saved
+  // credentials, fill in and submit the form. We guard against running
+  // more than once by setting a window-scoped flag.
+  const autoLoginJS =
+    email && password
+      ? `
+      function tryAutoLogin() {
+        if (window.__epos_auto_login_done__) return;
+        if (!/\\/login/.test(location.pathname)) return;
+        var emailInput = document.querySelector('input[type="email"], input[name="email"], input#email');
+        var pwdInput = document.querySelector('input[type="password"], input[name="password"], input#password');
+        var form = emailInput && emailInput.form;
+        if (emailInput && pwdInput && form) {
+          var nativeEmailSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          nativeEmailSetter.call(emailInput, '${escapeJsString(email)}');
+          nativeEmailSetter.call(pwdInput, '${escapeJsString(password)}');
+          emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+          pwdInput.dispatchEvent(new Event('input', { bubbles: true }));
+          setTimeout(function() {
+            var submitBtn = form.querySelector('button[type="submit"]')
+              || Array.prototype.find.call(form.querySelectorAll('button'), function(b) { return /sign in|log in|login/i.test(b.textContent || ''); });
+            window.__epos_auto_login_done__ = true;
+            if (submitBtn) submitBtn.click();
+            else form.requestSubmit ? form.requestSubmit() : form.submit();
+          }, 50);
+        }
+      }
+      `
+      : `function tryAutoLogin() { /* no creds */ }`;
+
+  const injectedJS = `
+    (function() {
+      ${hideSidebarJS}
+      ${autoLoginJS}
       applyHides();
-      var obs = new MutationObserver(applyHides);
+      tryAutoLogin();
+      var obs = new MutationObserver(function() { applyHides(); tryAutoLogin(); });
       obs.observe(document.documentElement, { childList: true, subtree: true });
       var applied = 0;
       var iv = setInterval(function() {
         applyHides();
+        tryAutoLogin();
         if (++applied >= 10) clearInterval(iv);
-      }, 1000);
+      }, 500);
     })();
     true;`;
+
+  // Allow navigating to a specific web path passed via navigation
+  // params (e.g. /(dashboard)/web?path=/dashboard/catalog).
+  const startPath = params.path && typeof params.path === 'string' ? params.path : '/dashboard';
+  const startUri = `${DASHBOARD_URL}${startPath.startsWith('/') ? '' : '/'}${startPath}`;
 
   return (
     <SafeAreaView style={s.container} edges={['top']}>
@@ -92,7 +146,7 @@ export default function DashboardWebScreen() {
       {/* ── WebView ── */}
       <WebView
         ref={webRef}
-        source={{ uri: `${DASHBOARD_URL}/login` }}
+        source={{ uri: startUri }}
         style={s.webview}
         injectedJavaScriptBeforeContentLoaded={injectedJS}
         injectedJavaScript={injectedJS}
@@ -105,6 +159,7 @@ export default function DashboardWebScreen() {
         javaScriptEnabled
         domStorageEnabled
         sharedCookiesEnabled
+        thirdPartyCookiesEnabled
         startInLoadingState
         renderLoading={() => (
           <View style={s.loadingOverlay}>
@@ -113,7 +168,7 @@ export default function DashboardWebScreen() {
           </View>
         )}
         onError={() => {
-          Alert.alert('Connection Error', 'Could not load the dashboard.');
+          toast.error('Connection Error', 'Could not load the dashboard.');
         }}
       />
 

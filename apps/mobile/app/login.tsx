@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -13,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/auth';
+import { toast } from '../components/ui';
 
 const AUTH_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
 
@@ -24,7 +24,7 @@ export default function LoginScreen() {
 
   async function handleLogin() {
     if (!email.trim() || !password) {
-      Alert.alert('Missing Fields', 'Please enter your email and password.');
+      toast.warning('Missing Fields', 'Please enter your email and password.');
       return;
     }
     setLoading(true);
@@ -54,9 +54,10 @@ export default function LoginScreen() {
         },
       });
 
+      toast.success('Welcome', `Signed in as ${data.user?.firstName ?? email}`);
       router.replace('/(dashboard)');
     } catch (err) {
-      Alert.alert('Login Failed', err instanceof Error ? err.message : 'Could not sign in');
+      toast.error('Login Failed', err instanceof Error ? err.message : 'Could not sign in');
     } finally {
       setLoading(false);
     }

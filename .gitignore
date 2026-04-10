@@ -84,3 +84,10 @@ tool-results/
 .secrets.production
 .secrets.*
 .claude/settings.local.json
+
+# Root-level temp/tool files
+/*.json
+/*.crt
+/*.exe
+/*.zip
+/*.py

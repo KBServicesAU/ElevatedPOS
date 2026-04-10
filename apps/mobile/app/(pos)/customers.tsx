@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -16,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { usePosStore } from '../../store/pos';
+import { toast } from '../../components/ui';
 
 const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
 
@@ -65,7 +65,7 @@ export default function CustomersScreen() {
 
   function handleSelect(c: Customer) {
     setCustomer(c.id, `${c.firstName} ${c.lastName}`);
-    Alert.alert('Customer Selected', `${c.firstName} ${c.lastName} attached to the current order.`);
+    toast.success('Customer Selected', `${c.firstName} ${c.lastName} attached to the current order.`);
   }
 
   function renderCustomer({ item }: { item: Customer }) {
@@ -94,7 +94,7 @@ export default function CustomersScreen() {
   }
 
   async function handleAddCustomer() {
-    if (!newFirst.trim()) { Alert.alert('Required', 'First name is required.'); return; }
+    if (!newFirst.trim()) { toast.warning('Required', 'First name is required.'); return; }
     setSaving(true);
     const token = employeeToken ?? identity?.deviceToken ?? '';
     try {
@@ -107,11 +107,11 @@ export default function CustomersScreen() {
         setShowAdd(false);
         setNewFirst(''); setNewLast(''); setNewEmail(''); setNewPhone('');
         fetchCustomers();
-        Alert.alert('Customer Added', `${newFirst} ${newLast} has been added.`);
+        toast.success('Customer Added', `${newFirst} ${newLast} has been added.`);
       } else {
-        Alert.alert('Error', `Could not add customer (${res.status})`);
+        toast.error('Error', `Could not add customer (${res.status})`);
       }
-    } catch { Alert.alert('Error', 'Network error'); }
+    } catch { toast.error('Error', 'Network error'); }
     finally { setSaving(false); }
   }
 

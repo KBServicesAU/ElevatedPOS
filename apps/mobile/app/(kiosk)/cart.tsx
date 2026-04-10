@@ -1,7 +1,8 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
+  Modal,
   StyleSheet,
   Text,
   TextInput,
@@ -9,32 +10,93 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useKioskStore } from '../../store/kiosk';
+import { useKioskStore, type CartItem } from '../../store/kiosk';
+import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 
 const TAX_RATE = 0.10;
+const UPSELL_LIMIT = 6;
 
 export default function CartScreen() {
   const router = useRouter();
-  const { cartItems, updateCartQty, removeFromCart, dineIn, setDineIn, customerName, setCustomerName } = useKioskStore();
+  const {
+    cartItems,
+    addToCart,
+    updateCartQty,
+    removeFromCart,
+    dineIn,
+    setDineIn,
+    customerName,
+    setCustomerName,
+  } = useKioskStore();
+  const {
+    products,
+    upsellProductIds,
+    upsellHydrated,
+    hydrateUpsell,
+    fetchAll,
+  } = useCatalogStore();
   const [nameInput, setNameInput] = useState(customerName);
+  const [upsellOpen, setUpsellOpen] = useState(false);
+
+  // Make sure upsell list + product details are loaded.
+  useEffect(() => {
+    if (!upsellHydrated) hydrateUpsell();
+    if (products.length === 0) fetchAll();
+  }, [upsellHydrated, products.length, hydrateUpsell, fetchAll]);
 
   const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
 
-  function handleQty(id: string, delta: number) {
-    const item = cartItems.find((i) => i.id === id);
+  // Suggested products = configured upsells that aren't already in the cart.
+  const upsellSuggestions: CatalogProduct[] = useMemo(() => {
+    if (upsellProductIds.size === 0) return [];
+    const inCart = new Set(cartItems.map((c) => c.id));
+    return products
+      .filter((p) => upsellProductIds.has(p.id) && !inCart.has(p.id) && p.isActive !== false)
+      .slice(0, UPSELL_LIMIT);
+  }, [products, upsellProductIds, cartItems]);
+
+  function handleQty(cartKey: string, delta: number) {
+    const item = cartItems.find((i) => i.cartKey === cartKey);
     if (!item) return;
     const newQty = item.qty + delta;
     if (newQty <= 0) {
-      removeFromCart(id);
+      removeFromCart(cartKey);
     } else {
-      updateCartQty(id, newQty);
+      updateCartQty(cartKey, newQty);
     }
   }
 
   function handleCheckout() {
     setCustomerName(nameInput.trim());
+    if (upsellSuggestions.length > 0) {
+      setUpsellOpen(true);
+      return;
+    }
+    router.push('/(kiosk)/payment');
+  }
+
+  function handleAddUpsell(p: CatalogProduct) {
+    const priceNumber = parseFloat(p.basePrice) || 0;
+    const item: CartItem = {
+      id: p.id,
+      cartKey: `${p.id}::upsell::${Date.now()}`,
+      name: p.name,
+      price: priceNumber,
+      qty: 1,
+      modifiers: [],
+    };
+    addToCart(item);
+  }
+
+  function handleSkipUpsell() {
+    setUpsellOpen(false);
+    router.push('/(kiosk)/payment');
+  }
+
+  function handleConfirmUpsell() {
+    setUpsellOpen(false);
     router.push('/(kiosk)/payment');
   }
 
@@ -83,7 +145,7 @@ export default function CartScreen() {
 
       <FlatList
         data={cartItems}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.cartKey}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
           <View style={styles.cartItem}>
@@ -92,11 +154,11 @@ export default function CartScreen() {
               <Text style={styles.itemPrice}>${(item.price * item.qty).toFixed(2)}</Text>
             </View>
             <View style={styles.qtyRow}>
-              <TouchableOpacity style={styles.qtyBtn} onPress={() => handleQty(item.id, -1)}>
+              <TouchableOpacity style={styles.qtyBtn} onPress={() => handleQty(item.cartKey, -1)}>
                 <Text style={styles.qtyBtnText}>{item.qty === 1 ? '🗑' : '−'}</Text>
               </TouchableOpacity>
               <Text style={styles.qtyNum}>{item.qty}</Text>
-              <TouchableOpacity style={[styles.qtyBtn, styles.qtyBtnAdd]} onPress={() => handleQty(item.id, 1)}>
+              <TouchableOpacity style={[styles.qtyBtn, styles.qtyBtnAdd]} onPress={() => handleQty(item.cartKey, 1)}>
                 <Text style={styles.qtyBtnText}>+</Text>
               </TouchableOpacity>
             </View>
@@ -126,6 +188,67 @@ export default function CartScreen() {
           <Text style={styles.checkoutText}>Proceed to Payment →</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ── Upsell Modal ── */}
+      <Modal
+        visible={upsellOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={handleSkipUpsell}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalEmoji}>✨</Text>
+            <Text style={styles.modalTitle}>Would you like anything else?</Text>
+            <Text style={styles.modalSubtitle}>Tap to add — or skip and pay now.</Text>
+
+            <FlatList
+              data={upsellSuggestions}
+              keyExtractor={(p) => p.id}
+              numColumns={2}
+              columnWrapperStyle={{ gap: 12 }}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 18, paddingBottom: 12, gap: 12 }}
+              extraData={cartItems}
+              renderItem={({ item }) => {
+                const inCart = cartItems.some((c) => c.id === item.id);
+                return (
+                  <TouchableOpacity
+                    style={[styles.upsellCard, inCart && styles.upsellCardAdded]}
+                    onPress={() => handleAddUpsell(item)}
+                    activeOpacity={0.85}
+                    disabled={inCart}
+                  >
+                    <View style={styles.upsellThumb}>
+                      <Text style={styles.upsellThumbText}>
+                        {item.name.slice(0, 1).toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={styles.upsellName} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                    <Text style={styles.upsellPrice}>${item.basePrice}</Text>
+                    <View style={[styles.upsellAddPill, inCart && styles.upsellAddedPill]}>
+                      <Text style={styles.upsellAddText}>
+                        {inCart ? 'Added ✓' : '+ Add'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={styles.skipBtn} onPress={handleSkipUpsell}>
+                <Text style={styles.skipBtnText}>No thanks</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirmUpsell}>
+                <Text style={styles.confirmBtnText}>Continue to Payment →</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -166,4 +289,114 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 24, fontWeight: '900', color: '#f97316' },
   checkoutButton: { backgroundColor: '#f97316', borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
   checkoutText: { fontSize: 19, fontWeight: '800', color: '#fff' },
+
+  // ── Upsell Modal ──
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#111',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 12,
+    paddingBottom: 24,
+    maxHeight: '90%',
+  },
+  modalHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#333',
+    alignSelf: 'center',
+    marginBottom: 18,
+  },
+  modalEmoji: { fontSize: 36, textAlign: 'center', marginBottom: 6 },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#fff',
+    textAlign: 'center',
+    paddingHorizontal: 24,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 4,
+    paddingHorizontal: 24,
+  },
+  upsellCard: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 18,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#2a2a2a',
+  },
+  upsellCardAdded: {
+    borderColor: '#22c55e',
+    backgroundColor: 'rgba(34,197,94,0.08)',
+  },
+  upsellThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    backgroundColor: '#f97316',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  upsellThumbText: { color: '#fff', fontSize: 26, fontWeight: '900' },
+  upsellName: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+    minHeight: 36,
+  },
+  upsellPrice: {
+    color: '#f97316',
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  upsellAddPill: {
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#f97316',
+  },
+  upsellAddedPill: {
+    backgroundColor: '#22c55e',
+  },
+  upsellAddText: { color: '#fff', fontSize: 12, fontWeight: '900' },
+
+  modalFooter: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 12,
+  },
+  skipBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1.5,
+    borderColor: '#333',
+    alignItems: 'center',
+  },
+  skipBtnText: { color: '#888', fontSize: 15, fontWeight: '800' },
+  confirmBtn: {
+    flex: 2,
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: '#f97316',
+    alignItems: 'center',
+  },
+  confirmBtnText: { color: '#fff', fontSize: 16, fontWeight: '900' },
 });

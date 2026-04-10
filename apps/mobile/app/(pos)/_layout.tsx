@@ -1,7 +1,9 @@
+import React, { useState } from 'react';
 import { Slot, usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { CommandPalette, type CommandItem } from '../../components/ui';
 
 interface NavItem {
   /** File-system route (without (pos) group, since expo-router strips groups from pathname). */
@@ -20,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
 export default function PosLayout() {
   const router = useRouter();
   const pathname = usePathname();
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   function isActive(route: string) {
     if (route === '/') {
@@ -28,14 +31,150 @@ export default function PosLayout() {
     return pathname === route || pathname.startsWith(route + '/');
   }
 
+  // Build command palette items lazily so router is in scope.
+  const paletteItems: CommandItem[] = [
+    {
+      id: 'sell',
+      label: 'Sell',
+      description: 'Take a payment',
+      icon: 'cart',
+      iconColor: '#6366f1',
+      section: 'Navigate',
+      shortcut: '⌘1',
+      onSelect: () => router.push('/' as never),
+    },
+    {
+      id: 'orders',
+      label: 'Orders',
+      description: 'View order history',
+      icon: 'receipt',
+      iconColor: '#8b5cf6',
+      section: 'Navigate',
+      shortcut: '⌘2',
+      onSelect: () => router.push('/orders' as never),
+    },
+    {
+      id: 'customers',
+      label: 'Customers',
+      description: 'Find or add a customer',
+      icon: 'people',
+      iconColor: '#06b6d4',
+      section: 'Navigate',
+      shortcut: '⌘3',
+      onSelect: () => router.push('/customers' as never),
+    },
+    {
+      id: 'quick-sale',
+      label: 'Quick Sale',
+      description: 'Sell a one-off item',
+      icon: 'flash',
+      iconColor: '#f59e0b',
+      section: 'Operations',
+      keywords: ['quick', 'sale', 'misc', 'one off'],
+      onSelect: () => router.push('/(pos)/quick-sale' as never),
+    },
+    {
+      id: 'gift-cards',
+      label: 'Gift Cards',
+      description: 'Issue or check a gift card',
+      icon: 'gift',
+      iconColor: '#ec4899',
+      section: 'Operations',
+      keywords: ['gift', 'voucher', 'card'],
+      onSelect: () => router.push('/(pos)/gift-cards' as never),
+    },
+    {
+      id: 'laybys',
+      label: 'Laybys',
+      description: 'Manage layby plans',
+      icon: 'wallet',
+      iconColor: '#06b6d4',
+      section: 'Operations',
+      keywords: ['layby', 'layaway', 'instalment'],
+      onSelect: () => router.push('/(pos)/laybys' as never),
+    },
+    {
+      id: 'eod',
+      label: 'End of Day',
+      description: 'Close the till and run EOD',
+      icon: 'moon',
+      iconColor: '#a855f7',
+      section: 'Operations',
+      keywords: ['close', 'eod', 'cash up', 'reconcile'],
+      onSelect: () => router.push('/(pos)/eod' as never),
+    },
+    {
+      id: 'floor-plan',
+      label: 'Floor Plan',
+      description: 'Manage tables and seating',
+      icon: 'grid',
+      iconColor: '#6366f1',
+      section: 'Operations',
+      keywords: ['floor', 'tables', 'seats', 'plan', 'dining', 'restaurant'],
+      onSelect: () => router.push('/(pos)/floor-plan' as never),
+    },
+    {
+      id: 'split-check',
+      label: 'Split Check',
+      description: 'Divide the bill by seat',
+      icon: 'people-circle',
+      iconColor: '#22c55e',
+      section: 'Operations',
+      keywords: ['split', 'seat', 'bill', 'separate', 'check', 'divide'],
+      onSelect: () => router.push('/(pos)/split-check' as never),
+    },
+    {
+      id: 'wet-dry-setup',
+      label: 'Wet / Dry Setup',
+      description: 'Tag categories for wet/dry reports',
+      icon: 'beer',
+      iconColor: '#06b6d4',
+      section: 'Settings',
+      keywords: ['wet', 'dry', 'food', 'drinks', 'beverage', 'category', 'split'],
+      onSelect: () => router.push('/(pos)/wet-dry-setup' as never),
+    },
+    {
+      id: 'upsell-setup',
+      label: 'Kiosk Upsell',
+      description: 'Pick suggested items for kiosk checkout',
+      icon: 'sparkles',
+      iconColor: '#f59e0b',
+      section: 'Settings',
+      keywords: ['upsell', 'suggest', 'kiosk', 'cross sell', 'recommend', 'add on'],
+      onSelect: () => router.push('/(pos)/upsell-setup' as never),
+    },
+    {
+      id: 'tyro',
+      label: 'Tyro EFTPOS',
+      description: 'Configure card terminal',
+      icon: 'card',
+      iconColor: '#22c55e',
+      section: 'Settings',
+      onSelect: () => router.push('/(pos)/tyro-settings' as never),
+    },
+    {
+      id: 'more',
+      label: 'More & Settings',
+      description: 'Printers, devices, sign out',
+      icon: 'menu',
+      iconColor: '#94a3b8',
+      section: 'Settings',
+      onSelect: () => router.push('/more' as never),
+    },
+  ];
+
   return (
     <SafeAreaView style={styles.root} edges={['left', 'top', 'bottom']}>
       <View style={styles.layout}>
         {/* ── Left vertical sidebar ── */}
         <View style={styles.sidebar}>
-          <View style={styles.sidebarLogo}>
-            <Ionicons name="rocket" size={22} color="#6366f1" />
-          </View>
+          <TouchableOpacity
+            style={styles.sidebarLogo}
+            onPress={() => setPaletteOpen(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="search" size={20} color="#6366f1" />
+          </TouchableOpacity>
           <View style={styles.sidebarItems}>
             {NAV_ITEMS.map((item) => {
               const active = isActive(item.route);
@@ -65,6 +204,14 @@ export default function PosLayout() {
           <Slot />
         </View>
       </View>
+
+      {/* ── Global command palette ── */}
+      <CommandPalette
+        visible={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        items={paletteItems}
+        placeholder="Jump to a screen, action, or setting…"
+      />
     </SafeAreaView>
   );
 }

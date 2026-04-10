@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
-import { AppState } from 'react-native';
+import { AppState, View } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useDeviceStore } from '../store/device';
+import { ToastViewport, AlertDialogHost } from '../components/ui';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -59,5 +60,13 @@ export default function RootLayout() {
   }, [identity, pathname, router]);
 
   if (!ready) return null;
-  return <SafeAreaProvider><Slot /></SafeAreaProvider>;
+  return (
+    <SafeAreaProvider>
+      <View style={{ flex: 1 }}>
+        <Slot />
+        <ToastViewport />
+        <AlertDialogHost />
+      </View>
+    </SafeAreaProvider>
+  );
 }
