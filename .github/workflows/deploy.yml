@@ -109,9 +109,8 @@ jobs:
     environment: staging
     continue-on-error: true
     if: |
-      always() &&
-      (github.ref == 'refs/heads/main' || inputs.environment == 'staging') &&
-      needs.build-images.result != 'cancelled'
+      needs.build-images.result == 'success' &&
+      (github.ref == 'refs/heads/main' || inputs.environment == 'staging')
     steps:
       - uses: actions/checkout@v4
 
@@ -210,8 +209,7 @@ jobs:
     needs: build-images
     environment: prod
     if: |
-      always() &&
-      needs.build-images.result != 'cancelled' &&
+      needs.build-images.result == 'success' &&
       (github.ref == 'refs/heads/main' || inputs.environment == 'prod')
     steps:
       - uses: actions/checkout@v4
