@@ -61,11 +61,12 @@ export default function EmployeeLoginScreen() {
   const [pin, setPin] = useState('');
   const [clockingIn, setClockingIn] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [fetchingEmployees, setFetchingEmployees] = useState(true);
 
   // If already logged in, allow continuing to POS
   useEffect(() => {
-    // Try to fetch employee list for card-select
-    fetchEmployees();
+    setFetchingEmployees(true);
+    fetchEmployees().finally(() => setFetchingEmployees(false));
   }, []);
 
   // ── PIN pad handlers ─────────────────────────────────────────────
@@ -252,9 +253,15 @@ export default function EmployeeLoginScreen() {
         )}
 
         {/* ── Employee cards ── */}
-        {employees.length > 0 && (
-          <View style={s.employeeSection}>
-            <Text style={s.sectionLabel}>Select your profile</Text>
+        <View style={s.employeeSection}>
+          <Text style={s.sectionLabel}>
+            {fetchingEmployees ? 'Loading staff…' : employees.length > 0 ? 'Select your profile' : 'Enter your PIN below'}
+          </Text>
+          {fetchingEmployees ? (
+            <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+              <ActivityIndicator size="small" color="#6366f1" />
+            </View>
+          ) : employees.length > 0 ? (
             <FlatList
               data={employees}
               keyExtractor={(e) => e.id}
@@ -290,8 +297,8 @@ export default function EmployeeLoginScreen() {
                 );
               }}
             />
-          </View>
-        )}
+          ) : null}
+        </View>
 
         {/* ── PIN entry ── */}
         <View style={s.pinSection}>

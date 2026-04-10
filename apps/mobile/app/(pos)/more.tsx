@@ -23,6 +23,8 @@ import { useEmployeeStore, type Shift } from '../../store/employee';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
 import { isTyroInitialized } from '../../modules/tyro-tta';
 import { useTyroStore } from '../../store/tyro';
+import { useEftposStore } from '../../store/eftpos';
+import { useSidebarStore, ALL_SIDEBAR_ITEMS } from '../../store/sidebar';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 import { catalogApiFetch } from '../../lib/catalog-api';
@@ -124,6 +126,11 @@ export default function MoreScreen() {
     setSettings: setDisplaySettings,
   } = useCustomerDisplayStore();
 
+  const tyroConfig = useTyroStore((s) => s.config);
+  const { provider: eftposProvider, hydrate: hydrateEftpos, setProvider: setEftposProvider } = useEftposStore();
+  const { enabledIds: sidebarEnabledIds, hydrate: hydrateSidebar, toggle: toggleSidebarItem, reset: resetSidebar } = useSidebarStore();
+  const [showSidebarModal, setShowSidebarModal] = useState(false);
+
   // ── Quick Manage ─────────────────────────────────────────────────
   const [showManageModal, setShowManageModal] = useState(false);
   const { products, categories, fetchAll: fetchCatalog } = useCatalogStore();
@@ -155,6 +162,8 @@ export default function MoreScreen() {
     hydratePrinter();
     hydrateDisplay();
     checkForUpdate();
+    hydrateEftpos();
+    hydrateSidebar();
   }, []);
 
   // Shift timer
@@ -930,8 +939,9 @@ export default function MoreScreen() {
             <Text style={s.outlineBtnText}>Scan USB</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[s.outlineBtn, printerConnected && { borderColor: '#22c55e' }]}
+            style={[s.outlineBtn, printerConnected && { borderColor: '#22c55e' }, !printerConfig.type && { opacity: 0.4 }]}
             onPress={printerConnected ? handleTestPrint : handleConnectPrinter}
+            disabled={!printerConfig.type}
             activeOpacity={0.85}
           >
             <Ionicons name={printerConnected ? 'print-outline' : 'link-outline'} size={16} color={printerConnected ? '#22c55e' : '#ccc'} />
@@ -1009,8 +1019,9 @@ export default function MoreScreen() {
             <Text style={s.outlineBtnText}>Scan USB</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={s.outlineBtn}
+            style={[s.outlineBtn, !printerConfig.orderPrinter?.address && { opacity: 0.4 }]}
             onPress={handleTestOrderPrinter}
+            disabled={!printerConfig.orderPrinter?.address}
             activeOpacity={0.85}
           >
             <Ionicons name="print-outline" size={16} color="#ccc" />
@@ -1062,37 +1073,105 @@ export default function MoreScreen() {
         <Text style={[s.sectionTitle, { marginTop: 32 }]}>EFTPOS Terminal</Text>
 
         <View style={s.card}>
-          <View style={s.row}>
-            <Text style={s.label}>Provider</Text>
-            <Text style={s.value}>Tyro EFTPOS</Text>
+          <Text style={[s.label, { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }]}>
+            Payment Provider
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 14 }}>
+            {(['tyro', 'anz'] as const).map((p) => (
+              <TouchableOpacity
+                key={p}
+                style={{
+                  flex: 1,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  borderWidth: 1.5,
+                  alignItems: 'center',
+                  borderColor: eftposProvider === p ? '#6366f1' : '#2a2a3a',
+                  backgroundColor: eftposProvider === p ? 'rgba(99,102,241,0.1)' : 'transparent',
+                }}
+                onPress={() => setEftposProvider(p)}
+                activeOpacity={0.7}
+              >
+                <Text style={{ color: eftposProvider === p ? '#6366f1' : '#888', fontWeight: '700', fontSize: 13 }}>
+                  {p === 'tyro' ? 'Tyro' : 'ANZ Worldline'}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
-          <View style={s.divider} />
-          <View style={s.row}>
-            <Text style={s.label}>Status</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isTyroInitialized() ? '#22c55e' : '#666' }} />
-              <Text style={[s.value, { color: isTyroInitialized() ? '#22c55e' : '#666' }]}>
-                {isTyroInitialized() ? 'Connected' : 'Not configured'}
+          {eftposProvider === 'tyro' && (
+            <>
+              <View style={s.divider} />
+              <View style={s.row}>
+                <Text style={s.label}>Status</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isTyroInitialized() ? '#22c55e' : '#666' }} />
+                  <Text style={[s.value, { color: isTyroInitialized() ? '#22c55e' : '#666' }]}>
+                    {isTyroInitialized() ? 'Connected' : 'Not configured'}
+                  </Text>
+                </View>
+              </View>
+              <View style={s.divider} />
+              <View style={s.row}>
+                <Text style={s.label}>Environment</Text>
+                <Text style={s.value}>{tyroConfig.environment}</Text>
+              </View>
+            </>
+          )}
+          {eftposProvider === 'anz' && (
+            <>
+              <View style={s.divider} />
+              <View style={s.row}>
+                <Text style={s.label}>Status</Text>
+                <Text style={[s.value, { color: '#f59e0b' }]}>See configuration</Text>
+              </View>
+            </>
+          )}
+          {!eftposProvider && (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
+              <Text style={{ color: '#555', fontSize: 13 }}>
+                Select a payment provider above to configure EFTPOS.
               </Text>
             </View>
-          </View>
-          <View style={s.divider} />
-          <View style={s.row}>
-            <Text style={s.label}>Environment</Text>
-            <Text style={s.value}>
-              {useTyroStore.getState().config.environment}
-            </Text>
-          </View>
+          )}
         </View>
 
-        <View style={s.btnRow}>
-          <TouchableOpacity
-            style={s.outlineBtn}
-            onPress={() => router.push('/tyro-settings' as never)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="settings-outline" size={16} color="#ccc" />
-            <Text style={s.outlineBtnText}>Configure Tyro</Text>
+        {eftposProvider ? (
+          <View style={s.btnRow}>
+            <TouchableOpacity
+              style={s.outlineBtn}
+              onPress={() =>
+                router.push(
+                  (eftposProvider === 'tyro' ? '/tyro-settings' : '/(pos)/anz-settings') as never,
+                )
+              }
+              activeOpacity={0.85}
+            >
+              <Ionicons name="settings-outline" size={16} color="#ccc" />
+              <Text style={s.outlineBtnText}>
+                Configure {eftposProvider === 'tyro' ? 'Tyro' : 'ANZ Worldline'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {/* ═══════ Sidebar ═══════ */}
+        <Text style={[s.sectionTitle, { marginTop: 32 }]}>Sidebar</Text>
+
+        <View style={s.card}>
+          <View style={s.row}>
+            <Text style={s.label}>Navigation items</Text>
+            <Text style={s.value}>{sidebarEnabledIds.length} visible</Text>
+          </View>
+          <View style={s.divider} />
+          <TouchableOpacity style={s.menuRow} onPress={() => setShowSidebarModal(true)} activeOpacity={0.7}>
+            <View style={s.menuRowLeft}>
+              <Ionicons name="list-outline" size={20} color="#6366f1" />
+              <Text style={s.menuRowText}>Customise Sidebar</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Add shortcuts &amp; reorder</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -1615,6 +1694,61 @@ export default function MoreScreen() {
               activeOpacity={0.85}
             >
               <Text style={s.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ═══════════ Sidebar Customise Modal ═══════════ */}
+      <Modal
+        visible={showSidebarModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSidebarModal(false)}
+      >
+        <View style={s.modalWrap}>
+          <View style={s.modalPane}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Customise Sidebar</Text>
+              <TouchableOpacity onPress={() => setShowSidebarModal(false)}>
+                <Ionicons name="close" size={24} color="#999" />
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: '#555', fontSize: 13, paddingHorizontal: 20, marginBottom: 12 }}>
+              Choose which shortcuts appear in the left sidebar. Sell and More are always visible.
+            </Text>
+            {ALL_SIDEBAR_ITEMS.map((item) => {
+              const enabled = sidebarEnabledIds.includes(item.id);
+              return (
+                <View key={item.id} style={[s.manageRow, { paddingHorizontal: 20 }]}>
+                  <Ionicons
+                    name={item.icon as any}
+                    size={20}
+                    color={enabled ? '#6366f1' : '#555'}
+                    style={{ marginRight: 12 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.manageName, { color: item.permanent ? '#888' : '#ccc' }]}>
+                      {item.label}
+                      {item.permanent ? '  (required)' : ''}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={enabled}
+                    onValueChange={() => toggleSidebarItem(item.id)}
+                    disabled={!!item.permanent}
+                    trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
+                    thumbColor={enabled ? '#6366f1' : '#555'}
+                  />
+                </View>
+              );
+            })}
+            <TouchableOpacity
+              style={{ marginHorizontal: 20, marginTop: 16, paddingVertical: 12, alignItems: 'center' }}
+              onPress={() => resetSidebar()}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: '#555', fontSize: 13, fontWeight: '600' }}>Reset to defaults</Text>
             </TouchableOpacity>
           </View>
         </View>

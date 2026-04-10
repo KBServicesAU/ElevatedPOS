@@ -266,11 +266,13 @@ export default function PosSellScreen() {
           lines: orderItems,
           ...(customerId ? { customerId } : {}),
         }),
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) {
         setCharging(false);
-        Alert.alert('Error', 'Failed to create order. Please check your connection and try again.');
+        const errBody = await res.json().catch(() => ({})) as { message?: string; detail?: string; title?: string };
+        const errMsg = errBody.message ?? errBody.detail ?? errBody.title ?? `Server error (${res.status})`;
+        Alert.alert('Order Failed', errMsg);
         return;
       }
       const data = await res.json();
@@ -283,14 +285,21 @@ export default function PosSellScreen() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ paidTotal: orderTotal, changeGiven }),
-          signal: AbortSignal.timeout(5000),
+          signal: AbortSignal.timeout(15000),
         });
       } catch {
         // Non-fatal — order is created, complete can be retried
       }
-    } catch {
+    } catch (err) {
       setCharging(false);
-      Alert.alert('Error', 'Failed to create order. Please check your connection and try again.');
+      const msg = err instanceof Error ? err.message : 'Network error';
+      const isTimeout = msg.includes('timeout') || msg.includes('AbortError');
+      Alert.alert(
+        'Order Failed',
+        isTimeout
+          ? 'The request timed out. Please check your internet connection and try again.'
+          : 'Could not reach the server. Please check your connection and try again.',
+      );
       return;
     }
 

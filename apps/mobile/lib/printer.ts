@@ -150,6 +150,7 @@ export async function connectPrinter(): Promise<void> {
 }
 
 export async function disconnectPrinter(): Promise<void> {
+  if (!connected) return; // Nothing to disconnect — avoid crashing native modules
   const { type } = usePrinterStore.getState().config;
   try {
     if (type === 'usb' && USBPrinter) await USBPrinter.closeConn();
@@ -349,7 +350,7 @@ export async function printOrderTicket(opts: {
   // If we're switching to a different physical printer, drop the existing
   // connection and reconnect to the new device.
   if (useOrderPrinter && (cfg.type !== targetType || cfg.address !== targetAddress)) {
-    try { await disconnectPrinter(); } catch { /* ignore */ }
+    if (connected) { try { await disconnectPrinter(); } catch { /* ignore */ } }
     if (targetType === 'network') {
       try { await NetPrinter?.init(); } catch { /* ignore */ }
       const [host, portStr] = (targetAddress || '').split(':');
@@ -417,7 +418,10 @@ export async function printOrderPrinterTestPage(): Promise<void> {
   }
 
   // Disconnect any current printer and connect to the order printer.
-  try { await disconnectPrinter(); } catch { /* ignore */ }
+  // Guard: only disconnect if currently connected to avoid crashing USB module.
+  if (connected) {
+    try { await disconnectPrinter(); } catch { /* ignore */ }
+  }
   if (op.type === 'network') {
     try { await NetPrinter?.init(); } catch { /* ignore */ }
     const [host, portStr] = op.address.split(':');

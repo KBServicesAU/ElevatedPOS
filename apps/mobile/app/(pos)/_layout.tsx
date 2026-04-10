@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CommandPalette, type CommandItem } from '../../components/ui';
+import { useSidebarStore, ALL_SIDEBAR_ITEMS } from '../../store/sidebar';
 
 interface NavItem {
   /** File-system route (without (pos) group, since expo-router strips groups from pathname). */
@@ -12,17 +13,18 @@ interface NavItem {
   icon: keyof typeof Ionicons.glyphMap;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { route: '/',          label: 'Sell',      icon: 'cart' },
-  { route: '/orders',    label: 'Orders',    icon: 'receipt' },
-  { route: '/customers', label: 'Customers', icon: 'people' },
-  { route: '/more',      label: 'More',      icon: 'menu' },
-];
-
 export default function PosLayout() {
   const router = useRouter();
   const pathname = usePathname();
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  const { enabledIds, hydrate: hydrateSidebar } = useSidebarStore();
+
+  // Hydrate sidebar preferences on mount
+  React.useEffect(() => { hydrateSidebar(); }, []);
+
+  // Build nav items from enabled IDs in master order
+  const navItems = ALL_SIDEBAR_ITEMS.filter(item => enabledIds.includes(item.id));
 
   function isActive(route: string) {
     if (route === '/') {
@@ -176,7 +178,7 @@ export default function PosLayout() {
             <Ionicons name="search" size={20} color="#6366f1" />
           </TouchableOpacity>
           <View style={styles.sidebarItems}>
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const active = isActive(item.route);
               return (
                 <TouchableOpacity
@@ -186,7 +188,7 @@ export default function PosLayout() {
                   activeOpacity={0.7}
                 >
                   <Ionicons
-                    name={item.icon}
+                    name={item.icon as keyof typeof Ionicons.glyphMap}
                     size={22}
                     color={active ? '#fff' : '#666'}
                   />

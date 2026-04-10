@@ -71,6 +71,8 @@ export default function TyroSettingsScreen() {
   const [showPairing, setShowPairing] = useState(false);
   const [initStatus, setInitStatus] = useState<'idle' | 'initializing' | 'ready' | 'error'>('idle');
   const [initError, setInitError] = useState<string | null>(null);
+  const [techTapCount, setTechTapCount] = useState(0);
+  const [techMode, setTechMode] = useState(false);
 
   // ── Hydrate persisted config on mount ───────────────────────────
   useEffect(() => {
@@ -194,7 +196,26 @@ export default function TyroSettingsScreen() {
         </View>
 
         {/* ─── POS product info ───────────────────────── */}
-        <Text style={styles.sectionTitle}>POS Product Info</Text>
+        <TouchableOpacity
+          onPress={() => {
+            const next = techTapCount + 1;
+            setTechTapCount(next);
+            if (next >= 5) {
+              setTechMode(true);
+              setTechTapCount(0);
+            }
+          }}
+          activeOpacity={1}
+        >
+          <Text style={styles.sectionTitle}>
+            POS Product Info{techMode ? '  🔓' : ''}
+          </Text>
+        </TouchableOpacity>
+        {!techMode && (
+          <Text style={{ color: '#333', fontSize: 10, marginBottom: 8, marginLeft: 4 }}>
+            Advanced configuration is hidden. Contact your installer for access.
+          </Text>
+        )}
         <View style={styles.card}>
           <View style={styles.row}>
             <Text style={styles.label}>Vendor</Text>
@@ -216,31 +237,35 @@ export default function TyroSettingsScreen() {
           </Text>
         </View>
 
-        {/* ─── API Key ───────────────────────────────── */}
-        <Text style={styles.sectionTitle}>API Key</Text>
-        <View style={styles.card}>
-          <Text style={styles.label}>Tyro API key</Text>
-          <TextInput
-            style={styles.input}
-            value={apiKeyDraft}
-            onChangeText={setApiKeyDraft}
-            placeholder="Paste your Tyro API key"
-            placeholderTextColor="#555"
-            autoCorrect={false}
-            autoCapitalize="none"
-            secureTextEntry
-          />
-          <Text style={styles.hint}>
-            Issued by Tyro during POS integration onboarding. Keep it secret.
-          </Text>
+        {/* ─── API Key (Technician Access) ─────────── */}
+        {techMode && (
+          <>
+            <Text style={styles.sectionTitle}>API Key</Text>
+            <View style={styles.card}>
+              <Text style={styles.label}>Tyro API key</Text>
+              <TextInput
+                style={styles.input}
+                value={apiKeyDraft}
+                onChangeText={setApiKeyDraft}
+                placeholder="Paste your Tyro API key"
+                placeholderTextColor="#555"
+                autoCorrect={false}
+                autoCapitalize="none"
+                secureTextEntry
+              />
+              <Text style={styles.hint}>
+                Issued by Tyro during POS integration onboarding. Keep it secret.
+              </Text>
 
-          <TouchableOpacity style={styles.primaryBtn} onPress={applyAndInit} activeOpacity={0.85}>
-            <Ionicons name="flash" size={16} color="#fff" />
-            <Text style={styles.primaryBtnText}>
-              {initStatus === 'ready' || isTyroInitialized() ? 'Re-initialise SDK' : 'Initialise SDK'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+              <TouchableOpacity style={styles.primaryBtn} onPress={applyAndInit} activeOpacity={0.85}>
+                <Ionicons name="flash" size={16} color="#fff" />
+                <Text style={styles.primaryBtnText}>
+                  {initStatus === 'ready' || isTyroInitialized() ? 'Re-initialise SDK' : 'Initialise SDK'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
 
         {/* ─── Environment ───────────────────────────── */}
         <Text style={styles.sectionTitle}>Environment</Text>
@@ -452,38 +477,44 @@ export default function TyroSettingsScreen() {
           </Text>
         </View>
 
-        {/* ─── Diagnostics ───────────────────────────── */}
-        <Text style={styles.sectionTitle}>Diagnostics</Text>
-        <View style={styles.card}>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={openLogs} activeOpacity={0.85}>
-            <Ionicons name="document-text-outline" size={16} color="#ccc" />
-            <Text style={styles.secondaryBtnText}>Open iClient Logs</Text>
-          </TouchableOpacity>
-          <Text style={styles.hint}>
-            Opens Tyro's hosted logs page in your browser. Use the expert view to see every
-            request and callback from your most recent session.
-          </Text>
-        </View>
+        {techMode && (
+          <>
+            {/* ─── Diagnostics ───────────────────────────── */}
+            <Text style={styles.sectionTitle}>Diagnostics</Text>
+            <View style={styles.card}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={openLogs} activeOpacity={0.85}>
+                <Ionicons name="document-text-outline" size={16} color="#ccc" />
+                <Text style={styles.secondaryBtnText}>Open iClient Logs</Text>
+              </TouchableOpacity>
+              <Text style={styles.hint}>
+                Opens Tyro's hosted logs page in your browser. Use the expert view to see every
+                request and callback from your most recent session.
+              </Text>
+            </View>
+          </>
+        )}
 
-        <TouchableOpacity
-          style={styles.dangerBtn}
-          onPress={async () => {
-            const ok = await confirm({
-              title: 'Clear Tyro Settings',
-              description:
-                'This will clear the API key, pairing info and preferences. You will need to re-enter them to take payments.',
-              confirmLabel: 'Clear',
-              destructive: true,
-            });
-            if (!ok) return;
-            useTyroStore.getState().clearConfig();
-            toast.success('Cleared', 'Tyro settings have been removed.');
-          }}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="trash-outline" size={16} color="#ef4444" />
-          <Text style={styles.dangerBtnText}>Clear Tyro Settings</Text>
-        </TouchableOpacity>
+        {techMode && (
+          <TouchableOpacity
+            style={styles.dangerBtn}
+            onPress={async () => {
+              const ok = await confirm({
+                title: 'Clear Tyro Settings',
+                description:
+                  'This will clear the API key, pairing info and preferences. You will need to re-enter them to take payments.',
+                confirmLabel: 'Clear',
+                destructive: true,
+              });
+              if (!ok) return;
+              useTyroStore.getState().clearConfig();
+              toast.success('Cleared', 'Tyro settings have been removed.');
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="trash-outline" size={16} color="#ef4444" />
+            <Text style={styles.dangerBtnText}>Clear Tyro Settings</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       {/* ─── Custom pairing modal ─────────────────────── */}

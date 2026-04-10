@@ -60,14 +60,16 @@ export default function OrdersScreen() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(15000),
       });
       if (res.ok) {
         const data = await res.json();
         setOrders(data.data ?? data ?? []);
       } else {
         const body = await res.text().catch(() => '');
-        setError(`Error ${res.status}: ${body.substring(0, 100)}`);
+        let errMsg = `Error ${res.status}`;
+        try { const j = JSON.parse(body); errMsg = j.message ?? j.detail ?? j.title ?? errMsg; } catch { /* ignore */ }
+        setError(errMsg);
       }
     } catch {
       setError('Could not load orders');

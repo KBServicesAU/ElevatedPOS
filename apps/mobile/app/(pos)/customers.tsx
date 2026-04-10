@@ -101,7 +101,7 @@ export default function CustomersScreen() {
       const res = await fetch(`${API_BASE}/api/v1/customers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ firstName: newFirst.trim(), lastName: newLast.trim(), email: newEmail.trim() || undefined, phone: newPhone.trim() || undefined }),
+        body: JSON.stringify({ firstName: newFirst.trim(), lastName: newLast.trim() || '-', email: newEmail.trim() || undefined, phone: newPhone.trim() || undefined }),
       });
       if (res.ok) {
         setShowAdd(false);
@@ -109,7 +109,9 @@ export default function CustomersScreen() {
         fetchCustomers();
         toast.success('Customer Added', `${newFirst} ${newLast} has been added.`);
       } else {
-        toast.error('Error', `Could not add customer (${res.status})`);
+        const errBody = await res.json().catch(() => ({})) as { message?: string; detail?: string; title?: string };
+        const errMsg = errBody.message ?? errBody.detail ?? errBody.title ?? `Error ${res.status}`;
+        toast.error('Could Not Add Customer', errMsg);
       }
     } catch { toast.error('Error', 'Network error'); }
     finally { setSaving(false); }
@@ -165,7 +167,7 @@ export default function CustomersScreen() {
             <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 16 }}>Add Customer</Text>
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
               <TextInput style={[s.addInput, { flex: 1 }]} value={newFirst} onChangeText={setNewFirst} placeholder="First Name *" placeholderTextColor="#555" />
-              <TextInput style={[s.addInput, { flex: 1 }]} value={newLast} onChangeText={setNewLast} placeholder="Last Name" placeholderTextColor="#555" />
+              <TextInput style={[s.addInput, { flex: 1 }]} value={newLast} onChangeText={setNewLast} placeholder="Last Name (optional)" placeholderTextColor="#555" />
             </View>
             <TextInput style={[s.addInput, { marginBottom: 10 }]} value={newEmail} onChangeText={setNewEmail} placeholder="Email" placeholderTextColor="#555" keyboardType="email-address" autoCapitalize="none" />
             <TextInput style={[s.addInput, { marginBottom: 16 }]} value={newPhone} onChangeText={setNewPhone} placeholder="Phone" placeholderTextColor="#555" keyboardType="phone-pad" />
