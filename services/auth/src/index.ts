@@ -56,9 +56,11 @@ async function start() {
     errorResponseBuilder: () => ({ statusCode: 429, error: 'Too Many Requests', message: 'Rate limit exceeded' }),
   });
   await app.register(sensible);
+  const jwtSecret = process.env['JWT_SECRET'];
+  if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await app.register(jwt as any, {
-    secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production',
+    secret: jwtSecret,
     sign: {
       expiresIn: process.env['JWT_ACCESS_EXPIRY'] ?? '15m',
       issuer: 'elevatedpos-auth',

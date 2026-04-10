@@ -109,15 +109,15 @@ export async function gdprRoutes(app: FastifyInstance) {
   // ── DELETE /customers/:id/erasure ──────────────────────────────────────────
   // Right to erasure (GDPR Article 17) — anonymises PII, preserves order history
   app.delete('/customers/:id/erasure', async (request, reply) => {
-    const { orgId, sub: requestedBy, role } = request.user as {
+    const { orgId, sub: requestedBy, permissions } = request.user as {
       orgId: string;
       sub: string;
-      role?: string;
+      permissions?: Record<string, boolean>;
     };
     const { id } = request.params as { id: string };
 
-    // Only admin / owner may perform erasure
-    const isAuthorised = role === 'admin' || role === 'owner';
+    // Only employees with full (wildcard) permissions or explicit gdpr permission may perform erasure
+    const isAuthorised = permissions?.['*'] === true || permissions?.['gdpr'] === true;
     if (!isAuthorised) {
       return reply.status(403).send({
         type: 'https://elevatedpos.com/errors/forbidden',
@@ -213,9 +213,9 @@ export async function gdprRoutes(app: FastifyInstance) {
   // ── GET /gdpr/requests ─────────────────────────────────────────────────────
   // List all GDPR requests (erasure + export log) — admin/owner only
   app.get('/gdpr/requests', async (request, reply) => {
-    const { orgId, role } = request.user as { orgId: string; role?: string };
+    const { orgId, permissions } = request.user as { orgId: string; permissions?: Record<string, boolean> };
 
-    const isAuthorised = role === 'admin' || role === 'owner' || role === 'manager';
+    const isAuthorised = permissions?.['*'] === true || permissions?.['gdpr'] === true || permissions?.['view_gdpr_requests'] === true;
     if (!isAuthorised) {
       return reply.status(403).send({
         type: 'https://elevatedpos.com/errors/forbidden',

@@ -9,6 +9,7 @@ import { customerRoutes } from './routes/customers';
 import { rfmRoutes } from './routes/rfm';
 import { crmRoutes } from './routes/crm';
 import { gdprRoutes } from './routes/gdpr';
+import { storeCreditRoutes } from './routes/storeCredit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -36,7 +37,9 @@ async function start() {
     allowList: (req: import('fastify').FastifyRequest) => req.url === '/health',
     errorResponseBuilder: () => ({ statusCode: 429, error: 'Too Many Requests', message: 'Rate limit exceeded' }),
   });
-  await app.register(jwt, { secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production', verify: { allowedIss: 'elevatedpos-auth' } });
+  const jwtSecret = process.env['JWT_SECRET'];
+  if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
+  await app.register(jwt, { secret: jwtSecret, verify: { allowedIss: 'elevatedpos-auth' } });
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     try { await request.jwtVerify(); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
   });
@@ -44,6 +47,7 @@ async function start() {
   await app.register(rfmRoutes, { prefix: '/api/v1/customers' });
   await app.register(crmRoutes, { prefix: '/api/v1/crm' });
   await app.register(gdprRoutes, { prefix: '/api/v1/customers' });
+  await app.register(storeCreditRoutes, { prefix: '/api/v1/customers' });
   app.get('/health', async () => ({ status: 'ok', service: 'customers' }));
   const port = Number(process.env['PORT'] ?? 4006);
   await app.listen({ port, host: '0.0.0.0' });

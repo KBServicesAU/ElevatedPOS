@@ -286,24 +286,51 @@ export async function authRoutes(app: FastifyInstance) {
       });
     }
 
-    // Rotate: revoke old token, issue new
-    await db
-      .update(schema.refreshTokens)
-      .set({ revokedAt: new Date() })
-      .where(eq(schema.refreshTokens.id, stored.id));
+    // Rotate: revoke old token and issue new — wrapped in a transaction to
+    // prevent a race condition where two concurrent refresh calls both pass
+    // the token lookup check and issue duplicate tokens.
+    let newRawRefreshToken!: string;
+    try {
+      await db.transaction(async (tx) => {
+        // Re-fetch the token inside the transaction to detect concurrent use
+        const lockedToken = await tx.query.refreshTokens.findFirst({
+          where: and(eq(schema.refreshTokens.id, stored.id), eq(schema.refreshTokens.tokenHash, tokenHash)),
+        });
 
-    const newRawRefreshToken = generateRefreshToken();
-    const newTokenHash = hashToken(newRawRefreshToken);
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        if (!lockedToken || lockedToken.revokedAt) {
+          // Another concurrent request already rotated this token
+          throw Object.assign(new Error('token_already_rotated'), { statusCode: 401 });
+        }
 
-    await db.insert(schema.refreshTokens).values({
-      employeeId: employee.id,
-      tokenHash: newTokenHash,
-      deviceId: stored.deviceId,
-      deviceName: stored.deviceName,
-      ipAddress: request.ip,
-      expiresAt,
-    });
+        // Revoke old token
+        await tx
+          .update(schema.refreshTokens)
+          .set({ revokedAt: new Date() })
+          .where(eq(schema.refreshTokens.id, stored.id));
+
+        newRawRefreshToken = generateRefreshToken();
+        const newTokenHash = hashToken(newRawRefreshToken);
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+        await tx.insert(schema.refreshTokens).values({
+          employeeId: employee.id,
+          tokenHash: newTokenHash,
+          deviceId: stored.deviceId,
+          deviceName: stored.deviceName,
+          ipAddress: request.ip,
+          expiresAt,
+        });
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message === 'token_already_rotated') {
+        return reply.status(401).send({
+          type: 'https://elevatedpos.com/errors/invalid-refresh-token',
+          title: 'Invalid or Expired Refresh Token',
+          status: 401,
+        });
+      }
+      throw err;
+    }
 
     const accessToken = app.jwt.sign({
       sub: employee.id,

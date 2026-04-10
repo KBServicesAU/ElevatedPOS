@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gte, sql } from 'drizzle-orm';
 import type { InferSelectModel } from 'drizzle-orm';
 import { db, schema } from '../db';
 
@@ -76,10 +76,14 @@ export async function storeCreditRoutes(app: FastifyInstance) {
       account = a!;
     }
 
-    const newBalance = (Number(account.balance) + body.data.amount).toFixed(4);
     await db
       .update(schema.storeCreditAccounts)
-      .set({ balance: newBalance, updatedAt: new Date() })
+      .set({ balance: sql`balance + ${body.data.amount}`, updatedAt: new Date() })
+      .where(eq(schema.storeCreditAccounts.id, account.id));
+
+    const [updatedAccount] = await db
+      .select({ balance: schema.storeCreditAccounts.balance })
+      .from(schema.storeCreditAccounts)
       .where(eq(schema.storeCreditAccounts.id, account.id));
 
     const [tx] = await db
@@ -96,7 +100,7 @@ export async function storeCreditRoutes(app: FastifyInstance) {
       })
       .returning();
 
-    return reply.status(201).send({ data: { transaction: tx, balance: newBalance } });
+    return reply.status(201).send({ data: { transaction: tx, balance: updatedAccount?.balance ?? '0' } });
   });
 
   // POST /:customerId/redeem — redeem store credit
@@ -127,20 +131,31 @@ export async function storeCreditRoutes(app: FastifyInstance) {
       return reply.status(422).send({ title: 'No store credit account found', status: 422 });
     }
 
-    const currentBalance = Number(account.balance);
-    if (currentBalance < body.data.amount) {
+    // Check expiry before attempting redemption
+    if (account.expiresAt && account.expiresAt < new Date()) {
+      return reply.status(422).send({ title: 'Store credit has expired', status: 422 });
+    }
+
+    // Atomic conditional decrement — only succeeds when balance >= amount,
+    // preventing a race condition where two concurrent redeems both read the
+    // same balance and both proceed past the JS-level check.
+    const updated = await db
+      .update(schema.storeCreditAccounts)
+      .set({ balance: sql`balance - ${body.data.amount}`, updatedAt: new Date() })
+      .where(and(
+        eq(schema.storeCreditAccounts.id, account.id),
+        gte(schema.storeCreditAccounts.balance, String(body.data.amount)),
+      ))
+      .returning({ balance: schema.storeCreditAccounts.balance });
+
+    if (updated.length === 0) {
       return reply.status(422).send({
-        title: 'Insufficient store credit',
+        title: 'Insufficient store credit balance',
         status: 422,
-        detail: `Available balance: ${currentBalance.toFixed(4)}, requested: ${body.data.amount}`,
       });
     }
 
-    const newBalance = (currentBalance - body.data.amount).toFixed(4);
-    await db
-      .update(schema.storeCreditAccounts)
-      .set({ balance: newBalance, updatedAt: new Date() })
-      .where(eq(schema.storeCreditAccounts.id, account.id));
+    const newBalance = updated[0]!.balance;
 
     const [tx] = await db
       .insert(schema.storeCreditTransactions)
