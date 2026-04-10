@@ -42,6 +42,20 @@ export async function stockRoutes(app: FastifyInstance) {
 
     const { locationId, productId, variantId, newQty, reason } = body.data;
 
+    // Verify location belongs to this org via purchase orders (locationId + orgId constraint)
+    const locationCheck = await db.query.purchaseOrders.findFirst({
+      where: and(
+        eq(schema.purchaseOrders.locationId, locationId),
+        eq(schema.purchaseOrders.orgId, orgId)
+      ),
+    });
+    if (!locationCheck) {
+      return reply.status(403).send({
+        title: 'Location not found or access denied',
+        status: 403,
+      });
+    }
+
     const existing = await db.query.stockItems.findFirst({
       where: and(
         eq(schema.stockItems.locationId, locationId),

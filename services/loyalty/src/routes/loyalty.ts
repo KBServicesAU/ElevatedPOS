@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gte, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 export async function loyaltyRoutes(app: FastifyInstance) {
@@ -62,10 +62,6 @@ export async function loyaltyRoutes(app: FastifyInstance) {
     }).safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
 
-    // Idempotency check
-    const existingTx = await db.query.loyaltyTransactions.findFirst({ where: eq(schema.loyaltyTransactions.idempotencyKey, body.data.idempotencyKey) });
-    if (existingTx) return reply.status(200).send({ data: existingTx, idempotent: true });
-
     const account = await db.query.loyaltyAccounts.findFirst({
       where: and(eq(schema.loyaltyAccounts.id, id), eq(schema.loyaltyAccounts.orgId, orgId)),
       with: { program: true, tier: true },
@@ -75,24 +71,36 @@ export async function loyaltyRoutes(app: FastifyInstance) {
     const multiplier = Number(account.tier?.multiplier ?? 1);
     const earnRate = Number(account.program.earnRate);
     const pointsEarned = Math.floor(body.data.orderTotal * earnRate * multiplier);
-    const newBalance = account.points + pointsEarned;
 
-    await db.update(schema.loyaltyAccounts).set({
-      points: newBalance,
-      lifetimePoints: account.lifetimePoints + pointsEarned,
-      updatedAt: new Date(),
-    }).where(eq(schema.loyaltyAccounts.id, id));
+    // Wrap idempotency guard + transaction insert atomically to prevent duplicate earning
+    const tx = await db.transaction(async (trx) => {
+      const existingTx = await trx.query.loyaltyTransactions.findFirst({
+        where: and(
+          eq(schema.loyaltyTransactions.orgId, orgId),
+          eq(schema.loyaltyTransactions.idempotencyKey, body.data.idempotencyKey),
+        ),
+      });
+      if (existingTx) return existingTx;
 
-    const [tx] = await db.insert(schema.loyaltyTransactions).values({
-      accountId: id,
-      orgId,
-      type: 'earn',
-      points: pointsEarned,
-      orderId: body.data.orderId,
-      idempotencyKey: body.data.idempotencyKey,
-    }).returning();
+      // Atomic increment — avoids read-modify-write race condition
+      await trx.update(schema.loyaltyAccounts).set({
+        points: sql`points + ${pointsEarned}`,
+        lifetimePoints: sql`lifetime_points + ${pointsEarned}`,
+        updatedAt: new Date(),
+      }).where(eq(schema.loyaltyAccounts.id, id));
 
-    return reply.status(200).send({ data: { transaction: tx, newPoints: newBalance, pointsEarned } });
+      const [newTx] = await trx.insert(schema.loyaltyTransactions).values({
+        accountId: id,
+        orgId,
+        type: 'earn',
+        points: pointsEarned,
+        orderId: body.data.orderId,
+        idempotencyKey: body.data.idempotencyKey,
+      }).returning();
+      return newTx!;
+    });
+
+    return reply.status(200).send({ data: { transaction: tx, pointsEarned } });
   });
 
   // --- Redeem points ---
@@ -106,9 +114,6 @@ export async function loyaltyRoutes(app: FastifyInstance) {
     }).safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422 });
 
-    const existingTx = await db.query.loyaltyTransactions.findFirst({ where: eq(schema.loyaltyTransactions.idempotencyKey, body.data.idempotencyKey) });
-    if (existingTx) return reply.status(200).send({ data: existingTx, idempotent: true });
-
     const account = await db.query.loyaltyAccounts.findFirst({
       where: and(eq(schema.loyaltyAccounts.id, id), eq(schema.loyaltyAccounts.orgId, orgId)),
       with: { program: true },
@@ -116,23 +121,53 @@ export async function loyaltyRoutes(app: FastifyInstance) {
     if (!account) return reply.status(404).send({ title: 'Not Found', status: 404 });
     if (account.points < body.data.points) return reply.status(422).send({ title: 'Insufficient points', status: 422 });
 
-    const newBalance = account.points - body.data.points;
+    const pointsToRedeem = body.data.points;
 
-    await db.update(schema.loyaltyAccounts).set({
-      points: newBalance,
-      updatedAt: new Date(),
-    }).where(eq(schema.loyaltyAccounts.id, id));
+    // Wrap idempotency guard + transaction insert atomically to prevent duplicate redemptions
+    const redeemResult = await db.transaction(async (trx) => {
+      const existingTx = await trx.query.loyaltyTransactions.findFirst({
+        where: and(
+          eq(schema.loyaltyTransactions.orgId, orgId),
+          eq(schema.loyaltyTransactions.idempotencyKey, body.data.idempotencyKey),
+        ),
+      });
+      if (existingTx) return { tx: existingTx, insufficient: false };
 
-    const [tx] = await db.insert(schema.loyaltyTransactions).values({
-      accountId: id,
-      orgId,
-      type: 'redeem',
-      points: -body.data.points,
-      orderId: body.data.orderId,
-      idempotencyKey: body.data.idempotencyKey,
-    }).returning();
+      // Atomic conditional decrement — only decrements if balance is still sufficient
+      const updated = await trx
+        .update(schema.loyaltyAccounts)
+        .set({
+          points: sql`points - ${pointsToRedeem}`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.loyaltyAccounts.id, id),
+            gte(schema.loyaltyAccounts.points, pointsToRedeem),
+          ),
+        )
+        .returning();
 
-    return reply.status(200).send({ data: { transaction: tx, newPoints: newBalance } });
+      if (updated.length === 0) {
+        return { tx: null, insufficient: true };
+      }
+
+      const [newTx] = await trx.insert(schema.loyaltyTransactions).values({
+        accountId: id,
+        orgId,
+        type: 'redeem',
+        points: -pointsToRedeem,
+        orderId: body.data.orderId,
+        idempotencyKey: body.data.idempotencyKey,
+      }).returning();
+      return { tx: newTx!, insufficient: false };
+    });
+
+    if (redeemResult.insufficient) {
+      return reply.status(422).send({ title: 'Insufficient loyalty points', status: 422 });
+    }
+
+    return reply.status(200).send({ data: { transaction: redeemResult.tx } });
   });
 
   // --- Transaction history ---

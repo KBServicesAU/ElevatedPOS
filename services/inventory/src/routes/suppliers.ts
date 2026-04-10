@@ -178,18 +178,41 @@ export async function supplierRoutes(app: FastifyInstance) {
       });
     }
 
-    // Store supplier-product links in supplier notes/settings as JSON since no dedicated table exists yet
-    // We use purchase order lines as the product catalogue reference for now
-    // Return a structured response linking supplier to product
+    // Persist supplier-product links in the supplier's address jsonb field under a
+    // dedicated "productLinks" key, since no dedicated junction table exists in the schema.
+    const currentAddress = (supplier.address ?? {}) as Record<string, unknown>;
+    const currentLinks: Array<Record<string, unknown>> = Array.isArray(currentAddress['productLinks'])
+      ? (currentAddress['productLinks'] as Array<Record<string, unknown>>)
+      : [];
+
+    const newLink = {
+      productId: body.data.productId,
+      sku: body.data.sku ?? null,
+      unitCost: body.data.unitCost,
+      minimumOrderQty: body.data.minimumOrderQty,
+      leadTimeDays: body.data.leadTimeDays ?? supplier.leadTimeDays,
+      notes: body.data.notes ?? null,
+      linkedAt: new Date().toISOString(),
+    };
+
+    // Upsert: replace existing entry for this productId or append
+    const updatedLinks = [
+      ...currentLinks.filter((l) => l['productId'] !== body.data.productId),
+      newLink,
+    ];
+
+    await db
+      .update(schema.suppliers)
+      .set({
+        address: { ...currentAddress, productLinks: updatedLinks },
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.suppliers.id, id));
+
     return reply.status(201).send({
       data: {
         supplierId: id,
-        productId: body.data.productId,
-        sku: body.data.sku,
-        unitCost: body.data.unitCost,
-        minimumOrderQty: body.data.minimumOrderQty,
-        leadTimeDays: body.data.leadTimeDays ?? supplier.leadTimeDays,
-        notes: body.data.notes,
+        ...newLink,
       },
     });
   });

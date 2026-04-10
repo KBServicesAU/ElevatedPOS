@@ -10,6 +10,8 @@ import { terminalRoutes } from './routes/terminal';
 import { paymentLinkRoutes } from './routes/paymentLinks';
 import { bnplRoutes } from './routes/bnpl';
 import { currencyRoutes } from './routes/currencies';
+import { invoiceRoutes } from './routes/invoices';
+import { surchargeRoutes } from './routes/surcharge';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -37,13 +39,17 @@ async function start() {
     allowList: (req: import('fastify').FastifyRequest) => req.url === '/health',
     errorResponseBuilder: () => ({ statusCode: 429, error: 'Too Many Requests', message: 'Rate limit exceeded' }),
   });
-  await app.register(jwt, { secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production', verify: { allowedIss: 'elevatedpos-auth' } });
+  const jwtSecret = process.env['JWT_SECRET'];
+  if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
+  await app.register(jwt, { secret: jwtSecret, verify: { allowedIss: 'elevatedpos-auth' } });
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     try { await request.jwtVerify(); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
   });
   await app.register(paymentRoutes, { prefix: '/api/v1/payments' });
   await app.register(paymentLinkRoutes, { prefix: '/api/v1/payment-links' });
   await app.register(bnplRoutes, { prefix: '/api/v1/bnpl' });
+  await app.register(invoiceRoutes, { prefix: '/api/v1/invoices' });
+  await app.register(surchargeRoutes, { prefix: '/api/v1/surcharge' });
   // Currency routes are public (no auth) — registered last to avoid conflicting with auth decorator
   await app.register(terminalRoutes, { prefix: '/api/v1/terminal' });
   await app.register(currencyRoutes, { prefix: '/api/v1/currencies' });

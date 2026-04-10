@@ -30,7 +30,9 @@ async function start() {
   });
   await app.register(sensible);
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
-  await app.register(jwt, { secret: process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production', verify: { allowedIss: 'elevatedpos-auth' } });
+  const jwtSecret = process.env['JWT_SECRET'];
+  if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
+  await app.register(jwt, { secret: jwtSecret, verify: { allowedIss: 'elevatedpos-auth' } });
 
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     try { await request.jwtVerify(); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }

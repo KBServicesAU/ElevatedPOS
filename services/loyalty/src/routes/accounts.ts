@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, lte, gte } from 'drizzle-orm';
+import { eq, and, desc, lte, gte, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 
 async function recalculateTier(accountId: string, orgId: string, lifetimePoints: number) {
@@ -217,33 +217,52 @@ export async function accountRoutes(app: FastifyInstance) {
     const finalPoints = Math.floor(basePoints * campaignMultiplier);
     // ──────────────────────────────────────────────────────────────────────────
 
-    const newPoints = account.points + finalPoints;
-    const newLifetimePoints = account.lifetimePoints + finalPoints;
+    // Wrap idempotency guard + transaction insert atomically to prevent duplicate earning
+    const tx = await db.transaction(async (trx) => {
+      // Re-check idempotency inside the transaction to prevent duplicates under concurrent requests
+      const dupTx = await trx.query.loyaltyTransactions.findFirst({
+        where: and(
+          eq(schema.loyaltyTransactions.orgId, orgId),
+          eq(schema.loyaltyTransactions.idempotencyKey, parsed.data.idempotencyKey),
+        ),
+      });
+      if (dupTx) return dupTx;
 
-    await db
-      .update(schema.loyaltyAccounts)
-      .set({ points: newPoints, lifetimePoints: newLifetimePoints, updatedAt: new Date() })
-      .where(eq(schema.loyaltyAccounts.id, accountId));
+      // Atomic increment — avoids read-modify-write race condition
+      await trx
+        .update(schema.loyaltyAccounts)
+        .set({
+          points: sql`points + ${finalPoints}`,
+          lifetimePoints: sql`lifetime_points + ${finalPoints}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.loyaltyAccounts.id, accountId));
 
-    const [tx] = await db
-      .insert(schema.loyaltyTransactions)
-      .values({
-        orgId,
-        accountId,
-        orderId: parsed.data.orderId ?? null,
-        type: 'earn',
-        points: finalPoints,
-        idempotencyKey: parsed.data.idempotencyKey,
-      })
-      .returning();
+      const [newTx] = await trx
+        .insert(schema.loyaltyTransactions)
+        .values({
+          orgId,
+          accountId,
+          orderId: parsed.data.orderId ?? null,
+          type: 'earn',
+          points: finalPoints,
+          idempotencyKey: parsed.data.idempotencyKey,
+        })
+        .returning();
+      return newTx!;
+    });
 
-    // Recalculate tier based on lifetime points
-    await recalculateTier(accountId, orgId, newLifetimePoints);
+    // Recalculate tier using updated lifetime points (read-back after atomic update)
+    const updatedAccount = await db.query.loyaltyAccounts.findFirst({
+      where: eq(schema.loyaltyAccounts.id, accountId),
+    });
+    if (updatedAccount) {
+      await recalculateTier(accountId, orgId, updatedAccount.lifetimePoints);
+    }
 
     return reply.status(200).send({
       data: {
         transaction: tx,
-        newBalance: newPoints,
         basePoints,
         campaignMultiplier,
         finalPoints,
@@ -304,26 +323,60 @@ export async function accountRoutes(app: FastifyInstance) {
       });
     }
 
-    const newPoints = account.points - parsed.data.points;
+    const pointsToRedeem = parsed.data.points;
 
-    await db
-      .update(schema.loyaltyAccounts)
-      .set({ points: newPoints, updatedAt: new Date() })
-      .where(eq(schema.loyaltyAccounts.id, accountId));
+    // Wrap idempotency guard + transaction insert atomically to prevent duplicate redemptions
+    const redeemResult = await db.transaction(async (trx) => {
+      // Re-check idempotency inside the transaction
+      const dupTx = await trx.query.loyaltyTransactions.findFirst({
+        where: and(
+          eq(schema.loyaltyTransactions.orgId, orgId),
+          eq(schema.loyaltyTransactions.idempotencyKey, parsed.data.idempotencyKey),
+        ),
+      });
+      if (dupTx) return { tx: dupTx, insufficient: false };
 
-    const [tx] = await db
-      .insert(schema.loyaltyTransactions)
-      .values({
-        orgId,
-        accountId,
-        orderId: parsed.data.orderId ?? null,
-        type: 'redeem',
-        points: -parsed.data.points,
-        idempotencyKey: parsed.data.idempotencyKey,
-      })
-      .returning();
+      // Atomic conditional decrement — only decrements if balance is still sufficient
+      const updated = await trx
+        .update(schema.loyaltyAccounts)
+        .set({
+          points: sql`points - ${pointsToRedeem}`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.loyaltyAccounts.id, accountId),
+            gte(schema.loyaltyAccounts.points, pointsToRedeem),
+          ),
+        )
+        .returning();
 
-    return reply.status(200).send({ data: { transaction: tx, newBalance: newPoints } });
+      if (updated.length === 0) {
+        return { tx: null, insufficient: true };
+      }
+
+      const [newTx] = await trx
+        .insert(schema.loyaltyTransactions)
+        .values({
+          orgId,
+          accountId,
+          orderId: parsed.data.orderId ?? null,
+          type: 'redeem',
+          points: -pointsToRedeem,
+          idempotencyKey: parsed.data.idempotencyKey,
+        })
+        .returning();
+      return { tx: newTx!, insufficient: false };
+    });
+
+    if (redeemResult.insufficient) {
+      return reply.status(422).send({
+        title: 'Insufficient loyalty points',
+        status: 422,
+      });
+    }
+
+    return reply.status(200).send({ data: { transaction: redeemResult.tx } });
   });
 
   // GET /accounts/:accountId/transactions — list transaction history
