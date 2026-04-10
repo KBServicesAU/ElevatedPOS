@@ -60,7 +60,7 @@ export const stripeConnectAccounts = pgTable('stripe_connect_accounts', {
   businessName: varchar('business_name', { length: 255 }),
   businessType: varchar('business_type', { length: 100 }),
   country: varchar('country', { length: 2 }).notNull().default('AU'),
-  currency: varchar('currency', { length: 3 }).notNull().default('aud'),
+  currency: varchar('currency', { length: 3 }).notNull().default('AUD'),
   platformFeePercent: integer('platform_fee_percent').notNull().default(100), // basis points, 100 = 1%
   onboardingUrl: text('onboarding_url'),
   onboardingExpiresAt: timestamp('onboarding_expires_at', { withTimezone: true }),
@@ -97,7 +97,7 @@ export const stripeInvoices = pgTable('stripe_invoices', {
   status: varchar('status', { length: 50 }).notNull(), // draft | open | paid | uncollectible | void
   amountDue: integer('amount_due').notNull(), // cents
   amountPaid: integer('amount_paid').notNull().default(0),
-  currency: varchar('currency', { length: 3 }).notNull().default('aud'),
+  currency: varchar('currency', { length: 3 }).notNull().default('AUD'),
   dueDate: timestamp('due_date', { withTimezone: true }),
   invoiceUrl: text('invoice_url'),
   invoicePdf: text('invoice_pdf'),

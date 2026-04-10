@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNotNull } from 'drizzle-orm';
+import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { db, schema } from '../db';
 import { logAudit } from '../lib/audit';
@@ -229,27 +230,37 @@ export async function authRoutes(app: FastifyInstance) {
       return buildSuccess(employee);
     }
 
-    // Org-scan flow: find whichever employee in the org has this PIN
+    // Org-scan flow: find whichever employee in the org has this PIN.
+    // Pre-filter to only employees that have a PIN set, then run all bcrypt
+    // compares in parallel to avoid the O(n) sequential bcrypt bottleneck.
     const employees = await db.query.employees.findMany({
       where: and(
         eq(schema.employees.orgId, body.data.orgId),
         eq(schema.employees.isActive, true),
+        isNotNull(schema.employees.pin),
       ),
       with: { role: true },
+      columns: { id: true, orgId: true, firstName: true, lastName: true, email: true, roleId: true, locationIds: true, pin: true, isActive: true },
     });
 
-    for (const employee of employees) {
-      if (!employee.pin) continue;
-      const valid = await verifyPin(pin, employee.pin);
-      if (valid) return buildSuccess(employee);
+    const results = await Promise.all(
+      employees.map(async (emp) => ({
+        emp,
+        match: emp.pin ? await bcrypt.compare(pin, emp.pin) : false,
+      })),
+    );
+    const matched = results.find((r) => r.match);
+
+    if (!matched) {
+      return reply.status(401).send({
+        type: 'https://elevatedpos.com/errors/invalid-pin',
+        title: 'Invalid PIN',
+        status: 401,
+        detail: 'No employee found with that PIN.',
+      });
     }
 
-    return reply.status(401).send({
-      type: 'https://elevatedpos.com/errors/invalid-pin',
-      title: 'Invalid PIN',
-      status: 401,
-      detail: 'No employee found with that PIN.',
-    });
+    return buildSuccess(matched.emp as NonNullable<EmployeeWithRole>);
   });
 
   // POST /api/v1/auth/refresh

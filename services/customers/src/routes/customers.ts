@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, ilike, or } from 'drizzle-orm';
+import { eq, and, desc, count, ilike, or, sql, gte } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 const createCustomerSchema = z.object({
@@ -156,16 +156,45 @@ export async function customerRoutes(app: FastifyInstance) {
       account = a!;
     }
 
-    const delta = body.data.type === 'redeem' ? -Math.abs(body.data.amount) : Math.abs(body.data.amount);
-    const newBalance = Number(account.balance) + delta;
-    if (newBalance < 0) return reply.status(422).send({ title: 'Insufficient store credit', status: 422 });
+    const amount = Math.abs(body.data.amount);
 
-    await db.update(schema.storeCreditAccounts).set({ balance: String(newBalance.toFixed(4)), updatedAt: new Date() }).where(eq(schema.storeCreditAccounts.id, account.id));
+    let updatedRows: { newBalance: string }[];
+    if (body.data.type === 'redeem') {
+      // Atomic subtract — the WHERE guard prevents the balance going negative
+      updatedRows = await db.update(schema.storeCreditAccounts)
+        .set({ balance: sql`(balance - ${amount})::numeric(12,4)`, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.storeCreditAccounts.id, account.id),
+            gte(schema.storeCreditAccounts.balance, String(amount)),
+          ),
+        )
+        .returning({ newBalance: schema.storeCreditAccounts.balance });
+
+      if (updatedRows.length === 0) {
+        return reply.code(422).send({
+          type: 'about:blank',
+          title: 'Insufficient Balance',
+          status: 422,
+          detail: 'Store credit balance is insufficient for this redemption.',
+        });
+      }
+    } else {
+      // issue or adjust — atomic add
+      updatedRows = await db.update(schema.storeCreditAccounts)
+        .set({ balance: sql`(balance + ${amount})::numeric(12,4)`, updatedAt: new Date() })
+        .where(eq(schema.storeCreditAccounts.id, account.id))
+        .returning({ newBalance: schema.storeCreditAccounts.balance });
+    }
+
+    const newBalance = Number(updatedRows[0]!.newBalance);
+    const delta = body.data.type === 'redeem' ? -amount : amount;
+
     await db.insert(schema.storeCreditTransactions).values({
       accountId: account.id,
       orgId,
       type: body.data.type,
-      amount: String(body.data.amount),
+      amount: String(amount),
       ...(body.data.orderId !== undefined ? { orderId: body.data.orderId } : {}),
       ...(body.data.notes !== undefined ? { notes: body.data.notes } : {}),
       employeeId,

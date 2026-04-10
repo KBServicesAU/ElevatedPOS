@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, timestamp, jsonb, decimal, integer, text, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, jsonb, decimal, integer, text, pgEnum, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 export const orderStatusEnum = pgEnum('order_status', ['open', 'held', 'completed', 'cancelled', 'refunded', 'partially_refunded']);
@@ -17,7 +17,7 @@ export const orders = pgTable('orders', {
   orgId: uuid('org_id').notNull(),
   locationId: uuid('location_id').notNull(),
   registerId: uuid('register_id').notNull(),
-  orderNumber: varchar('order_number', { length: 50 }).notNull(),
+  orderNumber: varchar('order_number', { length: 50 }).notNull().unique(),
   channel: channelEnum('channel').notNull().default('pos'),
   channelReference: varchar('channel_reference', { length: 255 }),
   orderType: orderTypeEnum('order_type').notNull().default('retail'),
@@ -40,7 +40,13 @@ export const orders = pgTable('orders', {
   cancellationReason: text('cancellation_reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  orgNumberUnique: uniqueIndex('orders_org_number_unique').on(table.orgId, table.orderNumber),
+  orgLocationIdx: index('orders_org_location_idx').on(table.orgId, table.locationId),
+  orgStatusIdx: index('orders_org_status_idx').on(table.orgId, table.status),
+  orgCustomerIdx: index('orders_org_customer_idx').on(table.orgId, table.customerId),
+  orgCreatedAtIdx: index('orders_org_created_at_idx').on(table.orgId, table.createdAt),
+}));
 
 export const orderLines = pgTable('order_lines', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -63,7 +69,9 @@ export const orderLines = pgTable('order_lines', {
   notes: text('notes'),
   status: lineStatusEnum('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  orderIdIdx: index('order_lines_order_id_idx').on(table.orderId),
+}));
 
 export const refunds = pgTable('refunds', {
   id: uuid('id').primaryKey().defaultRandom(),

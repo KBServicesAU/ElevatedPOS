@@ -7,6 +7,7 @@ import {
   decimal,
   integer,
   pgEnum,
+  index,
   uniqueIndex,
   jsonb,
   text,
@@ -14,7 +15,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
-export const billingCycleEnum = pgEnum('billing_cycle', ['monthly', 'annual', 'one_time']);
+export const loyaltyBillingCycleEnum = pgEnum('loyalty_billing_cycle', ['monthly', 'annual', 'one_time']);
 
 export const membershipStatusEnum = pgEnum('membership_status', [
   'trialing',
@@ -30,7 +31,7 @@ export const membershipPlans = pgTable('membership_plans', {
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
   price: decimal('price', { precision: 10, scale: 2 }).notNull(),
-  billingCycle: billingCycleEnum('billing_cycle').notNull(),
+  billingCycle: loyaltyBillingCycleEnum('billing_cycle').notNull(),
   benefits: jsonb('benefits').notNull().default([]),
   pointsMultiplier: decimal('points_multiplier', { precision: 5, scale: 2 }).notNull().default('1.00'),
   tierOverride: varchar('tier_override', { length: 100 }),
@@ -73,6 +74,7 @@ export const loyaltyPrograms = pgTable('loyalty_programs', {
   earnRate: integer('earn_rate').notNull().default(10),
   active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const loyaltyTiers = pgTable('loyalty_tiers', {
@@ -86,6 +88,7 @@ export const loyaltyTiers = pgTable('loyalty_tiers', {
   maxPoints: integer('max_points'),
   multiplier: decimal('multiplier', { precision: 4, scale: 2 }).notNull().default('1.00'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const loyaltyAccounts = pgTable('loyalty_accounts', {
@@ -100,7 +103,9 @@ export const loyaltyAccounts = pgTable('loyalty_accounts', {
   tierId: uuid('tier_id').references(() => loyaltyTiers.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  customerOrgUnique: uniqueIndex('loyalty_accounts_customer_org_unique').on(table.customerId, table.orgId),
+}));
 
 export const loyaltyTransactions = pgTable(
   'loyalty_transactions',
@@ -118,6 +123,7 @@ export const loyaltyTransactions = pgTable(
   },
   (t) => ({
     idempotencyUnique: uniqueIndex('loyalty_tx_org_idempotency_key').on(t.orgId, t.idempotencyKey),
+    accountIdIdx: index('loyalty_tx_account_id_idx').on(t.accountId),
   }),
 );
 
@@ -185,6 +191,7 @@ export const stampEvents = pgTable('stamp_events', {
     .notNull()
     .references(() => customerStampCards.id),
   orderId: uuid('order_id'),
+  type: varchar('type', { length: 20 }).notNull().default('earn'), // 'earn' | 'redeem'
   note: text('note'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

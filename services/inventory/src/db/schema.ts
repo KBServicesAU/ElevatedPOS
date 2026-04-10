@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, boolean, timestamp, jsonb, decimal, integer, text, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, boolean, timestamp, jsonb, decimal, integer, text, pgEnum, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 export const poStatusEnum = pgEnum('po_status', ['draft', 'sent', 'partial', 'complete', 'cancelled']);
@@ -9,8 +9,9 @@ export const stocktakeStatusEnum = pgEnum('stocktake_status', ['draft', 'in_revi
 
 export const stockItems = pgTable('stock_items', {
   id: uuid('id').primaryKey().defaultRandom(),
-  locationId: uuid('location_id').notNull(),
-  productId: uuid('product_id').notNull(),
+  locationId: uuid('location_id').notNull(), // cross-service UUID — no FK by design
+  orgId: uuid('org_id').notNull(),
+  productId: uuid('product_id').notNull(), // cross-service UUID — no FK by design
   variantId: uuid('variant_id'),
   onHand: decimal('on_hand', { precision: 12, scale: 3 }).notNull().default('0'),
   reserved: decimal('reserved', { precision: 12, scale: 3 }).notNull().default('0'),
@@ -20,7 +21,9 @@ export const stockItems = pgTable('stock_items', {
   lastCountAt: timestamp('last_count_at', { withTimezone: true }),
   lastCountQty: decimal('last_count_qty', { precision: 12, scale: 3 }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  locationProductVariantUnique: uniqueIndex('stock_items_location_product_variant_unique').on(table.locationId, table.productId, table.variantId),
+}));
 
 export const suppliers = pgTable('suppliers', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -107,8 +110,8 @@ export const stockTransferLines = pgTable('stock_transfer_lines', {
 export const stockAdjustments = pgTable('stock_adjustments', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').notNull(),
-  locationId: uuid('location_id').notNull(),
-  productId: uuid('product_id').notNull(),
+  locationId: uuid('location_id').notNull(), // cross-service UUID — no FK by design
+  productId: uuid('product_id').notNull(), // cross-service UUID — no FK by design
   variantId: uuid('variant_id'),
   beforeQty: decimal('before_qty', { precision: 12, scale: 3 }).notNull(),
   afterQty: decimal('after_qty', { precision: 12, scale: 3 }).notNull(),
@@ -116,7 +119,7 @@ export const stockAdjustments = pgTable('stock_adjustments', {
   reason: varchar('reason', { length: 255 }).notNull(),
   referenceId: uuid('reference_id'),
   referenceType: varchar('reference_type', { length: 50 }),
-  employeeId: uuid('employee_id').notNull(),
+  employeeId: uuid('employee_id').notNull(), // cross-service UUID — no FK by design
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

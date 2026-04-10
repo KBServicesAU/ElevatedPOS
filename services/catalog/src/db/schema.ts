@@ -1,6 +1,6 @@
 import {
   pgTable, uuid, text, varchar, boolean, timestamp, jsonb,
-  decimal, integer, pgEnum, numeric, unique,
+  decimal, integer, pgEnum, numeric, unique, uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -32,7 +32,9 @@ export const categories = pgTable('categories', {
   customPrinterName: varchar('custom_printer_name', { length: 100 }),
   customKdsName: varchar('custom_kds_name', { length: 100 }),
   color: varchar('color', { length: 20 }),
-});
+}, (table) => ({
+  orgSlugUnique: uniqueIndex('categories_org_slug_unique').on(table.orgId, table.slug),
+}));
 
 export const taxClasses = pgTable('tax_classes', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -95,7 +97,9 @@ export const products = pgTable('products', {
   kitchenDisplayName: varchar('kitchen_display_name', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  orgSkuUnique: uniqueIndex('products_org_sku_unique').on(table.orgId, table.sku),
+}));
 
 export const productVariants = pgTable('product_variants', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -107,7 +111,9 @@ export const productVariants = pgTable('product_variants', {
   costPriceOverride: decimal('cost_price_override', { precision: 12, scale: 4 }),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  productSkuUnique: uniqueIndex('variants_product_sku_unique').on(table.productId, table.sku),
+}));
 
 export const modifierGroups = pgTable('modifier_groups', {
   id: uuid('id').primaryKey().defaultRandom(),

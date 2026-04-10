@@ -1,5 +1,8 @@
-import { pgTable, uuid, varchar, boolean, timestamp, jsonb, decimal, integer, text, date } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, boolean, timestamp, jsonb, decimal, integer, text, date, pgEnum, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
+
+export const storeCreditTxTypeEnum = pgEnum('store_credit_tx_type', ['issue', 'redeem', 'adjust', 'expire']);
+export const gdprRequestTypeEnum = pgEnum('gdpr_request_type', ['export', 'erasure']);
 
 export const customers = pgTable('customers', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -53,7 +56,7 @@ export const storeCreditTransactions = pgTable('store_credit_transactions', {
   id: uuid('id').primaryKey().defaultRandom(),
   accountId: uuid('account_id').notNull().references(() => storeCreditAccounts.id),
   orgId: uuid('org_id').notNull(),
-  type: varchar('type', { length: 50 }).notNull(),
+  type: storeCreditTxTypeEnum('type').notNull(),
   amount: decimal('amount', { precision: 12, scale: 4 }).notNull(),
   reason: text('reason'),
   orderId: uuid('order_id'),
@@ -88,7 +91,9 @@ export const customerGroupMembers = pgTable('customer_group_members', {
   customerId: uuid('customer_id').notNull().references(() => customers.id, { onDelete: 'cascade' }),
   orgId: uuid('org_id').notNull(),
   addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  groupCustomerUnique: uniqueIndex('cgm_group_customer_unique').on(table.groupId, table.customerId),
+}));
 
 // ─── Customer Notes ────────────────────────────────────────────────────────────
 
@@ -98,11 +103,9 @@ export const customerNotes = pgTable('customer_notes', {
   orgId: uuid('org_id').notNull(),
   content: text('content').notNull(),
   type: varchar('type', { length: 50 }).notNull().default('general'),
-  // authorId = employee/user UUID who wrote the note
-  authorId: text('author_id'),
   // isInternal = true means only managers can see this note
   isInternal: boolean('is_internal').notNull().default(true),
-  employeeId: uuid('employee_id'),
+  employeeId: uuid('employee_id').notNull(), // employee who wrote this note (cross-service UUID)
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -114,7 +117,7 @@ export const gdprRequests = pgTable('gdpr_requests', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').notNull(),
   customerId: uuid('customer_id').notNull(),
-  requestType: varchar('request_type', { length: 50 }).notNull(), // 'export' | 'erasure'
+  requestType: gdprRequestTypeEnum('request_type').notNull(),
   requestedBy: uuid('requested_by').notNull(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

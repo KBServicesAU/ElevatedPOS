@@ -43,7 +43,13 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   app.get('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
-    const q = request.query as { orderId?: string; locationId?: string };
+    const querySchema = z.object({
+      orderId: z.string().uuid().optional(),
+      locationId: z.string().uuid().optional(),
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+    });
+    const q = querySchema.parse(request.query);
     const payments = await db.query.payments.findMany({
       where: and(
         eq(schema.payments.orgId, orgId),
@@ -51,8 +57,13 @@ export async function paymentRoutes(app: FastifyInstance) {
         q.locationId ? eq(schema.payments.locationId, q.locationId) : undefined,
       ),
       orderBy: [desc(schema.payments.createdAt)],
+      limit: q.limit,
+      offset: q.offset,
     });
-    return reply.status(200).send({ data: payments });
+    return reply.status(200).send({
+      data: payments,
+      meta: { limit: q.limit, offset: q.offset, returned: payments.length },
+    });
   });
 
   app.post('/initiate', async (request, reply) => {

@@ -1,7 +1,10 @@
 import {
-  pgTable, uuid, text, varchar, boolean, timestamp, jsonb, integer, numeric, pgEnum, date, index,
+  pgTable, uuid, text, varchar, boolean, timestamp, jsonb, integer, numeric, pgEnum, date, index, uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
+
+export const organisationPlanEnum = pgEnum('organisation_plan', ['starter', 'growth', 'pro', 'enterprise', 'custom']);
+export const organisationPlanStatusEnum = pgEnum('organisation_plan_status', ['trialing', 'active', 'past_due', 'cancelled', 'paused']);
 
 export const approvalTypeEnum = pgEnum('approval_type', ['discount', 'refund', 'void', 'cash_disbursement', 'stock_adjustment', 'other']);
 export const locationTypeEnum = pgEnum('location_type', ['retail', 'warehouse', 'kitchen']);
@@ -16,8 +19,8 @@ export const organisations = pgTable('organisations', {
   country: varchar('country', { length: 2 }).notNull().default('AU'),
   currency: varchar('currency', { length: 3 }).notNull().default('AUD'),
   timezone: varchar('timezone', { length: 100 }).notNull().default('Australia/Sydney'),
-  plan: varchar('plan', { length: 50 }).notNull().default('starter'),
-  planStatus: varchar('plan_status', { length: 50 }).notNull().default('active'),
+  plan: organisationPlanEnum('plan').notNull().default('starter'),
+  planStatus: organisationPlanStatusEnum('plan_status').notNull().default('active'),
   maxLocations: integer('max_locations').notNull().default(1),
   maxDevices: integer('max_devices').notNull().default(2),
   abn: varchar('abn', { length: 11 }),
@@ -79,7 +82,9 @@ export const employees = pgTable('employees', {
   passwordResetExpiresAt: timestamp('password_reset_expires_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  orgEmailUnique: uniqueIndex('employees_org_email_unique').on(table.orgId, table.email),
+}));
 
 export const approvalRequests = pgTable('approval_requests', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -88,7 +93,7 @@ export const approvalRequests = pgTable('approval_requests', {
   status: approvalStatusEnum('status').notNull().default('pending'),
   requestedBy: uuid('requested_by').notNull().references(() => employees.id),
   approvedBy: uuid('approved_by').references(() => employees.id),
-  locationId: uuid('location_id').notNull(),
+  locationId: uuid('location_id').notNull(), // cross-service UUID — no FK by design
   amount: numeric('amount', { precision: 12, scale: 2 }),
   metadata: jsonb('metadata').notNull().default({}),
   reason: text('reason').notNull(),
@@ -103,7 +108,7 @@ export const clockEvents = pgTable('clock_events', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
   employeeId: uuid('employee_id').notNull().references(() => employees.id),
-  locationId: uuid('location_id').notNull(),
+  locationId: uuid('location_id').notNull(), // cross-service UUID — no FK by design
   registerId: uuid('register_id'),
   type: clockEventTypeEnum('type').notNull(),
   timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
@@ -121,7 +126,7 @@ export const shifts = pgTable('shifts', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
   employeeId: uuid('employee_id').notNull().references(() => employees.id),
-  locationId: uuid('location_id').notNull(),
+  locationId: uuid('location_id').notNull(), // cross-service UUID — no FK by design
   clockInAt: timestamp('clock_in_at', { withTimezone: true }).notNull(),
   clockOutAt: timestamp('clock_out_at', { withTimezone: true }),
   breakMinutes: integer('break_minutes').notNull().default(0),
@@ -165,7 +170,9 @@ export const refreshTokens = pgTable('refresh_tokens', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  employeeIdIdx: index('refresh_tokens_employee_id_idx').on(table.employeeId),
+}));
 
 // ── OAuth 2.0 ─────────────────────────────────────────────────────────────────
 
@@ -481,4 +488,6 @@ export const auditLogs = pgTable('audit_logs', {
   detail: jsonb('detail'),
   ipAddress: varchar('ip_address', { length: 45 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  orgCreatedAtIdx: index('audit_logs_org_created_at_idx').on(table.orgId, table.createdAt),
+}));

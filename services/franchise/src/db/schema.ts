@@ -17,7 +17,7 @@ export const royaltyCalculationEnum = pgEnum('royalty_calculation', [
   'revenue',
 ]);
 
-export const billingCycleEnum = pgEnum('billing_cycle', ['weekly', 'monthly']);
+export const franchiseBillingCycleEnum = pgEnum('franchise_billing_cycle', ['weekly', 'monthly']);
 
 export const franchiseLocationStatusEnum = pgEnum('franchise_location_status', [
   'active',
@@ -52,7 +52,7 @@ export const franchiseGroups = pgTable('franchise_groups', {
   logoUrl: varchar('logo_url', { length: 500 }),
   royaltyRate: decimal('royalty_rate', { precision: 5, scale: 4 }).notNull().default('0.05'),
   royaltyCalculation: royaltyCalculationEnum('royalty_calculation').notNull().default('gross_sales'),
-  billingCycle: billingCycleEnum('billing_cycle').notNull().default('monthly'),
+  billingCycle: franchiseBillingCycleEnum('billing_cycle').notNull().default('monthly'),
   royaltyStartDate: date('royalty_start_date'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

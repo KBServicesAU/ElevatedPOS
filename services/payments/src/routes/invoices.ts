@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, asc, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, sql, like } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 const invoiceLineSchema = z.object({
@@ -20,22 +20,36 @@ const createInvoiceSchema = z.object({
   currency: z.string().length(3).default('AUD'),
 });
 
-/** Generate sequential invoice number: INV-{year}-{padded seq} */
+/** Generate sequential invoice number: INV-{year}-{padded seq}
+ *  Uses a retry loop to handle concurrent inserts — each attempt offsets
+ *  the candidate number so two concurrent requests converge on distinct values.
+ *  The UNIQUE constraint on invoiceNumber is the final safety net.
+ */
 async function generateInvoiceNumber(orgId: string): Promise<string> {
   const year = new Date().getFullYear();
-  const prefix = `INV-${year}-`;
-  // Count existing invoices for this org in this year
-  const result = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(schema.invoices)
-    .where(
-      and(
-        eq(schema.invoices.orgId, orgId),
-        sql`invoice_number LIKE ${prefix + '%'}`,
-      ),
-    );
-  const seq = (Number(result[0]?.count ?? 0) + 1);
-  return `${prefix}${String(seq).padStart(4, '0')}`;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const prefix = `INV-${year}-`;
+    const result = await db
+      .select({ cnt: sql<number>`count(*)::int` })
+      .from(schema.invoices)
+      .where(
+        and(
+          eq(schema.invoices.orgId, orgId),
+          like(schema.invoices.invoiceNumber, `${prefix}%`),
+        ),
+      );
+    const next = (result[0]?.cnt ?? 0) + 1 + attempt; // offset by attempt to avoid collision on retry
+    const candidate = `${prefix}${String(next).padStart(4, '0')}`;
+    // Cheap existence check before attempting insert
+    const exists = await db
+      .select({ id: schema.invoices.id })
+      .from(schema.invoices)
+      .where(eq(schema.invoices.invoiceNumber, candidate))
+      .limit(1);
+    if (exists.length === 0) return candidate;
+  }
+  // Final fallback: timestamp-based unique number (virtually unguessable collision)
+  return `INV-${year}-${Date.now()}`;
 }
 
 export async function invoiceRoutes(app: FastifyInstance) {
@@ -72,51 +86,62 @@ export async function invoiceRoutes(app: FastifyInstance) {
 
     const invoiceNumber = await generateInvoiceNumber(orgId);
 
-    const invoiceRows = await db.insert(schema.invoices).values({
-      orgId,
-      invoiceNumber,
-      customerId: customerId ?? null,
-      orderId: orderId ?? null,
-      subtotal: String(subtotal),
-      taxAmount: String(taxAmount),
-      total: String(total),
-      currency,
-      dueDate: new Date(dueDate),
-      notes: notes ?? null,
-      paymentTerms: paymentTerms ?? null,
-      status: 'draft',
-    }).returning();
-    const invoice = invoiceRows[0]!;
+    try {
+      const invoiceRows = await db.insert(schema.invoices).values({
+        orgId,
+        invoiceNumber,
+        customerId: customerId ?? null,
+        orderId: orderId ?? null,
+        subtotal: String(subtotal),
+        taxAmount: String(taxAmount),
+        total: String(total),
+        currency,
+        dueDate: new Date(dueDate),
+        notes: notes ?? null,
+        paymentTerms: paymentTerms ?? null,
+        status: 'draft',
+      }).returning();
+      const invoice = invoiceRows[0]!;
 
-    // Insert lines
-    await db.insert(schema.invoiceLines).values(
-      processedLines.map(l => ({
-        invoiceId: invoice.id,
-        description: l.description,
-        qty: String(l.qty),
-        unitPrice: String(l.unitPrice),
-        taxRate: String(l.taxRate),
-        lineTotal: String(l.lineTotal),
-        sortOrder: l.sortOrder,
-      })),
-    );
+      // Insert lines
+      await db.insert(schema.invoiceLines).values(
+        processedLines.map(l => ({
+          invoiceId: invoice.id,
+          description: l.description,
+          qty: String(l.qty),
+          unitPrice: String(l.unitPrice),
+          taxRate: String(l.taxRate),
+          lineTotal: String(l.lineTotal),
+          sortOrder: l.sortOrder,
+        })),
+      );
 
-    const invoiceWithLines = await db.query.invoices.findFirst({
-      where: eq(schema.invoices.id, invoice.id),
-      with: { lines: { orderBy: asc(schema.invoiceLines.sortOrder) } },
-    });
+      const invoiceWithLines = await db.query.invoices.findFirst({
+        where: eq(schema.invoices.id, invoice.id),
+        with: { lines: { orderBy: asc(schema.invoiceLines.sortOrder) } },
+      });
 
-    return reply.status(201).send({ data: invoiceWithLines });
+      return reply.status(201).send({ data: invoiceWithLines });
+    } catch (err: unknown) {
+      const e = err as { code?: string };
+      if (e?.code === '23505') { // unique_violation
+        return reply.code(409).send({ type: 'about:blank', title: 'Conflict', status: 409, detail: 'Invoice number conflict, please retry.' });
+      }
+      throw err;
+    }
   });
 
   // GET / — list invoices with filters
   app.get('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
-    const q = request.query as {
-      status?: string;
-      customerId?: string;
-      overdueOnly?: string;
-    };
+    const listQuerySchema = z.object({
+      status: z.string().optional(),
+      customerId: z.string().uuid().optional(),
+      overdueOnly: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+    });
+    const q = listQuerySchema.parse(request.query);
 
     const conditions = [eq(schema.invoices.orgId, orgId)];
 
@@ -135,9 +160,14 @@ export async function invoiceRoutes(app: FastifyInstance) {
       where: and(...conditions),
       orderBy: [desc(schema.invoices.createdAt)],
       with: { lines: { orderBy: asc(schema.invoiceLines.sortOrder) } },
+      limit: q.limit,
+      offset: q.offset,
     });
 
-    return reply.status(200).send({ data: invoiceList });
+    return reply.status(200).send({
+      data: invoiceList,
+      meta: { limit: q.limit, offset: q.offset, returned: invoiceList.length },
+    });
   });
 
   // GET /:id — invoice detail
