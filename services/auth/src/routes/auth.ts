@@ -13,6 +13,7 @@ import {
   hashToken,
   addToBlacklist,
 } from '../lib/tokens';
+import { getRedisClient } from '@nexus/config';
 
 const NOTIFICATIONS_API_URL = process.env['NOTIFICATIONS_API_URL'] ?? 'http://notifications:4009';
 const APP_URL               = process.env['APP_URL']               ?? 'https://app.elevatedpos.com.au';
@@ -231,6 +232,25 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     // Org-scan flow: find whichever employee in the org has this PIN.
+    // Rate-limit: track failed PIN attempts per org in Redis (5-minute window, max 10).
+    const redis = getRedisClient();
+    const orgId = body.data.orgId;
+    if (redis) {
+      const key = `pin_attempts:${orgId}`;
+      const attempts = await redis.incr(key);
+      if (attempts === 1) {
+        await redis.expire(key, 300); // 5-minute window
+      }
+      if (attempts > 10) {
+        return reply.code(429).send({
+          type: 'about:blank',
+          title: 'Too Many Requests',
+          status: 429,
+          detail: 'Too many PIN attempts. Please wait 5 minutes before trying again.',
+        });
+      }
+    }
+
     // Pre-filter to only employees that have a PIN set, then run all bcrypt
     // compares in parallel to avoid the O(n) sequential bcrypt bottleneck.
     const employees = await db.query.employees.findMany({
@@ -258,6 +278,11 @@ export async function authRoutes(app: FastifyInstance) {
         status: 401,
         detail: 'No employee found with that PIN.',
       });
+    }
+
+    // Reset the attempt counter on successful match
+    if (redis) {
+      await redis.del(`pin_attempts:${orgId}`);
     }
 
     return buildSuccess(matched.emp as NonNullable<EmployeeWithRole>);

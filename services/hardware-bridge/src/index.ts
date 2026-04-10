@@ -1,9 +1,15 @@
 import express from 'express';
 import { WebSocketServer } from 'ws';
+import type WebSocket from 'ws';
 import http from 'http';
 import { verify } from 'jsonwebtoken';
 import { printReceipt, ReceiptData } from './printers/escpos';
 import { openCashDrawer } from './printers/cashDrawer';
+
+// Extend WebSocket to carry the authenticated locationId
+interface TaggedWebSocket extends WebSocket {
+  locationId?: string;
+}
 
 const app = express();
 app.use(express.json());
@@ -167,14 +173,17 @@ wss.on('connection', (ws, request) => {
     ws.close(1008, 'Authentication required');
     return;
   }
+
+  const taggedWs = ws as TaggedWebSocket;
   try {
-    verify(token, jwtSecret);
+    const decoded = verify(token, jwtSecret) as { locationId?: string };
+    taggedWs.locationId = decoded.locationId;
   } catch {
     ws.close(1008, 'Invalid token');
     return;
   }
 
-  console.log('[HardwareBridge] POS client connected');
+  console.log('[HardwareBridge] POS client connected', { locationId: taggedWs.locationId });
 
   ws.on('message', (data) => {
     // FIX 6: Wrap JSON.parse in try/catch to avoid crashing on malformed input
@@ -189,9 +198,15 @@ wss.on('connection', (ws, request) => {
 
     const msg = parsed as { type?: unknown; payload?: unknown };
     console.log('[HardwareBridge] Message from POS client', msg.type);
+    // MED-9: Only broadcast to clients sharing the same locationId
     wss.clients.forEach((client) => {
-      if (client !== ws && client.readyState === 1) {
-        client.send(JSON.stringify(msg));
+      const taggedClient = client as TaggedWebSocket;
+      if (
+        taggedClient !== ws &&
+        taggedClient.readyState === 1 &&
+        taggedClient.locationId === taggedWs.locationId
+      ) {
+        taggedClient.send(JSON.stringify(msg));
       }
     });
   });

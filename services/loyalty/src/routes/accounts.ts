@@ -384,6 +384,21 @@ export async function accountRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
     const { accountId } = request.params as { accountId: string };
 
+    const querySchema = z.object({
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+    });
+    const queryParsed = querySchema.safeParse(request.query);
+    if (!queryParsed.success) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: queryParsed.error.message,
+      });
+    }
+    const { limit, offset } = queryParsed.data;
+
     const account = await db.query.loyaltyAccounts.findFirst({
       where: and(eq(schema.loyaltyAccounts.id, accountId), eq(schema.loyaltyAccounts.orgId, orgId)),
     });
@@ -396,14 +411,33 @@ export async function accountRoutes(app: FastifyInstance) {
       });
     }
 
-    const transactions = await db.query.loyaltyTransactions.findMany({
-      where: and(
-        eq(schema.loyaltyTransactions.accountId, accountId),
-        eq(schema.loyaltyTransactions.orgId, orgId),
-      ),
-      orderBy: [desc(schema.loyaltyTransactions.createdAt)],
-      limit: 100,
+    const whereClause = and(
+      eq(schema.loyaltyTransactions.accountId, accountId),
+      eq(schema.loyaltyTransactions.orgId, orgId),
+    );
+
+    const [transactions, countResult] = await Promise.all([
+      db.query.loyaltyTransactions.findMany({
+        where: whereClause,
+        orderBy: [desc(schema.loyaltyTransactions.createdAt)],
+        limit,
+        offset,
+      }),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.loyaltyTransactions)
+        .where(whereClause),
+    ]);
+
+    const totalCount = countResult[0]?.count ?? 0;
+    return reply.status(200).send({
+      data: transactions,
+      meta: {
+        totalCount,
+        hasMore: offset + transactions.length < totalCount,
+        limit,
+        offset,
+      },
     });
-    return reply.status(200).send({ data: transactions });
   });
 }

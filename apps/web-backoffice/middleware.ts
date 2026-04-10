@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 
 /** Public routes that don't require authentication */
-const PUBLIC_PATHS = new Set(['/login', '/forgot-password', '/reset-password']);
+const PUBLIC_PATHS = new Set(['/login', '/forgot-password', '/reset-password', '/verify-email']);
 
 /**
  * Decode JWT exp claim without signature verification.
@@ -40,9 +40,8 @@ function isPublicAsset(pathname: string): boolean {
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/api/auth/') || // login / logout endpoints
     pathname === '/api/health' ||         // Kubernetes liveness/readiness probes
-    pathname.startsWith('/api/kds') ||   // KDS SSE stream (no session available on kitchen display)
+    pathname.startsWith('/api/kds') ||   // KDS SSE stream — device token validated inside the route handler
     pathname.startsWith('/api/stripe/') || // Stripe Terminal routes called from POS
-    pathname.startsWith('/api/orders') || // Orders store
     pathname === '/favicon.ico' ||
     pathname === '/'
   );

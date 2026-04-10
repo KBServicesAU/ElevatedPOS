@@ -134,10 +134,23 @@ export default function OrdersScreen() {
     const outcome = String(result.result || 'UNKNOWN').toUpperCase();
 
     if (outcome === 'APPROVED') {
-      // Best-effort: update the order status on the server.
+      // Best-effort: update the order status on the server using the correct refund schema.
       const token = employeeToken ?? identity?.deviceToken ?? '';
       if (refundOrder) {
         try {
+          const refundDollars = parseFloat(refundAmount) || 0;
+          // Build lines array from the order's lines; fall back to a single synthetic line
+          const lines = refundOrder.lines && refundOrder.lines.length > 0
+            ? refundOrder.lines.map((l) => ({
+                orderLineId: (l as { id?: string; orderLineId?: string }).id ?? (l as { id?: string; orderLineId?: string }).orderLineId ?? '',
+                quantity: l.quantity,
+                amount: Number(l.unitPrice) * l.quantity,
+              })).filter((l) => l.orderLineId)
+            : [{
+                orderLineId: refundOrder.id, // fallback — server will validate
+                quantity: 1,
+                amount: refundDollars,
+              }];
           await fetch(`${API_BASE}/api/v1/orders/${refundOrder.id}/refund`, {
             method: 'POST',
             headers: {
@@ -145,9 +158,9 @@ export default function OrdersScreen() {
               Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify({
-              amount: parseFloat(refundAmount) || 0,
-              reference: result.transactionReference,
-              authorisationCode: result.authorisationCode,
+              reason: `Card refund via Tyro — ref: ${result.transactionReference ?? 'N/A'}`,
+              refundMethod: 'original',
+              lines,
             }),
             signal: AbortSignal.timeout(5000),
           });

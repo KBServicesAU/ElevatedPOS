@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { eq, and, desc, gte, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 
+const CUSTOMERS_URL = process.env['CUSTOMERS_SERVICE_URL'] ?? 'http://customers:4006';
+
 export async function loyaltyRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
 
@@ -28,6 +30,44 @@ export async function loyaltyRoutes(app: FastifyInstance) {
   });
 
   // --- Accounts ---
+
+  // GET /loyalty/accounts/lookup?phone=0412345678
+  // Convenience endpoint: resolves customer by phone then returns their loyalty account + balance.
+  app.get('/accounts/lookup', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const q = request.query as { phone?: string };
+    if (!q.phone) {
+      return reply.status(422).send({ title: 'Validation Error', status: 422, detail: 'phone query parameter required' });
+    }
+    // Look up customer by phone via internal customers service call
+    const internalToken = process.env['INTERNAL_SERVICE_TOKEN'] ?? process.env['JWT_SECRET'];
+    let customerId: string | null = null;
+    try {
+      const custRes = await fetch(
+        `${CUSTOMERS_URL}/api/v1/customers?phone=${encodeURIComponent(q.phone)}&limit=1`,
+        { headers: { Authorization: `Bearer ${internalToken}`, 'x-org-id': orgId }, signal: AbortSignal.timeout(3000) },
+      );
+      if (custRes.ok) {
+        const custData = await custRes.json() as { data?: Array<{ id: string }> };
+        customerId = custData.data?.[0]?.id ?? null;
+      }
+    } catch {
+      // Customers service unavailable — return 503
+      return reply.status(503).send({ title: 'Customers service unavailable', status: 503 });
+    }
+    if (!customerId) {
+      return reply.status(404).send({ title: 'Not Found', status: 404, detail: `No customer found with phone ${q.phone}` });
+    }
+    const account = await db.query.loyaltyAccounts.findFirst({
+      where: and(eq(schema.loyaltyAccounts.customerId, customerId), eq(schema.loyaltyAccounts.orgId, orgId)),
+      with: { program: true, tier: true },
+    });
+    if (!account) {
+      return reply.status(404).send({ title: 'Not Found', status: 404, detail: `No loyalty account for customer` });
+    }
+    return reply.status(200).send({ data: account });
+  });
+
   app.get('/accounts', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const q = request.query as { customerId?: string };

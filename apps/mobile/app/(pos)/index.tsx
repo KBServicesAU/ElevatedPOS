@@ -222,7 +222,7 @@ export default function PosSellScreen() {
   }
 
   // ── Charge ───────────────────────────────────────────────────────
-  async function handleCharge(paymentMethod: 'Card' | 'Cash' | 'Split' = 'Card') {
+  async function handleCharge(paymentMethod: 'Card' | 'Cash' | 'Split' = 'Card', changeGiven = 0) {
     if (cart.length === 0) return;
     setCharging(true);
 
@@ -241,6 +241,7 @@ export default function PosSellScreen() {
     }));
 
     let orderNumber: string;
+    let orderId: string;
 
     try {
       const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
@@ -268,6 +269,19 @@ export default function PosSellScreen() {
       }
       const data = await res.json();
       orderNumber = data.orderNumber;
+      orderId = data.id;
+
+      // Mark order as completed (fires order.completed Kafka event → loyalty points)
+      try {
+        await fetch(`${base}/api/v1/orders/${orderId}/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ paidTotal: orderTotal, changeGiven }),
+          signal: AbortSignal.timeout(5000),
+        });
+      } catch {
+        // Non-fatal — order is created, complete can be retried
+      }
     } catch {
       setCharging(false);
       Alert.alert('Error', 'Failed to create order. Please check your connection and try again.');
@@ -505,8 +519,8 @@ export default function PosSellScreen() {
     const change = tendered - total;
     setShowPayment(false);
     setCashTendered('');
-    // Process as cash
-    handleCharge('Cash');
+    // Process as cash, passing change given for order complete record
+    handleCharge('Cash', change);
     if (change > 0) {
       toast.info('Change Due', `$${change.toFixed(2)}`);
     }

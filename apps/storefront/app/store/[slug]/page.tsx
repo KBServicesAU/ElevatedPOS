@@ -25,17 +25,38 @@ interface StorefrontConfig {
 }
 
 async function getStorefront(slug: string): Promise<StorefrontConfig | null> {
-  // In production: fetch from auth/org service by slug
-  const stores: Record<string, StorefrontConfig> = {
-    demo: {
+  // Demo shortcut — always available without a database lookup
+  if (slug === 'demo') {
+    return {
       orgId: '00000000-0000-0000-0000-000000000001',
       slug: 'demo',
       businessName: 'Demo Cafe',
       primaryColor: '#0a0a0a',
       description: 'Fresh coffee and food, order online for pickup.',
-    },
-  };
-  return stores[slug] ?? null;
+    };
+  }
+  try {
+    const authUrl = process.env['AUTH_SERVICE_URL'] ?? process.env['AUTH_API_URL'] ?? 'http://localhost:4001';
+    const res = await fetch(`${authUrl}/api/v1/organisations/by-slug/${encodeURIComponent(slug)}`, {
+      next: { revalidate: 300 }, // cache for 5 minutes
+    });
+    if (!res.ok) return null;
+    const org = await res.json() as { id: string; name: string; slug: string; industry?: string };
+    // Derive a primary colour from industry type for visual differentiation
+    const industryColors: Record<string, string> = {
+      cafe: '#6f4e37', restaurant: '#b91c1c', bar: '#1d4ed8',
+      retail: '#0a0a0a', fashion: '#7c3aed', grocery: '#15803d',
+      salon: '#db2777', gym: '#ea580c', services: '#0369a1',
+    };
+    return {
+      orgId: org.id,
+      slug: org.slug,
+      businessName: org.name,
+      primaryColor: (org.industry && industryColors[org.industry]) ?? '#0a0a0a',
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function getProducts(orgId: string): Promise<Product[]> {

@@ -63,7 +63,7 @@ const querySchema = z.object({
 });
 
 const upsellSchema = z.object({
-  items: z.array(z.string()).min(1),
+  items: z.array(z.string()).min(1).max(500, 'Maximum 500 items per upsell request'),
   customerTier: z.string().optional(),
 });
 
@@ -81,7 +81,7 @@ const stockAnomalySchema = z.object({
       daysOfStock: z.number(),
       lastMovementDays: z.number(),
     }),
-  ),
+  ).max(500, 'Maximum 500 items per analysis request'),
 });
 
 const churnRiskSchema = z.object({
@@ -96,7 +96,7 @@ const churnRiskSchema = z.object({
       lifetimeValue: z.number(),
       tier: z.string(),
     }),
-  ),
+  ).max(1000),
 });
 
 const laborOptimizationSchema = z.object({
@@ -109,7 +109,7 @@ const laborOptimizationSchema = z.object({
       transactions: z.number(),
       avgServiceTime: z.number(),
     }),
-  ),
+  ).max(500),
   forecast: z
     .object({
       nextWeek: z.array(
@@ -118,7 +118,7 @@ const laborOptimizationSchema = z.object({
           dayOfWeek: z.string(),
           predictedRevenue: z.number(),
         }),
-      ),
+      ).max(500),
     })
     .optional(),
 });
@@ -135,7 +135,7 @@ const menuEngineeringSchema = z.object({
       salePrice: z.number(),
       margin: z.number(),
     }),
-  ),
+  ).max(500),
   period: z.string(),
 });
 
@@ -150,7 +150,7 @@ const fraudDetectionSchema = z.object({
       timestamp: z.string(),
       locationId: z.string(),
     }),
-  ),
+  ).max(1000),
 });
 
 const reorderSuggestionsSchema = z.object({
@@ -168,7 +168,7 @@ const reorderSuggestionsSchema = z.object({
       reorderQty: z.number(),
       unitCost: z.number(),
     }),
-  ),
+  ).max(500),
 });
 
 const onboardingSchema = z.object({
@@ -199,7 +199,8 @@ async function start() {
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   const jwtSecret = process.env['JWT_SECRET'];
   if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
-  await app.register(jwt, {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await app.register(jwt as any, {
     secret: jwtSecret,
     verify: { issuer: 'elevatedpos-auth' },
   });
@@ -311,6 +312,15 @@ async function start() {
       if (!requireApiKey(reply)) return;
 
       const { items, lookbackDays } = parsed.data;
+      if (items.length > 2000) {
+        return reply.status(422).send({
+          type: 'https://elevatedpos.com/errors/validation',
+          title: 'Payload Too Large',
+          status: 422,
+          detail: 'Total items across all arrays must not exceed 2000.',
+        });
+      }
+
       const prompt =
         `Analyze the following inventory stock movement data over the past ${lookbackDays} days ` +
         `and identify anomalies. For each anomalous item classify its type as one of: ` +
@@ -369,6 +379,15 @@ async function start() {
       if (!requireApiKey(reply)) return;
 
       const { customers } = parsed.data;
+      if (customers.length > 2000) {
+        return reply.status(422).send({
+          type: 'https://elevatedpos.com/errors/validation',
+          title: 'Payload Too Large',
+          status: 422,
+          detail: 'Total items across all arrays must not exceed 2000.',
+        });
+      }
+
       const prompt =
         `Score each customer's churn risk on a scale of 0.0 to 1.0 based on their visit behavior, ` +
         `order value, and loyalty tier. Classify risk as "high" (≥0.7), "medium" (0.4–0.69), or "low" (<0.4). ` +

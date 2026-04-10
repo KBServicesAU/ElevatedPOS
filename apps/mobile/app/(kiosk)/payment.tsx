@@ -43,7 +43,7 @@ export default function PaymentScreen() {
         productId: i.id,
         name: i.name,
         quantity: i.qty,
-        unitPrice: Math.round(i.price * 100), // dollars → cents for API
+        unitPrice: i.price, // dollars — server converts to cents internally
         costPrice: 0,
         taxRate: 10,
       })),

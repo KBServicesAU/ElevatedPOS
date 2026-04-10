@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
+import { getRedisClient } from '@nexus/config';
 import { initClickHouseTables } from './clickhouse.js';
 import { ingestOrder } from './ingest.js';
 import {
@@ -35,7 +36,12 @@ async function start() {
     credentials: true,
   });
   await app.register(sensible);
-  await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
+  const redis = getRedisClient();
+  await app.register(rateLimit, {
+    max: 200,
+    timeWindow: '1 minute',
+    ...(redis ? { redis } : {}),
+  });
   const jwtSecret = process.env['JWT_SECRET'];
   if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
   await app.register(jwt, {

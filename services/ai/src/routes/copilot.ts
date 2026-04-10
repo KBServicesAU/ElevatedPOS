@@ -1,18 +1,34 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { createAnthropicClient } from '../lib/anthropic.js';
+import { getRedisClient } from '@nexus/config';
 
 const COPILOT_SYSTEM_PROMPT =
   'You are ElevatedPOS AI Copilot, an intelligent assistant for retail and hospitality operators. ' +
   'You help with inventory management, sales analysis, customer insights, and operational decisions. ' +
   'Be concise and actionable.';
 
-// ── Simple in-memory suggestions cache ────────────────────────────────────────
-interface SuggestionsCacheEntry {
-  data: { suggestions: string[] };
-  expiresAt: number;
+// ── Redis-backed suggestions cache (shared across replicas) ───────────────────
+const redis = getRedisClient();
+
+async function getCachedSuggestion(key: string): Promise<{ suggestions: string[] } | null> {
+  if (!redis) return null;
+  try {
+    const cached = await redis.get(`copilot:${key}`);
+    return cached ? (JSON.parse(cached) as { suggestions: string[] }) : null;
+  } catch {
+    return null;
+  }
 }
-const suggestionsCache = new Map<string, SuggestionsCacheEntry>();
+
+async function setCachedSuggestion(key: string, data: { suggestions: string[] }, ttlSeconds = 3600): Promise<void> {
+  if (!redis) return;
+  try {
+    await redis.setex(`copilot:${key}`, ttlSeconds, JSON.stringify(data));
+  } catch {
+    // Non-fatal — fall through to fresh generation next request
+  }
+}
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -436,11 +452,10 @@ export async function copilotRoutes(app: FastifyInstance) {
       // Use orgId from JWT if available, else 'default'
       const jwtPayload = request.user as { orgId?: string } | undefined;
       const cacheKey = jwtPayload?.orgId ?? 'default';
-      const now = Date.now();
 
-      const cached = suggestionsCache.get(cacheKey);
-      if (cached && cached.expiresAt > now) {
-        return reply.status(200).send(cached.data);
+      const cached = await getCachedSuggestion(cacheKey);
+      if (cached) {
+        return reply.status(200).send(cached);
       }
 
       const anthropic = createAnthropicClient();
@@ -469,11 +484,8 @@ export async function copilotRoutes(app: FastifyInstance) {
         const textContent = message.content.find((c) => c.type === 'text');
         const result = (extractJSON(textContent?.text ?? '')) as { suggestions: string[] };
 
-        // Cache for 1 hour
-        suggestionsCache.set(cacheKey, {
-          data: result,
-          expiresAt: now + 60 * 60 * 1000,
-        });
+        // Cache for 1 hour in Redis (shared across replicas); fail open if Redis is unavailable
+        await setCachedSuggestion(cacheKey, result, 3600);
 
         return reply.status(200).send(result);
       } catch (err) {

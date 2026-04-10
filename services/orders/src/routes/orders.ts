@@ -202,6 +202,12 @@ export async function orderRoutes(app: FastifyInstance) {
               customerId: created.customerId ?? undefined,
               lineCount: created.lines.length,
               channel: created.channel,
+              // Items array consumed by inventory service to decrement stock
+              items: created.lines.map((l) => ({
+                productId: l.productId,
+                variantId: l.variantId ?? undefined,
+                quantity: Number(l.quantity),
+              })),
             },
             { locationId: created.locationId },
           ),

@@ -5,6 +5,7 @@ import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { getRedisClient } from '@nexus/config';
+import { z } from 'zod';
 import { eq, and, desc, gte } from 'drizzle-orm';
 import { productRoutes } from './routes/products';
 import { categoryRoutes } from './routes/categories';
@@ -63,12 +64,15 @@ async function start() {
 
   // Public polling endpoint registered BEFORE productRoutes plugin to ensure static path wins over /:id param
   // No auth required — used by KDS and web-backoffice to poll for availability changes every 30s
-  app.get('/api/v1/products/availability-changes', async (request, reply) => {
+  app.get('/api/v1/products/availability-changes', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const q = request.query as { since?: string; orgId?: string };
-    const targetOrgId = q.orgId;
-    if (!targetOrgId) {
-      return reply.status(400).send({ title: 'Bad Request', status: 400, detail: 'orgId query param is required' });
+    const orgIdValidation = z.string().uuid().safeParse(q.orgId);
+    if (!orgIdValidation.success) {
+      return reply.status(400).send({ type: 'about:blank', title: 'Bad Request', status: 400, detail: 'orgId must be a valid UUID.' });
     }
+    const targetOrgId = orgIdValidation.data;
     const since = q.since ? new Date(q.since) : new Date(Date.now() - 60_000);
     const products = await db.query.products.findMany({
       where: and(eq(schema.products.orgId, targetOrgId), gte(schema.products.updatedAt, since)),
@@ -88,7 +92,9 @@ async function start() {
   // Registered BEFORE productRoutes so static paths win over the /:id catch-all.
 
   // Single product lookup by webSlug or UUID — used by product detail pages
-  app.get('/api/v1/products/storefront/:slugOrId', async (request, reply) => {
+  app.get('/api/v1/products/storefront/:slugOrId', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const { slugOrId } = request.params as { slugOrId: string };
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slugOrId);
     const row = await db.query.products.findFirst({
@@ -102,14 +108,18 @@ async function start() {
   });
 
   // Product list for a given org filtered to web-active products
-  app.get('/api/v1/products/storefront', async (request, reply) => {
+  app.get('/api/v1/products/storefront', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const q = request.query as { orgId?: string };
-    if (!q.orgId) {
-      return reply.status(400).send({ title: 'Bad Request', status: 400, detail: 'orgId query param is required' });
+    const orgIdValidation = z.string().uuid().safeParse(q.orgId);
+    if (!orgIdValidation.success) {
+      return reply.status(400).send({ type: 'about:blank', title: 'Bad Request', status: 400, detail: 'orgId must be a valid UUID.' });
     }
+    const orgId = orgIdValidation.data;
     const rows = await db.query.products.findMany({
       where: and(
-        eq(schema.products.orgId, q.orgId),
+        eq(schema.products.orgId, orgId),
         eq(schema.products.isActive, true),
       ),
       with: { category: { columns: { id: true, name: true } } },

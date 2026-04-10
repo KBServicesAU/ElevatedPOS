@@ -20,7 +20,15 @@ export async function organisationRoutes(app: FastifyInstance) {
       where: eq(schema.organisations.slug, slug),
     });
     if (!org) return reply.status(404).send({ error: 'Organisation not found' });
-    return reply.send({ id: org.id, name: org.name, slug: org.slug });
+    return reply.send({
+      id: org.id,
+      name: org.name,
+      slug: org.slug,
+      industry: org.industry ?? null,
+      country: org.country,
+      currency: org.currency,
+      timezone: org.timezone,
+    });
   });
 
   // POST /api/v1/organisations/register — public, no auth required

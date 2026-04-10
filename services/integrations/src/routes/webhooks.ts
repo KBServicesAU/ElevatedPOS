@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { and, desc, eq } from 'drizzle-orm';
 import { db, schema } from '../db';
@@ -26,6 +26,41 @@ function generateSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function updateWebhookHandler(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply,
+) {
+  const { orgId } = request.user as { orgId: string };
+  const { id } = request.params;
+
+  const body = createWebhookSchema.partial().safeParse(request.body);
+  if (!body.success) {
+    return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+  }
+
+  const existing = await db.query.webhooks.findFirst({
+    where: and(eq(schema.webhooks.id, id), eq(schema.webhooks.orgId, orgId)),
+  });
+
+  if (!existing) return reply.status(404).send({ title: 'Webhook not found', status: 404 });
+
+  const updatedRows = await db
+    .update(schema.webhooks)
+    .set({
+      ...(body.data.label !== undefined ? { label: body.data.label } : {}),
+      ...(body.data.url !== undefined ? { url: body.data.url } : {}),
+      ...(body.data.events !== undefined ? { events: body.data.events as string[] } : {}),
+      ...(body.data.enabled !== undefined ? { enabled: body.data.enabled } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.webhooks.id, id))
+    .returning();
+
+  const updated = updatedRows[0]!;
+  const { secret: _secret, ...safeHook } = updated;
+  return reply.status(200).send({ data: safeHook });
 }
 
 export async function webhookRoutes(app: FastifyInstance) {
@@ -81,70 +116,10 @@ export async function webhookRoutes(app: FastifyInstance) {
 
   // PATCH /api/v1/integrations/webhooks/:id — update URL, events, label, or enabled
   // Also registered as PUT for backwards compatibility
-  app.patch('/:id', async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
-    const { id } = request.params as { id: string };
-
-    const body = createWebhookSchema.partial().safeParse(request.body);
-    if (!body.success) {
-      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
-    }
-
-    const existing = await db.query.webhooks.findFirst({
-      where: and(eq(schema.webhooks.id, id), eq(schema.webhooks.orgId, orgId)),
-    });
-
-    if (!existing) return reply.status(404).send({ title: 'Webhook not found', status: 404 });
-
-    const updatedRows = await db
-      .update(schema.webhooks)
-      .set({
-        ...(body.data.label !== undefined ? { label: body.data.label } : {}),
-        ...(body.data.url !== undefined ? { url: body.data.url } : {}),
-        ...(body.data.events !== undefined ? { events: body.data.events as string[] } : {}),
-        ...(body.data.enabled !== undefined ? { enabled: body.data.enabled } : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.webhooks.id, id))
-      .returning();
-
-    const updated = updatedRows[0]!;
-    const { secret: _secret, ...safeHook } = updated;
-    return reply.status(200).send({ data: safeHook });
-  });
+  app.patch('/:id', updateWebhookHandler);
 
   // PUT /api/v1/integrations/webhooks/:id — update a webhook (legacy alias)
-  app.put('/:id', async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
-    const { id } = request.params as { id: string };
-
-    const body = createWebhookSchema.partial().safeParse(request.body);
-    if (!body.success) {
-      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
-    }
-
-    const existing = await db.query.webhooks.findFirst({
-      where: and(eq(schema.webhooks.id, id), eq(schema.webhooks.orgId, orgId)),
-    });
-
-    if (!existing) return reply.status(404).send({ title: 'Webhook not found', status: 404 });
-
-    const updatedRows = await db
-      .update(schema.webhooks)
-      .set({
-        ...(body.data.label !== undefined ? { label: body.data.label } : {}),
-        ...(body.data.url !== undefined ? { url: body.data.url } : {}),
-        ...(body.data.events !== undefined ? { events: body.data.events as string[] } : {}),
-        ...(body.data.enabled !== undefined ? { enabled: body.data.enabled } : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.webhooks.id, id))
-      .returning();
-
-    const updated = updatedRows[0]!;
-    const { secret: _secret, ...safeHook } = updated;
-    return reply.status(200).send({ data: safeHook });
-  });
+  app.put('/:id', updateWebhookHandler);
 
   // DELETE /api/v1/integrations/webhooks/:id — delete a webhook
   app.delete('/:id', async (request, reply) => {

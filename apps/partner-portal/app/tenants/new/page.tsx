@@ -88,12 +88,38 @@ export default function NewTenantPage() {
     );
   }
 
-  function handleProvision() {
+  async function handleProvision() {
+    if (!selectedPlan) return;
     setProvisioning(true);
-    setTimeout(() => {
-      setProvisioning(false);
+    try {
+      const [firstName, ...rest] = stepOne.ownerName.trim().split(' ');
+      const lastName = rest.join(' ') || firstName;
+      const res = await fetch('/api/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessName: stepOne.businessName,
+          abn: stepOne.abn || undefined,
+          email: stepOne.email,
+          phone: stepOne.phone || undefined,
+          firstName: firstName ?? stepOne.ownerName,
+          lastName: lastName ?? '',
+          plan: selectedPlan.toLowerCase() as 'starter' | 'growth' | 'pro',
+          industry: stepOne.businessType || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Provisioning failed' })) as { error?: string };
+        alert(err.error ?? 'Provisioning failed. Please try again.');
+        setProvisioning(false);
+        return;
+      }
       setProvisioned(true);
-    }, 1800);
+    } catch {
+      alert('Network error. Please check your connection and try again.');
+    } finally {
+      setProvisioning(false);
+    }
   }
 
   if (provisioned) {
