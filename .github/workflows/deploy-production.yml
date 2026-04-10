@@ -103,40 +103,50 @@ jobs:
 
           ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com"
 
-          # Annotate/label any pre-existing kubectl-managed resources so Helm
-          # can adopt them without errors on the first helm upgrade.
-          for RESOURCE in configmap/elevatedpos-config serviceaccount/elevatedpos-service; do
-            if kubectl get $RESOURCE -n elevatedpos &>/dev/null; then
-              kubectl annotate $RESOURCE -n elevatedpos \
-                meta.helm.sh/release-name=elevatedpos \
-                meta.helm.sh/release-namespace=elevatedpos \
-                --overwrite
-              kubectl label $RESOURCE -n elevatedpos \
-                app.kubernetes.io/managed-by=Helm \
-                --overwrite
-            fi
-          done
-
-          # Adopt Services, Deployments, and HPAs previously created by kubectl apply
-          # but now managed by the Helm chart. Helm refuses to upgrade if it finds
-          # resources it doesn't own, so we annotate/label them all up front.
-          ALL_SVCS="auth catalog inventory orders payments customers loyalty \
-            campaigns notifications integrations automations ai franchise \
-            reporting webhooks hardware-bridge web-backoffice storefront \
-            godmode org-portal reseller-portal pay sales-portal \
-            partner-portal developer-portal kds-display"
-          for SVC in $ALL_SVCS; do
-            for KIND in service deployment hpa; do
-              if kubectl get $KIND/$SVC -n elevatedpos &>/dev/null; then
-                kubectl annotate $KIND/$SVC -n elevatedpos \
+          # ── Helm ownership adoption ──────────────────────────────────────────
+          # Many resources in this namespace were originally created via
+          # "kubectl apply" and therefore lack the three Helm ownership markers:
+          #   - label:      app.kubernetes.io/managed-by=Helm
+          #   - annotation: meta.helm.sh/release-name=elevatedpos
+          #   - annotation: meta.helm.sh/release-namespace=elevatedpos
+          #
+          # "helm upgrade --install" refuses to touch any resource it doesn't
+          # own, so we must stamp every existing resource before running it.
+          #
+          # Strategy: enumerate ALL resources of each Helm-managed type in the
+          # namespace and annotate/label them. Using "kubectl get TYPE -o name"
+          # instead of hard-coding names means this is self-updating — new
+          # resources added to the chart will be adopted automatically on the
+          # next deploy without requiring another workflow change.
+          adopt_helm_resources() {
+            local TYPE=$1
+            echo "--- Adopting $TYPE resources ---"
+            kubectl get "$TYPE" -n elevatedpos -o name 2>/dev/null \
+            | while IFS= read -r RESOURCE; do
+                [ -z "$RESOURCE" ] && continue
+                kubectl annotate "$RESOURCE" -n elevatedpos \
                   meta.helm.sh/release-name=elevatedpos \
                   meta.helm.sh/release-namespace=elevatedpos \
-                  --overwrite
-                kubectl label $KIND/$SVC -n elevatedpos \
+                  --overwrite 2>/dev/null && \
+                kubectl label "$RESOURCE" -n elevatedpos \
                   app.kubernetes.io/managed-by=Helm \
-                  --overwrite
-              fi
-            done
+                  --overwrite 2>/dev/null || true
+                echo "  adopted: $RESOURCE"
+              done
+          }
+
+          # Cover every resource kind the Helm chart templates create:
+          #   configmap.yaml        → ConfigMap
+          #   serviceaccount.yaml   → ServiceAccount
+          #   deployments.yaml      → Deployment
+          #   services.yaml         → Service
+          #   hpa.yaml              → HorizontalPodAutoscaler  (named {svc}-hpa)
+          #   ingress.yaml          → Ingress  (elevatedpos-ingress, elevatedpos-pay-ingress,
+          #                                      elevatedpos-web-ingress, elevatedpos-marketing-ingress,
+          #                                      elevatedpos-godmode-ingress, elevatedpos-org-portal-ingress,
+          #                                      elevatedpos-reseller-portal-ingress, elevatedpos-ingress-{svc})
+          for KIND in configmap serviceaccount deployment service horizontalpodautoscaler ingress; do
+            adopt_helm_resources "$KIND"
           done
 
           # Clear any stuck or failed Helm release before attempting upgrade.
