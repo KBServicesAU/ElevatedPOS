@@ -18,6 +18,7 @@ import { Slot, useRouter, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useDeviceStore } from '../store/device';
+import { useDeviceSettings } from '../store/device-settings';
 import { ToastViewport, AlertDialogHost } from '../components/ui';
 
 SplashScreen.preventAutoHideAsync();
@@ -27,14 +28,20 @@ const HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
 
 export default function RootLayout() {
   const { ready, _hydrate, identity, checkHeartbeat } = useDeviceStore();
+  const fetchDeviceSettings = useDeviceSettings((s) => s.fetch);
   const router = useRouter();
   const pathname = usePathname();
   const previousIdentity = useRef(identity);
 
-  // Hydrate stored identity on mount
+  // Hydrate stored identity on mount, then fetch server-side device config
   useEffect(() => {
-    _hydrate().then(() => SplashScreen.hideAsync());
-  }, [_hydrate]);
+    _hydrate().then(() => {
+      SplashScreen.hideAsync();
+      // Fetch server-managed settings (terminal, printers, display) after hydration.
+      // Non-fatal if it fails — app still works with local fallbacks.
+      fetchDeviceSettings().catch(() => { /* ignore */ });
+    });
+  }, [_hydrate, fetchDeviceSettings]);
 
   // Periodic heartbeat: detects when the device has been revoked server-side
   // and forces a redirect to the pair screen so the user can re-pair.

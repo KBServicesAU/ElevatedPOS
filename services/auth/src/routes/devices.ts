@@ -327,4 +327,163 @@ export async function deviceRoutes(app: FastifyInstance) {
       })),
     });
   });
+
+  // ── Device config (unified settings for mobile app) ───────────────────────
+
+  /**
+   * GET /api/v1/devices/config
+   *
+   * Returns the complete server-side config for this device so the mobile app
+   * does not need to store payment/printer settings locally:
+   *  - terminal: which EFTPOS provider + IP/port/credentials
+   *  - networkPrinters: receipt + order printers configured in the dashboard
+   *  - customerDisplay: messages and display preferences
+   *
+   * Auth: device token (Bearer)
+   *
+   * The terminal config is fetched from the payments service using a
+   * short-lived service JWT signed with the shared JWT_SECRET.
+   */
+  app.get('/config', async (request, reply) => {
+    const header = request.headers['authorization'];
+    if (!header?.startsWith('Bearer ')) return reply.status(401).send({ title: 'Unauthorized', status: 401 });
+    const token = header.slice(7);
+    const tokenHash = hashToken(token);
+
+    const device = await db.query.devices.findFirst({
+      where: and(eq(schema.devices.tokenHash, tokenHash), eq(schema.devices.status, 'active')),
+    });
+    if (!device) return reply.status(401).send({ title: 'Device not found or revoked', status: 401 });
+
+    // ── Network printers (receipt + order) for the device's location ─────
+    const printerRows = await db.query.printers.findMany({
+      where: and(
+        eq(schema.printers.orgId, device.orgId),
+        eq(schema.printers.locationId, device.locationId),
+        eq(schema.printers.isActive, true),
+        eq(schema.printers.connectionType, 'ip'),
+      ),
+    });
+
+    const receiptPrinter = printerRows.find((p) => p.printerType === 'receipt') ?? null;
+    const orderPrinter   = printerRows.find((p) => p.printerType === 'kitchen_order') ?? null;
+
+    // ── Terminal config (from payments service) ──────────────────────────
+    const PAYMENTS_URL = process.env['PAYMENTS_API_URL'] ?? 'http://payments:4005';
+    let terminal: Record<string, unknown> | null = null;
+
+    try {
+      // Sign a short-lived service JWT (same secret — payments service will accept it)
+      const serviceToken = app.jwt.sign(
+        { sub: 'service:auth', orgId: device.orgId, iss: 'elevatedpos-auth' },
+        { expiresIn: '60s' },
+      );
+
+      // Fetch device-specific terminal credential assignment
+      const configRes = await fetch(`${PAYMENTS_URL}/api/v1/terminal/device-config/${device.id}`, {
+        headers: { Authorization: `Bearer ${serviceToken}` },
+      });
+
+      let credentialId: string | null = null;
+      if (configRes.ok) {
+        const configData = await configRes.json() as { data?: { terminalCredentialId?: string } | null };
+        credentialId = configData.data?.terminalCredentialId ?? null;
+      }
+
+      // Fetch the terminal credential list to find the right credential
+      const credsRes = await fetch(`${PAYMENTS_URL}/api/v1/terminal/credentials`, {
+        headers: { Authorization: `Bearer ${serviceToken}` },
+      });
+
+      if (credsRes.ok) {
+        const credsData = await credsRes.json() as { data?: unknown[] } | unknown[];
+        const creds: Record<string, unknown>[] = (
+          Array.isArray(credsData) ? credsData : (credsData as { data?: unknown[] }).data ?? []
+        ) as Record<string, unknown>[];
+
+        // Use the device-specific credential, or fall back to the first active one
+        const credential = credentialId
+          ? (creds.find((c) => c['id'] === credentialId && c['isActive']) ?? creds.find((c) => !!c['isActive']))
+          : creds.find((c) => !!c['isActive']);
+
+        if (credential) {
+          const meta = (credential['metadata'] as Record<string, unknown>) ?? {};
+          if (credential['provider'] === 'anz') {
+            terminal = {
+              provider: 'anz',
+              terminalIp:   credential['terminalIp'],
+              terminalPort: credential['terminalPort'] ?? 8080,
+              enableSurcharge: meta['enableSurcharge'] ?? false,
+              enableTipping:   meta['enableTipping']   ?? false,
+            };
+          } else if (credential['provider'] === 'tyro') {
+            terminal = {
+              provider:           'tyro',
+              apiKey:             process.env['TYRO_API_KEY'] ?? '',
+              merchantId:         meta['merchantId']         ?? '',
+              terminalId:         meta['terminalId']         ?? '',
+              testMode:           process.env['TYRO_TEST_MODE'] !== 'false',
+              tyroHandlesSurcharge: meta['tyroHandlesSurcharge'] ?? false,
+              enableTipping:      meta['tippingEnabled']     ?? false,
+            };
+          }
+        }
+      }
+    } catch (err) {
+      // Non-fatal: mobile app will fall back to no terminal configured
+      console.warn('[devices/config] Could not fetch terminal config from payments service:', err);
+    }
+
+    // ── Customer display settings (from device.settings) ─────────────────
+    const deviceSettings = (device.settings as Record<string, unknown> | null) ?? {};
+    const customerDisplay = {
+      welcomeMessage: (deviceSettings['welcomeMessage'] as string) ?? 'Welcome!',
+      thankYouMessage: (deviceSettings['thankYouMessage'] as string) ?? 'Thank you for your order!',
+      showLogo:       (deviceSettings['showLogo']       as boolean) ?? false,
+      showLineItems:  (deviceSettings['showLineItems']  as boolean) ?? true,
+      showGst:        (deviceSettings['showGst']        as boolean) ?? true,
+    };
+
+    return reply.send({
+      data: {
+        terminal,
+        networkPrinters: {
+          receipt: receiptPrinter
+            ? { id: receiptPrinter.id, name: receiptPrinter.name, host: receiptPrinter.host, port: receiptPrinter.port ?? 9100, paperWidth: 80 }
+            : null,
+          order: orderPrinter
+            ? { id: orderPrinter.id, name: orderPrinter.name, host: orderPrinter.host, port: orderPrinter.port ?? 9100, paperWidth: 80 }
+            : null,
+        },
+        customerDisplay,
+      },
+    });
+  });
+
+  /**
+   * PUT /api/v1/devices/:id/settings
+   *
+   * Saves per-device settings (customer display, etc.) from the dashboard.
+   * Auth: staff JWT.
+   */
+  app.put('/:id/settings', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+
+    // Verify device belongs to this org
+    const device = await db.query.devices.findFirst({
+      where: and(eq(schema.devices.id, id), eq(schema.devices.orgId, user.orgId)),
+    });
+    if (!device) return reply.status(404).send({ title: 'Device not found', status: 404 });
+
+    const body = request.body as Record<string, unknown>;
+    const current = (device.settings as Record<string, unknown>) ?? {};
+    const updated = { ...current, ...body };
+
+    await db.update(schema.devices)
+      .set({ settings: updated, updatedAt: new Date() })
+      .where(eq(schema.devices.id, id));
+
+    return reply.send({ data: updated });
+  });
 }

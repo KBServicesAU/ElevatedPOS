@@ -21,7 +21,7 @@ import {
   TyroTransactionModal,
   type TyroTransactionOutcome,
 } from '../../components/TyroTransactionModal';
-import { useAnzStore, isAnzConfigured } from '../../store/anz';
+import { getServerAnzConfig } from '../../store/device-settings';
 
 const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
 
@@ -39,7 +39,6 @@ export default function OrdersScreen() {
   const identity = useDeviceStore((s) => s.identity);
   const employeeToken = useAuthStore((s) => s.employeeToken);
   const tyroConfig = useTyroStore((s) => s.config);
-  const anzConfig = useAnzStore((s) => s.config);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -130,13 +129,14 @@ export default function OrdersScreen() {
     }
 
     // ── ANZ Worldline TIM refund (direct HTTP to terminal) ───────────
-    if (isAnzConfigured()) {
+    const serverAnz = getServerAnzConfig();
+    if (serverAnz) {
       setShowRefund(false);
       setAnzRefunding(true);
       const token = employeeToken ?? identity?.deviceToken ?? '';
       const amountCents = Math.round(dollars * 100);
-      const ip = anzConfig.terminalIp.trim();
-      const port = anzConfig.terminalPort || 8080;
+      const ip = (serverAnz.terminalIp ?? '').trim();
+      const port = serverAnz.terminalPort ?? 8080;
       const refId = `POS-REFUND-${refundOrder.orderNumber}-${Date.now()}`;
 
       try {

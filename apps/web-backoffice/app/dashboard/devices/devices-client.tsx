@@ -58,9 +58,11 @@ interface DevicePaymentConfig {
 }
 
 interface CustomerDisplaySettings {
-  idleMessage:       string;
-  logoUrl:           string;
-  showOrderTotal:    boolean;
+  welcomeMessage:  string;
+  thankYouMessage: string;
+  showLogo:        boolean;
+  showLineItems:   boolean;
+  showGst:         boolean;
 }
 
 // ─── Payment method definitions ───────────────────────────────────────────────
@@ -190,7 +192,8 @@ export default function DevicesClient() {
   // — customer display config state —
   const [displayConfiguringId, setDisplayConfiguringId] = useState<string | null>(null);
   const [draftDisplay, setDraftDisplay] = useState<CustomerDisplaySettings>({
-    idleMessage: '', logoUrl: '', showOrderTotal: true,
+    welcomeMessage: '', thankYouMessage: 'Thank you for your order!',
+    showLogo: false, showLineItems: true, showGst: true,
   });
   const [savingDisplay, setSavingDisplay] = useState(false);
   const [displayError, setDisplayError] = useState<string | null>(null);
@@ -354,7 +357,7 @@ export default function DevicesClient() {
 
   function openDisplayConfig(device: Device) {
     setDisplayConfiguringId(device.id);
-    setDraftDisplay({ idleMessage: '', logoUrl: '', showOrderTotal: true });
+    setDraftDisplay({ welcomeMessage: '', thankYouMessage: 'Thank you for your order!', showLogo: false, showLineItems: true, showGst: true });
     setDisplayError(null);
     // close payment panel if open
     setConfiguringId(null);
@@ -369,7 +372,7 @@ export default function DevicesClient() {
   async function saveDisplayConfig(deviceId: string) {
     setSavingDisplay(true); setDisplayError(null);
     try {
-      await apiFetch(`devices/${deviceId}/customer-display-settings`, {
+      await apiFetch(`devices/${deviceId}/settings`, {
         method: 'PUT',
         body: JSON.stringify(draftDisplay),
       });
@@ -603,26 +606,24 @@ export default function DevicesClient() {
 
                         <div className="space-y-4">
                           <div>
-                            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1.5 block">Idle Display Message</label>
+                            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1.5 block">Welcome Message</label>
                             <input
                               type="text"
-                              value={draftDisplay.idleMessage}
-                              onChange={(e) => setDraftDisplay({ ...draftDisplay, idleMessage: e.target.value })}
-                              placeholder="Welcome! Please place your order."
+                              value={draftDisplay.welcomeMessage}
+                              onChange={(e) => setDraftDisplay({ ...draftDisplay, welcomeMessage: e.target.value })}
+                              placeholder="Welcome!"
                               className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-[#3a3a4a] focus:border-purple-500 focus:outline-none"
                             />
-                            <p className="text-xs text-gray-500 dark:text-gray-600 mt-1">Shown when no active transaction is in progress.</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-600 mt-1">Shown on the customer display when idle.</p>
                           </div>
 
                           <div>
-                            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1.5 block">
-                              <Image className="inline h-3.5 w-3.5 mr-1" />Logo URL <span className="text-gray-400 dark:text-gray-600">(optional)</span>
-                            </label>
+                            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1.5 block mt-4">Thank-You Message</label>
                             <input
-                              type="url"
-                              value={draftDisplay.logoUrl}
-                              onChange={(e) => setDraftDisplay({ ...draftDisplay, logoUrl: e.target.value })}
-                              placeholder="https://example.com/logo.png"
+                              type="text"
+                              value={draftDisplay.thankYouMessage}
+                              onChange={(e) => setDraftDisplay({ ...draftDisplay, thankYouMessage: e.target.value })}
+                              placeholder="Thank you for your order!"
                               className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-[#3a3a4a] focus:border-purple-500 focus:outline-none"
                             />
                           </div>
@@ -630,14 +631,44 @@ export default function DevicesClient() {
                           <div>
                             <label className="flex items-center gap-3 cursor-pointer">
                               <div
-                                onClick={() => setDraftDisplay({ ...draftDisplay, showOrderTotal: !draftDisplay.showOrderTotal })}
-                                className={`relative h-5 w-9 rounded-full transition-colors ${draftDisplay.showOrderTotal ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                onClick={() => setDraftDisplay({ ...draftDisplay, showLogo: !draftDisplay.showLogo })}
+                                className={`relative h-5 w-9 rounded-full transition-colors ${draftDisplay.showLogo ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                               >
-                                <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${draftDisplay.showOrderTotal ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${draftDisplay.showLogo ? 'translate-x-4' : 'translate-x-0.5'}`} />
                               </div>
                               <div>
-                                <p className="text-sm font-medium text-gray-900 dark:text-white">Show Order Total Prominently</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-500">Display running total in large text during active transactions.</p>
+                                <p className="text-sm font-medium text-gray-900 dark:text-white">Show Logo</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-500">Display your store logo on the customer screen.</p>
+                              </div>
+                            </label>
+                          </div>
+
+                          <div>
+                            <label className="flex items-center gap-3 cursor-pointer">
+                              <div
+                                onClick={() => setDraftDisplay({ ...draftDisplay, showLineItems: !draftDisplay.showLineItems })}
+                                className={`relative h-5 w-9 rounded-full transition-colors ${draftDisplay.showLineItems ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                              >
+                                <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${draftDisplay.showLineItems ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900 dark:text-white">Show Line Items</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-500">Show individual items in the cart on the customer screen.</p>
+                              </div>
+                            </label>
+                          </div>
+
+                          <div>
+                            <label className="flex items-center gap-3 cursor-pointer">
+                              <div
+                                onClick={() => setDraftDisplay({ ...draftDisplay, showGst: !draftDisplay.showGst })}
+                                className={`relative h-5 w-9 rounded-full transition-colors ${draftDisplay.showGst ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                              >
+                                <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${draftDisplay.showGst ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900 dark:text-white">Show GST Breakdown</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-500">Display GST line on the customer screen.</p>
                               </div>
                             </label>
                           </div>

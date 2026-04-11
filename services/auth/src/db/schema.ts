@@ -405,6 +405,8 @@ export const devices = pgTable('devices', {
   status: deviceStatusEnum('status').notNull().default('active'),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   revokedBy: uuid('revoked_by').references(() => employees.id),
+  /** Per-device config managed from the dashboard (customer display, etc.) */
+  settings: jsonb('settings'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

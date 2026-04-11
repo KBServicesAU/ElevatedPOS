@@ -34,7 +34,7 @@ import {
   TyroTransactionModal,
   type TyroTransactionOutcome,
 } from '../../components/TyroTransactionModal';
-import { useAnzStore, isAnzConfigured } from '../../store/anz';
+import { useDeviceSettings, getServerAnzConfig } from '../../store/device-settings';
 import {
   AnzPaymentModal,
   type AnzPaymentResult,
@@ -123,15 +123,14 @@ export default function PosSellScreen() {
   const [showAnzModal, setShowAnzModal] = useState(false);
   const [anzAmount, setAnzAmount] = useState(0);
   const [anzRefId, setAnzRefId] = useState('');
-  const anzConfig = useAnzStore((s) => s.config);
-  const hydrateAnz = useAnzStore((s) => s.hydrate);
+  // Server-managed terminal config (replaces local anz/eftpos stores)
+  const serverSettingsLoaded = useDeviceSettings((s) => s.loaded);
 
   // Fetch catalog + hydrate customer display on mount
   useEffect(() => {
     fetchAll();
     hydrateDisplay();
     hydrateTyro();
-    hydrateAnz();
     hydrateUnavailable();
   }, []);
 
@@ -455,7 +454,7 @@ export default function PosSellScreen() {
     }
 
     // ANZ Worldline TIM — direct HTTP call to terminal on local network
-    if (isAnzConfigured()) {
+    if (getServerAnzConfig()) {
       setAnzAmount(total);
       setAnzRefId(`POS-${Date.now()}`);
       setShowAnzModal(true);
@@ -677,7 +676,7 @@ export default function PosSellScreen() {
     }
 
     // Route card portion through ANZ TIM if configured and Tyro is not available.
-    if (cardAmt > 0 && isAnzConfigured()) {
+    if (cardAmt > 0 && getServerAnzConfig()) {
       setShowPayment(false);
       setSplitMode(false);
       setPendingSplit({ cardAmt, cashAmt, change });
@@ -1486,11 +1485,11 @@ export default function PosSellScreen() {
       />
 
       {/* ═══ ANZ Worldline TIM Payment Modal ═══ */}
-      {showAnzModal && (
+      {showAnzModal && getServerAnzConfig() && (
         <AnzPaymentModal
           visible={showAnzModal}
           amount={anzAmount}
-          config={anzConfig}
+          config={getServerAnzConfig()!}
           referenceId={anzRefId}
           title="Card Payment"
           onApproved={handleAnzApproved}

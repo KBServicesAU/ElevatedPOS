@@ -21,9 +21,6 @@ import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { useEmployeeStore, type Shift } from '../../store/employee';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
-import { isTyroInitialized } from '../../modules/tyro-tta';
-import { useTyroStore } from '../../store/tyro';
-import { useEftposStore } from '../../store/eftpos';
 import { useSidebarStore, ALL_SIDEBAR_ITEMS } from '../../store/sidebar';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
@@ -126,8 +123,6 @@ export default function MoreScreen() {
     setSettings: setDisplaySettings,
   } = useCustomerDisplayStore();
 
-  const tyroConfig = useTyroStore((s) => s.config);
-  const { provider: eftposProvider, hydrate: hydrateEftpos, setProvider: setEftposProvider } = useEftposStore();
   const { enabledIds: sidebarEnabledIds, hydrate: hydrateSidebar, toggle: toggleSidebarItem, reset: resetSidebar } = useSidebarStore();
   const [showSidebarModal, setShowSidebarModal] = useState(false);
 
@@ -162,7 +157,6 @@ export default function MoreScreen() {
     hydratePrinter();
     hydrateDisplay();
     checkForUpdate();
-    hydrateEftpos();
     hydrateSidebar();
   }, []);
 
@@ -1075,91 +1069,6 @@ export default function MoreScreen() {
           </View>
         )}
 
-        {/* ═══════ EFTPOS Terminal ═══════ */}
-        <Text style={[s.sectionTitle, { marginTop: 32 }]}>EFTPOS Terminal</Text>
-
-        <View style={s.card}>
-          <Text style={[s.label, { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }]}>
-            Payment Provider
-          </Text>
-          <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 14 }}>
-            {(['tyro', 'anz'] as const).map((p) => (
-              <TouchableOpacity
-                key={p}
-                style={{
-                  flex: 1,
-                  paddingVertical: 10,
-                  borderRadius: 10,
-                  borderWidth: 1.5,
-                  alignItems: 'center',
-                  borderColor: eftposProvider === p ? '#6366f1' : '#2a2a3a',
-                  backgroundColor: eftposProvider === p ? 'rgba(99,102,241,0.1)' : 'transparent',
-                }}
-                onPress={() => setEftposProvider(p)}
-                activeOpacity={0.7}
-              >
-                <Text style={{ color: eftposProvider === p ? '#6366f1' : '#888', fontWeight: '700', fontSize: 13 }}>
-                  {p === 'tyro' ? 'Tyro' : 'ANZ Worldline'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {eftposProvider === 'tyro' && (
-            <>
-              <View style={s.divider} />
-              <View style={s.row}>
-                <Text style={s.label}>Status</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isTyroInitialized() ? '#22c55e' : '#666' }} />
-                  <Text style={[s.value, { color: isTyroInitialized() ? '#22c55e' : '#666' }]}>
-                    {isTyroInitialized() ? 'Connected' : 'Not configured'}
-                  </Text>
-                </View>
-              </View>
-              <View style={s.divider} />
-              <View style={s.row}>
-                <Text style={s.label}>Environment</Text>
-                <Text style={s.value}>{tyroConfig.environment}</Text>
-              </View>
-            </>
-          )}
-          {eftposProvider === 'anz' && (
-            <>
-              <View style={s.divider} />
-              <View style={s.row}>
-                <Text style={s.label}>Status</Text>
-                <Text style={[s.value, { color: '#f59e0b' }]}>See configuration</Text>
-              </View>
-            </>
-          )}
-          {!eftposProvider && (
-            <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
-              <Text style={{ color: '#555', fontSize: 13 }}>
-                Select a payment provider above to configure EFTPOS.
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {eftposProvider ? (
-          <View style={s.btnRow}>
-            <TouchableOpacity
-              style={s.outlineBtn}
-              onPress={() =>
-                router.push(
-                  (eftposProvider === 'tyro' ? '/tyro-settings' : '/(pos)/anz-settings') as never,
-                )
-              }
-              activeOpacity={0.85}
-            >
-              <Ionicons name="settings-outline" size={16} color="#ccc" />
-              <Text style={s.outlineBtnText}>
-                Configure {eftposProvider === 'tyro' ? 'Tyro' : 'ANZ Worldline'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
         {/* ═══════ Sidebar ═══════ */}
         <Text style={[s.sectionTitle, { marginTop: 32 }]}>Sidebar</Text>
 
@@ -1202,44 +1111,10 @@ export default function MoreScreen() {
           {displaySettings.enabled && (
             <>
               <View style={s.divider} />
-              <View style={s.row}>
-                <Text style={s.label}>Show Logo</Text>
-                <Switch
-                  value={displaySettings.showLogo}
-                  onValueChange={(v) => setDisplaySettings({ showLogo: v })}
-                  trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
-                  thumbColor={displaySettings.showLogo ? '#6366f1' : '#555'}
-                />
-              </View>
-              <View style={s.divider} />
-              <View style={s.row}>
-                <Text style={s.label}>Show Line Items</Text>
-                <Switch
-                  value={displaySettings.showLineItems}
-                  onValueChange={(v) => setDisplaySettings({ showLineItems: v })}
-                  trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
-                  thumbColor={displaySettings.showLineItems ? '#6366f1' : '#555'}
-                />
-              </View>
-              <View style={s.divider} />
-              <View style={s.row}>
-                <Text style={s.label}>Show GST Breakdown</Text>
-                <Switch
-                  value={displaySettings.showGst}
-                  onValueChange={(v) => setDisplaySettings({ showGst: v })}
-                  trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
-                  thumbColor={displaySettings.showGst ? '#6366f1' : '#555'}
-                />
-              </View>
-              <View style={s.divider} />
-              <View style={s.row}>
-                <Text style={s.label}>Welcome Message</Text>
-                <Text style={s.value} numberOfLines={1}>{displaySettings.welcomeMessage}</Text>
-              </View>
-              <View style={s.divider} />
-              <View style={s.row}>
-                <Text style={s.label}>Thank-You Message</Text>
-                <Text style={s.value} numberOfLines={1}>{displaySettings.thankYouMessage}</Text>
+              <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
+                <Text style={{ color: '#555', fontSize: 12, lineHeight: 18 }}>
+                  Display content (messages, logo, line items) is configured in the Dashboard → Devices page.
+                </Text>
               </View>
             </>
           )}
