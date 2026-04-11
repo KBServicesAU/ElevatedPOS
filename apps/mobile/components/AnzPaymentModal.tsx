@@ -8,7 +8,6 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { ServerTerminalConfig } from '../store/device-settings';
 
 /**
  * ANZ Worldline TIM payment modal.
@@ -38,8 +37,8 @@ export interface AnzPaymentModalProps {
   visible: boolean;
   /** Sale amount in dollars */
   amount: number;
-  /** ANZ terminal config from server (must include terminalIp) */
-  config: Pick<ServerTerminalConfig, 'terminalIp' | 'terminalPort'>;
+  /** ANZ terminal config from server (terminalIp is required) */
+  config: { terminalIp: string; terminalPort?: number };
   /** Reference ID to associate with the transaction (e.g. local order timestamp) */
   referenceId?: string;
   title?: string;

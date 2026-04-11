@@ -92,10 +92,10 @@ export const useDeviceSettings = create<DeviceSettingsState>((set) => ({
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Returns the ANZ terminal config if that provider is configured server-side. */
-export function getServerAnzConfig(): (ServerTerminalConfig & { provider: 'anz' }) | null {
+export function getServerAnzConfig(): (ServerTerminalConfig & { provider: 'anz'; terminalIp: string }) | null {
   const cfg = useDeviceSettings.getState().config?.terminal;
   if (cfg?.provider === 'anz' && cfg.terminalIp) {
-    return cfg as ServerTerminalConfig & { provider: 'anz' };
+    return cfg as ServerTerminalConfig & { provider: 'anz'; terminalIp: string };
   }
   return null;
 }
