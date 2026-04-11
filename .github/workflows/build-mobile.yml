@@ -13,6 +13,13 @@ on:
         type: choice
         options: [all, production-pos, production-kds, production-kiosk]
 
+# Cancel any in-progress run for the same workflow when a newer tag is pushed.
+# Each matrix job (pos/kds/kiosk/dashboard) gets its own concurrency slot so
+# they can still run in parallel with each other.
+concurrency:
+  group: build-mobile-${{ matrix.role }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build ${{ matrix.role }} APK
