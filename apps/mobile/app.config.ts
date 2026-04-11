@@ -39,7 +39,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   owner: 'kbservicesau',
   name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
   slug: resolved?.slug ?? 'elevatedpos',
-  version: '1.6.0',
+  version: '1.8.3',
   scheme: 'elevatedpos',
   orientation: 'default',
   platforms: ['ios', 'android'],

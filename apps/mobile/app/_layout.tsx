@@ -1,3 +1,17 @@
+// Polyfill AbortSignal.timeout — not available in Hermes on older Android builds.
+// Must be at the top of the entry file before any fetch calls are made.
+if (typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout !== 'function') {
+  (AbortSignal as any).timeout = function timeout(ms: number): AbortSignal {
+    const controller = new AbortController();
+    setTimeout(() => {
+      const err = new Error('The operation timed out.');
+      err.name = 'TimeoutError';
+      controller.abort(err);
+    }, ms);
+    return controller.signal;
+  };
+}
+
 import { useEffect, useRef } from 'react';
 import { AppState, View } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
