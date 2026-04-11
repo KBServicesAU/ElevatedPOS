@@ -316,13 +316,17 @@ export default function PosSellScreen() {
       }
     } catch (err) {
       setCharging(false);
-      const msg = err instanceof Error ? err.message : 'Network error';
-      const isTimeout = msg.includes('timeout') || msg.includes('AbortError');
+      const msg = err instanceof Error ? err.message : String(err);
+      const isTimeout = msg.includes('timeout') || msg.includes('AbortError') || msg.includes('TimeoutError');
+      const isNetwork = msg.toLowerCase().includes('network request failed') || msg.toLowerCase().includes('failed to fetch');
+      const apiUrl = process.env['EXPO_PUBLIC_API_URL'] ?? '(not set)';
       Alert.alert(
         'Order Failed',
         isTimeout
-          ? 'The request timed out. Please check your internet connection and try again.'
-          : 'Could not reach the server. Please check your connection and try again.',
+          ? 'The request timed out. The server may be unreachable — check that this device has internet access.'
+          : isNetwork
+            ? `Cannot reach the server at ${apiUrl}.\n\nMake sure this device has internet access (not just local network). If you are on an isolated EFTPOS network, connect to a Wi-Fi with internet or use mobile data.`
+            : `Server error: ${msg}`,
       );
       return;
     }
