@@ -388,6 +388,157 @@ function TapIcon() {
 
 function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
+// ─── ANZ Worldline TIM Terminal Overlay ──────────────────────────────────────
+
+type AnzPhase = 'connecting' | 'waiting' | 'approved' | 'declined' | 'cancelled' | 'error';
+
+function AnzTerminalOverlay({
+  amount,
+  terminalIp,
+  terminalPort,
+  referenceId,
+  onApproved,
+  onFailed,
+  onCancel,
+}: {
+  amount: number;
+  terminalIp: string;
+  terminalPort: number;
+  referenceId?: string;
+  onApproved: (result: { responseCode: string; transactionId?: string; authCode?: string; cardLast4?: string }) => void;
+  onFailed: (msg: string) => void;
+  onCancel: () => void;
+}) {
+  const [phase, setPhase] = useState<AnzPhase>('connecting');
+  const [statusMsg, setStatusMsg] = useState('Connecting to terminal…');
+  const abortRef = useRef<AbortController | null>(null);
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    (async () => {
+      try {
+        setPhase('connecting');
+        setStatusMsg('Connecting to terminal…');
+        await delay(400);
+        if (controller.signal.aborted) return;
+
+        setPhase('waiting');
+        setStatusMsg('Waiting for card on terminal…');
+
+        const amountCents = Math.round(amount * 100);
+        const refId = referenceId ?? `WEB-${Date.now()}`;
+        const res = await fetch(`http://${terminalIp}:${terminalPort}/v1/payments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactionType: 'purchase', amount: amountCents, referenceId: refId }),
+          signal: controller.signal,
+        });
+
+        let data: Record<string, unknown> = {};
+        const text = await res.text().catch(() => '');
+        try { data = JSON.parse(text); } catch { /* use empty */ }
+
+        const responseCode = (data['responseCode'] as string) ?? String(res.status);
+        const approved = responseCode === '00';
+
+        if (approved) {
+          setPhase('approved');
+          setStatusMsg('Payment approved!');
+          await delay(800);
+          if (!controller.signal.aborted) {
+            onApproved({
+              responseCode,
+              transactionId: data['transactionId'] as string | undefined,
+              authCode: data['authorizationCode'] as string | undefined,
+              cardLast4: (data['maskedPan'] as string | undefined)?.slice(-4),
+            });
+          }
+        } else {
+          const responseText = (data['responseText'] as string) ?? 'Declined';
+          setPhase('declined');
+          setStatusMsg(`Declined: ${responseText}`);
+          await delay(1500);
+          if (!controller.signal.aborted) onFailed(responseText);
+        }
+      } catch (err) {
+        if (controller.signal.aborted) {
+          setPhase('cancelled');
+          setStatusMsg('Transaction cancelled.');
+          await delay(600);
+          onCancel();
+          return;
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        const isNet = msg.toLowerCase().includes('network') || msg.toLowerCase().includes('failed to fetch');
+        setPhase('error');
+        setStatusMsg(
+          isNet
+            ? 'Could not reach the terminal. Check the device is on the same Wi-Fi network as the terminal.'
+            : msg,
+        );
+        await delay(2000);
+        if (!controller.signal.aborted) onFailed(msg);
+      } finally {
+        abortRef.current = null;
+      }
+    })();
+
+    return () => { controller.abort(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const phaseColor: Record<AnzPhase, string> = {
+    connecting: '#6366f1',
+    waiting:    '#6366f1',
+    approved:   '#4ade80',
+    declined:   '#f87171',
+    cancelled:  '#94a3b8',
+    error:      '#f87171',
+  };
+  const color = phaseColor[phase];
+  const isProcessing = phase === 'connecting' || phase === 'waiting';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-2xl border bg-[#0f0f1a] p-8 shadow-2xl" style={{ borderColor: color + '55' }}>
+        {/* Icon / Spinner */}
+        <div className="mb-6 flex flex-col items-center justify-center rounded-2xl border-2 py-10 transition-all duration-500"
+          style={{ borderColor: color, backgroundColor: color + '18' }}>
+          {phase === 'approved' ? (
+            <CheckCircle className="h-12 w-12" style={{ color }} />
+          ) : phase === 'declined' || phase === 'error' ? (
+            <AlertCircle className="h-12 w-12" style={{ color }} />
+          ) : phase === 'cancelled' ? (
+            <AlertCircle className="h-12 w-12 opacity-50" style={{ color }} />
+          ) : phase === 'waiting' ? (
+            <TapIcon />
+          ) : (
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: color, borderTopColor: 'transparent' }} />
+          )}
+          <p className="mt-4 text-lg font-bold" style={{ color }}>{statusMsg}</p>
+          <p className="mt-1 text-2xl font-extrabold text-white">${amount.toFixed(2)}</p>
+          <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: color + '99' }}>ANZ Worldline</p>
+        </div>
+
+        {isProcessing && (
+          <button
+            onClick={() => abortRef.current?.abort()}
+            className="w-full rounded-xl border border-[#2a2a3a] bg-[#141425] py-3 text-sm font-semibold text-gray-400 hover:text-white"
+          >
+            Cancel Transaction
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Add Tender Dialog ────────────────────────────────────────────────────────
 
 function AddTenderDialog({
@@ -408,19 +559,19 @@ function AddTenderDialog({
   const [cashTenderedStr, setCashTenderedStr] = useState('');
   const [giftCode, setGiftCode] = useState('');
   const [bnplProvider, setBnplProvider] = useState<'afterpay' | 'zip'>('afterpay');
-  const [showTerminal, setShowTerminal] = useState<false | 'stripe' | 'tyro'>(false);
+  const [showTerminal, setShowTerminal] = useState<false | 'stripe' | 'tyro' | 'anz'>(false);
   const [paymentSettings, setPaymentSettings] = useState<{ cardSurchargeRate: number; cashRoundingEnabled: boolean } | null>(null);
   const [tyroConfig, setTyroConfig] = useState<TyroConfig | null>(null);
-  const [eftposProvider, setEftposProvider] = useState<'stripe' | 'tyro'>('tyro'); // Default to Tyro for in-store
+  const [anzConfig, setAnzConfig] = useState<{ terminalIp: string; terminalPort: number } | null>(null);
+  const [eftposProvider, setEftposProvider] = useState<'stripe' | 'tyro' | 'anz'>('tyro');
 
   // Fetch device's terminal config on mount to determine EFTPOS provider
   useEffect(() => {
-    // Get deviceId from device-auth if available
     const deviceId = typeof window !== 'undefined' ? localStorage.getItem('elevatedpos_device_id') : null;
     const url = deviceId ? `/api/tyro/config?deviceId=${deviceId}` : '/api/tyro/config';
     fetch(url)
       .then(r => r.ok ? r.json() : null)
-      .then((data: { configured?: boolean; provider?: string; apiKey?: string; merchantId?: string; terminalId?: string; testMode?: boolean; tyroHandlesSurcharge?: boolean } | null) => {
+      .then((data: { configured?: boolean; provider?: string; apiKey?: string; merchantId?: string; terminalId?: string; testMode?: boolean; tyroHandlesSurcharge?: boolean; terminalIp?: string; terminalPort?: number } | null) => {
         if (!data?.configured) return;
         if (data.provider === 'tyro' && data.apiKey) {
           setEftposProvider('tyro');
@@ -431,11 +582,11 @@ function AddTenderDialog({
             testMode: data.testMode ?? true,
             tyroHandlesSurcharge: data.tyroHandlesSurcharge ?? false,
           });
-        } else if (data.provider === 'anz') {
-          // ANZ Worldline uses server-side processing
-          setEftposProvider('tyro'); // Still use Tyro overlay for now, ANZ has its own flow
+        } else if (data.provider === 'anz' && data.terminalIp) {
+          setEftposProvider('anz');
+          setAnzConfig({ terminalIp: data.terminalIp, terminalPort: data.terminalPort ?? 8080 });
         } else {
-          setEftposProvider('tyro'); // Default to Tyro for all in-store payments
+          setEftposProvider('tyro'); // Default fallback
         }
       })
       .catch(() => {});
@@ -497,6 +648,28 @@ function AddTenderDialog({
     };
     onAdd(tender);
   };
+
+  if (showTerminal === 'anz' && anzConfig) {
+    return (
+      <AnzTerminalOverlay
+        amount={cardChargeTotal}
+        terminalIp={anzConfig.terminalIp}
+        terminalPort={anzConfig.terminalPort}
+        referenceId={orderId}
+        onApproved={(result) => {
+          onAdd({
+            id: newTenderId(),
+            method: 'card',
+            amount: cardChargeTotal,
+            cardLast4: result.cardLast4,
+            ...(surchargeAmt > 0 ? { surchargeAmount: surchargeAmt } : {}),
+          });
+        }}
+        onFailed={() => setShowTerminal(false)}
+        onCancel={() => setShowTerminal(false)}
+      />
+    );
+  }
 
   if (showTerminal === 'tyro') {
     const tyroAmount = tyroConfig?.tyroHandlesSurcharge ? amount : cardChargeTotal;
