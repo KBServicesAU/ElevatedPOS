@@ -30,6 +30,8 @@ export interface ReceiptData {
   lines: ReceiptLine[];
   subtotalExGst: number;
   gst: number;
+  surchargeAmount?: number;
+  tipAmount?: number;
   total: number;
   tenders: { method: string; amount: number; change?: number }[];
 }
@@ -140,6 +142,12 @@ export function buildReceiptBytes(data: ReceiptData): Uint8Array {
   line(DIVIDER);
   line(padRow('Subtotal (ex. GST)', formatMoney(data.subtotalExGst)));
   line(padRow('GST (10%)', formatMoney(data.gst)));
+  if (data.surchargeAmount && data.surchargeAmount > 0) {
+    line(padRow('Surcharge', formatMoney(data.surchargeAmount)));
+  }
+  if (data.tipAmount && data.tipAmount > 0) {
+    line(padRow('Tip', formatMoney(data.tipAmount)));
+  }
   push(CMD.BOLD_ON);
   line(padRow('TOTAL', formatMoney(data.total)));
   push(CMD.BOLD_OFF);

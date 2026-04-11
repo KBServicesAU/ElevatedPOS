@@ -228,7 +228,11 @@ export default function PosSellScreen() {
   }
 
   // ── Charge ───────────────────────────────────────────────────────
-  async function handleCharge(paymentMethod: 'Card' | 'Cash' | 'Split' = 'Card', changeGiven = 0) {
+  async function handleCharge(
+    paymentMethod: 'Card' | 'Cash' | 'Split' = 'Card',
+    changeGiven = 0,
+    tyroExtras?: { tipCents?: number; surchargeCents?: number; transactionTotalCents?: number },
+  ) {
     if (cart.length === 0) return;
     setCharging(true);
 
@@ -237,6 +241,13 @@ export default function PosSellScreen() {
     const printerConfig = usePrinterStore.getState().config;
     const orderTotal = total;
     const orderGst = +gst.toFixed(2);
+
+    // Actual amount charged by Tyro (includes surcharge + tip). Falls back to cart total.
+    const tipDollars = tyroExtras?.tipCents ? tyroExtras.tipCents / 100 : 0;
+    const surchargeDollars = tyroExtras?.surchargeCents ? tyroExtras.surchargeCents / 100 : 0;
+    const paidTotal = tyroExtras?.transactionTotalCents
+      ? tyroExtras.transactionTotalCents / 100
+      : orderTotal;
     const orderItems = cart.map((i) => ({
       productId: i.id,
       name: i.name,
@@ -284,7 +295,7 @@ export default function PosSellScreen() {
         await fetch(`${base}/api/v1/orders/${orderId}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ paidTotal: orderTotal, changeGiven }),
+          body: JSON.stringify({ paidTotal, changeGiven, tipAmount: tipDollars || undefined, surchargeAmount: surchargeDollars || undefined }),
           signal: AbortSignal.timeout(15000),
         });
       } catch {
@@ -313,11 +324,13 @@ export default function PosSellScreen() {
           items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price })),
           subtotal: orderTotal - orderGst,
           gst: orderGst,
-          total: orderTotal,
+          total: paidTotal,
           paymentMethod,
           cashierName: authEmployee
             ? `${authEmployee.firstName} ${authEmployee.lastName}`
             : undefined,
+          surchargeAmount: surchargeDollars || undefined,
+          tipAmount: tipDollars || undefined,
         });
       } catch {
         // Print failed — don't block order
@@ -339,7 +352,7 @@ export default function PosSellScreen() {
 
     clearCart();
     if (displaySettings.enabled) showThankYou();
-    toast.success('Order Placed', `Order #${orderNumber} — $${orderTotal.toFixed(2)}`);
+    toast.success('Order Placed', `Order #${orderNumber} — $${paidTotal.toFixed(2)}`);
     setCharging(false);
   }
 
@@ -439,6 +452,11 @@ export default function PosSellScreen() {
     if (split) setPendingSplit(null);
 
     if (outcome === 'APPROVED') {
+      // Extract tip and surcharge from the Tyro result (values are in cents as strings).
+      const tipCents = result.tipAmount ? parseInt(String(result.tipAmount), 10) : 0;
+      const surchargeCents = result.surchargeAmount ? parseInt(String(result.surchargeAmount), 10) : 0;
+      const transactionTotalCents = result.transactionAmount ? parseInt(String(result.transactionAmount), 10) : 0;
+
       // Print the Tyro merchant receipt (with signature line if required)
       // before finalising the sale. Best-effort — never block the success
       // flow if the printer is offline.
@@ -455,9 +473,13 @@ export default function PosSellScreen() {
         }
       }
 
-      // Finalise the sale. If this was a split payment we also report
-      // the cash portion + change due.
-      handleCharge(split ? 'Split' : 'Card');
+      // Finalise the sale, passing Tyro extras so tip/surcharge are stored
+      // with the order and shown on the POS receipt.
+      handleCharge(split ? 'Split' : 'Card', 0, {
+        tipCents: tipCents || undefined,
+        surchargeCents: surchargeCents || undefined,
+        transactionTotalCents: transactionTotalCents || undefined,
+      });
 
       if (split) {
         setSplitCardAmount('');

@@ -47,6 +47,7 @@ interface TyroPurchaseRequest {
   amount: string;        // cents as string per Tyro docs
   cashout?: string;      // cents as string
   integratedReceipt: boolean;
+  enableSurcharge?: boolean;
   mid?: number;          // override paired merchant ID
   tid?: number;          // override paired terminal ID
   integrationKey?: string;
@@ -214,6 +215,7 @@ export function initiateTyroPurchase(
         {
           amount: String(Math.round(amountCents)), // string in cents per Tyro docs
           integratedReceipt: true,
+          enableSurcharge: config.tyroHandlesSurcharge,
           mid: config.merchantId ? parseInt(config.merchantId) : undefined,
           tid: config.terminalId ? parseInt(config.terminalId) : undefined,
         },

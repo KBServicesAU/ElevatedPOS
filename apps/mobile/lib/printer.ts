@@ -281,6 +281,8 @@ export async function printReceipt(opts: {
   total: number;
   paymentMethod?: string;
   cashierName?: string;
+  surchargeAmount?: number;
+  tipAmount?: number;
 }): Promise<void> {
   if (!loadPrinterModules()) throw new Error('Printer module not available.');
   const { type, paperWidth } = usePrinterStore.getState().config;
@@ -317,6 +319,12 @@ export async function printReceipt(opts: {
   receipt += dash + '\n';
   receipt += pad('Subtotal (ex GST)', `$${opts.subtotal.toFixed(2)}`) + '\n';
   receipt += pad('GST (10%)', `$${opts.gst.toFixed(2)}`) + '\n';
+  if (opts.surchargeAmount && opts.surchargeAmount > 0) {
+    receipt += pad('Surcharge', `$${opts.surchargeAmount.toFixed(2)}`) + '\n';
+  }
+  if (opts.tipAmount && opts.tipAmount > 0) {
+    receipt += pad('Tip', `$${opts.tipAmount.toFixed(2)}`) + '\n';
+  }
   receipt += line + '\n';
   receipt += `<B>${pad('TOTAL', `$${opts.total.toFixed(2)}`)}</B>\n`;
   receipt += line + '\n';

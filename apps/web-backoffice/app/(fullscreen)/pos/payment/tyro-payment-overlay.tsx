@@ -24,6 +24,7 @@ interface TyroPaymentOverlayProps {
     authCode: string;
     receiptData?: { merchantReceipt?: string; customerReceipt?: string };
     surchargeAmount?: number;
+    tipAmount?: number;
     totalAmount?: number;
   }) => void;
   /** Called when transaction is declined/cancelled/failed */
@@ -95,6 +96,7 @@ export function TyroPaymentOverlay({
                 ? { merchantReceipt: result.merchantReceipt, customerReceipt: result.customerReceipt }
                 : undefined,
               surchargeAmount: result.surchargeAmount ? parseFloat(result.surchargeAmount) : undefined,
+              tipAmount: result.tipAmount ? parseFloat(result.tipAmount) : undefined,
               totalAmount: result.transactionAmount ? parseFloat(result.transactionAmount) : undefined,
             });
           }, 800);

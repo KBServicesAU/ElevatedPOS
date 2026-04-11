@@ -34,6 +34,7 @@ interface Tender {
   cardBrand?: string;
   paymentIntentId?: string;
   surchargeAmount?: number;
+  tipAmount?: number;
   /** Tyro-specific fields */
   tyroTransactionRef?: string;
   tyroReceiptData?: { merchantReceipt?: string; customerReceipt?: string };
@@ -506,6 +507,7 @@ function AddTenderDialog({
         onApproved={(result) => {
           const finalAmount = result.totalAmount ?? tyroAmount;
           const tyrSurcharge = result.surchargeAmount ?? 0;
+          const tyrTip = result.tipAmount ?? 0;
           onAdd({
             id: newTenderId(),
             method: 'card',
@@ -515,6 +517,7 @@ function AddTenderDialog({
             tyroTransactionRef: result.transactionRef,
             tyroReceiptData: result.receiptData,
             ...(tyrSurcharge > 0 ? { surchargeAmount: tyrSurcharge } : surchargeAmt > 0 ? { surchargeAmount: surchargeAmt } : {}),
+            ...(tyrTip > 0 ? { tipAmount: tyrTip } : {}),
           });
         }}
         onFailed={() => setShowTerminal(false)}
@@ -876,6 +879,7 @@ function PaymentContent() {
       const orderId = orderIdRef.current;
       const cardTender = tenders.find((t) => t.method === 'card');
       const surchargeAmount = cardTender?.surchargeAmount ?? 0;
+      const tipAmount = cardTender?.tipAmount ?? 0;
       const primaryMethod = tenders[0]?.method ?? 'cash';
       const createdAt = new Date().toISOString();
       const deviceInfo = getDeviceInfo();
@@ -936,6 +940,7 @@ function PaymentContent() {
           ...(customerId ? { customerId } : {}),
           ...(staffId ? { staffId } : {}),
           ...(surchargeAmount > 0 ? { surchargeAmount } : {}),
+          ...(tipAmount > 0 ? { tipAmount } : {}),
           lines: items.map((i) => {
             let discountAmount = 0;
             if (i.discount) {
@@ -997,6 +1002,8 @@ function PaymentContent() {
           }),
           subtotalExGst: exGst,
           gst,
+          surchargeAmount: surchargeAmount > 0 ? surchargeAmount : undefined,
+          tipAmount: tipAmount > 0 ? tipAmount : undefined,
           total,
           tenders: tenders.map((t) => ({
             method: METHOD_META[t.method].label,
@@ -1093,6 +1100,12 @@ function PaymentContent() {
                     </span>
                   )}
                   <span className="ml-auto text-base font-bold text-white">${t.amount.toFixed(2)}</span>
+                  {t.surchargeAmount && t.surchargeAmount > 0 && (
+                    <span className="text-xs text-yellow-400">surcharge ${t.surchargeAmount.toFixed(2)}</span>
+                  )}
+                  {t.tipAmount && t.tipAmount > 0 && (
+                    <span className="text-xs text-purple-400">tip ${t.tipAmount.toFixed(2)}</span>
+                  )}
                   {t.change && t.change > 0 && (
                     <span className="text-xs text-green-400">change ${t.change.toFixed(2)}</span>
                   )}
