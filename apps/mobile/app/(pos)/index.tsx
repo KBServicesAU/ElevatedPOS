@@ -34,6 +34,11 @@ import {
   TyroTransactionModal,
   type TyroTransactionOutcome,
 } from '../../components/TyroTransactionModal';
+import { useAnzStore, isAnzConfigured } from '../../store/anz';
+import {
+  AnzPaymentModal,
+  type AnzPaymentResult,
+} from '../../components/AnzPaymentModal';
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -114,11 +119,19 @@ export default function PosSellScreen() {
   const tyroConfig = useTyroStore((s) => s.config);
   const hydrateTyro = useTyroStore((s) => s.hydrate);
 
+  // ANZ Worldline TIM payment modal
+  const [showAnzModal, setShowAnzModal] = useState(false);
+  const [anzAmount, setAnzAmount] = useState(0);
+  const [anzRefId, setAnzRefId] = useState('');
+  const anzConfig = useAnzStore((s) => s.config);
+  const hydrateAnz = useAnzStore((s) => s.hydrate);
+
   // Fetch catalog + hydrate customer display on mount
   useEffect(() => {
     fetchAll();
     hydrateDisplay();
     hydrateTyro();
+    hydrateAnz();
     hydrateUnavailable();
   }, []);
 
@@ -437,6 +450,14 @@ export default function PosSellScreen() {
       return;
     }
 
+    // ANZ Worldline TIM — direct HTTP call to terminal on local network
+    if (isAnzConfigured()) {
+      setAnzAmount(total);
+      setAnzRefId(`POS-${Date.now()}`);
+      setShowAnzModal(true);
+      return;
+    }
+
     // Fallback: direct charge without EFTPOS (dev / demo mode)
     handleCharge('Card');
   }
@@ -547,6 +568,48 @@ export default function PosSellScreen() {
     );
   }
 
+  // ── Handle ANZ TIM payment result ────────────────────────────────
+  function handleAnzApproved(result: AnzPaymentResult) {
+    setShowAnzModal(false);
+
+    const split = pendingSplit;
+    if (split) setPendingSplit(null);
+
+    // ANZ TIM doesn't expose surcharge/tip separately — charge the plain cart total.
+    handleCharge(split ? 'Split' : 'Card');
+
+    const cardDesc = result.cardType
+      ? `${result.cardType} ••••${result.cardLast4 ?? ''}`
+      : `Auth: ${result.authCode ?? result.transactionId ?? 'OK'}`;
+
+    if (split) {
+      setSplitCardAmount('');
+      setSplitCashAmount('');
+      const msg =
+        split.change > 0
+          ? `Card $${split.cardAmt.toFixed(2)} · Cash $${split.cashAmt.toFixed(2)} · Change $${split.change.toFixed(2)}`
+          : `Card $${split.cardAmt.toFixed(2)} · Cash $${split.cashAmt.toFixed(2)}`;
+      toast.success('Split Payment Complete', msg);
+    } else {
+      toast.success('Payment Approved', cardDesc);
+    }
+  }
+
+  function handleAnzDeclined(result: AnzPaymentResult) {
+    setShowAnzModal(false);
+    toast.error('Card Declined', result.responseText || 'The card was declined by the bank.');
+  }
+
+  function handleAnzCancelled() {
+    setShowAnzModal(false);
+    toast.warning('Payment Cancelled', 'The ANZ transaction was cancelled.');
+  }
+
+  function handleAnzError(message: string) {
+    setShowAnzModal(false);
+    toast.error('EFTPOS Error', message);
+  }
+
   function handlePayCash() {
     const tendered = parseFloat(cashTendered) || 0;
     if (tendered < total) {
@@ -609,7 +672,18 @@ export default function PosSellScreen() {
       return;
     }
 
-    // Cash-only or Tyro unavailable — fall through to the legacy flow.
+    // Route card portion through ANZ TIM if configured and Tyro is not available.
+    if (cardAmt > 0 && isAnzConfigured()) {
+      setShowPayment(false);
+      setSplitMode(false);
+      setPendingSplit({ cardAmt, cashAmt, change });
+      setAnzAmount(cardAmt);
+      setAnzRefId(`POS-SPLIT-${Date.now()}`);
+      setShowAnzModal(true);
+      return;
+    }
+
+    // Cash-only or no EFTPOS — fall through to the legacy flow.
     setShowPayment(false);
     setSplitMode(false);
     setSplitCardAmount('');
@@ -1406,6 +1480,21 @@ export default function PosSellScreen() {
         onComplete={handleTyroComplete}
         onClose={() => setShowTyroModal(false)}
       />
+
+      {/* ═══ ANZ Worldline TIM Payment Modal ═══ */}
+      {showAnzModal && (
+        <AnzPaymentModal
+          visible={showAnzModal}
+          amount={anzAmount}
+          config={anzConfig}
+          referenceId={anzRefId}
+          title="Card Payment"
+          onApproved={handleAnzApproved}
+          onDeclined={handleAnzDeclined}
+          onCancelled={handleAnzCancelled}
+          onError={handleAnzError}
+        />
+      )}
 
     </SafeAreaView>
   );

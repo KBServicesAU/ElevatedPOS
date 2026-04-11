@@ -21,6 +21,7 @@ import {
   TyroTransactionModal,
   type TyroTransactionOutcome,
 } from '../../components/TyroTransactionModal';
+import { useAnzStore, isAnzConfigured } from '../../store/anz';
 
 const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
 
@@ -38,6 +39,7 @@ export default function OrdersScreen() {
   const identity = useDeviceStore((s) => s.identity);
   const employeeToken = useAuthStore((s) => s.employeeToken);
   const tyroConfig = useTyroStore((s) => s.config);
+  const anzConfig = useAnzStore((s) => s.config);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +50,7 @@ export default function OrdersScreen() {
   const [refundAmount, setRefundAmount] = useState('');
   const [showTyroModal, setShowTyroModal] = useState(false);
   const [tyroAmount, setTyroAmount] = useState(0);
+  const [anzRefunding, setAnzRefunding] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -96,38 +99,132 @@ export default function OrdersScreen() {
     setShowRefund(true);
   }
 
-  function startRefund() {
+  async function startRefund() {
     if (!refundOrder) return;
     const dollars = parseFloat(refundAmount) || 0;
     if (dollars <= 0) {
       toast.warning('Invalid amount', 'Refund amount must be greater than zero.');
       return;
     }
-    if (!isTyroInitialized()) {
-      toast.warning(
-        'Tyro Not Ready',
-        'Initialise Tyro in the Tyro EFTPOS settings before processing refunds.',
-      );
+
+    // ── Tyro refund ──────────────────────────────────────────────────
+    if (isTyroInitialized()) {
+      setShowRefund(false);
+      setTyroAmount(dollars);
+      setShowTyroModal(true);
+
+      const amountCents = String(Math.round(dollars * 100));
+      try {
+        tyroRefund(amountCents, {
+          integratedReceipt: tyroConfig.integratedReceipts,
+          transactionId: `POS-REFUND-${refundOrder.orderNumber}-${Date.now()}`,
+        });
+      } catch (err) {
+        setShowTyroModal(false);
+        toast.error(
+          'Refund Failed',
+          err instanceof Error ? err.message : 'Failed to start the refund on the terminal.',
+        );
+      }
       return;
     }
 
-    setShowRefund(false);
-    setTyroAmount(dollars);
-    setShowTyroModal(true);
+    // ── ANZ Worldline TIM refund (direct HTTP to terminal) ───────────
+    if (isAnzConfigured()) {
+      setShowRefund(false);
+      setAnzRefunding(true);
+      const token = employeeToken ?? identity?.deviceToken ?? '';
+      const amountCents = Math.round(dollars * 100);
+      const ip = anzConfig.terminalIp.trim();
+      const port = anzConfig.terminalPort || 8080;
+      const refId = `POS-REFUND-${refundOrder.orderNumber}-${Date.now()}`;
 
-    const amountCents = String(Math.round(dollars * 100));
-    try {
-      tyroRefund(amountCents, {
-        integratedReceipt: tyroConfig.integratedReceipts,
-        transactionId: `POS-REFUND-${refundOrder.orderNumber}-${Date.now()}`,
-      });
-    } catch (err) {
-      setShowTyroModal(false);
-      toast.error(
-        'Refund Failed',
-        err instanceof Error ? err.message : 'Failed to start the refund on the terminal.',
-      );
+      try {
+        // Try to get the original acquirer transaction ID from the backend
+        let originalTransactionId: string | undefined;
+        try {
+          const paymentsRes = await fetch(
+            `${API_BASE}/api/v1/payments?orderId=${refundOrder.id}&limit=1`,
+            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) },
+          );
+          if (paymentsRes.ok) {
+            const paymentsData = await paymentsRes.json();
+            const firstPayment = (paymentsData.data ?? [])[0] as { acquirerTransactionId?: string } | undefined;
+            originalTransactionId = firstPayment?.acquirerTransactionId;
+          }
+        } catch {
+          // Continue without originalTransactionId — terminal handles standalone refund
+        }
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 90_000);
+        const res = await fetch(`http://${ip}:${port}/v1/refunds`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transactionType: 'refund',
+            amount: amountCents,
+            referenceId: refId,
+            ...(originalTransactionId ? { originalTransactionId } : {}),
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+
+        let data: Record<string, unknown> = {};
+        const text = await res.text().catch(() => '');
+        try { data = JSON.parse(text); } catch { /* use empty */ }
+
+        const responseCode = (data['responseCode'] as string) ?? String(res.status);
+        const approved = responseCode === '00';
+
+        if (approved) {
+          // Record the refund on the backend (best-effort)
+          try {
+            const lines = refundOrder.lines && refundOrder.lines.length > 0
+              ? refundOrder.lines.map((l) => ({
+                  orderLineId: (l as { id?: string; orderLineId?: string }).id
+                    ?? (l as { id?: string; orderLineId?: string }).orderLineId
+                    ?? '',
+                  quantity: l.quantity,
+                  amount: Number(l.unitPrice) * l.quantity,
+                })).filter((l) => l.orderLineId)
+              : [{ orderLineId: refundOrder.id, quantity: 1, amount: dollars }];
+            await fetch(`${API_BASE}/api/v1/orders/${refundOrder.id}/refund`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({
+                reason: `Card refund via ANZ Worldline — ref: ${(data['transactionId'] as string) ?? refId}`,
+                refundMethod: 'original',
+                lines,
+              }),
+              signal: AbortSignal.timeout(5000),
+            });
+          } catch { /* offline — treat as success locally */ }
+
+          toast.success('Refund Approved', `$${dollars.toFixed(2)} refunded via ANZ.`);
+          setRefundOrder(null);
+          setRefundAmount('');
+          fetchOrders();
+        } else {
+          toast.error(
+            'Refund Declined',
+            (data['responseText'] as string) ?? `Terminal declined (${responseCode})`,
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.error('Refund Failed', msg.includes('abort') ? 'Refund timed out — check the terminal.' : msg);
+      } finally {
+        setAnzRefunding(false);
+      }
+      return;
     }
+
+    toast.warning(
+      'No EFTPOS Configured',
+      'Configure Tyro or ANZ Worldline in Settings before processing refunds.',
+    );
   }
 
   async function handleTyroComplete(outcomeEvent: TyroTransactionOutcome) {
@@ -328,12 +425,18 @@ export default function OrdersScreen() {
               placeholderTextColor="#444"
             />
             <Text style={s.modalHint}>
-              The refund will be processed on the Tyro terminal. The customer must tap the
-              same card that was used for the original purchase.
+              The refund will be processed on the EFTPOS terminal. The customer must present
+              the same card used for the original purchase.
             </Text>
-            <TouchableOpacity style={s.modalPrimaryBtn} onPress={startRefund}>
+            <TouchableOpacity
+              style={[s.modalPrimaryBtn, anzRefunding && { opacity: 0.6 }]}
+              onPress={startRefund}
+              disabled={anzRefunding}
+            >
               <Ionicons name="return-up-back" size={16} color="#fff" />
-              <Text style={s.modalPrimaryText}>Start Refund</Text>
+              <Text style={s.modalPrimaryText}>
+                {anzRefunding ? 'Processing…' : 'Start Refund'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={s.modalSecondaryBtn}

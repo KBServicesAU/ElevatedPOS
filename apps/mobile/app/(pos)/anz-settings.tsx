@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Switch,
@@ -11,59 +12,40 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
+import { useAnzStore, type AnzConfig } from '../../store/anz';
 import { confirm, toast } from '../../components/ui';
-
-/* ------------------------------------------------------------------ */
-/* Types & constants                                                   */
-/* ------------------------------------------------------------------ */
-
-const STORAGE_KEY = 'elevatedpos_anz_config';
-
-interface ANZConfig {
-  merchantId: string;
-  terminalId: string;
-  merchantName: string;
-  environment: 'production' | 'development';
-  enableSurcharge: boolean;
-  enableTipping: boolean;
-}
-
-const DEFAULTS: ANZConfig = {
-  merchantId: '',
-  terminalId: '',
-  merchantName: '',
-  environment: 'production',
-  enableSurcharge: false,
-  enableTipping: false,
-};
 
 /* ------------------------------------------------------------------ */
 /* Screen                                                              */
 /* ------------------------------------------------------------------ */
 
 export default function ANZSettingsScreen() {
-  const [config, setConfig] = useState<ANZConfig>(DEFAULTS);
+  const { config, ready, hydrate, setConfig, clearConfig } = useAnzStore();
+  const [local, setLocal] = useState<AnzConfig>(config);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
-    SecureStore.getItemAsync(STORAGE_KEY).then((raw) => {
-      if (raw) {
-        try {
-          setConfig({ ...DEFAULTS, ...JSON.parse(raw) });
-        } catch { /* ignore */ }
-      }
-    });
+    hydrate();
   }, []);
 
+  // Sync local form state when store hydrates
+  useEffect(() => {
+    if (ready) setLocal(config);
+  }, [ready]);
+
+  function update(patch: Partial<AnzConfig>) {
+    setLocal((c) => ({ ...c, ...patch }));
+  }
+
   async function handleSave() {
-    if (!config.merchantId.trim() || !config.terminalId.trim()) {
-      toast.warning('Required Fields', 'Merchant ID and Terminal ID are required.');
+    if (!local.terminalIp.trim()) {
+      toast.warning('Required', 'Terminal IP address is required to process payments.');
       return;
     }
     setSaving(true);
     try {
-      await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(config));
+      await setConfig(local);
       toast.success('Saved', 'ANZ Worldline settings updated.');
     } catch {
       toast.error('Error', 'Could not save settings.');
@@ -72,23 +54,54 @@ export default function ANZSettingsScreen() {
     }
   }
 
+  async function handleTestConnection() {
+    if (!local.terminalIp.trim()) {
+      toast.warning('Required', 'Enter the terminal IP address first.');
+      return;
+    }
+    setTesting(true);
+    try {
+      const port = local.terminalPort || 8080;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`http://${local.terminalIp.trim()}:${port}/v1/status`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json().catch(() => ({})) as { status?: string; terminalId?: string };
+        const detail = data.status ? `Status: ${data.status}` : 'Terminal responded.';
+        toast.success('Connected', detail);
+      } else {
+        toast.warning('Unreachable', `Terminal returned HTTP ${res.status}.`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('abort') || msg.includes('timeout')) {
+        toast.error('Timeout', 'No response from terminal. Check the IP and that the device is on the same network.');
+      } else {
+        toast.error('Connection Failed', msg);
+      }
+    } finally {
+      setTesting(false);
+    }
+  }
+
   async function handleClear() {
     const ok = await confirm({
       title: 'Clear ANZ Settings',
       description:
-        'This will clear all ANZ Worldline configuration including Merchant ID and Terminal ID.',
+        'This will clear all ANZ Worldline configuration including the terminal IP address.',
       confirmLabel: 'Clear',
       destructive: true,
     });
     if (!ok) return;
-    setConfig(DEFAULTS);
-    await SecureStore.deleteItemAsync(STORAGE_KEY).catch(() => {});
+    await clearConfig();
+    setLocal({ merchantId: '', terminalId: '', merchantName: '', environment: 'production', enableSurcharge: false, enableTipping: false, terminalIp: '', terminalPort: 8080 });
     toast.success('Cleared', 'ANZ Worldline settings removed.');
   }
 
-  function update(patch: Partial<ANZConfig>) {
-    setConfig((c) => ({ ...c, ...patch }));
-  }
+  const isConfigured = !!config.terminalIp.trim();
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -105,7 +118,7 @@ export default function ANZSettingsScreen() {
         <View style={styles.card}>
           <View style={styles.row}>
             <Text style={styles.label}>Provider</Text>
-            <Text style={styles.value}>ANZ Worldline</Text>
+            <Text style={styles.value}>ANZ Worldline TIM</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
@@ -116,39 +129,70 @@ export default function ANZSettingsScreen() {
                   width: 8,
                   height: 8,
                   borderRadius: 4,
-                  backgroundColor:
-                    config.merchantId && config.terminalId ? '#22c55e' : '#666',
+                  backgroundColor: isConfigured ? '#22c55e' : '#666',
                 }}
               />
-              <Text
-                style={[
-                  styles.value,
-                  {
-                    color:
-                      config.merchantId && config.terminalId ? '#22c55e' : '#888',
-                  },
-                ]}
-              >
-                {config.merchantId && config.terminalId
-                  ? 'Configured'
-                  : 'Not configured'}
+              <Text style={[styles.value, { color: isConfigured ? '#22c55e' : '#888' }]}>
+                {isConfigured ? 'Configured' : 'Not configured'}
               </Text>
             </View>
           </View>
-          {config.merchantId ? (
+          {isConfigured && (
             <>
               <View style={styles.divider} />
               <View style={styles.row}>
-                <Text style={styles.label}>Merchant ID</Text>
-                <Text style={styles.value}>{config.merchantId}</Text>
-              </View>
-              <View style={styles.divider} />
-              <View style={styles.row}>
-                <Text style={styles.label}>Terminal ID</Text>
-                <Text style={styles.value}>{config.terminalId}</Text>
+                <Text style={styles.label}>Terminal IP</Text>
+                <Text style={styles.value}>{config.terminalIp}:{config.terminalPort || 8080}</Text>
               </View>
             </>
-          ) : null}
+          )}
+        </View>
+
+        {/* ─── Terminal Connection ─────────────────── */}
+        <Text style={styles.sectionTitle}>Terminal Connection</Text>
+        <View style={styles.card}>
+          <Text style={styles.inputLabel}>Terminal IP Address *</Text>
+          <TextInput
+            style={styles.input}
+            value={local.terminalIp}
+            onChangeText={(v) => update({ terminalIp: v })}
+            placeholder="e.g. 192.168.1.100"
+            placeholderTextColor="#555"
+            autoCorrect={false}
+            autoCapitalize="none"
+            keyboardType="decimal-pad"
+          />
+
+          <Text style={[styles.inputLabel, { marginTop: 14 }]}>Terminal Port</Text>
+          <TextInput
+            style={styles.input}
+            value={String(local.terminalPort || 8080)}
+            onChangeText={(v) => update({ terminalPort: parseInt(v) || 8080 })}
+            placeholder="8080"
+            placeholderTextColor="#555"
+            keyboardType="number-pad"
+          />
+
+          <Text style={styles.hint}>
+            The ANZ terminal's local IP address and HTTP port. The device must be on the same
+            Wi-Fi network as the terminal.
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.testBtn, testing && { opacity: 0.6 }]}
+            onPress={handleTestConnection}
+            disabled={testing}
+            activeOpacity={0.8}
+          >
+            {testing ? (
+              <ActivityIndicator size="small" color="#6366f1" />
+            ) : (
+              <Ionicons name="wifi-outline" size={15} color="#6366f1" />
+            )}
+            <Text style={styles.testBtnText}>
+              {testing ? 'Testing…' : 'Test Connection'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* ─── Merchant Details ───────────────────── */}
@@ -157,41 +201,37 @@ export default function ANZSettingsScreen() {
           <Text style={styles.inputLabel}>Merchant Name</Text>
           <TextInput
             style={styles.input}
-            value={config.merchantName}
+            value={local.merchantName}
             onChangeText={(v) => update({ merchantName: v })}
             placeholder="Your business name"
             placeholderTextColor="#555"
           />
 
-          <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-            Merchant ID *
-          </Text>
+          <Text style={[styles.inputLabel, { marginTop: 14 }]}>Merchant ID</Text>
           <TextInput
             style={styles.input}
-            value={config.merchantId}
+            value={local.merchantId}
             onChangeText={(v) => update({ merchantId: v })}
-            placeholder="Provided by ANZ"
+            placeholder="Provided by ANZ (optional)"
             placeholderTextColor="#555"
             autoCorrect={false}
             autoCapitalize="none"
           />
 
-          <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-            Terminal ID *
-          </Text>
+          <Text style={[styles.inputLabel, { marginTop: 14 }]}>Terminal ID</Text>
           <TextInput
             style={styles.input}
-            value={config.terminalId}
+            value={local.terminalId}
             onChangeText={(v) => update({ terminalId: v })}
-            placeholder="Provided by ANZ"
+            placeholder="Provided by ANZ (optional)"
             placeholderTextColor="#555"
             autoCorrect={false}
             autoCapitalize="none"
           />
 
           <Text style={styles.hint}>
-            These details are available in your ANZ Worldline merchant portal or by
-            contacting ANZ Merchant Services on 1800 039 025.
+            Merchant ID and Terminal ID are optional — they are recorded with orders for reporting
+            but are not required for payment processing.
           </Text>
         </View>
 
@@ -203,7 +243,7 @@ export default function ANZSettingsScreen() {
               {
                 value: 'production' as const,
                 label: 'Production',
-                hint: 'Live payments. Use with a real terminal.',
+                hint: 'Live payments. Use with a real ANZ terminal.',
               },
               {
                 value: 'development' as const,
@@ -216,7 +256,7 @@ export default function ANZSettingsScreen() {
               key={env.value}
               style={[
                 styles.envOption,
-                config.environment === env.value && styles.envOptionActive,
+                local.environment === env.value && styles.envOptionActive,
               ]}
               onPress={() => update({ environment: env.value })}
               activeOpacity={0.85}
@@ -224,12 +264,12 @@ export default function ANZSettingsScreen() {
               <View style={styles.envLeft}>
                 <Ionicons
                   name={
-                    config.environment === env.value
+                    local.environment === env.value
                       ? 'radio-button-on'
                       : 'radio-button-off'
                   }
                   size={20}
-                  color={config.environment === env.value ? '#6366f1' : '#555'}
+                  color={local.environment === env.value ? '#6366f1' : '#555'}
                 />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.envLabel}>{env.label}</Text>
@@ -251,7 +291,7 @@ export default function ANZSettingsScreen() {
               </Text>
             </View>
             <Switch
-              value={config.enableSurcharge}
+              value={local.enableSurcharge}
               onValueChange={(v) => update({ enableSurcharge: v })}
               trackColor={{ true: '#6366f1', false: '#2a2a3a' }}
               thumbColor="#fff"
@@ -266,7 +306,7 @@ export default function ANZSettingsScreen() {
               </Text>
             </View>
             <Switch
-              value={config.enableTipping}
+              value={local.enableTipping}
               onValueChange={(v) => update({ enableTipping: v })}
               trackColor={{ true: '#6366f1', false: '#2a2a3a' }}
               thumbColor="#fff"
@@ -276,7 +316,7 @@ export default function ANZSettingsScreen() {
 
         {/* ─── Save ───────────────────────────────── */}
         <TouchableOpacity
-          style={styles.primaryBtn}
+          style={[styles.primaryBtn, saving && { opacity: 0.6 }]}
           onPress={handleSave}
           disabled={saving}
           activeOpacity={0.85}
@@ -344,6 +384,18 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
   },
+  testBtn: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#6366f1',
+    borderRadius: 10,
+    paddingVertical: 10,
+  },
+  testBtnText: { color: '#6366f1', fontWeight: '700', fontSize: 13 },
   envOption: { borderRadius: 8, paddingVertical: 8 },
   envOptionActive: { backgroundColor: 'rgba(99,102,241,0.08)' },
   envLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
