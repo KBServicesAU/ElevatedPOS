@@ -82,6 +82,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-router',
     'expo-secure-store',
     './plugins/withCleartextTraffic',
+    './plugins/withUsbPrinter',
     [
       'expo-build-properties',
       {

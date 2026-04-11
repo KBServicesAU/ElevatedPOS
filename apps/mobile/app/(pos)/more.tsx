@@ -37,18 +37,6 @@ import {
   isConnected as isPrinterConnected,
   type DiscoveredPrinter,
 } from '../../lib/printer';
-import { Platform } from 'react-native';
-
-// iMin POS terminals have an internal thermal printer accessible as a network
-// printer at 127.0.0.1:9100. Their USB subsystem is not a standard Android
-// UsbManager device — calling USBPrinter.init() on them causes a hard native
-// crash. Detect by manufacturer name and prevent USB init accordingly.
-function isIminDevice(): boolean {
-  const c = Platform.constants as Record<string, unknown>;
-  const mfr = String(c['Manufacturer'] ?? '').toLowerCase();
-  const brand = String(c['Brand'] ?? '').toLowerCase();
-  return mfr.includes('imin') || brand.includes('imin');
-}
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
@@ -445,13 +433,6 @@ export default function MoreScreen() {
   }
 
   async function handleDiscoverPrinters(type: PrinterConnectionType) {
-    if (type === 'usb' && isIminDevice()) {
-      toast.info(
-        'iMin Device Detected',
-        'This iMin terminal\'s built-in printer cannot be accessed via USB. Use Network type with address 127.0.0.1:9100 instead.',
-      );
-      return;
-    }
     setDiscovering(true);
     try {
       const devices = await discoverPrinters(type);
@@ -482,16 +463,6 @@ export default function MoreScreen() {
 
   async function handleConnectPrinter() {
     const { type } = usePrinterStore.getState().config;
-
-    // Hard crash prevention: iMin's internal printer is not a USB device.
-    if (type === 'usb' && isIminDevice()) {
-      toast.info(
-        'iMin Device Detected',
-        'Use Network type with address 127.0.0.1:9100 to connect the built-in printer on this iMin terminal.',
-      );
-      return;
-    }
-
     const ok = await confirm({
       title: 'Connect Printer',
       description:
