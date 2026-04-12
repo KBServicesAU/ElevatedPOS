@@ -13,6 +13,7 @@ import {
   queryRevenueByHour,
   queryRevenueByChannel,
   queryRevenueByDay,
+  queryToday,
 } from './queries.js';
 
 // Extend FastifyInstance to include the `authenticate` decoration
@@ -88,6 +89,45 @@ async function start() {
   });
 
   // ─── Report routes (authenticated) ────────────────────────────────────────
+
+  // GET /api/v1/reports/today — used by the mobile dashboard
+  // Returns salesToday, ordersToday, pendingOrders for the current calendar day.
+  app.get(
+    '/api/v1/reports/today',
+    { preHandler: [app.authenticate] },
+    async (request, reply) => {
+      const { orgId: userOrgId } = request.user as { orgId: string };
+      const { orgId, locationId } = request.query as { orgId?: string; locationId?: string };
+      const requestedOrgId = orgId ?? userOrgId;
+      if (requestedOrgId !== userOrgId) {
+        return reply.status(403).send({ title: 'Access denied to this organisation\'s reports', status: 403 });
+      }
+
+      // Fetch pending orders count from the orders service using the caller's JWT token (best-effort)
+      let pendingOrdersCount = 0;
+      try {
+        const ordersUrl = process.env['ORDERS_SERVICE_URL'] ?? 'http://orders:4004';
+        const forwardedToken = (request.headers['authorization'] as string | undefined)?.replace(/^Bearer\s+/i, '') ?? '';
+        const locationParam = locationId ? `&locationId=${encodeURIComponent(locationId)}` : '';
+        const ordersRes = await fetch(
+          `${ordersUrl}/api/v1/orders?status=open&limit=1${locationParam}`,
+          {
+            headers: { 'Authorization': `Bearer ${forwardedToken}` },
+            signal: AbortSignal.timeout(3000),
+          },
+        );
+        if (ordersRes.ok) {
+          const body = await ordersRes.json() as { meta?: { totalCount?: number }; data?: unknown[] };
+          pendingOrdersCount = body.meta?.totalCount ?? (Array.isArray(body.data) ? body.data.length : 0);
+        }
+      } catch {
+        // Non-fatal — dashboard shows 0 pending if orders service is unreachable
+      }
+
+      const data = await queryToday(requestedOrgId, locationId, pendingOrdersCount);
+      return { data };
+    },
+  );
 
   app.get(
     '/api/v1/reports/sales',

@@ -29,6 +29,9 @@ export const organisations = pgTable('organisations', {
   industry: varchar('industry', { length: 50 }),
   onboardingCompletedAt: timestamp('onboarding_completed_at', { withTimezone: true }),
   whiteLabelThemeId: uuid('white_label_theme_id'),
+  // Stripe SaaS billing
+  stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
+  settings: jsonb('settings').default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -16,6 +16,8 @@ import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../components/ui';
 import { isTyroInitialized, tyroRefund } from '../../modules/tyro-tta';
+import { printRefundReceipt, isConnected as isPrinterConnected, connectPrinter } from '../../lib/printer';
+import { usePrinterStore } from '../../store/printers';
 import { useTyroStore } from '../../store/tyro';
 import {
   TyroTransactionModal,
@@ -202,6 +204,23 @@ export default function OrdersScreen() {
             });
           } catch { /* offline — treat as success locally */ }
 
+          // Auto-print refund receipt if printer is configured
+          const printerConfig = usePrinterStore.getState().config;
+          if (printerConfig.autoPrint && printerConfig.type) {
+            try {
+              if (!isPrinterConnected()) await connectPrinter();
+              await printRefundReceipt({
+                storeName: 'ElevatedPOS',
+                orderNumber: refundOrder.orderNumber,
+                items: refundOrder.lines?.map((l) => ({ name: l.name, qty: l.quantity, price: Number(l.unitPrice) })) ?? [],
+                refundAmount: dollars,
+                reason: `Card refund via ANZ — ref: ${(data['transactionId'] as string) ?? refId}`,
+              });
+            } catch {
+              // Print failed — don't block the refund success
+            }
+          }
+
           toast.success('Refund Approved', `$${dollars.toFixed(2)} refunded via ANZ.`);
           setRefundOrder(null);
           setRefundAmount('');
@@ -267,6 +286,23 @@ export default function OrdersScreen() {
           // Offline — still treat as success locally.
         }
       }
+      // Auto-print refund receipt if printer is configured
+      const printerConfig = usePrinterStore.getState().config;
+      if (printerConfig.autoPrint && printerConfig.type && refundOrder) {
+        try {
+          if (!isPrinterConnected()) await connectPrinter();
+          await printRefundReceipt({
+            storeName: 'ElevatedPOS',
+            orderNumber: refundOrder.orderNumber,
+            items: refundOrder.lines?.map((l) => ({ name: l.name, qty: l.quantity, price: Number(l.unitPrice) })) ?? [],
+            refundAmount: parseFloat(refundAmount) || 0,
+            reason: `Card refund via Tyro — ref: ${result.transactionReference ?? 'N/A'}`,
+          });
+        } catch {
+          // Print failed — don't block the refund success
+        }
+      }
+
       toast.success(
         'Refund Approved',
         `$${(parseFloat(refundAmount) || 0).toFixed(2)} refunded successfully.`,

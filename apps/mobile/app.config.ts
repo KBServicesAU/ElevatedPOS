@@ -81,6 +81,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     'expo-router',
     'expo-secure-store',
+    [
+      '@sentry/react-native/expo',
+      {
+        organization: 'elevatedpos',
+        project: 'elevatedpos-mobile',
+      },
+    ],
     './plugins/withCleartextTraffic',
     './plugins/withUsbPrinter',
     './plugins/withUsbPrinterPatch',
@@ -105,6 +112,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     'expo-screen-orientation',
+    [
+      '@stripe/stripe-react-native',
+      {
+        merchantIdentifier: 'merchant.au.elevatedpos',
+        enableGooglePay: true,
+      },
+    ],
   ],
   updates: {
     enabled: true,

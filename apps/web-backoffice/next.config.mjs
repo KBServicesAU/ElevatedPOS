@@ -1,3 +1,5 @@
+import { withSentryConfig } from '@sentry/nextjs';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
@@ -19,4 +21,15 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  org: 'elevatedpos',
+  project: 'elevatedpos-web',
+  // Suppress Sentry CLI output during builds
+  silent: true,
+  // Upload all JS source maps (not just the entry chunk) for better stack traces
+  widenClientFileUpload: true,
+  // Hide source maps from the browser bundle
+  hideSourceMaps: true,
+  // Automatically instrument server-side components
+  autoInstrumentServerFunctions: true,
+});

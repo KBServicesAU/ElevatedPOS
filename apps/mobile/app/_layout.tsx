@@ -12,14 +12,21 @@ if (typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout !=
   };
 }
 
+import { initSentry } from '../lib/sentry';
+// Initialise Sentry before any component renders so startup errors are captured.
+initSentry();
+
 import { useEffect, useRef } from 'react';
 import { AppState, View } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { useDeviceStore } from '../store/device';
 import { useDeviceSettings } from '../store/device-settings';
 import { ToastViewport, AlertDialogHost } from '../components/ui';
+
+const stripePublishableKey = process.env['EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?? '';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -82,12 +89,14 @@ export default function RootLayout() {
 
   if (!ready) return null;
   return (
-    <SafeAreaProvider>
-      <View style={{ flex: 1 }}>
-        <Slot />
-        <ToastViewport />
-        <AlertDialogHost />
-      </View>
-    </SafeAreaProvider>
+    <StripeProvider publishableKey={stripePublishableKey} urlScheme="elevatedpos">
+      <SafeAreaProvider>
+        <View style={{ flex: 1 }}>
+          <Slot />
+          <ToastViewport />
+          <AlertDialogHost />
+        </View>
+      </SafeAreaProvider>
+    </StripeProvider>
   );
 }

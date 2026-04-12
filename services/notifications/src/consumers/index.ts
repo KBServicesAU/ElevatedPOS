@@ -1,11 +1,14 @@
 import { startConsumer } from '../lib/kafka.js';
-import { handleOrderCreated, handlePaymentCaptured } from './orderConsumer.js';
+import { handleOrderCreated, handleOrderCompleted, handlePaymentCaptured } from './orderConsumer.js';
 import { handleInventoryLowStock } from './inventoryConsumer.js';
 
 async function handleEvent(topic: string, payload: Record<string, unknown>): Promise<void> {
   switch (topic) {
     case 'order.created':
       await handleOrderCreated(payload);
+      break;
+    case 'order.completed':
+      await handleOrderCompleted(payload);
       break;
     case 'payment.captured':
       await handlePaymentCaptured(payload);

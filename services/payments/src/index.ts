@@ -13,6 +13,7 @@ import { currencyRoutes } from './routes/currencies';
 import { invoiceRoutes } from './routes/invoices';
 import { surchargeRoutes } from './routes/surcharge';
 import { eftposRoutes } from './routes/eftpos';
+import { stripeTerminalRoutes } from './routes/stripe-terminal';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -54,6 +55,7 @@ async function start() {
   // Currency routes are public (no auth) — registered last to avoid conflicting with auth decorator
   await app.register(terminalRoutes, { prefix: '/api/v1/terminal' });
   await app.register(eftposRoutes,   { prefix: '/api/v1/eftpos' });
+  await app.register(stripeTerminalRoutes, { prefix: '/api/v1/stripe' });
   await app.register(currencyRoutes, { prefix: '/api/v1/currencies' });
   app.get('/health', async () => ({ status: 'ok', service: 'payments' }));
   const port = Number(process.env['PORT'] ?? 4005);

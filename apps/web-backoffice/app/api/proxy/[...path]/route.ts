@@ -319,9 +319,15 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',
     prefix: '/api/v1/eftpos',
   },
-  // Billing — subscription management in payments service
+  // Billing — subscription management in payments service (payment methods, invoices)
   billing: {
     base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',
+    prefix: '/api/v1/billing',
+  },
+  // Billing SaaS — Stripe subscription lifecycle routes in auth service
+  // Handles: status, portal (Stripe Customer Portal), setup, webhook
+  'billing-saas': {
+    base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
     prefix: '/api/v1/billing',
   },
   // Migrations — used by Easy Move to track import job status

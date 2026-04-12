@@ -13,6 +13,7 @@ function LoginContent() {
   const [mode, setMode] = useState<'password' | 'pin'>('password');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const registered = searchParams.get('registered') === 'true';
 
   // Handle impersonation token from Godmode — auto-login support staff as a merchant.
   // Uses a ref guard so this runs exactly once even under React Strict Mode double-invoke.
@@ -93,6 +94,13 @@ function LoginContent() {
           <h1 className="text-2xl font-bold text-white">Welcome back</h1>
           <p className="mt-1 text-sm text-elevatedpos-400">Sign in to your ElevatedPOS account</p>
         </div>
+
+        {/* Registration success banner */}
+        {registered && (
+          <div className="mb-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400 text-center">
+            Account created! Please check your email to verify your address, then sign in.
+          </div>
+        )}
 
         {/* Card */}
         <div className="rounded-2xl border border-elevatedpos-700/50 bg-elevatedpos-800/60 p-6 shadow-2xl backdrop-blur">
@@ -206,6 +214,10 @@ function LoginContent() {
           Need access?{' '}
           <Link href="mailto:support@elevatedpos.com.au" className="text-elevatedpos-400 hover:text-elevatedpos-200">
             Contact your administrator
+          </Link>
+          {' · '}
+          <Link href="/signup" className="text-elevatedpos-400 hover:text-elevatedpos-200">
+            Create an account
           </Link>
         </p>
         <p className="mt-3 text-center text-xs text-elevatedpos-700">

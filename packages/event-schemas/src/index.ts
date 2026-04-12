@@ -45,7 +45,27 @@ export type OrderCreatedPayload = {
 };
 
 export type TypedOrderCreatedEvent = BaseEvent<OrderCreatedPayload> & { eventType: 'order.created' };
-export type TypedOrderCompletedEvent = BaseEvent<{ orderId: string; total: number; paymentMethod?: string }> & { eventType: 'order.completed' };
+export interface OrderCompletedReceiptPayload {
+  orderId: string;
+  orderNumber: string;
+  total: number;
+  paidTotal: number;
+  completedAt: string;
+  /** Payment method label, e.g. "Card", "Cash" */
+  paymentMethod?: string;
+  /** Denormalised from the customer record — only present when a customer with an email is attached */
+  customerEmail?: string;
+  customerName?: string;
+  /** Display name of the store/location — for the email subject and header */
+  storeName?: string;
+  /** Itemised receipt lines suitable for email rendering */
+  items?: Array<{ name: string; qty: number; price: number }>;
+  /** Subtotal excluding GST */
+  subtotal?: number;
+  /** GST component */
+  gst?: number;
+}
+export type TypedOrderCompletedEvent = BaseEvent<OrderCompletedReceiptPayload> & { eventType: 'order.completed' };
 export type TypedOrderCancelledEvent = BaseEvent<{ orderId: string; reason: string }> & { eventType: 'order.cancelled' };
 export type TypedOrderRefundedEvent = BaseEvent<{ orderId: string; refundAmount: number; reason: string }> & { eventType: 'order.refunded' };
 

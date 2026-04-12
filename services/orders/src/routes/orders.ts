@@ -250,7 +250,17 @@ export async function orderRoutes(app: FastifyInstance) {
   app.post('/:id/complete', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
-    const body = z.object({ paidTotal: z.number(), changeGiven: z.number().default(0), receiptChannel: z.string().optional() }).safeParse(request.body);
+    const body = z.object({
+      paidTotal: z.number(),
+      changeGiven: z.number().default(0),
+      receiptChannel: z.string().optional(),
+      // Optional receipt fields supplied by the POS (which has the customer
+      // object and payment result in memory at checkout time)
+      customerEmail: z.string().email().optional(),
+      customerName: z.string().optional(),
+      storeName: z.string().optional(),
+      paymentMethod: z.string().optional(),
+    }).safeParse(request.body);
     if (!body.success) return reply.status(422).send({ type: 'about:blank', title: 'Validation Error', status: 422 });
 
     const order = await db.query.orders.findFirst({ where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)) });
@@ -267,7 +277,18 @@ export async function orderRoutes(app: FastifyInstance) {
     }).where(and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId))).returning();
     const updated = completeRows[0]!;
 
+    // Re-fetch with lines to build receipt payload
+    const withLines = await db.query.orders.findFirst({
+      where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)),
+      with: { lines: true },
+    });
+
     try {
+      const completedAt = updated.completedAt?.toISOString() ?? new Date().toISOString();
+      const total = Number(updated.total);
+      const gst = parseFloat((total / 11).toFixed(2));
+      const subtotal = parseFloat((total - gst).toFixed(2));
+
       await publishTypedEvent(
         EVENT_TOPICS.ORDERS,
         createEvent(
@@ -276,10 +297,21 @@ export async function orderRoutes(app: FastifyInstance) {
           {
             orderId: updated.id,
             orderNumber: updated.orderNumber,
-            total: Number(updated.total),
+            total,
             paidTotal: body.data.paidTotal,
-            customerId: updated.customerId ?? undefined,
-            completedAt: updated.completedAt?.toISOString() ?? new Date().toISOString(),
+            completedAt,
+            // Optional receipt enrichment — only present when the POS includes them
+            ...(body.data.customerEmail !== undefined && { customerEmail: body.data.customerEmail }),
+            ...(body.data.customerName !== undefined && { customerName: body.data.customerName }),
+            ...(body.data.storeName !== undefined && { storeName: body.data.storeName }),
+            ...(body.data.paymentMethod !== undefined && { paymentMethod: body.data.paymentMethod }),
+            subtotal,
+            gst,
+            items: (withLines?.lines ?? []).map((l) => ({
+              name: l.name,
+              qty: Number(l.quantity),
+              price: Number(l.unitPrice),
+            })),
           },
           { locationId: updated.locationId },
         ),

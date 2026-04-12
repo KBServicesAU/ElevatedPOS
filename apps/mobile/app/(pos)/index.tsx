@@ -39,6 +39,11 @@ import {
   AnzPaymentModal,
   type AnzPaymentResult,
 } from '../../components/AnzPaymentModal';
+import {
+  StripePaymentModal,
+  type StripePaymentResult,
+} from '../../components/payments/StripePaymentModal';
+import { useStripeTerminalStore } from '../../store/stripe-terminal';
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -113,6 +118,12 @@ export default function PosSellScreen() {
   const [customerResults, setCustomerResults] = useState<Array<{ id: string; firstName: string; lastName: string; email?: string; phone?: string; loyaltyPoints?: number }>>([]);
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
 
+  // Loyalty redemption
+  const [loyaltyAccount, setLoyaltyAccount] = useState<{ id: string; points: number; earnRate: number } | null>(null);
+  const [showLoyaltyRedeem, setShowLoyaltyRedeem] = useState(false);
+  const [loyaltyPointsToRedeem, setLoyaltyPointsToRedeem] = useState('');
+  const [loyaltyRedeemLoading, setLoyaltyRedeemLoading] = useState(false);
+
   // Tyro EFTPOS transaction modal
   const [showTyroModal, setShowTyroModal] = useState(false);
   const [tyroAmount, setTyroAmount] = useState(0);
@@ -125,6 +136,11 @@ export default function PosSellScreen() {
   const [anzRefId, setAnzRefId] = useState('');
   // Server-managed terminal config (replaces local anz/eftpos stores)
   const serverSettingsLoaded = useDeviceSettings((s) => s.loaded);
+
+  // Stripe Terminal (Tap to Pay on Android)
+  const [showStripeModal, setShowStripeModal] = useState(false);
+  const [stripeAmount, setStripeAmount] = useState(0);
+  const stripeConfig = useStripeTerminalStore((s) => s.config);
 
   // Fetch catalog + hydrate customer display on mount
   useEffect(() => {
@@ -461,6 +477,14 @@ export default function PosSellScreen() {
       return;
     }
 
+    // Check for Stripe Terminal
+    const stripeKey = stripeConfig.publishableKey;
+    if (stripeKey && !isTyroInitialized() && !getServerAnzConfig()) {
+      setStripeAmount(Math.round(total * 100));
+      setShowStripeModal(true);
+      return;
+    }
+
     // Fallback: direct charge without EFTPOS (dev / demo mode)
     handleCharge('Card');
   }
@@ -751,6 +775,33 @@ export default function PosSellScreen() {
     searchCustomers('');
   }
 
+  // Fetch loyalty account for the selected customer (best-effort, non-blocking)
+  async function fetchLoyaltyAccount(cId: string) {
+    setLoyaltyAccount(null);
+    try {
+      const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
+      const token = useAuthStore.getState().employeeToken ?? identity?.deviceToken ?? '';
+      const res = await fetch(
+        `${base}/api/v1/loyalty/accounts/customer/${encodeURIComponent(cId)}`,
+        { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(4000) },
+      );
+      if (res.ok) {
+        const data = await res.json() as { data?: Array<{ id: string; points: number; program?: { earnRate?: number } }> };
+        const accounts = data.data ?? [];
+        if (accounts.length > 0) {
+          const acc = accounts[0]!;
+          setLoyaltyAccount({
+            id: acc.id,
+            points: acc.points ?? 0,
+            earnRate: acc.program?.earnRate ?? 10,
+          });
+        }
+      }
+    } catch {
+      // Non-fatal — loyalty badge just won't show
+    }
+  }
+
   // ── Render ───────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -819,7 +870,7 @@ export default function PosSellScreen() {
                     cancelLabel: 'Keep',
                     destructive: true,
                   });
-                  if (removeIt) setCustomer(null, null);
+                  if (removeIt) { setCustomer(null, null); setLoyaltyAccount(null); }
                 } else {
                   openCustomerSearch();
                 }
@@ -837,6 +888,17 @@ export default function PosSellScreen() {
                 </Text>
               ) : null}
             </TouchableOpacity>
+            {/* Loyalty redemption button — only shown when customer has points */}
+            {loyaltyAccount && loyaltyAccount.points > 0 && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#f59e0b44', backgroundColor: 'rgba(245,158,11,0.1)' }}
+                onPress={() => { setLoyaltyPointsToRedeem(String(loyaltyAccount.points)); setShowLoyaltyRedeem(true); }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="star" size={13} color="#f59e0b" />
+                <Text style={{ color: '#f59e0b', fontSize: 11, fontWeight: '700' }}>{loyaltyAccount.points} pts</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Category filter chips */}
@@ -1035,7 +1097,7 @@ export default function PosSellScreen() {
                 <TouchableOpacity style={[styles.clearBtn, { flex: 1 }]} onPress={() => setShowOrderDiscount(true)}>
                   <Text style={[styles.clearText, { color: '#f59e0b' }]}>Discount</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.clearBtn, { flex: 1 }]} onPress={() => { clearCart(); setOrderDiscountAmount(0); }}>
+                <TouchableOpacity style={[styles.clearBtn, { flex: 1 }]} onPress={() => { clearCart(); setOrderDiscountAmount(0); setLoyaltyAccount(null); }}>
                   <Text style={styles.clearText}>Clear</Text>
                 </TouchableOpacity>
               </View>
@@ -1441,6 +1503,7 @@ export default function PosSellScreen() {
                     onPress={() => {
                       setCustomer(c.id, `${c.firstName} ${c.lastName}`);
                       setShowCustomerSearch(false);
+                      fetchLoyaltyAccount(c.id);
                     }}
                   >
                     <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#6366f1', alignItems: 'center', justifyContent: 'center' }}>
@@ -1475,6 +1538,96 @@ export default function PosSellScreen() {
         </Pressable>
       </Modal>
 
+      {/* ═══ Loyalty Redemption Modal ═══ */}
+      {loyaltyAccount && (
+        <Modal visible={showLoyaltyRedeem} transparent animationType="fade" onRequestClose={() => setShowLoyaltyRedeem(false)}>
+          <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 20 }} onPress={() => setShowLoyaltyRedeem(false)}>
+            <Pressable style={{ backgroundColor: '#1a1a2e', borderRadius: 18, padding: 22, width: '100%', maxWidth: 360, borderWidth: 1, borderColor: '#2a2a3a' }} onPress={() => {}}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <Ionicons name="star" size={20} color="#f59e0b" />
+                <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800' }}>Redeem Points</Text>
+              </View>
+              <Text style={{ color: '#888', fontSize: 13, marginBottom: 18 }}>
+                {customerName} has {loyaltyAccount.points} points available
+              </Text>
+
+              <Text style={{ color: '#888', fontSize: 11, textTransform: 'uppercase', fontWeight: '700', letterSpacing: 0.8, marginBottom: 6 }}>
+                Points to redeem
+              </Text>
+              <TextInput
+                style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 20, color: '#fff', textAlign: 'center', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 10 }}
+                value={loyaltyPointsToRedeem}
+                onChangeText={(v) => {
+                  const n = parseInt(v.replace(/[^0-9]/g, ''), 10);
+                  setLoyaltyPointsToRedeem(isNaN(n) ? '' : String(Math.min(n, loyaltyAccount.points)));
+                }}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor="#444"
+              />
+              {(() => {
+                const pts = parseInt(loyaltyPointsToRedeem, 10) || 0;
+                // earnRate is points per dollar — discount = pts / earnRate
+                const discount = pts > 0 ? +(pts / loyaltyAccount.earnRate).toFixed(2) : 0;
+                return (
+                  <Text style={{ color: '#f59e0b', fontSize: 14, fontWeight: '700', textAlign: 'center', marginBottom: 18 }}>
+                    = ${discount.toFixed(2)} discount
+                  </Text>
+                );
+              })()}
+
+              <TouchableOpacity
+                style={{ backgroundColor: '#f59e0b', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginBottom: 8, opacity: loyaltyRedeemLoading ? 0.6 : 1 }}
+                disabled={loyaltyRedeemLoading || !loyaltyPointsToRedeem || parseInt(loyaltyPointsToRedeem, 10) <= 0}
+                onPress={async () => {
+                  const pts = parseInt(loyaltyPointsToRedeem, 10);
+                  if (!pts || pts <= 0 || pts > loyaltyAccount.points) return;
+                  setLoyaltyRedeemLoading(true);
+                  try {
+                    const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
+                    const token = useAuthStore.getState().employeeToken ?? identity?.deviceToken ?? '';
+                    // Pre-authorise the redemption (deduct points from balance)
+                    const res = await fetch(`${base}/api/v1/loyalty/accounts/${loyaltyAccount.id}/redeem`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                      body: JSON.stringify({
+                        points: pts,
+                        orderId: undefined, // orderId not known yet — will be linked on order creation
+                        idempotencyKey: `pos-redeem-${loyaltyAccount.id}-${Date.now()}`,
+                      }),
+                      signal: AbortSignal.timeout(8000),
+                    });
+                    if (!res.ok) {
+                      const err = await res.json().catch(() => ({})) as { title?: string; detail?: string };
+                      toast.warning('Redemption Failed', err.title ?? err.detail ?? `Error ${res.status}`);
+                      return;
+                    }
+                    const discount = +(pts / loyaltyAccount.earnRate).toFixed(2);
+                    setOrderDiscountAmount((prev) => Math.min(prev + discount, subtotal));
+                    setLoyaltyAccount({ ...loyaltyAccount, points: loyaltyAccount.points - pts });
+                    setShowLoyaltyRedeem(false);
+                    toast.success('Points Redeemed', `${pts} pts = $${discount.toFixed(2)} discount applied`);
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    toast.warning('Redemption Failed', msg);
+                  } finally {
+                    setLoyaltyRedeemLoading(false);
+                  }
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={{ color: '#000', fontWeight: '800', fontSize: 15 }}>
+                  {loyaltyRedeemLoading ? 'Processing…' : 'Apply Discount'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ alignItems: 'center', paddingVertical: 10 }} onPress={() => setShowLoyaltyRedeem(false)}>
+                <Text style={{ color: '#888', fontSize: 13 }}>Cancel</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
+
       {/* ═══ Tyro EFTPOS Transaction Modal ═══ */}
       <TyroTransactionModal
         visible={showTyroModal}
@@ -1498,6 +1651,26 @@ export default function PosSellScreen() {
           onError={handleAnzError}
         />
       )}
+
+      {/* ═══ Stripe Terminal Tap to Pay Modal ═══ */}
+      <StripePaymentModal
+        visible={showStripeModal}
+        amountCents={stripeAmount}
+        orderId={undefined}
+        onApproved={(result) => {
+          setShowStripeModal(false);
+          handleCharge('Card', 0, {
+            authCode: result.paymentIntentId,
+            cardLast4: result.cardLast4,
+            cardScheme: result.cardBrand,
+          });
+        }}
+        onDeclined={(result) => {
+          setShowStripeModal(false);
+          toast.error('Payment Declined', result.errorMessage ?? 'Card was declined');
+        }}
+        onCancel={() => setShowStripeModal(false)}
+      />
 
     </SafeAreaView>
   );

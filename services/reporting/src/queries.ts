@@ -38,6 +38,85 @@ export interface RevenueByDay {
   avgOrderValue: number;
 }
 
+// ─── queryToday ───────────────────────────────────────────────────────────────
+
+export interface TodaySummary {
+  salesToday: number;
+  ordersToday: number;
+  pendingOrders: number;
+  salesYesterday: number;
+  ordersYesterday: number;
+}
+
+export async function queryToday(
+  orgId: string,
+  locationId?: string,
+  pendingOrdersCount?: number,
+): Promise<TodaySummary> {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+  const yesterdayStr = new Date(now.getTime() - 86400000).toISOString().slice(0, 10);
+
+  const locationFilter = locationId ? `AND location_id = {locationId:String}` : '';
+
+  const todayQuery = `
+    SELECT
+      sum(total)  AS salesToday,
+      count()     AS ordersToday
+    FROM elevatedpos_analytics.sales_fact
+    WHERE org_id = {orgId:String}
+      AND toDate(completed_at) = {todayStr:Date}
+      ${locationFilter}
+  `;
+
+  const yesterdayQuery = `
+    SELECT
+      sum(total)  AS salesYesterday,
+      count()     AS ordersYesterday
+    FROM elevatedpos_analytics.sales_fact
+    WHERE org_id = {orgId:String}
+      AND toDate(completed_at) = {yesterdayStr:Date}
+      ${locationFilter}
+  `;
+
+  const queryParams: Record<string, unknown> = { orgId, todayStr, yesterdayStr };
+  if (locationId) queryParams['locationId'] = locationId;
+
+  let salesToday = 0;
+  let ordersToday = 0;
+  let salesYesterday = 0;
+  let ordersYesterday = 0;
+
+  try {
+    const [todayResult, yesterdayResult] = await Promise.all([
+      clickhouse.query({ query: todayQuery, query_params: queryParams, format: 'JSONEachRow' }),
+      clickhouse.query({ query: yesterdayQuery, query_params: queryParams, format: 'JSONEachRow' }),
+    ]);
+
+    const todayRows = (await todayResult.json()) as Array<Record<string, unknown>>;
+    const yesterdayRows = (await yesterdayResult.json()) as Array<Record<string, unknown>>;
+
+    if (todayRows.length) {
+      salesToday = Number(todayRows[0]!['salesToday'] ?? 0);
+      ordersToday = Number(todayRows[0]!['ordersToday'] ?? 0);
+    }
+    if (yesterdayRows.length) {
+      salesYesterday = Number(yesterdayRows[0]!['salesYesterday'] ?? 0);
+      ordersYesterday = Number(yesterdayRows[0]!['ordersYesterday'] ?? 0);
+    }
+  } catch (e) {
+    console.warn('[reporting] queryToday ClickHouse failed (non-critical):', e);
+  }
+
+  return {
+    salesToday,
+    ordersToday,
+    pendingOrders: pendingOrdersCount ?? 0,
+    salesYesterday,
+    ordersYesterday,
+  };
+}
+
 // ─── querySalesSummary ────────────────────────────────────────────────────────
 
 export async function querySalesSummary(

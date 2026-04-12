@@ -339,6 +339,61 @@ export async function printReceipt(opts: {
   }
 }
 
+export async function printRefundReceipt(opts: {
+  storeName: string;
+  orderNumber?: string;
+  items: { name: string; qty: number; price: number }[];
+  refundAmount: number;
+  reason?: string;
+}): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+  const { type, paperWidth } = usePrinterStore.getState().config;
+  const printer = getPrinter(type);
+  if (!printer) throw new Error('No printer configured');
+  if (!connected) await connectPrinter();
+
+  const w = paperWidth === 58 ? 32 : 48;
+  const line = '='.repeat(w);
+  const dash = '-'.repeat(w);
+
+  function pad(left: string, right: string): string {
+    const space = w - left.length - right.length;
+    return left + ' '.repeat(Math.max(1, space)) + right;
+  }
+
+  const now = new Date();
+  const date = now.toLocaleDateString('en-AU');
+  const time = now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+
+  let receipt = '';
+  receipt += `<C>${opts.storeName}</C>\n`;
+  receipt += `<C><B>*** REFUND ***</B></C>\n`;
+  if (opts.orderNumber) receipt += `<C>Order #${opts.orderNumber}</C>\n`;
+  receipt += `<C>${date}  ${time}</C>\n`;
+  receipt += line + '\n';
+
+  for (const item of opts.items) {
+    const priceStr = `-$${item.price.toFixed(2)}`;
+    const nameStr = item.qty > 1 ? `${item.qty}x ${item.name}` : item.name;
+    receipt += pad(nameStr.substring(0, w - priceStr.length - 1), priceStr) + '\n';
+  }
+
+  receipt += dash + '\n';
+  receipt += `<B>${pad('REFUND TOTAL', `-$${opts.refundAmount.toFixed(2)}`)}</B>\n`;
+  receipt += line + '\n';
+  if (opts.reason) {
+    receipt += `Reason: ${opts.reason.substring(0, w - 8)}\n`;
+  }
+  receipt += '\n<C>Thank you!</C>\n';
+  receipt += '<C>Powered by ElevatedPOS</C>\n\n\n';
+
+  try {
+    await printer.printText(receipt, { cut: true });
+  } catch (e: any) {
+    throw new Error('Refund receipt print failed: ' + (e?.message ?? 'unknown'));
+  }
+}
+
 export async function printOrderTicket(opts: {
   orderNumber?: string;
   items: { name: string; qty: number }[];
