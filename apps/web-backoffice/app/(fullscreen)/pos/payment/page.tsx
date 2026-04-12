@@ -8,8 +8,8 @@ import { type ReceiptData } from '../receipt-printer';
 import { getDeviceInfo } from '@/lib/device-auth';
 import { TyroPaymentOverlay } from './tyro-payment-overlay';
 import type { TyroConfig } from '@/lib/tyro-provider';
-import { AnzTerminalSession } from '@/lib/timapi-client';
-import type { AnzTIMResult, AnzTIMConfig } from '@/lib/timapi-client';
+import { AnzPaymentOverlay } from './anz-payment-overlay';
+import type { TimConfig } from '@/lib/payments';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -390,123 +390,6 @@ function TapIcon() {
 
 function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
-// ─── ANZ Worldline TIM Terminal Overlay ──────────────────────────────────────
-// Uses the TIM API JS SDK (WebSocket/SIXml) — NOT HTTP/JSON.
-// SDK files must be at /public/timapi/timapi.js + timapi.wasm
-// Obtain from: https://start.portal.anzworldline-solutions.com.au/
-
-type AnzPhase = 'connecting' | 'waiting' | 'approved' | 'declined' | 'cancelled' | 'error';
-
-function AnzTerminalOverlay({
-  amount,
-  config,
-  onApproved,
-  onFailed,
-  onCancel,
-}: {
-  amount: number;
-  config: AnzTIMConfig;
-  onApproved: (result: AnzTIMResult) => void;
-  onFailed: (msg: string) => void;
-  onCancel: () => void;
-}) {
-  const [phase, setPhase] = useState<AnzPhase>('connecting');
-  const [statusMsg, setStatusMsg] = useState('Connecting to terminal…');
-  const sessionRef = useRef<AnzTerminalSession | null>(null);
-  const startedRef = useRef(false);
-
-  useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-
-    const session = new AnzTerminalSession();
-    sessionRef.current = session;
-
-    const amountCents = Math.round(amount * 100);
-
-    session.purchase(config, amountCents, (msg) => {
-      // Map status messages to phases
-      if (msg.includes('SDK') || msg.includes('Connecting')) {
-        setPhase('connecting');
-      } else {
-        setPhase('waiting');
-      }
-      setStatusMsg(msg);
-    })
-      .then((result) => {
-        if (result.approved) {
-          setPhase('approved');
-          setStatusMsg('Payment approved!');
-          setTimeout(() => onApproved(result), 800);
-        } else {
-          setPhase('declined');
-          setStatusMsg(result.declineReason ?? 'Declined');
-          setTimeout(() => onFailed(result.declineReason ?? 'Declined'), 1500);
-        }
-      })
-      .catch((err: Error) => {
-        if (session.cancelled) {
-          setPhase('cancelled');
-          setStatusMsg('Transaction cancelled.');
-          setTimeout(() => onCancel(), 600);
-          return;
-        }
-        const msg = err.message ?? String(err);
-        setPhase('error');
-        setStatusMsg(msg);
-        setTimeout(() => onFailed(msg), 2000);
-      });
-
-    return () => { session.cancel(); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const phaseColor: Record<AnzPhase, string> = {
-    connecting: '#6366f1',
-    waiting:    '#6366f1',
-    approved:   '#4ade80',
-    declined:   '#f87171',
-    cancelled:  '#94a3b8',
-    error:      '#f87171',
-  };
-  const color = phaseColor[phase];
-  const isProcessing = phase === 'connecting' || phase === 'waiting';
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-2xl border bg-[#0f0f1a] p-8 shadow-2xl" style={{ borderColor: color + '55' }}>
-        {/* Icon / Spinner */}
-        <div className="mb-6 flex flex-col items-center justify-center rounded-2xl border-2 py-10 transition-all duration-500"
-          style={{ borderColor: color, backgroundColor: color + '18' }}>
-          {phase === 'approved' ? (
-            <CheckCircle className="h-12 w-12" style={{ color }} />
-          ) : phase === 'declined' || phase === 'error' ? (
-            <AlertCircle className="h-12 w-12" style={{ color }} />
-          ) : phase === 'cancelled' ? (
-            <AlertCircle className="h-12 w-12 opacity-50" style={{ color }} />
-          ) : phase === 'waiting' ? (
-            <TapIcon />
-          ) : (
-            <div className="h-12 w-12 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: color, borderTopColor: 'transparent' }} />
-          )}
-          <p className="mt-4 text-lg font-bold" style={{ color }}>{statusMsg}</p>
-          <p className="mt-1 text-2xl font-extrabold text-white">${amount.toFixed(2)}</p>
-          <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: color + '99' }}>ANZ Worldline</p>
-        </div>
-
-        {isProcessing && (
-          <button
-            onClick={() => sessionRef.current?.cancel()}
-            className="w-full rounded-xl border border-[#2a2a3a] bg-[#141425] py-3 text-sm font-semibold text-gray-400 hover:text-white"
-          >
-            Cancel Transaction
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─── Add Tender Dialog ────────────────────────────────────────────────────────
 
 function AddTenderDialog({
@@ -530,7 +413,7 @@ function AddTenderDialog({
   const [showTerminal, setShowTerminal] = useState<false | 'stripe' | 'tyro' | 'anz'>(false);
   const [paymentSettings, setPaymentSettings] = useState<{ cardSurchargeRate: number; cashRoundingEnabled: boolean } | null>(null);
   const [tyroConfig, setTyroConfig] = useState<TyroConfig | null>(null);
-  const [anzConfig, setAnzConfig] = useState<AnzTIMConfig | null>(null);
+  const [anzConfig, setAnzConfig] = useState<TimConfig | null>(null);
   const [eftposProvider, setEftposProvider] = useState<'stripe' | 'tyro' | 'anz'>('stripe');
 
   // Fetch device's terminal config on mount to determine EFTPOS provider
@@ -555,9 +438,12 @@ function AddTenderDialog({
         } else if (data.provider === 'anz' && data.terminalIp) {
           setEftposProvider('anz');
           setAnzConfig({
-            terminalIp:   data.terminalIp,
-            terminalPort: data.terminalPort ?? 80,
-            integratorId: data.integratorId ?? '',
+            terminalIp:          data.terminalIp,
+            terminalPort:        data.terminalPort ?? 80,
+            integratorId:        data.integratorId ?? '',
+            autoCommit:          false,
+            printMerchantReceipt: false,
+            printCustomerReceipt: false,
           });
         }
         // If no terminal configured, eftposProvider stays 'stripe' (Stripe Terminal)
@@ -624,8 +510,9 @@ function AddTenderDialog({
 
   if (showTerminal === 'anz' && anzConfig) {
     return (
-      <AnzTerminalOverlay
+      <AnzPaymentOverlay
         amount={cardChargeTotal}
+        posOrderId={orderId}
         config={anzConfig}
         onApproved={(result) => {
           onAdd({
@@ -633,6 +520,7 @@ function AddTenderDialog({
             method: 'card',
             amount: cardChargeTotal,
             cardLast4: result.cardLast4,
+            cardBrand: result.cardScheme,
             ...(surchargeAmt > 0 ? { surchargeAmount: surchargeAmt } : {}),
           });
         }}

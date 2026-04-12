@@ -22,18 +22,13 @@
  *    - Switch terminal to ECR/Integrated mode (section 2.16 of the TIM API guide)
  */
 
-// ─── TypeScript declarations for the timapi global ───────────────────────────
+// ─── Module-local TIM API type declarations ───────────────────────────────────
+// Note: Global Window augmentation and canonical TIM types live in
+// lib/payments/tim-adapter.ts — do not duplicate them here.
 
-declare global {
-  interface Window {
-    onTimApiReady?: () => void;
-    timapi?: TimApiNamespace;
-  }
-}
-
-interface TimApiNamespace {
-  TerminalSettings: new () => TimApiSettings;
-  Terminal: new (settings: TimApiSettings) => TimApiTerminal;
+interface _LegacyTimApiNamespace {
+  TerminalSettings: new () => _LegacyTimApiSettings;
+  Terminal: new (settings: _LegacyTimApiSettings) => _LegacyTimApiTerminal;
   Amount: new (amountCents: number, currency: string) => object;
   constants: {
     TransactionType: { purchase: string; refund: string; reversal: string };
@@ -41,27 +36,27 @@ interface TimApiNamespace {
   };
 }
 
-interface TimApiSettings {
+interface _LegacyTimApiSettings {
   connectionIPString: string;
   connectionIPPort: number;
   autoCommit: boolean;
   integratorId: string;
 }
 
-export interface TimApiTerminal {
+interface _LegacyTimApiTerminal {
   setPosId(id: string): void;
-  addListener(listener: TimApiListener): void;
-  removeListener(listener: TimApiListener): void;
+  addListener(listener: _LegacyTimApiListener): void;
+  removeListener(listener: _LegacyTimApiListener): void;
   transactionAsync(type: string, amount: object): void;
   commitAsync(): void;
   cancelAsync(): void;
 }
 
-interface TimApiTransactionEvent {
+interface _LegacyTimApiTransactionEvent {
   exception?: { resultCode: string; message?: string };
 }
 
-interface TimApiTransactionData {
+interface _LegacyTimApiTransactionData {
   transactionReference?: string;
   authorisationCode?: string;
   maskedPan?: string;
@@ -74,18 +69,18 @@ interface TimApiTransactionData {
   amount?: number;
 }
 
-interface TimApiConnectionEvent {
+interface _LegacyTimApiConnectionEvent {
   data?: { state?: string };
 }
 
-interface TimApiDisplayEvent {
+interface _LegacyTimApiDisplayEvent {
   data?: { text?: string };
 }
 
-interface TimApiListener {
-  transactionCompleted(event: TimApiTransactionEvent, data: TimApiTransactionData): void;
-  connectionStateChanged?(event: TimApiConnectionEvent, data: unknown): void;
-  displayTextChanged?(event: TimApiDisplayEvent, data: unknown): void;
+interface _LegacyTimApiListener {
+  transactionCompleted(event: _LegacyTimApiTransactionEvent, data: _LegacyTimApiTransactionData): void;
+  connectionStateChanged?(event: _LegacyTimApiConnectionEvent, data: unknown): void;
+  displayTextChanged?(event: _LegacyTimApiDisplayEvent, data: unknown): void;
   receiptGenerated?(event: unknown, data: unknown): void;
 }
 
@@ -161,7 +156,7 @@ export interface AnzTIMConfig {
  * ```
  */
 export class AnzTerminalSession {
-  private _terminal: TimApiTerminal | null = null;
+  private _terminal: _LegacyTimApiTerminal | null = null;
   private _cancelled = false;
   private _resolve: ((r: AnzTIMResult) => void) | null = null;
   private _reject: ((e: Error) => void) | null = null;
@@ -203,7 +198,7 @@ export class AnzTerminalSession {
         const self = this;
 
         terminal.addListener({
-          transactionCompleted(event: TimApiTransactionEvent, data: TimApiTransactionData) {
+          transactionCompleted(event: _LegacyTimApiTransactionEvent, data: _LegacyTimApiTransactionData) {
             if (event.exception === undefined) {
               // Approved — commit to finalise the transaction
               try { terminal.commitAsync(); } catch { /* non-fatal */ }
@@ -229,11 +224,11 @@ export class AnzTerminalSession {
             self._reject  = null;
           },
 
-          connectionStateChanged(_event: TimApiConnectionEvent, _data: unknown) {
+          connectionStateChanged(_event: _LegacyTimApiConnectionEvent, _data: unknown) {
             onStatus?.('Terminal connected');
           },
 
-          displayTextChanged(_event: TimApiDisplayEvent, data: unknown) {
+          displayTextChanged(_event: _LegacyTimApiDisplayEvent, data: unknown) {
             const text = (data as Record<string, unknown>)?.['text'];
             if (typeof text === 'string' && text.trim()) {
               onStatus?.(text.trim());

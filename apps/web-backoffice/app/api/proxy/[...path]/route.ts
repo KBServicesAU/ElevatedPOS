@@ -314,6 +314,11 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.ORDERS_API_URL ?? 'http://localhost:4004',
     prefix: '/api/v1/waitlist',
   },
+  // EFTPOS payment intents — ANZ TIM API crash recovery and audit
+  eftpos: {
+    base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',
+    prefix: '/api/v1/eftpos',
+  },
   // Billing — subscription management in payments service
   billing: {
     base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',

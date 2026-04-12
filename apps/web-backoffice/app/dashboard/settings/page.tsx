@@ -27,7 +27,7 @@ interface TaxRate {
   percent: number;
 }
 
-type Tab = 'organisation' | 'locations' | 'hours' | 'receipts' | 'tax' | 'payments' | 'notifications' | 'devices' | 'printers';
+type Tab = 'organisation' | 'locations' | 'hours' | 'receipts' | 'tax' | 'payments' | 'notifications' | 'devices' | 'printers' | 'terminal';
 
 // ─── Toggle Switch ────────────────────────────────────────────────────────────
 
@@ -1226,6 +1226,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType; href?: string }[]
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'devices', label: 'Devices', icon: Smartphone, href: '/dashboard/settings/devices' },
   { id: 'printers', label: 'Printers', icon: PrinterIcon, href: '/dashboard/settings/printers' },
+  { id: 'terminal', label: 'EFTPOS Terminal', icon: CreditCard, href: '/dashboard/settings/terminal' },
 ];
 
 export default function SettingsPage() {

@@ -156,6 +156,69 @@ export const devicePaymentConfigs = pgTable('device_payment_configs', {
 // Terminal credentials  (per-org, per-provider)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// EFTPOS Payment Intents  (TIM API payment lifecycle / crash recovery)
+// ---------------------------------------------------------------------------
+// Persisted on every state transition so that if the browser crashes between
+// authorisation and commit, the unknown_outcome is surfaced to the operator.
+
+export const eftposIntentStateEnum = pgEnum('eftpos_intent_state', [
+  'created',
+  'initializing_terminal',
+  'awaiting_terminal_ready',
+  'sent_to_terminal',
+  'awaiting_cardholder',
+  'authorizing',
+  'approved_pending_commit',
+  'approved',
+  'declined',
+  'cancel_requested',
+  'cancelled',
+  'failed_retryable',
+  'failed_terminal',
+  'unknown_outcome',
+  'recovery_required',
+]);
+
+export const eftposPaymentIntents = pgTable('eftpos_payment_intents', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  orgId:             uuid('org_id').notNull(),
+  locationId:        uuid('location_id'),
+  deviceId:          uuid('device_id'),
+  /** POS sale / order reference */
+  posOrderId:        varchar('pos_order_id', { length: 255 }).notNull(),
+  /** Amount in cents (integer) */
+  amountCents:       integer('amount_cents').notNull(),
+  currency:          varchar('currency', { length: 3 }).notNull().default('AUD'),
+  state:             eftposIntentStateEnum('state').notNull().default('created'),
+  /** Full state transition history: [{state, at, details}] */
+  stateHistory:      jsonb('state_history').notNull().default([]),
+  /** ANZ/TIM transaction reference */
+  timCorrelationId:  varchar('tim_correlation_id', { length: 255 }),
+  resultApproved:    boolean('result_approved'),
+  resultCode:        varchar('result_code', { length: 50 }),
+  authCode:          varchar('auth_code', { length: 50 }),
+  cardLast4:         varchar('card_last4', { length: 4 }),
+  cardScheme:        varchar('card_scheme', { length: 50 }),
+  rrn:               varchar('rrn', { length: 50 }),
+  stan:              varchar('stan', { length: 50 }),
+  /** Terminal IP at time of transaction */
+  terminalIp:        varchar('terminal_ip', { length: 45 }),
+  terminalPort:      integer('terminal_port'),
+  terminalLabel:     varchar('terminal_label', { length: 255 }),
+  /** Receipt text — stored for re-print and support */
+  merchantReceipt:   text('merchant_receipt'),
+  customerReceipt:   text('customer_receipt'),
+  /** Structured support event log [{at, level, event, details}] */
+  supportLog:        jsonb('support_log').notNull().default([]),
+  createdAt:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:         timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Terminal credentials  (per-org, per-provider)
+// ---------------------------------------------------------------------------
+
 export const terminalCredentials = pgTable('terminal_credentials', {
   id:           uuid('id').primaryKey().defaultRandom(),
   orgId:        uuid('org_id').notNull(),

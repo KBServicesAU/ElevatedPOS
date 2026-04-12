@@ -441,6 +441,50 @@ jobs:
             " && echo "orders kds_destination OK" || echo "orders kds_destination WARN"
           fi
 
+          # -- Payments 0007: eftpos_payment_intents (TIM API lifecycle / crash recovery) --
+          PAYMENTS_POD=$(kubectl get pods -n elevatedpos -l app=payments --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+          if [ -n "$PAYMENTS_POD" ]; then
+            kubectl exec -n elevatedpos "$PAYMENTS_POD" -- node -e "
+              const {Pool}=require('pg');
+              const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
+              const sql=\`
+                DO \\\$\\\$ BEGIN
+                  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname='eftpos_intent_state') THEN
+                    CREATE TYPE eftpos_intent_state AS ENUM (
+                      'created','initializing_terminal','awaiting_terminal_ready',
+                      'sent_to_terminal','awaiting_cardholder','authorizing',
+                      'approved_pending_commit','approved','declined',
+                      'cancel_requested','cancelled','failed_retryable',
+                      'failed_terminal','unknown_outcome','recovery_required'
+                    );
+                  END IF;
+                END \\\$\\\$;
+                CREATE TABLE IF NOT EXISTS eftpos_payment_intents (
+                  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                  org_id UUID NOT NULL, location_id UUID, device_id UUID,
+                  pos_order_id VARCHAR(255) NOT NULL, amount_cents INTEGER NOT NULL,
+                  currency VARCHAR(3) NOT NULL DEFAULT 'AUD',
+                  state eftpos_intent_state NOT NULL DEFAULT 'created',
+                  state_history JSONB NOT NULL DEFAULT '[]',
+                  tim_correlation_id VARCHAR(255), result_approved BOOLEAN,
+                  result_code VARCHAR(50), auth_code VARCHAR(50), card_last4 VARCHAR(4),
+                  card_scheme VARCHAR(50), rrn VARCHAR(50), stan VARCHAR(50),
+                  terminal_ip VARCHAR(45), terminal_port INTEGER, terminal_label VARCHAR(255),
+                  merchant_receipt TEXT, customer_receipt TEXT,
+                  support_log JSONB NOT NULL DEFAULT '[]',
+                  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_eftpos_intents_org_id ON eftpos_payment_intents (org_id);
+                CREATE INDEX IF NOT EXISTS idx_eftpos_intents_state ON eftpos_payment_intents (state)
+                  WHERE state NOT IN ('approved','declined','cancelled','failed_retryable');
+              \`;
+              p.query(sql)
+                .then(()=>{console.log('payments 0007: applied');p.end();})
+                .catch(e=>{console.error('payments 0007:',e.message);p.end();process.exit(0);});
+            " && echo "payments 0007 OK" || echo "payments 0007 WARN"
+          fi
+
           # -- Drizzle migrator for remaining services --
           MIGRATE_SCRIPT='const {Pool}=require("pg");const {drizzle}=require("drizzle-orm/node-postgres");const {migrate}=require("drizzle-orm/node-postgres/migrator");const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});const d=drizzle(p);migrate(d,{migrationsFolder:"src/db/migrations",migrationsTable:"__drizzle_migrations"}).then(()=>{console.log("migrations applied");p.end();process.exit(0);}).catch(e=>{console.error(e.message);p.end();process.exit(1);});'
           for SVC in auth inventory orders payments customers loyalty campaigns notifications integrations automations franchise webhooks; do
