@@ -374,7 +374,7 @@ export const platformStaff = pgTable('platform_staff', {
 
 // ── Device Pairing ────────────────────────────────────────────────────────────
 
-export const deviceRoleEnum = pgEnum('device_role', ['pos', 'kds', 'kiosk']);
+export const deviceRoleEnum = pgEnum('device_role', ['pos', 'kds', 'kiosk', 'dashboard']);
 export const deviceStatusEnum = pgEnum('device_status', ['active', 'revoked']);
 
 export const devicePairingCodes = pgTable('device_pairing_codes', {
