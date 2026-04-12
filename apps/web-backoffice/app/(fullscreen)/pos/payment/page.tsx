@@ -8,6 +8,8 @@ import { type ReceiptData } from '../receipt-printer';
 import { getDeviceInfo } from '@/lib/device-auth';
 import { TyroPaymentOverlay } from './tyro-payment-overlay';
 import type { TyroConfig } from '@/lib/tyro-provider';
+import { AnzTerminalSession } from '@/lib/timapi-client';
+import type { AnzTIMResult, AnzTIMConfig } from '@/lib/timapi-client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -389,107 +391,73 @@ function TapIcon() {
 function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
 // ─── ANZ Worldline TIM Terminal Overlay ──────────────────────────────────────
+// Uses the TIM API JS SDK (WebSocket/SIXml) — NOT HTTP/JSON.
+// SDK files must be at /public/timapi/timapi.js + timapi.wasm
+// Obtain from: https://start.portal.anzworldline-solutions.com.au/
 
 type AnzPhase = 'connecting' | 'waiting' | 'approved' | 'declined' | 'cancelled' | 'error';
 
 function AnzTerminalOverlay({
   amount,
-  terminalIp,
-  terminalPort,
-  referenceId,
+  config,
   onApproved,
   onFailed,
   onCancel,
 }: {
   amount: number;
-  terminalIp: string;
-  terminalPort: number;
-  referenceId?: string;
-  onApproved: (result: { responseCode: string; transactionId?: string; authCode?: string; cardLast4?: string }) => void;
+  config: AnzTIMConfig;
+  onApproved: (result: AnzTIMResult) => void;
   onFailed: (msg: string) => void;
   onCancel: () => void;
 }) {
   const [phase, setPhase] = useState<AnzPhase>('connecting');
   const [statusMsg, setStatusMsg] = useState('Connecting to terminal…');
-  const abortRef = useRef<AbortController | null>(null);
+  const sessionRef = useRef<AnzTerminalSession | null>(null);
   const startedRef = useRef(false);
 
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+    const session = new AnzTerminalSession();
+    sessionRef.current = session;
 
-    (async () => {
-      try {
+    const amountCents = Math.round(amount * 100);
+
+    session.purchase(config, amountCents, (msg) => {
+      // Map status messages to phases
+      if (msg.includes('SDK') || msg.includes('Connecting')) {
         setPhase('connecting');
-        setStatusMsg('Connecting to terminal…');
-        await delay(400);
-        if (controller.signal.aborted) return;
-
+      } else {
         setPhase('waiting');
-        setStatusMsg('Waiting for card on terminal…');
-
-        const amountCents = Math.round(amount * 100);
-        const refId = referenceId ?? `WEB-${Date.now()}`;
-        const res = await fetch(`http://${terminalIp}:${terminalPort}/v1/payments`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transactionType: 'purchase', amount: amountCents, referenceId: refId }),
-          signal: controller.signal,
-        });
-
-        let data: Record<string, unknown> = {};
-        const text = await res.text().catch(() => '');
-        try { data = JSON.parse(text); } catch { /* use empty */ }
-
-        const responseCode = (data['responseCode'] as string) ?? String(res.status);
-        const approved = responseCode === '00';
-
-        if (approved) {
+      }
+      setStatusMsg(msg);
+    })
+      .then((result) => {
+        if (result.approved) {
           setPhase('approved');
           setStatusMsg('Payment approved!');
-          await delay(800);
-          if (!controller.signal.aborted) {
-            onApproved({
-              responseCode,
-              transactionId: data['transactionId'] as string | undefined,
-              authCode: data['authorizationCode'] as string | undefined,
-              cardLast4: (data['maskedPan'] as string | undefined)?.slice(-4),
-            });
-          }
+          setTimeout(() => onApproved(result), 800);
         } else {
-          const responseText = (data['responseText'] as string) ?? 'Declined';
           setPhase('declined');
-          setStatusMsg(`Declined: ${responseText}`);
-          await delay(1500);
-          if (!controller.signal.aborted) onFailed(responseText);
+          setStatusMsg(result.declineReason ?? 'Declined');
+          setTimeout(() => onFailed(result.declineReason ?? 'Declined'), 1500);
         }
-      } catch (err) {
-        if (controller.signal.aborted) {
+      })
+      .catch((err: Error) => {
+        if (session.cancelled) {
           setPhase('cancelled');
           setStatusMsg('Transaction cancelled.');
-          await delay(600);
-          onCancel();
+          setTimeout(() => onCancel(), 600);
           return;
         }
-        const msg = err instanceof Error ? err.message : String(err);
-        const isNet = msg.toLowerCase().includes('network') || msg.toLowerCase().includes('failed to fetch');
+        const msg = err.message ?? String(err);
         setPhase('error');
-        setStatusMsg(
-          isNet
-            ? 'Could not reach the terminal. Check the device is on the same Wi-Fi network as the terminal.'
-            : msg,
-        );
-        await delay(2000);
-        if (!controller.signal.aborted) onFailed(msg);
-      } finally {
-        abortRef.current = null;
-      }
-    })();
+        setStatusMsg(msg);
+        setTimeout(() => onFailed(msg), 2000);
+      });
 
-    return () => { controller.abort(); };
+    return () => { session.cancel(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -528,7 +496,7 @@ function AnzTerminalOverlay({
 
         {isProcessing && (
           <button
-            onClick={() => abortRef.current?.abort()}
+            onClick={() => sessionRef.current?.cancel()}
             className="w-full rounded-xl border border-[#2a2a3a] bg-[#141425] py-3 text-sm font-semibold text-gray-400 hover:text-white"
           >
             Cancel Transaction
@@ -562,8 +530,8 @@ function AddTenderDialog({
   const [showTerminal, setShowTerminal] = useState<false | 'stripe' | 'tyro' | 'anz'>(false);
   const [paymentSettings, setPaymentSettings] = useState<{ cardSurchargeRate: number; cashRoundingEnabled: boolean } | null>(null);
   const [tyroConfig, setTyroConfig] = useState<TyroConfig | null>(null);
-  const [anzConfig, setAnzConfig] = useState<{ terminalIp: string; terminalPort: number } | null>(null);
-  const [eftposProvider, setEftposProvider] = useState<'stripe' | 'tyro' | 'anz'>('tyro');
+  const [anzConfig, setAnzConfig] = useState<AnzTIMConfig | null>(null);
+  const [eftposProvider, setEftposProvider] = useState<'stripe' | 'tyro' | 'anz'>('stripe');
 
   // Fetch device's terminal config on mount to determine EFTPOS provider
   useEffect(() => {
@@ -573,7 +541,7 @@ function AddTenderDialog({
     const url = deviceId ? `/api/tyro/config?deviceId=${deviceId}` : '/api/tyro/config';
     fetch(url)
       .then(r => r.ok ? r.json() : null)
-      .then((data: { configured?: boolean; provider?: string; apiKey?: string; merchantId?: string; terminalId?: string; testMode?: boolean; tyroHandlesSurcharge?: boolean; terminalIp?: string; terminalPort?: number } | null) => {
+      .then((data: { configured?: boolean; provider?: string; apiKey?: string; merchantId?: string; terminalId?: string; testMode?: boolean; tyroHandlesSurcharge?: boolean; terminalIp?: string; terminalPort?: number; integratorId?: string } | null) => {
         if (!data?.configured) return;
         if (data.provider === 'tyro' && data.apiKey) {
           setEftposProvider('tyro');
@@ -586,10 +554,13 @@ function AddTenderDialog({
           });
         } else if (data.provider === 'anz' && data.terminalIp) {
           setEftposProvider('anz');
-          setAnzConfig({ terminalIp: data.terminalIp, terminalPort: data.terminalPort ?? 8080 });
-        } else {
-          setEftposProvider('tyro'); // Default fallback
+          setAnzConfig({
+            terminalIp:   data.terminalIp,
+            terminalPort: data.terminalPort ?? 80,
+            integratorId: data.integratorId ?? '',
+          });
         }
+        // If no terminal configured, eftposProvider stays 'stripe' (Stripe Terminal)
       })
       .catch(() => {});
   }, []);
@@ -655,9 +626,7 @@ function AddTenderDialog({
     return (
       <AnzTerminalOverlay
         amount={cardChargeTotal}
-        terminalIp={anzConfig.terminalIp}
-        terminalPort={anzConfig.terminalPort}
-        referenceId={orderId}
+        config={anzConfig}
         onApproved={(result) => {
           onAdd({
             id: newTenderId(),

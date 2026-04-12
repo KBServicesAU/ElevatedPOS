@@ -1,17 +1,22 @@
 /**
- * ANZ Worldline TIM (Terminal Integration Module) Client
+ * ANZ Worldline TIM (Terminal Integration Module) — Server-side types
  *
- * The TIM is a local HTTP server running on the EFTPOS terminal itself.
- * The POS communicates directly with it over the local network using
- * the terminal's IP address and port (default: 8080).
+ * NOTE: The TIM API uses the WebSocket/SIXml protocol via the timapi.js JS SDK.
+ * Direct HTTP/JSON calls to the terminal do NOT work.
  *
- * No cloud credentials or API keys are needed — just IP + port.
+ * ─── Browser & Android POS integration ──────────────────────────────────────
+ * Payment is initiated client-side (browser or Android WebView) using:
+ *   - apps/web-backoffice/lib/timapi-client.ts   (browser POS)
+ *   - apps/mobile/assets/timapi/timapi-bridge.html (Android WebView)
  *
- * Flow:
- *   1. POS POSTs a payment request to http://{ip}:{port}/v1/payments
- *   2. Terminal prompts the customer to tap / insert / swipe their card
- *   3. Terminal processes with the bank and returns the result
- *   4. POS reads responseCode "00" = approved, anything else = declined
+ * Both require:
+ *   - timapi.js + timapi.wasm (from https://start.portal.anzworldline-solutions.com.au/)
+ *   - ANZ_INTEGRATOR_ID env var (issued by ANZ Worldline to ElevatedPOS)
+ *   - Terminal configured in ECR/Integrated mode (section 2.16 of TIM API guide)
+ *
+ * ─── This file ───────────────────────────────────────────────────────────────
+ * Kept for type definitions and potential server-side terminal status checks.
+ * The AnzWorldlineTIMClient class uses HTTP only for /v1/status (health check).
  */
 
 // ─── Config ────────────────────────────────────────────────────────────────
@@ -19,7 +24,7 @@
 export interface TIMConfig {
   /** IPv4 address of the terminal on the local network, e.g. "192.168.1.100" */
   terminalIp:   string;
-  /** HTTP port the terminal listens on — default 8080 */
+  /** WebSocket port — ANZ TIM API default is 80 */
   terminalPort: number;
 }
 

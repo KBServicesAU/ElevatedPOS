@@ -19,7 +19,10 @@ export interface ServerTerminalConfig {
   provider: 'anz' | 'tyro';
   // ANZ
   terminalIp?: string;
+  /** WebSocket port — ANZ TIM API default is 80 */
   terminalPort?: number;
+  /** Integrator ID issued by ANZ Worldline to ElevatedPOS */
+  integratorId?: string;
   enableSurcharge?: boolean;
   enableTipping?: boolean;
   // Tyro
@@ -98,6 +101,12 @@ export function getServerAnzConfig(): (ServerTerminalConfig & { provider: 'anz';
     return cfg as ServerTerminalConfig & { provider: 'anz'; terminalIp: string };
   }
   return null;
+}
+
+/** True if ANZ is configured AND the integrator ID is available (SDK can be initialised). */
+export function isAnzFullyConfigured(): boolean {
+  const cfg = getServerAnzConfig();
+  return !!(cfg?.terminalIp && cfg.integratorId);
 }
 
 /** Returns the Tyro terminal config if that provider is configured server-side. */

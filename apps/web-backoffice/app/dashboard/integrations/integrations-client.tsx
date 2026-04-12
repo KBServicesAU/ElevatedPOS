@@ -2118,7 +2118,8 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
 function ANZWorldlineCard({ status, onRefresh }: { status: IntegrationsStatus['anzWorldline']; onRefresh: () => void }) {
   const { toast } = useToast();
   const [terminalIp, setTerminalIp] = useState(status.terminalIp ?? '');
-  const [terminalPort, setTerminalPort] = useState<string>(String(status.terminalPort ?? 4100));
+  // Port 80 = ANZ TIM API WebSocket default
+  const [terminalPort, setTerminalPort] = useState<string>(String(status.terminalPort && status.terminalPort !== 8080 && status.terminalPort !== 4100 ? status.terminalPort : 80));
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
@@ -2132,7 +2133,9 @@ function ANZWorldlineCard({ status, onRefresh }: { status: IntegrationsStatus['a
         const res = await apiFetch<{ terminalIp?: string; terminalPort?: number }>('terminal/credentials');
         if (!cancelled && res.terminalIp) {
           setTerminalIp(res.terminalIp);
-          if (res.terminalPort) setTerminalPort(String(res.terminalPort));
+          // If port is stored as old default (8080/4100), reset to correct default (80)
+          const p = res.terminalPort;
+          setTerminalPort(String(p && p !== 8080 && p !== 4100 ? p : 80));
         }
       } catch {
         // No credentials saved yet — ignore
@@ -2224,6 +2227,7 @@ function ANZWorldlineCard({ status, onRefresh }: { status: IntegrationsStatus['a
         <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800">
           <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
             Connect your ANZ Worldline EFTPOS terminal to accept card payments directly from the POS.
+            Uses the TIM API (WebSocket on port 80). Ensure the terminal is in <strong>ECR / Integrated</strong> mode.
           </p>
           <div className="space-y-4">
             <FieldRow label="Terminal IP Address">
@@ -2240,12 +2244,21 @@ function ANZWorldlineCard({ status, onRefresh }: { status: IntegrationsStatus['a
                 type="number"
                 value={terminalPort}
                 onChange={(e) => setTerminalPort(e.target.value)}
-                placeholder="4100"
+                placeholder="80"
                 min={1}
                 max={65535}
                 className={inputCls()}
               />
+              <p className="mt-1 text-xs text-gray-400">ANZ TIM API default is port 80 (WebSocket)</p>
             </FieldRow>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+              <strong>SDK setup required:</strong> Place <code>timapi.js</code> and <code>timapi.wasm</code> in{' '}
+              <code>/public/timapi/</code> on the web server, and set <code>ANZ_INTEGRATOR_ID</code> in your
+              environment. Obtain both from{' '}
+              <a href="https://start.portal.anzworldline-solutions.com.au/" target="_blank" rel="noopener noreferrer" className="underline">
+                the ANZ Worldline portal
+              </a>.
+            </div>
           </div>
         </div>
 

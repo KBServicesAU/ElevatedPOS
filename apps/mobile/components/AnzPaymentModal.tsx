@@ -7,39 +7,49 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 
 /**
- * ANZ Worldline TIM payment modal.
+ * ANZ Worldline TIM API payment modal (Android).
  *
- * Makes a direct HTTP purchase request to the ANZ terminal over the
- * local network (TIM — Terminal Integration Module). The fetch blocks
- * while the customer interacts with the terminal (up to ~90 s).
+ * Uses a hidden WebView to run timapi.js (WebSocket/SIXml protocol).
+ * The WebView communicates with the physical EFTPOS terminal on the
+ * local network (ws://<ip>:80) via the ANZ TIM API JS SDK.
  *
- * No Close X, no backdrop dismiss — the operator must use Cancel.
+ * ─── Required files ──────────────────────────────────────────────────────────
+ * Place these two files in apps/mobile/assets/timapi/ :
+ *   - timapi.js    (ANZ Worldline TIM API JS SDK)
+ *   - timapi.wasm  (WebAssembly binary, loaded by timapi.js)
+ *
+ * Obtain from: https://start.portal.anzworldline-solutions.com.au/
+ *
+ * ─── integratorId ────────────────────────────────────────────────────────────
+ * The integratorId is provided by ANZ Worldline when you register as a POS
+ * vendor. It is returned from the server in the device config response
+ * (GET /api/v1/devices/config) so it is never hardcoded in the app.
  */
 
 export interface AnzPaymentResult {
   approved: boolean;
-  transactionId?: string;
+  transactionRef?: string;
   authCode?: string;
   cardType?: string;
   cardLast4?: string;
-  responseCode: string;
-  responseText: string;
-  receiptData?: {
-    merchantReceipt?: string;
-    customerReceipt?: string;
-  };
+  rrn?: string;
+  declineCode?: string;
+  declineReason?: string;
+  merchantReceipt?: string;
+  customerReceipt?: string;
 }
 
 export interface AnzPaymentModalProps {
   visible: boolean;
-  /** Sale amount in dollars */
+  /** Sale amount in dollars (e.g. 12.50) */
   amount: number;
-  /** ANZ terminal config from server (terminalIp is required) */
-  config: { terminalIp: string; terminalPort?: number };
-  /** Reference ID to associate with the transaction (e.g. local order timestamp) */
+  /** ANZ terminal config from server */
+  config: { terminalIp: string; terminalPort?: number; integratorId?: string };
+  /** Reference ID to include in the transaction (e.g. order ID) */
   referenceId?: string;
   title?: string;
   onApproved: (result: AnzPaymentResult) => void;
@@ -48,7 +58,27 @@ export interface AnzPaymentModalProps {
   onError: (message: string) => void;
 }
 
-type Phase = 'connecting' | 'waiting' | 'approved' | 'declined' | 'cancelled' | 'error';
+// Bridge HTML loaded from Android assets
+// The file must be at apps/mobile/assets/timapi/timapi-bridge.html
+const BRIDGE_URI = 'file:///android_asset/timapi/timapi-bridge.html';
+
+type Phase = 'loading' | 'connecting' | 'waiting' | 'approved' | 'declined' | 'cancelled' | 'error';
+
+interface BridgeMessage {
+  type: 'sdk_ready' | 'status' | 'approved' | 'declined' | 'error';
+  message?: string;
+  // approved fields
+  transactionRef?: string;
+  authCode?: string;
+  maskedPan?: string;
+  cardType?: string;
+  rrn?: string;
+  merchantReceipt?: string;
+  customerReceipt?: string;
+  // declined fields
+  declineCode?: string;
+  // error fields — message above
+}
 
 export function AnzPaymentModal({
   visible,
@@ -61,109 +91,114 @@ export function AnzPaymentModal({
   onCancelled,
   onError,
 }: AnzPaymentModalProps) {
-  const [phase, setPhase] = useState<Phase>('connecting');
-  const [statusText, setStatusText] = useState('Connecting to terminal…');
-  const abortRef = useRef<AbortController | null>(null);
-  const startedRef = useRef(false);
+  const [phase, setPhase] = useState<Phase>('loading');
+  const [statusText, setStatusText] = useState('Loading terminal SDK…');
+  const webviewRef = useRef<WebView>(null);
+  // True once we have sent the purchase command to the bridge
+  const sentRef = useRef(false);
+  // True if operator cancelled
+  const cancelledRef = useRef(false);
 
+  // Reset state when modal opens/closes
   useEffect(() => {
     if (!visible) {
-      startedRef.current = false;
-      setPhase('connecting');
-      setStatusText('Connecting to terminal…');
-      return;
+      sentRef.current    = false;
+      cancelledRef.current = false;
+      setPhase('loading');
+      setStatusText('Loading terminal SDK…');
     }
-    if (startedRef.current) return;
-    startedRef.current = true;
-    runTransaction();
   }, [visible]);
 
-  async function runTransaction() {
-    const ip = config.terminalIp.trim();
-    const port = config.terminalPort || 8080;
+  function sendPurchase() {
+    if (sentRef.current || !webviewRef.current) return;
+    sentRef.current = true;
+
     const amountCents = Math.round(amount * 100);
-    const refId = referenceId ?? `POS-${Date.now()}`;
+    const msg = JSON.stringify({
+      type:        'purchase',
+      terminalIp:  config.terminalIp.trim(),
+      terminalPort: config.terminalPort ?? 80,
+      integratorId: config.integratorId ?? '',
+      amountCents,
+      referenceId:  referenceId ?? `POS-${Date.now()}`,
+    });
+    webviewRef.current.postMessage(msg);
+  }
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+  function handleBridgeMessage(raw: string) {
+    let msg: BridgeMessage;
+    try { msg = JSON.parse(raw) as BridgeMessage; }
+    catch { return; }
 
-    try {
-      setPhase('connecting');
-      setStatusText('Connecting to terminal…');
+    switch (msg.type) {
+      case 'sdk_ready':
+        setPhase('connecting');
+        setStatusText('Connecting to terminal…');
+        sendPurchase();
+        break;
 
-      // Small delay so the modal is fully visible before the request fires
-      await new Promise((r) => setTimeout(r, 400));
-      if (controller.signal.aborted) return;
+      case 'status':
+        if (msg.message) {
+          const m = msg.message.toLowerCase();
+          if (m.includes('connect')) setPhase('connecting');
+          else setPhase('waiting');
+          setStatusText(msg.message);
+        }
+        break;
 
-      setPhase('waiting');
-      setStatusText('Waiting for card on terminal…');
-
-      const res = await fetch(`http://${ip}:${port}/v1/payments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transactionType: 'purchase',
-          amount: amountCents,
-          referenceId: refId,
-        }),
-        signal: controller.signal,
-      });
-
-      let data: Record<string, unknown> = {};
-      const text = await res.text().catch(() => '');
-      try { data = JSON.parse(text); } catch { /* use empty */ }
-
-      const responseCode = (data['responseCode'] as string) ?? String(res.status);
-      const responseText = (data['responseText'] as string) ?? (res.ok ? 'OK' : 'Error');
-      const approved = responseCode === '00';
-
-      const result: AnzPaymentResult = {
-        approved,
-        responseCode,
-        responseText,
-        transactionId: data['transactionId'] as string | undefined,
-        authCode: data['authorizationCode'] as string | undefined,
-        cardType: data['cardType'] as string | undefined,
-        cardLast4: (data['maskedPan'] as string | undefined)?.slice(-4),
-        receiptData: data['receiptData'] as AnzPaymentResult['receiptData'],
-      };
-
-      if (approved) {
+      case 'approved':
+        if (cancelledRef.current) return;
         setPhase('approved');
         setStatusText('Payment approved!');
-        setTimeout(() => onApproved(result), 800);
-      } else {
+        setTimeout(() => {
+          onApproved({
+            approved:       true,
+            transactionRef: msg.transactionRef,
+            authCode:       msg.authCode,
+            cardLast4:      msg.maskedPan?.slice(-4),
+            cardType:       msg.cardType,
+            rrn:            msg.rrn,
+            merchantReceipt: msg.merchantReceipt ?? undefined,
+            customerReceipt: msg.customerReceipt ?? undefined,
+          });
+        }, 800);
+        break;
+
+      case 'declined':
+        if (cancelledRef.current) return;
         setPhase('declined');
-        setStatusText(`Declined: ${responseText}`);
-        setTimeout(() => onDeclined(result), 1500);
+        setStatusText(msg.message ?? 'Payment declined');
+        setTimeout(() => {
+          onDeclined({
+            approved:      false,
+            declineCode:   msg.declineCode,
+            declineReason: msg.message,
+          });
+        }, 1500);
+        break;
+
+      case 'error': {
+        if (cancelledRef.current) return;
+        const errMsg = msg.message ?? 'Terminal error';
+        setPhase('error');
+        setStatusText(errMsg);
+        setTimeout(() => onError(errMsg), 2000);
+        break;
       }
-    } catch (err) {
-      if (controller.signal.aborted) {
-        setPhase('cancelled');
-        setStatusText('Transaction cancelled.');
-        setTimeout(() => onCancelled(), 800);
-        return;
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      const isTimeout = msg.includes('abort') || msg.includes('timeout') || msg.includes('network');
-      setPhase('error');
-      setStatusText(
-        isTimeout
-          ? 'Could not reach the terminal. Check that the device is on the same network.'
-          : msg,
-      );
-      setTimeout(() => onError(msg), 2000);
-    } finally {
-      abortRef.current = null;
     }
   }
 
   function handleCancel() {
-    abortRef.current?.abort();
+    cancelledRef.current = true;
+    // Tell the bridge to cancel the in-flight transaction
+    webviewRef.current?.postMessage(JSON.stringify({ type: 'cancel' }));
+    setPhase('cancelled');
+    setStatusText('Transaction cancelled.');
+    setTimeout(() => onCancelled(), 600);
   }
 
-  const isTerminal = phase === 'approved' || phase === 'declined' || phase === 'cancelled' || phase === 'error';
-  const isProcessing = phase === 'connecting' || phase === 'waiting';
+  const isTerminal  = phase === 'approved' || phase === 'declined' || phase === 'cancelled' || phase === 'error';
+  const isProcessing = phase === 'loading'  || phase === 'connecting' || phase === 'waiting';
 
   return (
     <Modal
@@ -171,8 +206,28 @@ export function AnzPaymentModal({
       transparent
       animationType="fade"
       statusBarTranslucent
-      // No onRequestClose — operator must use Cancel
     >
+      {/* Hidden WebView — runs the TIM API bridge */}
+      {visible && (
+        <WebView
+          ref={webviewRef}
+          source={{ uri: BRIDGE_URI }}
+          style={styles.hidden}
+          javaScriptEnabled
+          allowFileAccess
+          allowFileAccessFromFileURLs
+          allowUniversalAccessFromFileURLs
+          originWhitelist={['*']}
+          mixedContentMode="always"
+          onMessage={(e) => handleBridgeMessage(e.nativeEvent.data)}
+          onError={(e) => {
+            setPhase('error');
+            setStatusText('Failed to load terminal bridge: ' + e.nativeEvent.description);
+            setTimeout(() => onError(e.nativeEvent.description), 2000);
+          }}
+        />
+      )}
+
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           {/* Icon */}
@@ -191,7 +246,7 @@ export function AnzPaymentModal({
               </View>
             ) : (
               <View style={[styles.iconCircle, styles.iconIndigo]}>
-                {phase === 'connecting' ? (
+                {phase === 'loading' || phase === 'connecting' ? (
                   <ActivityIndicator size="large" color="#6366f1" />
                 ) : (
                   <Ionicons name="card-outline" size={44} color="#6366f1" />
@@ -200,13 +255,8 @@ export function AnzPaymentModal({
             )}
           </View>
 
-          {/* Title */}
           <Text style={styles.title}>{title}</Text>
-
-          {/* Amount */}
           <Text style={styles.amount}>${amount.toFixed(2)}</Text>
-
-          {/* Status */}
           <Text
             style={[
               styles.status,
@@ -216,11 +266,8 @@ export function AnzPaymentModal({
           >
             {statusText}
           </Text>
-
-          {/* Provider label */}
           <Text style={styles.provider}>ANZ Worldline</Text>
 
-          {/* Cancel — only while in flight */}
           {isProcessing && (
             <TouchableOpacity style={styles.cancelBtn} onPress={handleCancel} activeOpacity={0.8}>
               <Ionicons name="close-outline" size={16} color="#888" />
@@ -228,7 +275,6 @@ export function AnzPaymentModal({
             </TouchableOpacity>
           )}
 
-          {/* Spacer when terminal (avoids layout jump) */}
           {isTerminal && <View style={{ height: 44 }} />}
         </View>
       </View>
@@ -237,6 +283,12 @@ export function AnzPaymentModal({
 }
 
 const styles = StyleSheet.create({
+  hidden: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+  },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.82)',
@@ -263,16 +315,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
   },
-  iconGreen: { backgroundColor: 'rgba(34,197,94,0.12)', borderColor: '#22c55e' },
-  iconRed: { backgroundColor: 'rgba(239,68,68,0.12)', borderColor: '#ef4444' },
-  iconGrey: { backgroundColor: 'rgba(136,136,136,0.12)', borderColor: '#444' },
+  iconGreen:  { backgroundColor: 'rgba(34,197,94,0.12)',  borderColor: '#22c55e' },
+  iconRed:    { backgroundColor: 'rgba(239,68,68,0.12)',  borderColor: '#ef4444' },
+  iconGrey:   { backgroundColor: 'rgba(136,136,136,0.12)', borderColor: '#444'  },
   iconIndigo: { backgroundColor: 'rgba(99,102,241,0.12)', borderColor: '#6366f1' },
-  title: { color: '#aaa', fontSize: 13, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
-  amount: { color: '#fff', fontSize: 36, fontWeight: '900', marginBottom: 8 },
-  status: { color: '#888', fontSize: 14, fontWeight: '600', textAlign: 'center', marginBottom: 6 },
+  title:       { color: '#aaa', fontSize: 13, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
+  amount:      { color: '#fff', fontSize: 36, fontWeight: '900', marginBottom: 8 },
+  status:      { color: '#888', fontSize: 14, fontWeight: '600', textAlign: 'center', marginBottom: 6 },
   statusGreen: { color: '#22c55e' },
-  statusRed: { color: '#ef4444' },
-  provider: { color: '#444', fontSize: 11, marginBottom: 20 },
+  statusRed:   { color: '#ef4444' },
+  provider:    { color: '#444', fontSize: 11, marginBottom: 20 },
   cancelBtn: {
     flexDirection: 'row',
     alignItems: 'center',

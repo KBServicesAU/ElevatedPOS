@@ -583,7 +583,7 @@ export default function PosSellScreen() {
 
     const cardDesc = result.cardType
       ? `${result.cardType} ••••${result.cardLast4 ?? ''}`
-      : `Auth: ${result.authCode ?? result.transactionId ?? 'OK'}`;
+      : `Auth: ${result.authCode ?? result.transactionRef ?? 'OK'}`;
 
     if (split) {
       setSplitCardAmount('');
@@ -600,7 +600,7 @@ export default function PosSellScreen() {
 
   function handleAnzDeclined(result: AnzPaymentResult) {
     setShowAnzModal(false);
-    toast.error('Card Declined', result.responseText || 'The card was declined by the bank.');
+    toast.error('Card Declined', result.declineReason || 'The card was declined by the bank.');
   }
 
   function handleAnzCancelled() {

@@ -5,6 +5,8 @@ const PAYMENTS_API_URL = process.env['PAYMENTS_API_URL'] ?? process.env['AUTH_AP
 const TYRO_TEST_MODE = process.env['TYRO_TEST_MODE'] !== 'false'; // default to test mode
 // API key belongs to ElevatedPOS as integration partner — set via env, never exposed to merchants
 const TYRO_API_KEY = process.env['TYRO_API_KEY'] ?? '';
+// ANZ Worldline integrator ID — issued by ANZ Worldline to ElevatedPOS as a POS vendor
+const ANZ_INTEGRATOR_ID = process.env['ANZ_INTEGRATOR_ID'] ?? '';
 
 /**
  * GET /api/tyro/config?deviceId=xxx
@@ -91,8 +93,9 @@ export async function GET(request: Request) {
       return NextResponse.json({
         configured: true,
         provider: 'anz',
-        terminalIp: credential.terminalIp,
-        terminalPort: credential.terminalPort,
+        terminalIp:   credential.terminalIp,
+        terminalPort: credential.terminalPort ?? 80,
+        integratorId: ANZ_INTEGRATOR_ID,
         credentialId: credential.id,
       });
     }

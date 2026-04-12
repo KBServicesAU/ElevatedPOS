@@ -411,8 +411,9 @@ export async function deviceRoutes(app: FastifyInstance) {
           if (credential['provider'] === 'anz') {
             terminal = {
               provider: 'anz',
-              terminalIp:   credential['terminalIp'],
-              terminalPort: credential['terminalPort'] ?? 8080,
+              terminalIp:      credential['terminalIp'],
+              terminalPort:    credential['terminalPort'] ?? 80,
+              integratorId:    process.env['ANZ_INTEGRATOR_ID'] ?? '',
               enableSurcharge: meta['enableSurcharge'] ?? false,
               enableTipping:   meta['enableTipping']   ?? false,
             };

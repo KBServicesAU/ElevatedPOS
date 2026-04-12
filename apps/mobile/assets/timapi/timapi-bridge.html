@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<!--
+  ANZ Worldline TIM API – Android WebView Bridge
+  ================================================
+  This page runs inside a hidden WebView in AnzPaymentModal.
+  It loads timapi.js (co-located in this folder), connects to the
+  EFTPOS terminal via WebSocket, and communicates results back to
+  React Native via window.ReactNativeWebView.postMessage().
+
+  Files required in apps/mobile/assets/timapi/:
+    - timapi-bridge.html  (this file)
+    - timapi.js           (obtain from ANZ Worldline portal)
+    - timapi.wasm         (obtain from ANZ Worldline portal)
+
+  Portal: https://start.portal.anzworldline-solutions.com.au/
+-->
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    // Notify React Native when the page is ready to receive commands
+    window.onTimApiReady = function () {
+      rn({ type: 'sdk_ready' });
+    };
+
+    // Helper — send JSON message to React Native
+    function rn(obj) {
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify(obj));
+      } catch (e) {
+        console.error('postMessage failed', e);
+      }
+    }
+
+    var terminal = null;
+
+    // ── Handle commands from React Native ──────────────────────────────────────
+    function handleMessage(raw) {
+      var msg;
+      try { msg = JSON.parse(raw); } catch { return; }
+
+      if (msg.type === 'purchase') {
+        startPurchase(msg);
+      } else if (msg.type === 'cancel') {
+        if (terminal) {
+          try { terminal.cancelAsync(); } catch (e) { /* ignore */ }
+        }
+      }
+    }
+
+    // React Native sends messages via injectedJavaScript — listen on document
+    document.addEventListener('message', function (e) { handleMessage(e.data); });
+    // Android fires on window
+    window.addEventListener('message', function (e) { handleMessage(e.data); });
+
+    // ── Purchase flow ──────────────────────────────────────────────────────────
+    function startPurchase(msg) {
+      if (!window.timapi) {
+        rn({ type: 'error', message: 'TIM API SDK not loaded. Place timapi.js in assets/timapi/.' });
+        return;
+      }
+
+      try {
+        var settings = new timapi.TerminalSettings();
+        settings.connectionIPString = msg.terminalIp;
+        settings.connectionIPPort   = msg.terminalPort || 80;
+        settings.autoCommit         = false;
+        settings.integratorId       = msg.integratorId || '';
+
+        terminal = new timapi.Terminal(settings);
+        terminal.setPosId('ECR-01');
+
+        terminal.addListener({
+          transactionCompleted: function (event, data) {
+            if (event.exception === undefined) {
+              // Approved — commit
+              try { terminal.commitAsync(); } catch (e) { /* non-fatal */ }
+              rn({
+                type:           'approved',
+                transactionRef: data.transactionReference || null,
+                authCode:       data.authorisationCode    || null,
+                maskedPan:      data.maskedPan            || null,
+                cardType:       data.cardType             || null,
+                rrn:            data.rrn                  || null,
+                merchantReceipt: data.merchantReceiptText || data.receiptText || null,
+                customerReceipt: data.customerReceiptText || null,
+              });
+            } else {
+              rn({
+                type:        'declined',
+                declineCode: event.exception.resultCode || '',
+                message:     event.exception.message    || ('Declined (' + event.exception.resultCode + ')'),
+              });
+            }
+            terminal = null;
+          },
+
+          connectionStateChanged: function (event, data) {
+            rn({ type: 'status', message: 'Terminal connected' });
+          },
+
+          displayTextChanged: function (event, data) {
+            var text = (data && data.text) ? data.text.trim() : '';
+            if (text) rn({ type: 'status', message: text });
+          },
+
+          receiptGenerated: function (event, data) {
+            // Receipt text is already returned in transactionCompleted — ignore here
+          },
+        });
+
+        rn({ type: 'status', message: 'Connecting to terminal\u2026' });
+
+        terminal.transactionAsync(
+          timapi.constants.TransactionType.purchase,
+          new timapi.Amount(msg.amountCents, timapi.constants.Currency.AUD),
+          msg.referenceId ? msg.referenceId : undefined
+        );
+      } catch (e) {
+        rn({ type: 'error', message: e && e.message ? e.message : String(e) });
+        terminal = null;
+      }
+    }
+  </script>
+
+  <!--
+    timapi.js MUST be in the same folder as this HTML file.
+    It fires window.onTimApiReady when loaded and WASM is compiled.
+    The src path is relative to this file in Android assets.
+  -->
+  <script src="timapi.js" onerror="rn({ type: 'error', message: 'timapi.js not found. Place timapi.js and timapi.wasm in apps/mobile/assets/timapi/.' })"></script>
+</head>
+<body style="background:#000;margin:0;padding:0;"></body>
+</html>

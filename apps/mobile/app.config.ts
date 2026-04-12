@@ -84,6 +84,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     './plugins/withCleartextTraffic',
     './plugins/withUsbPrinter',
     './plugins/withUsbPrinterPatch',
+    './plugins/withTimApiBridge',
     [
       'expo-build-properties',
       {
