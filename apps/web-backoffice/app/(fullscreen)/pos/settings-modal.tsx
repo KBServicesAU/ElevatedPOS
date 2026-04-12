@@ -1,21 +1,43 @@
 'use client';
 
-import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug, Monitor, CreditCard } from 'lucide-react';
 import { usePrinter } from './printer-context';
+import type { DeviceInfo } from '@/lib/device-auth';
 
 type ConnectionMethod = 'serial' | 'usb' | 'bluetooth';
 
 interface SettingsModalProps {
   onClose: () => void;
   onConnect: (printerType: 'receipt' | 'order', method: ConnectionMethod) => void;
+  deviceInfo?: DeviceInfo | null;
+  onUnpair?: () => void;
 }
 
-export function SettingsModal({ onClose, onConnect }: SettingsModalProps) {
+export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: SettingsModalProps) {
   const {
     receiptConnected, orderConnected,
     receiptMethod, orderMethod,
     disconnectPrinter,
   } = usePrinter();
+
+  const [terminalProvider, setTerminalProvider] = useState<string | null>(null);
+  const [terminalIp, setTerminalIp] = useState<string | null>(null);
+
+  // Fetch terminal config once on mount
+  useEffect(() => {
+    const deviceId = deviceInfo?.deviceId ?? null;
+    const url = deviceId ? `/api/tyro/config?deviceId=${deviceId}` : '/api/tyro/config';
+    fetch(url)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: { configured?: boolean; provider?: string; terminalIp?: string } | null) => {
+        if (data?.configured && data.provider) {
+          setTerminalProvider(data.provider);
+          setTerminalIp(data.terminalIp ?? null);
+        }
+      })
+      .catch(() => {});
+  }, [deviceInfo?.deviceId]);
 
   const hasSerial = typeof navigator !== 'undefined' && 'serial' in navigator;
   const hasUsb = typeof navigator !== 'undefined' && 'usb' in navigator;
@@ -61,6 +83,48 @@ export function SettingsModal({ onClose, onConnect }: SettingsModalProps) {
             onConnect={onConnect}
             onDisconnect={() => disconnectPrinter('order')}
           />
+
+          {/* Device Info */}
+          <div className="bg-[#0f0f0f] rounded-xl p-4 flex flex-col gap-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Monitor size={15} className="text-gray-400" />
+              <span className="text-white text-sm font-medium">Device Info</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+              <span className="text-gray-500">Role</span>
+              <span className="text-white font-mono uppercase">{deviceInfo?.role ?? '—'}</span>
+              <span className="text-gray-500">Label</span>
+              <span className="text-white font-mono truncate">{deviceInfo?.label ?? '—'}</span>
+              <span className="text-gray-500">Device ID</span>
+              <span className="text-gray-400 font-mono truncate">{deviceInfo?.deviceId ? deviceInfo.deviceId.slice(0, 8) + '…' : '—'}</span>
+              <span className="text-gray-500">Location ID</span>
+              <span className="text-gray-400 font-mono truncate">{deviceInfo?.locationId ? deviceInfo.locationId.slice(0, 8) + '…' : '—'}</span>
+            </div>
+            <div className="flex items-center gap-2 pt-1 border-t border-white/5">
+              <CreditCard size={13} className={terminalProvider ? 'text-green-400' : 'text-gray-600'} />
+              <span className="text-xs">
+                <span className="text-gray-500">Payment: </span>
+                <span className={terminalProvider ? 'text-green-400 font-medium' : 'text-gray-600'}>
+                  {terminalProvider === 'anz'
+                    ? `ANZ Worldline${terminalIp ? ` (${terminalIp})` : ''}`
+                    : terminalProvider === 'tyro'
+                      ? 'Tyro'
+                      : terminalProvider
+                        ? terminalProvider
+                        : 'Not configured'}
+                </span>
+              </span>
+            </div>
+            {onUnpair && (
+              <button
+                onClick={() => { if (confirm('Unpair this device? You will need a new pairing code to use the POS again.')) { onUnpair(); } }}
+                className="mt-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold text-red-400 hover:text-red-300 bg-red-900/20 hover:bg-red-900/30 border border-red-800/30 transition-colors"
+              >
+                <Unplug size={12} />
+                Unpair Device
+              </button>
+            )}
+          </div>
 
           <div className="pt-1">
             <button

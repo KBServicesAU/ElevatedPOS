@@ -1455,6 +1455,13 @@ function POSTerminalInner({ deviceInfo, staff }: { deviceInfo: DeviceInfo | null
         <SettingsModal
           onClose={() => setShowSettings(false)}
           onConnect={(printerType, method) => connectPrinter(printerType, method).catch((err) => console.error('[POS] Printer connect failed:', err))}
+          deviceInfo={deviceInfo}
+          onUnpair={() => {
+            import('@/lib/device-auth').then(({ clearDeviceSession }) => {
+              clearDeviceSession();
+              window.location.reload();
+            });
+          }}
         />
       )}
 
@@ -1512,6 +1519,7 @@ function POSTerminalInnerWrapper({ deviceInfo, staff, onStaffLogout }: { deviceI
 
 export default function POSPage() {
   const [mounted, setMounted] = useState(false);
+  const [validating, setValidating] = useState(false);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
   const [paired, setPaired] = useState(false);
   const [staff, setStaff] = useState<StaffMember | null>(null);
@@ -1519,13 +1527,30 @@ export default function POSPage() {
   useEffect(() => {
     setMounted(true);
     const token = getDeviceToken();
-    if (token) {
-      setDeviceInfo(getDeviceInfo());
-      setPaired(true);
-    }
+    if (!token) return;
+
+    // Validate the stored token against the server (heartbeat).
+    // While validating, show a blank screen to avoid a flash of the pairing UI.
+    setValidating(true);
+    fetchWithDeviceAuth('/api/proxy/devices/heartbeat', { method: 'POST' })
+      .then((r) => {
+        if (r.ok) {
+          setDeviceInfo(getDeviceInfo());
+          setPaired(true);
+        } else {
+          // Token rejected — clear it so the pairing screen shows
+          import('@/lib/device-auth').then(({ clearDeviceSession }) => clearDeviceSession());
+        }
+      })
+      .catch(() => {
+        // Network error — trust the local token so offline use still works
+        setDeviceInfo(getDeviceInfo());
+        setPaired(true);
+      })
+      .finally(() => setValidating(false));
   }, []);
 
-  if (!mounted) return null;
+  if (!mounted || validating) return null;
 
   if (!paired) {
     return (
