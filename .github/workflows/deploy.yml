@@ -316,6 +316,17 @@ jobs:
             " && echo "auth 0010 OK" || echo "auth 0010 WARN"
           fi
 
+          # -- Auth migration 0013: device settings JSONB column --
+          if [ -n "$RELAY_POD" ]; then
+            kubectl exec -n elevatedpos "$RELAY_POD" -- node -e "
+              const {Pool}=require('pg');
+              const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
+              p.query('ALTER TABLE devices ADD COLUMN IF NOT EXISTS settings jsonb')
+                .then(()=>{console.log('auth 0013: applied');p.end();})
+                .catch(e=>{console.error('auth 0013:',e.message);p.end();process.exit(0);});
+            " && echo "auth 0013 OK" || echo "auth 0013 WARN"
+          fi
+
           # -- Auth migration 0011: plans, signup_links, support_notes, audit_logs, sales_agent role --
           if [ -n "$RELAY_POD" ]; then
             kubectl exec -n elevatedpos "$RELAY_POD" -- node -e "
