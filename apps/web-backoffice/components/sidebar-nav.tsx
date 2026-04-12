@@ -7,6 +7,7 @@ import {
   Truck, Gift, CalendarCheck, ArrowLeftRight, MapPin, Clock, Webhook, ShoppingCart,
   FileText, Tag, CreditCard, ChefHat, Tablet, Smartphone, Receipt, RefreshCw, Globe,
   Banknote, ArrowDownToLine, Wallet, ArrowUpDown, UserCog, MoveRight, LayoutGrid, Calendar,
+  Tv,
 } from 'lucide-react';
 import { NavLink } from './nav-link';
 
@@ -39,9 +40,11 @@ const nav: NavItem[] = [
   { href: '/pos',                           icon: CreditCard,      label: 'POS Terminal' },
   { href: '/kds',                           icon: ChefHat,         label: 'KDS Display' },
   { href: '/kiosk',                         icon: Tablet,          label: 'Kiosk' },
+  { href: '/display',                       icon: Tv,              label: 'Display' },
 
   // ── Operations ────────────────────────────────────────────────────────────
   { href: '/dashboard/devices',             icon: Smartphone,      label: 'Devices',          roles: OPS },
+  { href: '/dashboard/display',             icon: Tv,              label: 'Display Screens',  roles: OPS },
   { href: '/dashboard/orders',              icon: ClipboardList,   label: 'Orders',            roles: OPS },
   { href: '/dashboard/tables',              icon: LayoutGrid,      label: 'Tables',            roles: OPS },
   { href: '/dashboard/reservations',        icon: CalendarCheck,   label: 'Reservations',      roles: OPS },

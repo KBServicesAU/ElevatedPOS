@@ -13,7 +13,7 @@ import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type DeviceRole   = 'pos' | 'kds' | 'kiosk' | 'customer-display' | 'dashboard';
+type DeviceRole   = 'pos' | 'kds' | 'kiosk' | 'customer-display' | 'dashboard' | 'display';
 type DeviceStatus = 'active' | 'revoked';
 
 interface Device {
@@ -82,6 +82,7 @@ const DEFAULT_METHODS: Record<string, string[]> = {
   kiosk:             ['card', 'giftcard'],
   'customer-display': [],
   dashboard:          [],
+  display:            [],
 };
 
 const EFTPOS_PROVIDERS = [
@@ -113,6 +114,7 @@ function RoleBadge({ role }: { role: DeviceRole }) {
     kiosk:             { label: 'Kiosk',     className: 'bg-teal-900   text-teal-300   border border-teal-700',     Icon: Tablet        },
     'customer-display': { label: 'Display',  className: 'bg-purple-900 text-purple-300 border border-purple-700',   Icon: DisplayIcon   },
     dashboard:         { label: 'Dashboard', className: 'bg-blue-900   text-blue-300   border border-blue-700',     Icon: Smartphone    },
+    display:           { label: 'Signage',   className: 'bg-cyan-900   text-cyan-300   border border-cyan-700',     Icon: DisplayIcon   },
   };
   const cfg = map[role] ?? map['pos'];
   const { label, className, Icon } = cfg;
@@ -894,10 +896,10 @@ export default function DevicesClient() {
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Device Role</label>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                {(['pos', 'kds', 'kiosk', 'customer-display', 'dashboard'] as DeviceRole[]).map((r) => (
+                {(['pos', 'kds', 'kiosk', 'customer-display', 'dashboard', 'display'] as DeviceRole[]).map((r) => (
                   <button key={r} type="button" onClick={() => setGenRole(r)}
                     className={`rounded-xl py-2.5 text-xs font-bold uppercase transition-colors ${genRole === r ? 'bg-indigo-500 text-white' : 'bg-white dark:bg-[#1e1e2e] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-transparent'}`}>
-                    {r === 'customer-display' ? 'Display' : r}
+                    {r === 'customer-display' ? 'Cust. Display' : r}
                   </button>
                 ))}
               </div>

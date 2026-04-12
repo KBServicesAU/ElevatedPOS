@@ -374,7 +374,7 @@ export const platformStaff = pgTable('platform_staff', {
 
 // ── Device Pairing ────────────────────────────────────────────────────────────
 
-export const deviceRoleEnum = pgEnum('device_role', ['pos', 'kds', 'kiosk', 'dashboard']);
+export const deviceRoleEnum = pgEnum('device_role', ['pos', 'kds', 'kiosk', 'dashboard', 'display']);
 export const deviceStatusEnum = pgEnum('device_status', ['active', 'revoked']);
 
 export const devicePairingCodes = pgTable('device_pairing_codes', {
@@ -415,12 +415,30 @@ export const devicesRelations = relations(devices, ({ one }) => ({
   organisation: one(organisations, { fields: [devices.orgId], references: [organisations.id] }),
   location: one(locations, { fields: [devices.locationId], references: [locations.id] }),
   revokedByEmployee: one(employees, { fields: [devices.revokedBy], references: [employees.id] }),
+  displayContent: one(displayContent, { fields: [devices.id], references: [displayContent.deviceId] }),
 }));
 
 export const devicePairingCodesRelations = relations(devicePairingCodes, ({ one }) => ({
   organisation: one(organisations, { fields: [devicePairingCodes.orgId], references: [organisations.id] }),
   location: one(locations, { fields: [devicePairingCodes.locationId], references: [locations.id] }),
   createdByEmployee: one(employees, { fields: [devicePairingCodes.createdBy], references: [employees.id] }),
+}));
+
+// ── Display Content ───────────────────────────────────────────────────────────
+
+export const displayContent = pgTable('display_content', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
+  deviceId: uuid('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }).unique(),
+  content: jsonb('content'),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  publishedBy: uuid('published_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const displayContentRelations = relations(displayContent, ({ one }) => ({
+  device: one(devices, { fields: [displayContent.deviceId], references: [devices.id] }),
 }));
 
 // ── Plans ─────────────────────────────────────────────────────────────────────

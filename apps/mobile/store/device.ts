@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 
-export type DeviceRole = 'pos' | 'kds' | 'kiosk' | 'dashboard';
+export type DeviceRole = 'pos' | 'kds' | 'kiosk' | 'dashboard' | 'display';
 
 export interface DeviceIdentity {
   deviceId: string;
@@ -76,7 +76,7 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
 
       if (
         deviceId && deviceToken &&
-        (role === 'pos' || role === 'kds' || role === 'kiosk' || role === 'dashboard') &&
+        (role === 'pos' || role === 'kds' || role === 'kiosk' || role === 'dashboard' || role === 'display') &&
         locationId && orgId
       ) {
         set({

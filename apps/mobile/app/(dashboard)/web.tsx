@@ -42,7 +42,9 @@ export default function DashboardWebScreen() {
     if (!ready) hydrate();
   }, [ready, hydrate]);
 
-  // Hide POS/KDS/Kiosk entries from the sidebar.
+  // Hide POS/KDS/Kiosk device-management entries from the sidebar.
+  // These are app-device management pages that should not appear inside
+  // the embedded WebView — operators should use the native launcher instead.
   const hideSidebarJS = `
       function applyHides() {
         try {
@@ -51,13 +53,24 @@ export default function DashboardWebScreen() {
             style = document.createElement('style');
             style.id = '__epos_hide_css__';
             style.textContent =
+              /* href-based — covers exact paths and sub-paths */
               'a[href="/pos"], a[href="/kds"], a[href="/kiosk"],' +
-              'a[href$="/pos/"], a[href$="/kds/"], a[href$="/kiosk/"] ' +
+              'a[href$="/pos/"], a[href$="/kds/"], a[href$="/kiosk/"],' +
+              /* devices section (e.g. /dashboard/devices/...) but not display */
+              'a[href*="/dashboard/devices"]:not([href*="/dashboard/display"]),' +
+              /* data-nav attributes used by some nav frameworks */
+              '[data-nav="pos"], [data-nav="kds"], [data-nav="kiosk"],' +
+              /* common sidebar role/item selectors */
+              '[data-sidebar-item="pos"], [data-sidebar-item="kds"], [data-sidebar-item="kiosk"],' +
+              /* nav links that explicitly target the app management pages */
+              'a[href="/dashboard/pos"], a[href="/dashboard/kds"], a[href="/dashboard/kiosk"],' +
+              'a[href$="/dashboard/pos/"], a[href$="/dashboard/kds/"], a[href$="/dashboard/kiosk/"]' +
               '{ display: none !important; }';
             (document.head || document.documentElement).appendChild(style);
           }
-          var labels = ['POS Terminal', 'KDS Display', 'Kiosk'];
-          document.querySelectorAll('a, li, button').forEach(function(el) {
+          /* Also hide by visible label text as a belt-and-braces fallback */
+          var labels = ['POS Terminal', 'KDS Display', 'Kiosk', 'POS Devices', 'KDS Devices', 'Kiosk Devices'];
+          document.querySelectorAll('a, li, button, [role="menuitem"]').forEach(function(el) {
             var txt = (el.textContent || '').trim();
             if (labels.indexOf(txt) !== -1) {
               el.style.display = 'none';

@@ -14,7 +14,7 @@ function generatePairingCode(length = 6): string {
 }
 
 const createCodeSchema = z.object({
-  role: z.enum(['pos', 'kds', 'kiosk', 'dashboard']),
+  role: z.enum(['pos', 'kds', 'kiosk', 'dashboard', 'display']),
   locationId: z.string().uuid(),
   registerId: z.string().uuid().optional(),
   label: z.string().max(100).optional(),
@@ -197,8 +197,8 @@ export async function deviceRoutes(app: FastifyInstance) {
 
     const conditions = [eq(schema.devices.orgId, user.orgId)];
     if (q.locationId) conditions.push(eq(schema.devices.locationId, q.locationId));
-    if (q.role && ['pos', 'kds', 'kiosk', 'dashboard'].includes(q.role)) {
-      conditions.push(eq(schema.devices.role, q.role as 'pos' | 'kds' | 'kiosk' | 'dashboard'));
+    if (q.role && ['pos', 'kds', 'kiosk', 'dashboard', 'display'].includes(q.role)) {
+      conditions.push(eq(schema.devices.role, q.role as 'pos' | 'kds' | 'kiosk' | 'dashboard' | 'display'));
     }
     if (q.status && ['active', 'revoked'].includes(q.status)) {
       conditions.push(eq(schema.devices.status, q.status as 'active' | 'revoked'));

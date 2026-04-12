@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useDeviceStore } from '../store/device';
 
-const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk' | 'dashboard' | undefined;
+const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk' | 'dashboard' | 'display' | undefined;
 
 export default function Index() {
   const { identity, ready } = useDeviceStore();
@@ -12,6 +12,13 @@ export default function Index() {
   if (ROLE_LOCK === 'dashboard') {
     if (!ready) return null;
     return <Redirect href="/(dashboard)" />;
+  }
+
+  // Display app goes straight to the display screen (layout handles auth redirect)
+  if (ROLE_LOCK === 'display') {
+    if (!ready) return null;
+    if (!identity) return <Redirect href="/pair" />;
+    return <Redirect href="/(display)" />;
   }
 
   if (!ready) return null;
@@ -39,6 +46,7 @@ export default function Index() {
   }
   if (role === 'dashboard') return <Redirect href="/login" />;
   if (role === 'kds') return <Redirect href="/(kds)" />;
+  if (role === 'display') return <Redirect href="/(display)" />;
   return <Redirect href="/(kiosk)/attract" />;
 }
 

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   FlatList,
   Linking,
   Modal,
@@ -21,6 +22,7 @@ import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useDeviceStore } from '../../store/device';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
+import { loadKdsSettings, type KdsSettings, BEEP_URLS } from './settings';
 import {
   useSmsStore,
   renderSmsBody,
@@ -357,15 +359,42 @@ export default function KDSScreen() {
    * location has already been swapped. */
   const connectionVersion = useRef(0);
 
-  // Sound settings
+  // Persisted KDS settings (loaded from AsyncStorage, refreshed when returning
+  // from the settings screen via AppState focus events).
+  const [kdsSettings, setKdsSettings] = useState<KdsSettings | null>(null);
+
+  useEffect(() => {
+    loadKdsSettings().then(setKdsSettings);
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        loadKdsSettings().then(setKdsSettings);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Sound settings — derived from persisted kdsSettings; local toggle kept for
+  // the inline modal that is still mounted (though no longer opened by the gear
+  // button, which now routes to the settings screen).
   const [soundEnabled, setSoundEnabled] = useState(true);
   const prevTicketIdsRef = useRef<Set<string>>(new Set());
 
   // Station filter
   const [activeStation, setActiveStation] = useState<StationId>('all');
 
-  // Expeditor mode — aggregated multi-station readiness view
+  // Expeditor mode — aggregated multi-station readiness view.
+  // Seeded from the persisted viewMode preference once kdsSettings loads.
   const [expoMode, setExpoMode] = useState(false);
+  const expoModeSeededRef = useRef(false);
+  useEffect(() => {
+    if (kdsSettings && !expoModeSeededRef.current) {
+      expoModeSeededRef.current = true;
+      setExpoMode(kdsSettings.viewMode === 'expeditor');
+    }
+  }, [kdsSettings]);
   const [itemReady, setItemReady] = useState<Record<string, boolean>>({});
 
   // Recall panel
@@ -382,8 +411,10 @@ export default function KDSScreen() {
   const [bumpError, setBumpError] = useState<string | null>(null);
   const errorOpacity = useRef(new Animated.Value(0)).current;
 
-  // Label print on bump
+  // Label print on bump — local toggle kept for the inline modal; the
+  // persisted value from kdsSettings takes precedence when available.
   const [printOnBump, setPrintOnBump] = useState(false);
+  const printOnBumpEffective = kdsSettings?.printOnBump ?? printOnBump;
 
   // Label printer discovery
   const [discovering, setDiscovering] = useState(false);
@@ -468,23 +499,28 @@ export default function KDSScreen() {
     setDiscoveredPrinters([]);
   }
 
-  // Play beep only when a genuinely NEW ticket (unrecognised ID) appears
+  // Play beep only when a genuinely NEW ticket (unrecognised ID) appears.
+  // Respects the persisted sound settings (enabled flag + beep type).
   useEffect(() => {
     const currentIds = new Set(tickets.map((t) => t.id));
     const hasNewTicket = tickets.some((t) => !prevTicketIdsRef.current.has(t.id));
-    if (hasNewTicket && prevTicketIdsRef.current.size > 0 && soundEnabled) {
+    // Use persisted setting when available, fall back to local toggle state.
+    const effectiveSoundEnabled = kdsSettings ? kdsSettings.soundEnabled : soundEnabled;
+    if (hasNewTicket && prevTicketIdsRef.current.size > 0 && effectiveSoundEnabled) {
       (async () => {
         try {
+          const beepType = kdsSettings?.beepType ?? 'ding';
+          const uri = BEEP_URLS[beepType];
           const { sound } = await Audio.Sound.createAsync(
-            { uri: 'https://cdn.elevatedpos.com.au/sounds/beep.mp3' },
+            { uri },
             { shouldPlay: true },
           );
-          setTimeout(() => sound.unloadAsync(), 2000);
+          setTimeout(() => sound.unloadAsync(), 3000);
         } catch { /* sound failed — non-critical */ }
       })();
     }
     prevTicketIdsRef.current = currentIds;
-  }, [tickets, soundEnabled]);
+  }, [tickets, soundEnabled, kdsSettings]);
 
   // Filtered tickets by station
   const visibleTickets = useMemo(() => {
@@ -876,7 +912,7 @@ export default function KDSScreen() {
     }
 
     // Print label if enabled
-    if (printOnBump && serverOk) {
+    if (printOnBumpEffective && serverOk) {
       try {
         const itemLines = ticket.items.map((i) => `${i.qty}x ${i.name}`).join('\n');
         const label = `ORDER #${ticket.orderNumber}\n-----------\n${itemLines}\n-----------\n\n`;
@@ -931,7 +967,7 @@ export default function KDSScreen() {
             )}
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => { setShowSettings(true); checkForUpdate(); }}
+            onPress={() => router.push('/(kds)/settings' as never)}
             style={styles.gearBtn}
             activeOpacity={0.7}
           >
@@ -1426,7 +1462,8 @@ export default function KDSScreen() {
           <FlatList
             data={visibleTickets}
             keyExtractor={(t) => t.id}
-            numColumns={3}
+            numColumns={kdsSettings?.itemsPerRow ?? 3}
+            key={kdsSettings?.itemsPerRow ?? 3}
             contentContainerStyle={styles.ticketGrid}
             renderItem={({ item }) => <TicketCard ticket={item} onBump={handleBump} />}
             style={{ flex: 1 }}
