@@ -153,6 +153,7 @@ function withUsbManifest(config) {
       );
 
       if (!alreadyHasUsbFilter) {
+        // Add the intent-filter (action only — <meta-data> is NOT valid inside <intent-filter>)
         if (!mainActivity['intent-filter']) mainActivity['intent-filter'] = [];
         mainActivity['intent-filter'].push({
           action: [
@@ -163,15 +164,16 @@ function withUsbManifest(config) {
               },
             },
           ],
-          'meta-data': [
-            {
-              $: {
-                'android:name':
-                  'android.hardware.usb.action.USB_DEVICE_ATTACHED',
-                'android:resource': '@xml/usb_device_filter',
-              },
-            },
-          ],
+        });
+
+        // Add <meta-data> directly on <activity>, not inside <intent-filter>
+        if (!mainActivity['meta-data']) mainActivity['meta-data'] = [];
+        mainActivity['meta-data'].push({
+          $: {
+            'android:name':
+              'android.hardware.usb.action.USB_DEVICE_ATTACHED',
+            'android:resource': '@xml/usb_device_filter',
+          },
         });
       }
     }
