@@ -52,16 +52,14 @@ export async function GET(request: Request) {
       }
     }
 
-    // Step 2: Fallback — find any active terminal credential for the org
+    // Step 2: Fallback — find the first active terminal credential for the org (no provider preference)
     if (!credential) {
       const credsRes = await fetch(`${PAYMENTS_API_URL}/api/v1/terminal/credentials`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (credsRes.ok) {
         const creds = await credsRes.json();
-        // Prefer Tyro, then any other provider
-        credential = (creds.data ?? creds).find((c: any) => c.provider === 'tyro' && c.isActive)
-          ?? (creds.data ?? creds).find((c: any) => c.isActive);
+        credential = (creds.data ?? creds).find((c: any) => c.isActive);
       }
     }
 

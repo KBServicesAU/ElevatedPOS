@@ -20,6 +20,7 @@ import Constants from 'expo-constants';
 import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { useEmployeeStore, type Shift } from '../../store/employee';
+import { useDeviceSettings } from '../../store/device-settings';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
 import { useSidebarStore, ALL_SIDEBAR_ITEMS } from '../../store/sidebar';
 import { useCustomerDisplayStore } from '../../store/customer-display';
@@ -89,6 +90,7 @@ export default function MoreScreen() {
   const router = useRouter();
   const { identity, clearIdentity } = useDeviceStore();
   const { employee: authEmployee, logout: authLogout } = useAuthStore();
+  const serverConfig = useDeviceSettings((s) => s.config);
 
   // ── Clock ────────────────────────────────────────────────────────
   const {
@@ -1229,6 +1231,19 @@ export default function MoreScreen() {
           <View style={s.row}>
             <Text style={s.label}>Register ID</Text>
             <Text style={s.value}>{truncate(identity?.registerId)}</Text>
+          </View>
+          <View style={s.divider} />
+          <View style={s.row}>
+            <Text style={s.label}>Payment Terminal</Text>
+            <Text style={[s.value, { color: serverConfig?.terminal ? '#22c55e' : '#666' }]}>
+              {serverConfig?.terminal
+                ? serverConfig.terminal.provider === 'anz'
+                  ? `ANZ Worldline (${serverConfig.terminal.terminalIp ?? '—'})`
+                  : serverConfig.terminal.provider === 'tyro'
+                    ? 'Tyro'
+                    : serverConfig.terminal.provider
+                : 'Not configured'}
+            </Text>
           </View>
         </View>
 

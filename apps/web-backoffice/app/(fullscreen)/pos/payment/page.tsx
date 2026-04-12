@@ -567,7 +567,9 @@ function AddTenderDialog({
 
   // Fetch device's terminal config on mount to determine EFTPOS provider
   useEffect(() => {
-    const deviceId = typeof window !== 'undefined' ? localStorage.getItem('elevatedpos_device_id') : null;
+    // Device info is stored under nexus_device_info by the web POS login
+    const deviceInfoRaw = typeof window !== 'undefined' ? localStorage.getItem('nexus_device_info') : null;
+    const deviceId = deviceInfoRaw ? (() => { try { return (JSON.parse(deviceInfoRaw) as { deviceId?: string }).deviceId ?? null; } catch { return null; } })() : null;
     const url = deviceId ? `/api/tyro/config?deviceId=${deviceId}` : '/api/tyro/config';
     fetch(url)
       .then(r => r.ok ? r.json() : null)

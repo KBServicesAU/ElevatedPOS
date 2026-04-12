@@ -39,7 +39,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   owner: 'kbservicesau',
   name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
   slug: resolved?.slug ?? 'elevatedpos',
-  version: '1.8.4',
+  version: '1.9.1',
   scheme: 'elevatedpos',
   orientation: 'default',
   platforms: ['ios', 'android'],
@@ -83,6 +83,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-secure-store',
     './plugins/withCleartextTraffic',
     './plugins/withUsbPrinter',
+    './plugins/withUsbPrinterPatch',
     [
       'expo-build-properties',
       {
