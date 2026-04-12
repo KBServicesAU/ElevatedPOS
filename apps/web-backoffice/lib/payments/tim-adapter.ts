@@ -327,23 +327,21 @@ export class TimApiAdapter {
   // ── Listener builder ────────────────────────────────────────────────────────
 
   private _buildListener(): TimApiListener {
-    const self = this;
-
     return {
-      transactionCompleted(event: TimTransactionEvent, data: TimTransactionData) {
-        self._logger.info('transaction_completed', {
+      transactionCompleted: (event: TimTransactionEvent, data: TimTransactionData) => {
+        this._logger.info('transaction_completed', {
           approved: event.exception === undefined,
           resultCode: event.exception?.resultCode,
           cardType: data.cardType,
           rrn: data.rrn,
         });
 
-        const pending = self._pendingTransaction;
+        const pending = this._pendingTransaction;
         if (!pending) {
-          self._logger.warn('transaction_completed_no_pending', {});
+          this._logger.warn('transaction_completed_no_pending', {});
           return;
         }
-        self._pendingTransaction = null;
+        this._pendingTransaction = null;
 
         if (event.exception === undefined) {
           pending.resolve({
@@ -366,19 +364,19 @@ export class TimApiAdapter {
         }
       },
 
-      commitCompleted(event: TimTransactionEvent, data: TimTransactionData) {
-        self._logger.info('commit_completed', {
+      commitCompleted: (event: TimTransactionEvent, data: TimTransactionData) => {
+        this._logger.info('commit_completed', {
           success: event.exception === undefined,
           resultCode: event.exception?.resultCode,
           transactionRef: data.transactionReference,
         });
 
-        const pending = self._pendingCommit;
+        const pending = this._pendingCommit;
         if (!pending) {
-          self._logger.warn('commit_completed_no_pending', {});
+          this._logger.warn('commit_completed_no_pending', {});
           return;
         }
-        self._pendingCommit = null;
+        this._pendingCommit = null;
 
         if (event.exception === undefined) {
           pending.resolve({ success: true, transactionRef: data.transactionReference });
@@ -391,33 +389,33 @@ export class TimApiAdapter {
         }
       },
 
-      connectionStateChanged(event: TimConnectionEvent, _data: unknown) {
+      connectionStateChanged: (event: TimConnectionEvent, _data: unknown) => {
         const state = event?.data?.state ?? 'unknown';
-        self._logger.info('connection_state_changed', { state });
-        self._pendingTransaction?.onStatus?.(`Terminal: ${state}`);
+        this._logger.info('connection_state_changed', { state });
+        this._pendingTransaction?.onStatus?.(`Terminal: ${state}`);
       },
 
-      displayTextChanged(_event: TimDisplayEvent, data: unknown) {
+      displayTextChanged: (_event: TimDisplayEvent, data: unknown) => {
         const text = ((data as Record<string, unknown>)?.['text'] as string | undefined)?.trim();
         if (text) {
-          self._logger.debug('display_text_changed', { text });
-          self._pendingTransaction?.onStatus?.(text);
+          this._logger.debug('display_text_changed', { text });
+          this._pendingTransaction?.onStatus?.(text);
         }
       },
 
-      loginCompleted(event: TimTransactionEvent, _data: unknown) {
-        self._logger.info('login_completed', { success: event.exception === undefined });
+      loginCompleted: (event: TimTransactionEvent, _data: unknown) => {
+        this._logger.info('login_completed', { success: event.exception === undefined });
       },
 
-      activateCompleted(event: TimTransactionEvent, _data: unknown) {
-        self._logger.info('activate_completed', { success: event.exception === undefined });
+      activateCompleted: (event: TimTransactionEvent, _data: unknown) => {
+        this._logger.info('activate_completed', { success: event.exception === undefined });
       },
 
-      applicationInformationCompleted(event: TimTransactionEvent, data: TimApplicationInfoData) {
-        self._logger.info('application_information_completed', { data });
-        const pending = self._pendingApplicationInfo;
+      applicationInformationCompleted: (event: TimTransactionEvent, data: TimApplicationInfoData) => {
+        this._logger.info('application_information_completed', { data });
+        const pending = this._pendingApplicationInfo;
         if (!pending) return;
-        self._pendingApplicationInfo = null;
+        this._pendingApplicationInfo = null;
         if (event.exception === undefined) {
           pending.resolve({
             posId:           data.posId,
@@ -433,11 +431,11 @@ export class TimApiAdapter {
         }
       },
 
-      balanceCompleted(event: TimTransactionEvent, data: unknown) {
-        self._logger.info('balance_completed', { success: event.exception === undefined });
-        const pending = self._pendingBalance;
+      balanceCompleted: (event: TimTransactionEvent, data: unknown) => {
+        this._logger.info('balance_completed', { success: event.exception === undefined });
+        const pending = this._pendingBalance;
         if (!pending) return;
-        self._pendingBalance = null;
+        this._pendingBalance = null;
         if (event.exception === undefined) {
           pending.resolve(data as Record<string, unknown>);
         } else {
@@ -445,9 +443,9 @@ export class TimApiAdapter {
         }
       },
 
-      receiptGenerated(_event: unknown, data: unknown) {
+      receiptGenerated: (_event: unknown, data: unknown) => {
         // Receipt text is delivered in transactionCompleted; this is informational
-        self._logger.debug('receipt_generated', { data });
+        this._logger.debug('receipt_generated', { data });
       },
     };
   }

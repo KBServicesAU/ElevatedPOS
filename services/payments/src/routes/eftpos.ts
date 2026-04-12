@@ -11,7 +11,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, inArray, gt, sql } from 'drizzle-orm';
+import { eq, and, gt, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -23,8 +23,6 @@ const intentStateValues = [
   'cancel_requested', 'cancelled', 'failed_retryable',
   'failed_terminal', 'unknown_outcome', 'recovery_required',
 ] as const;
-
-const TERMINAL_STATES = ['approved', 'declined', 'cancelled', 'failed_retryable'] as const;
 
 const createIntentSchema = z.object({
   posOrderId:    z.string().min(1).max(255),

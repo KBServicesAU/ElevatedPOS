@@ -195,10 +195,8 @@ export class AnzTerminalSession {
         this._terminal = terminal;
         terminal.setPosId(config.posId ?? 'ECR-01');
 
-        const self = this;
-
         terminal.addListener({
-          transactionCompleted(event: _LegacyTimApiTransactionEvent, data: _LegacyTimApiTransactionData) {
+          transactionCompleted: (event: _LegacyTimApiTransactionEvent, data: _LegacyTimApiTransactionData) => {
             if (event.exception === undefined) {
               // Approved — commit to finalise the transaction
               try { terminal.commitAsync(); } catch { /* non-fatal */ }
@@ -220,15 +218,15 @@ export class AnzTerminalSession {
                 declineReason: event.exception.message ?? `Declined (${event.exception.resultCode})`,
               });
             }
-            self._resolve = null;
-            self._reject  = null;
+            this._resolve = null;
+            this._reject  = null;
           },
 
-          connectionStateChanged(_event: _LegacyTimApiConnectionEvent, _data: unknown) {
+          connectionStateChanged: (_event: _LegacyTimApiConnectionEvent, _data: unknown) => {
             onStatus?.('Terminal connected');
           },
 
-          displayTextChanged(_event: _LegacyTimApiDisplayEvent, data: unknown) {
+          displayTextChanged: (_event: _LegacyTimApiDisplayEvent, data: unknown) => {
             const text = (data as Record<string, unknown>)?.['text'];
             if (typeof text === 'string' && text.trim()) {
               onStatus?.(text.trim());
