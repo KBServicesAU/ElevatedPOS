@@ -97,8 +97,8 @@ export async function connectPrinter(): Promise<void> {
     if (!target) throw new Error('Could not find target USB printer');
     try {
       await USBPrinter.connectPrinter(
-        String(target.vendor_id ?? ''),
-        String(target.product_id ?? ''),
+        target.vendor_id,
+        target.product_id,
       );
     } catch (e: any) {
       throw new Error('USB connect failed: ' + (e?.message ?? 'unknown'));
@@ -373,8 +373,8 @@ export async function printOrderTicket(opts: {
       if (target) {
         try {
           await USBPrinter.connectPrinter(
-            String(target.vendor_id ?? ''),
-            String(target.product_id ?? ''),
+            target.vendor_id,
+            target.product_id,
           );
         } catch (e: any) { throw new Error('Order printer USB connect failed: ' + (e?.message ?? 'unknown')); }
       }
@@ -443,8 +443,8 @@ export async function printOrderPrinterTestPage(): Promise<void> {
     if (!target) throw new Error('Order printer not found on USB bus');
     try {
       await USBPrinter.connectPrinter(
-        String(target.vendor_id ?? ''),
-        String(target.product_id ?? ''),
+        target.vendor_id,
+        target.product_id,
       );
     } catch (e: any) { throw new Error('Order printer USB connect failed: ' + (e?.message ?? 'unknown')); }
   } else if (op.type === 'bluetooth') {
