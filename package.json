@@ -32,7 +32,9 @@
   "packageManager": "pnpm@9.4.0",
   "pnpm": {
     "overrides": {
-      "@react-native/gradle-plugin": "0.74.84"
+      "@react-native/gradle-plugin": "0.74.84",
+      "expo-constants": "~16.0.2",
+      "expo-linking": "~6.3.1"
     }
   }
 }

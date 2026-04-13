@@ -272,20 +272,16 @@ function CreateCampaignModal({
   const [name, setName] = useState(initial?.name ?? '');
   const [type, setType] = useState<CampaignType>((initial?.type as CampaignType) ?? 'email');
   const [audience, setAudience] = useState(
-    (initial?.targetSegment as Record<string, string> | undefined)?.audience ?? 'all',
+    initial?.targetSegment?.audience ?? 'all',
   );
 
   // Email fields
-  const [subject, setSubject] = useState((initial as Record<string, unknown> | undefined)?.subject as string ?? '');
-  const [body, setBody] = useState((initial as Record<string, unknown> | undefined)?.body as string ?? '');
+  const [subject, setSubject] = useState(initial?.subject ?? '');
+  const [body, setBody] = useState(initial?.body ?? '');
 
   // SMS fields
-  const [fromName, setFromName] = useState(
-    (initial as Record<string, unknown> | undefined)?.fromName as string ?? 'ElevatedPOS',
-  );
-  const [smsMessage, setSmsMessage] = useState(
-    (initial as Record<string, unknown> | undefined)?.message as string ?? '',
-  );
+  const [fromName, setFromName] = useState(initial?.fromName ?? 'ElevatedPOS');
+  const [smsMessage, setSmsMessage] = useState(initial?.message ?? '');
 
   // A/B Test
   const [abConfig, setAbConfig] = useState<AbConfig>({

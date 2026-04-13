@@ -335,6 +335,12 @@ export interface Campaign {
   sentAt?: string;
   recipientCount?: number;
   createdAt: string;
+  // Detail fields (present when editing)
+  targetSegment?: Record<string, string>;
+  subject?: string;
+  body?: string;
+  fromName?: string;
+  message?: string;
 }
 
 export function fetchCampaigns(params?: { status?: string }): Promise<{ data: Campaign[] }> {
