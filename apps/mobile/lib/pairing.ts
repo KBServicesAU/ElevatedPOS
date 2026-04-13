@@ -1,7 +1,7 @@
 const BASE_URL = process.env['EXPO_PUBLIC_API_URL'] ?? '';
 
 export interface PairResult {
-  deviceId: string; deviceToken: string; role: 'pos' | 'kds' | 'kiosk' | 'dashboard';
+  deviceId: string; deviceToken: string; role: 'pos' | 'kds' | 'kiosk' | 'dashboard' | 'display';
   locationId: string; registerId: string | null; orgId: string; label: string | null;
 }
 

@@ -88,15 +88,25 @@ export default function RootLayout() {
   }, [identity, pathname, router]);
 
   if (!ready) return null;
+
+  const content = (
+    <SafeAreaProvider>
+      <View style={{ flex: 1 }}>
+        <Slot />
+        <ToastViewport />
+        <AlertDialogHost />
+      </View>
+    </SafeAreaProvider>
+  );
+
+  // Only wrap in StripeProvider when a publishable key is available (POS builds).
+  // Non-POS builds (KDS, Kiosk, Display, Dashboard) don't have the key set and
+  // initialising the native Stripe SDK with an empty key crashes the app on Android.
+  if (!stripePublishableKey) return content;
+
   return (
     <StripeProvider publishableKey={stripePublishableKey} urlScheme="elevatedpos">
-      <SafeAreaProvider>
-        <View style={{ flex: 1 }}>
-          <Slot />
-          <ToastViewport />
-          <AlertDialogHost />
-        </View>
-      </SafeAreaProvider>
+      {content}
     </StripeProvider>
   );
 }
