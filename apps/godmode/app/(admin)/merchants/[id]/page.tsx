@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, use, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { platformFetch } from '@/lib/api';
 import { ArrowLeft, Edit2, X, LogIn, CreditCard, ExternalLink, Copy, Check, Plus, UserX, UserCheck, Trash2 } from 'lucide-react';
 import Link from 'next/link';
@@ -13,6 +13,11 @@ interface OrgDetail {
   planStatus: string;
   maxLocations: number;
   maxDevices: number;
+  maxPosDevices: number;
+  maxKdsDevices: number;
+  maxKioskDevices: number;
+  maxDashboardDevices: number;
+  maxDisplayDevices: number;
   onboardingStep: string;
   country: string;
   currency: string;
@@ -113,14 +118,14 @@ const EMPTY_EDIT_FORM = {
   roleId: '',
 };
 
-export default function MerchantDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function MerchantDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const [org, setOrg] = useState<OrgDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'devices' | 'employees' | 'staff' | 'billing' | 'notes'>('overview');
   const [devices, setDevices] = useState<Device[]>([]);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editForm, setEditForm] = useState({ plan: '', maxLocations: 1, maxDevices: 2 });
+  const [editForm, setEditForm] = useState({ plan: '', maxLocations: 1, maxDevices: 2, maxPosDevices: 2, maxKdsDevices: 2, maxKioskDevices: 1, maxDashboardDevices: 1, maxDisplayDevices: 5 });
   const [saving, setSaving] = useState(false);
 
   // Notes state (API-backed)
@@ -171,6 +176,11 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
           plan: data.data.plan,
           maxLocations: data.data.maxLocations,
           maxDevices: data.data.maxDevices,
+          maxPosDevices: data.data.maxPosDevices,
+          maxKdsDevices: data.data.maxKdsDevices,
+          maxKioskDevices: data.data.maxKioskDevices,
+          maxDashboardDevices: data.data.maxDashboardDevices,
+          maxDisplayDevices: data.data.maxDisplayDevices,
         });
       } catch (err) {
         console.error('Failed to load organisation:', err);
@@ -987,7 +997,7 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
       {/* Edit Plan Modal */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6 w-full max-w-md">
+          <div className="bg-[#111118] border border-[#1e1e2e] rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-white font-semibold">Edit Plan</h3>
               <button onClick={() => setShowEditModal(false)} className="text-gray-500 hover:text-white">
@@ -1024,7 +1034,7 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
 
               <div>
                 <label className="block text-xs text-gray-400 uppercase tracking-wider mb-2">
-                  Max Devices
+                  Max Devices (total)
                 </label>
                 <input
                   type="number"
@@ -1033,6 +1043,68 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
                   onChange={(e) => setEditForm((f) => ({ ...f, maxDevices: Number(e.target.value) }))}
                   className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500"
                 />
+              </div>
+
+              {/* Per-Role Limits */}
+              <div className="pt-2">
+                <p className="text-xs text-gray-400 uppercase tracking-wider mb-3">Per-Role Limits</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">POS Devices</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={9999}
+                      value={editForm.maxPosDevices}
+                      onChange={(e) => setEditForm((f) => ({ ...f, maxPosDevices: Number(e.target.value) }))}
+                      className="bg-gray-700/50 border border-gray-600 rounded px-3 py-2 text-white w-full text-sm focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">KDS Screens</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={9999}
+                      value={editForm.maxKdsDevices}
+                      onChange={(e) => setEditForm((f) => ({ ...f, maxKdsDevices: Number(e.target.value) }))}
+                      className="bg-gray-700/50 border border-gray-600 rounded px-3 py-2 text-white w-full text-sm focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Kiosks</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={9999}
+                      value={editForm.maxKioskDevices}
+                      onChange={(e) => setEditForm((f) => ({ ...f, maxKioskDevices: Number(e.target.value) }))}
+                      className="bg-gray-700/50 border border-gray-600 rounded px-3 py-2 text-white w-full text-sm focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Dashboard</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={9999}
+                      value={editForm.maxDashboardDevices}
+                      onChange={(e) => setEditForm((f) => ({ ...f, maxDashboardDevices: Number(e.target.value) }))}
+                      className="bg-gray-700/50 border border-gray-600 rounded px-3 py-2 text-white w-full text-sm focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs text-gray-500 mb-1">Signage Displays</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={9999}
+                      value={editForm.maxDisplayDevices}
+                      onChange={(e) => setEditForm((f) => ({ ...f, maxDisplayDevices: Number(e.target.value) }))}
+                      className="bg-gray-700/50 border border-gray-600 rounded px-3 py-2 text-white w-full text-sm focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
               </div>
 
               {editError && (

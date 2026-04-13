@@ -17,6 +17,11 @@ const patchOrgSchema = z.object({
   planStatus: z.enum(['trialing', 'active', 'past_due', 'cancelled', 'paused']).optional(),
   maxLocations: z.number().int().min(1).optional(),
   maxDevices: z.number().int().min(1).optional(),
+  maxPosDevices:       z.number().int().min(0).optional(),
+  maxKdsDevices:       z.number().int().min(0).optional(),
+  maxKioskDevices:     z.number().int().min(0).optional(),
+  maxDashboardDevices: z.number().int().min(0).optional(),
+  maxDisplayDevices:   z.number().int().min(0).optional(),
   onboardingStep: z.string().optional(),
 });
 
@@ -161,6 +166,11 @@ export async function platformRoutes(app: FastifyInstance) {
           plan: schema.organisations.plan,
           maxLocations: schema.organisations.maxLocations,
           maxDevices: schema.organisations.maxDevices,
+          maxPosDevices: schema.organisations.maxPosDevices,
+          maxKdsDevices: schema.organisations.maxKdsDevices,
+          maxKioskDevices: schema.organisations.maxKioskDevices,
+          maxDashboardDevices: schema.organisations.maxDashboardDevices,
+          maxDisplayDevices: schema.organisations.maxDisplayDevices,
           onboardingStep: schema.organisations.onboardingStep,
           createdAt: schema.organisations.createdAt,
         })
@@ -230,6 +240,11 @@ export async function platformRoutes(app: FastifyInstance) {
     if (body.data.planStatus !== undefined) updates.planStatus = body.data.planStatus;
     if (body.data.maxLocations !== undefined) updates.maxLocations = body.data.maxLocations;
     if (body.data.maxDevices !== undefined) updates.maxDevices = body.data.maxDevices;
+    if (body.data.maxPosDevices !== undefined) updates.maxPosDevices = body.data.maxPosDevices;
+    if (body.data.maxKdsDevices !== undefined) updates.maxKdsDevices = body.data.maxKdsDevices;
+    if (body.data.maxKioskDevices !== undefined) updates.maxKioskDevices = body.data.maxKioskDevices;
+    if (body.data.maxDashboardDevices !== undefined) updates.maxDashboardDevices = body.data.maxDashboardDevices;
+    if (body.data.maxDisplayDevices !== undefined) updates.maxDisplayDevices = body.data.maxDisplayDevices;
     if (body.data.onboardingStep !== undefined) updates.onboardingStep = body.data.onboardingStep;
 
     if (Object.keys(updates).length === 0) {

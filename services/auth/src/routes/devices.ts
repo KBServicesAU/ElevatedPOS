@@ -26,6 +26,17 @@ const pairSchema = z.object({
   appVersion: z.string().max(20).optional(),
 });
 
+function getRoleLimit(org: typeof schema.organisations.$inferSelect, role: string): number {
+  switch (role) {
+    case 'pos':       return org.maxPosDevices;
+    case 'kds':       return org.maxKdsDevices;
+    case 'kiosk':     return org.maxKioskDevices;
+    case 'dashboard': return org.maxDashboardDevices;
+    case 'display':   return org.maxDisplayDevices;
+    default:          return org.maxDevices; // fallback for unknown roles
+  }
+}
+
 export async function deviceRoutes(app: FastifyInstance) {
   // POST /api/v1/devices/pairing-codes — generate a pairing code (staff auth required)
   app.post('/pairing-codes', { onRequest: [app.authenticate] }, async (request, reply) => {
@@ -42,16 +53,22 @@ export async function deviceRoutes(app: FastifyInstance) {
     // Enforce device limit
     const org = await db.query.organisations.findFirst({
       where: eq(schema.organisations.id, user.orgId),
-      columns: { maxDevices: true },
+      columns: { maxDevices: true, maxPosDevices: true, maxKdsDevices: true, maxKioskDevices: true, maxDashboardDevices: true, maxDisplayDevices: true },
     });
     if (org) {
-      const countRows = await db
-        .select({ value: count() })
-        .from(schema.devices)
-        .where(and(eq(schema.devices.orgId, user.orgId), eq(schema.devices.status, 'active')));
-      const deviceCount = countRows[0]?.value ?? 0;
-      if (deviceCount >= org.maxDevices) {
-        return reply.status(403).send({ error: 'Device limit reached', limit: org.maxDevices, current: deviceCount });
+      const requestedRole = body.data.role;
+      const roleLimit = getRoleLimit(org, requestedRole);
+      const [roleCountRows, totalCountRows] = await Promise.all([
+        db.select({ value: count() }).from(schema.devices).where(and(eq(schema.devices.orgId, user.orgId), eq(schema.devices.status, 'active'), eq(schema.devices.role, requestedRole))),
+        db.select({ value: count() }).from(schema.devices).where(and(eq(schema.devices.orgId, user.orgId), eq(schema.devices.status, 'active'))),
+      ]);
+      const roleDeviceCount = roleCountRows[0]?.value ?? 0;
+      const totalDeviceCount = totalCountRows[0]?.value ?? 0;
+      if (roleDeviceCount >= roleLimit) {
+        return reply.status(403).send({ error: 'Device limit reached for role', role: requestedRole, limit: roleLimit, current: roleDeviceCount });
+      }
+      if (totalDeviceCount >= org.maxDevices) {
+        return reply.status(403).send({ error: 'Device limit reached', limit: org.maxDevices, current: totalDeviceCount });
       }
     }
 
@@ -130,7 +147,7 @@ export async function deviceRoutes(app: FastifyInstance) {
     // Plan gating: KDS and Kiosk are paid addons
     const pairOrg = await db.query.organisations.findFirst({
       where: eq(schema.organisations.id, pairingRecord.orgId),
-      columns: { plan: true, planStatus: true, maxDevices: true },
+      columns: { plan: true, planStatus: true, maxDevices: true, maxPosDevices: true, maxKdsDevices: true, maxKioskDevices: true, maxDashboardDevices: true, maxDisplayDevices: true },
     });
     if (pairingRecord.role === 'kds' || pairingRecord.role === 'kiosk') {
       if (!pairOrg || pairOrg.planStatus !== 'active' || pairOrg.plan === 'starter') {
@@ -144,13 +161,19 @@ export async function deviceRoutes(app: FastifyInstance) {
 
     // Enforce device limit
     if (pairOrg) {
-      const countRows2 = await db
-        .select({ value: count() })
-        .from(schema.devices)
-        .where(and(eq(schema.devices.orgId, pairingRecord.orgId), eq(schema.devices.status, 'active')));
-      const deviceCount = countRows2[0]?.value ?? 0;
-      if (deviceCount >= pairOrg.maxDevices) {
-        return reply.status(403).send({ error: 'Device limit reached', limit: pairOrg.maxDevices, current: deviceCount });
+      const pairingRole = pairingRecord.role;
+      const pairRoleLimit = getRoleLimit(pairOrg, pairingRole);
+      const [pairRoleCountRows, pairTotalCountRows] = await Promise.all([
+        db.select({ value: count() }).from(schema.devices).where(and(eq(schema.devices.orgId, pairingRecord.orgId), eq(schema.devices.status, 'active'), eq(schema.devices.role, pairingRole))),
+        db.select({ value: count() }).from(schema.devices).where(and(eq(schema.devices.orgId, pairingRecord.orgId), eq(schema.devices.status, 'active'))),
+      ]);
+      const pairRoleCount = pairRoleCountRows[0]?.value ?? 0;
+      const pairTotalCount = pairTotalCountRows[0]?.value ?? 0;
+      if (pairRoleCount >= pairRoleLimit) {
+        return reply.status(403).send({ error: 'Device limit reached for role', role: pairingRole, limit: pairRoleLimit, current: pairRoleCount });
+      }
+      if (pairTotalCount >= pairOrg.maxDevices) {
+        return reply.status(403).send({ error: 'Device limit reached', limit: pairOrg.maxDevices, current: pairTotalCount });
       }
     }
 
