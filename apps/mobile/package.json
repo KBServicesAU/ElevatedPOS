@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "main": "expo-router/entry",
+  "expo": {
+    "autolinking": {
+      "searchPaths": ["../../node_modules"]
+    }
+  },
   "scripts": {
     "dev": "expo start --port 8083",
     "android": "expo run:android",
