@@ -815,15 +815,15 @@ function PaymentContent() {
   const params = useSearchParams();
 
   const items: CartItem[] = (() => {
-    try { return JSON.parse(params.get('items') ?? '[]'); } catch { return []; }
+    try { return JSON.parse(params?.get('items') ?? '[]'); } catch { return []; }
   })();
-  const exGst = Number(params.get('exGst') ?? 0);
-  const gst = Number(params.get('gst') ?? 0);
-  const total = Number(params.get('total') ?? 0);
-  const customerId = params.get('customerId') ?? '';
-  const customerName = params.get('customerName') ?? '';
-  const staffId = params.get('staffId') ?? '';
-  const staffName = params.get('staffName') ?? '';
+  const exGst = Number(params?.get('exGst') ?? 0);
+  const gst = Number(params?.get('gst') ?? 0);
+  const total = Number(params?.get('total') ?? 0);
+  const customerId = params?.get('customerId') ?? '';
+  const customerName = params?.get('customerName') ?? '';
+  const staffId = params?.get('staffId') ?? '';
+  const staffName = params?.get('staffName') ?? '';
 
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [showAddTender, setShowAddTender] = useState(false);

@@ -169,7 +169,7 @@ export default function EmployeeDetailPage({ params }: { params: { id: string } 
   const [error, setError] = useState(false);
 
   // ── Edit mode ───────────────────────────────────────────────────────────────
-  const isEditMode = searchParams.get('edit') === '1';
+  const isEditMode = searchParams?.get('edit') === '1';
   const [editForm, setEditForm] = useState<EditFormData>({
     firstName: '',
     lastName: '',

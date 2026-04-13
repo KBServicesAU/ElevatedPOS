@@ -32,9 +32,7 @@
   "packageManager": "pnpm@9.4.0",
   "pnpm": {
     "overrides": {
-      "@react-native/gradle-plugin": "0.74.84",
-      "styled-jsx>react": "$react",
-      "styled-jsx>react-dom": "$react-dom"
+      "@react-native/gradle-plugin": "0.74.84"
     }
   }
 }

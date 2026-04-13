@@ -146,9 +146,9 @@ export default function EasyMovePage() {
 
   // Handle OAuth callback — ?connected=1&provider=xxx
   useEffect(() => {
-    const connected = searchParams.get('connected');
-    const providerParam = searchParams.get('provider');
-    const errorParam = searchParams.get('error');
+    const connected = searchParams?.get('connected');
+    const providerParam = searchParams?.get('provider');
+    const errorParam = searchParams?.get('error');
 
     if (errorParam) {
       setConnectError(

@@ -718,7 +718,7 @@ export function PurchaseOrdersClient() {
 
   // Auto-open create modal when navigated with ?action=new (e.g. from Inventory "Create PO")
   useEffect(() => {
-    if (searchParams.get('action') === 'new') {
+    if (searchParams?.get('action') === 'new') {
       setShowNewModal(true);
     }
   }, [searchParams]);

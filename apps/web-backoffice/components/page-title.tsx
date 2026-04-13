@@ -57,9 +57,9 @@ export function PageTitle() {
 
   // Exact match first, then prefix match (for nested routes)
   const label =
-    ROUTE_LABELS[pathname] ??
+    (pathname ? ROUTE_LABELS[pathname] : undefined) ??
     Object.entries(ROUTE_LABELS)
-      .filter(([k]) => k !== '/dashboard' && pathname.startsWith(k))
+      .filter(([k]) => k !== '/dashboard' && (pathname?.startsWith(k) ?? false))
       .sort((a, b) => b[0].length - a[0].length)[0]?.[1] ??
     'Dashboard';
 

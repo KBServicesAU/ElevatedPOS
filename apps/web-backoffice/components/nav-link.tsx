@@ -17,7 +17,7 @@ export function NavLink({ href, icon: Icon, label, onNavigate }: NavLinkProps) {
   const isActive =
     href === '/dashboard'
       ? pathname === '/dashboard'
-      : pathname === href || pathname.startsWith(href + '/');
+      : pathname === href || (pathname?.startsWith(href + '/') ?? false);
 
   return (
     <Link

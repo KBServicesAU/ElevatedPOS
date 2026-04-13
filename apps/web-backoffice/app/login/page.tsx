@@ -13,13 +13,13 @@ function LoginContent() {
   const [mode, setMode] = useState<'password' | 'pin'>('password');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const registered = searchParams.get('registered') === 'true';
+  const registered = searchParams?.get('registered') === 'true';
 
   // Handle impersonation token from Godmode — auto-login support staff as a merchant.
   // Uses a ref guard so this runs exactly once even under React Strict Mode double-invoke.
   const impersonateFired = useRef(false);
   useEffect(() => {
-    const impersonateToken = searchParams.get('impersonate');
+    const impersonateToken = searchParams?.get('impersonate');
     if (impersonateToken && !impersonateFired.current) {
       impersonateFired.current = true;
       fetch('/api/auth/impersonate', {
@@ -55,7 +55,7 @@ function LoginContent() {
       }
 
       // Cookie is set server-side — check onboarding status before redirecting
-      const explicitNext = searchParams.get('next');
+      const explicitNext = searchParams?.get('next');
       let destination = explicitNext ?? '/dashboard';
 
       // For default dashboard redirects, check if onboarding is complete

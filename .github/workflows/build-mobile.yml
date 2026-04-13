@@ -44,10 +44,8 @@ jobs:
           cache: 'pnpm'
 
       # Install from workspace root so pnpm resolves the lockfile correctly.
-      # --filter limits installation to the mobile package and its deps only,
-      # avoiding downloading all 16 backend services.
-      - name: Install mobile dependencies
-        run: pnpm install --frozen-lockfile --filter @nexus/mobile...
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       # Authenticate with Expo / EAS
       # ⚠️  Requires EXPO_TOKEN secret:
