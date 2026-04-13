@@ -490,12 +490,12 @@ export const signupLinks = pgTable('signup_links', {
 
 export const supportNotes = pgTable('support_notes', {
   id: uuid('id').primaryKey().defaultRandom(),
-  orgId: uuid('org_id').notNull(),
-  authorId: uuid('author_id').notNull().references(() => platformStaff.id),
-  authorName: varchar('author_name', { length: 200 }).notNull(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
   body: text('body').notNull(),
+  authorId: uuid('author_id'),
+  authorEmail: varchar('author_email', { length: 255 }),
+  authorName: varchar('author_name', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── Audit Logs ────────────────────────────────────────────────────────────────

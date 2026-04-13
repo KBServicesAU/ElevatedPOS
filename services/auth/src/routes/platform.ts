@@ -583,4 +583,227 @@ export async function platformRoutes(app: FastifyInstance) {
 
     return reply.status(201).send({ data: employee });
   });
+
+  // ── Devices ───────────────────────────────────────────────────────────────────
+
+  // GET /api/v1/platform/organisations/:id/devices — list devices for a specific org
+  app.get('/organisations/:id/devices', { onRequest: [authenticatePlatform] }, async (request, reply) => {
+    const { id: orgId } = request.params as { id: string };
+
+    const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, orgId) });
+    if (!org) return reply.status(404).send({ title: 'Organisation not found', status: 404 });
+
+    const deviceList = await db
+      .select({
+        id: schema.devices.id,
+        orgId: schema.devices.orgId,
+        role: schema.devices.role,
+        label: schema.devices.label,
+        locationId: schema.devices.locationId,
+        platform: schema.devices.platform,
+        appVersion: schema.devices.appVersion,
+        lastSeenAt: schema.devices.lastSeenAt,
+        status: schema.devices.status,
+        createdAt: schema.devices.createdAt,
+      })
+      .from(schema.devices)
+      .where(eq(schema.devices.orgId, orgId))
+      .orderBy(schema.devices.createdAt);
+
+    return reply.send({ data: deviceList });
+  });
+
+  // GET /api/v1/platform/devices — list ALL devices across all orgs
+  app.get('/devices', { onRequest: [authenticatePlatform] }, async (request, reply) => {
+    const q = request.query as { role?: string; status?: string; limit?: string; offset?: string };
+
+    const limit = Math.min(Number(q.limit ?? 100), 500);
+    const offset = Number(q.offset ?? 0);
+
+    const conditions: SQL[] = [];
+    if (q.role) {
+      conditions.push(eq(schema.devices.role, q.role as 'pos' | 'kds' | 'kiosk' | 'dashboard' | 'display'));
+    }
+    if (q.status) {
+      conditions.push(eq(schema.devices.status, q.status as 'active' | 'revoked'));
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [deviceList, totalRows] = await Promise.all([
+      db
+        .select({
+          id: schema.devices.id,
+          orgId: schema.devices.orgId,
+          orgName: schema.organisations.name,
+          role: schema.devices.role,
+          label: schema.devices.label,
+          locationId: schema.devices.locationId,
+          platform: schema.devices.platform,
+          appVersion: schema.devices.appVersion,
+          lastSeenAt: schema.devices.lastSeenAt,
+          status: schema.devices.status,
+          createdAt: schema.devices.createdAt,
+        })
+        .from(schema.devices)
+        .leftJoin(schema.organisations, eq(schema.devices.orgId, schema.organisations.id))
+        .where(where)
+        .limit(limit)
+        .offset(offset)
+        .orderBy(schema.devices.createdAt),
+      db.select({ value: count() }).from(schema.devices).where(where),
+    ]);
+
+    return reply.send({ data: deviceList, total: totalRows[0]?.value ?? 0, limit, offset });
+  });
+
+  // DELETE /api/v1/platform/devices/:id — revoke (soft-delete) a device
+  app.delete('/devices/:id', { onRequest: [authenticatePlatform] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const platformUser = request.user as PlatformPayload;
+
+    const [updated] = await db
+      .update(schema.devices)
+      .set({ status: 'revoked', revokedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(schema.devices.id, id), eq(schema.devices.status, 'active')))
+      .returning({ id: schema.devices.id, status: schema.devices.status, orgId: schema.devices.orgId });
+
+    if (!updated) return reply.status(404).send({ title: 'Device not found or already revoked', status: 404 });
+
+    void logAudit({
+      orgId: updated.orgId,
+      platformUserId: platformUser.sub,
+      actorName: platformUser.email,
+      action: 'device_revoked',
+      resourceType: 'device',
+      resourceId: id,
+      detail: {},
+      ipAddress: request.ip,
+    });
+
+    return reply.send({ data: updated });
+  });
+
+  // ── Org Suspend / Reactivate ──────────────────────────────────────────────────
+
+  // POST /api/v1/platform/organisations/:id/suspend
+  app.post('/organisations/:id/suspend', { onRequest: [requireSuperadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const platformUser = request.user as PlatformPayload;
+
+    const [updated] = await db
+      .update(schema.organisations)
+      .set({ planStatus: 'paused', updatedAt: new Date() })
+      .where(eq(schema.organisations.id, id))
+      .returning();
+
+    if (!updated) return reply.status(404).send({ title: 'Not Found', status: 404 });
+
+    void logAudit({
+      orgId: id,
+      platformUserId: platformUser.sub,
+      actorName: platformUser.email,
+      action: 'org_suspended',
+      resourceType: 'organisation',
+      resourceId: id,
+      detail: {},
+      ipAddress: request.ip,
+    });
+
+    return reply.send({ data: { ...updated, businessName: updated.name, deviceLimit: updated.maxDevices } });
+  });
+
+  // POST /api/v1/platform/organisations/:id/reactivate
+  app.post('/organisations/:id/reactivate', { onRequest: [requireSuperadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const platformUser = request.user as PlatformPayload;
+
+    const [updated] = await db
+      .update(schema.organisations)
+      .set({ planStatus: 'active', updatedAt: new Date() })
+      .where(eq(schema.organisations.id, id))
+      .returning();
+
+    if (!updated) return reply.status(404).send({ title: 'Not Found', status: 404 });
+
+    void logAudit({
+      orgId: id,
+      platformUserId: platformUser.sub,
+      actorName: platformUser.email,
+      action: 'org_reactivated',
+      resourceType: 'organisation',
+      resourceId: id,
+      detail: {},
+      ipAddress: request.ip,
+    });
+
+    return reply.send({ data: { ...updated, businessName: updated.name, deviceLimit: updated.maxDevices } });
+  });
+
+  // ── Support Notes ─────────────────────────────────────────────────────────────
+
+  // GET /api/v1/platform/support-notes?orgId=xxx
+  app.get('/support-notes', { onRequest: [authenticatePlatform] }, async (request, reply) => {
+    const { orgId } = request.query as { orgId?: string };
+
+    if (!orgId) {
+      return reply.status(422).send({ title: 'Validation Error', status: 422, detail: 'orgId query param is required.' });
+    }
+
+    const notes = await db
+      .select()
+      .from(schema.supportNotes)
+      .where(eq(schema.supportNotes.orgId, orgId))
+      .orderBy(schema.supportNotes.createdAt);
+
+    return reply.send({ data: notes });
+  });
+
+  // POST /api/v1/platform/support-notes
+  app.post('/support-notes', { onRequest: [authenticatePlatform] }, async (request, reply) => {
+    const body = z.object({
+      orgId: z.string().uuid(),
+      body:  z.string().min(1).max(10000),
+    }).safeParse(request.body);
+
+    if (!body.success) {
+      return reply.status(422).send({ title: 'Validation Error', status: 422, detail: body.error.message });
+    }
+
+    const platformUser = request.user as PlatformPayload;
+
+    const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, body.data.orgId) });
+    if (!org) return reply.status(404).send({ title: 'Organisation not found', status: 404 });
+
+    const [note] = await db
+      .insert(schema.supportNotes)
+      .values({
+        orgId:       body.data.orgId,
+        body:        body.data.body,
+        authorId:    platformUser.sub,
+        authorEmail: platformUser.email,
+        authorName:  `${platformUser.firstName} ${platformUser.lastName}`,
+      })
+      .returning();
+
+    return reply.status(201).send({ data: note });
+  });
+
+  // DELETE /api/v1/platform/support-notes/:id
+  app.delete('/support-notes/:id', { onRequest: [authenticatePlatform] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const platformUser = request.user as PlatformPayload;
+
+    // Only superadmins or the original author can delete
+    const note = await db.query.supportNotes.findFirst({ where: eq(schema.supportNotes.id, id) });
+    if (!note) return reply.status(404).send({ title: 'Note not found', status: 404 });
+
+    if (platformUser.role !== 'superadmin' && note.authorId !== platformUser.sub) {
+      return reply.status(403).send({ title: 'Forbidden', status: 403, detail: 'You can only delete your own notes.' });
+    }
+
+    await db.delete(schema.supportNotes).where(eq(schema.supportNotes.id, id));
+
+    return reply.status(204).send();
+  });
 }

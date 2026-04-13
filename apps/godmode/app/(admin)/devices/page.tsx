@@ -6,6 +6,7 @@ import { platformFetch } from '@/lib/api';
 interface Device {
   id: string;
   orgId: string;
+  orgName: string | null;
   role: string;
   label: string | null;
   locationId: string;
@@ -132,7 +133,7 @@ export default function DevicesPage() {
                       {d.role}
                     </span>
                   </td>
-                  <td className="px-6 py-3 text-gray-400 font-mono text-xs">{d.orgId.slice(0, 8)}…</td>
+                  <td className="px-6 py-3 text-gray-400 text-xs">{d.orgName ?? `${d.orgId.slice(0, 8)}…`}</td>
                   <td className="px-6 py-3 text-gray-400">{d.platform ?? '—'}</td>
                   <td className="px-6 py-3 text-gray-400">
                     {d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : '—'}

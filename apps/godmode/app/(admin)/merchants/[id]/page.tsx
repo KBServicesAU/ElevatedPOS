@@ -847,7 +847,7 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
             <h3 className="text-red-400 text-xs uppercase tracking-wider mb-3">Danger Zone</h3>
             <p className="text-gray-500 text-sm mb-4">
               Suspending an org blocks all logins for that merchant immediately.
-              Setting planStatus to <code className="text-red-400">suspended</code> triggers the auth service to reject tokens.
+              Sets planStatus to <code className="text-red-400">paused</code>, which triggers the auth service to reject tokens.
             </p>
             {suspendError && (
               <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 text-sm">
@@ -873,10 +873,11 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
                       setSuspendLoading(true);
                       setSuspendError('');
                       try {
-                        const newStatus = suspendConfirm === 'suspend' ? 'suspended' : 'active';
-                        const updated = (await platformFetch(`platform/organisations/${id}`, {
-                          method: 'PATCH',
-                          body: JSON.stringify({ planStatus: newStatus }),
+                        const endpoint = suspendConfirm === 'suspend'
+                          ? `platform/organisations/${id}/suspend`
+                          : `platform/organisations/${id}/reactivate`;
+                        const updated = (await platformFetch(endpoint, {
+                          method: 'POST',
                         })) as { data: OrgDetail };
                         setOrg(updated.data);
                         setSuspendConfirm(null);
@@ -902,7 +903,7 @@ export default function MerchantDetailPage({ params }: { params: Promise<{ id: s
               <div className="flex gap-2">
                 <button
                   onClick={() => setSuspendConfirm('suspend')}
-                  disabled={org.planStatus === 'suspended'}
+                  disabled={org.planStatus === 'paused'}
                   className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded transition-colors"
                 >
                   Suspend Account
