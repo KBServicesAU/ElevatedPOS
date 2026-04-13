@@ -38,7 +38,8 @@
         "EXPO_PUBLIC_ROLE_LOCK": "pos",
         "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au",
         "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_live_51Pl93PBTbEjyfNqA2yXoawbkOXsAgHIBQajdTspDzeBSmwPxaulzhxOu7ITsUKSs45GyowKXxlG57dub4s2hsnoO00aMT7OGGm",
-        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968"
+        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
@@ -54,7 +55,8 @@
         "EXPO_PUBLIC_ROLE_LOCK": "kds",
         "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au",
         "EXPO_PUBLIC_ORDERS_API_URL": "https://api.elevatedpos.com.au",
-        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968"
+        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
@@ -69,7 +71,8 @@
       "env": {
         "EXPO_PUBLIC_ROLE_LOCK": "kiosk",
         "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au",
-        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968"
+        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
@@ -84,7 +87,8 @@
       "env": {
         "EXPO_PUBLIC_ROLE_LOCK": "dashboard",
         "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au",
-        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968"
+        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
@@ -99,7 +103,8 @@
       "env": {
         "EXPO_PUBLIC_ROLE_LOCK": "display",
         "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au",
-        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968"
+        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
