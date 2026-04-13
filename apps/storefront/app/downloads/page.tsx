@@ -64,6 +64,28 @@ function AppIcon({ app }: { app: string }) {
       </svg>
     );
   }
+  if (app === 'dashboard') {
+    return (
+      <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12">
+        <rect width="48" height="48" rx="12" fill="#3b82f6" fillOpacity="0.15" />
+        <rect x="8" y="8" width="14" height="14" rx="3" stroke="#3b82f6" strokeWidth="2" />
+        <rect x="26" y="8" width="14" height="14" rx="3" stroke="#3b82f6" strokeWidth="2" />
+        <rect x="8" y="26" width="14" height="14" rx="3" stroke="#3b82f6" strokeWidth="2" />
+        <rect x="26" y="26" width="14" height="14" rx="3" stroke="#3b82f6" strokeWidth="2" />
+      </svg>
+    );
+  }
+  if (app === 'display') {
+    return (
+      <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12">
+        <rect width="48" height="48" rx="12" fill="#06b6d4" fillOpacity="0.15" />
+        <rect x="6" y="10" width="36" height="24" rx="3" stroke="#06b6d4" strokeWidth="2" />
+        <rect x="10" y="14" width="28" height="16" rx="1.5" fill="#06b6d4" fillOpacity="0.2" />
+        <rect x="19" y="34" width="10" height="2" rx="1" fill="#06b6d4" fillOpacity="0.5" />
+        <rect x="21" y="36" width="6" height="3" rx="1" fill="#06b6d4" fillOpacity="0.4" />
+      </svg>
+    );
+  }
   // kiosk
   return (
     <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12">
@@ -80,12 +102,16 @@ const accentMap: Record<string, string> = {
   pos: '#7c3aed',
   kds: '#f59e0b',
   kiosk: '#10b981',
+  dashboard: '#3b82f6',
+  display: '#06b6d4',
 };
 
 const labelMap: Record<string, string> = {
   pos: 'POS Terminal',
   kds: 'Kitchen Display',
   kiosk: 'Self-Service Kiosk',
+  dashboard: 'Dashboard',
+  display: 'Digital Signage',
 };
 
 /* ------------------------------------------------------------------ */
@@ -164,7 +190,7 @@ export default function DownloadsPage() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
               {releases.map((release, i) => (
                 <AppCard key={release.app} release={release} index={i} />
               ))}

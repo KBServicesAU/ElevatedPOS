@@ -9,7 +9,7 @@
 
 export interface AppRelease {
   /** Machine-readable app identifier */
-  app: 'pos' | 'kds' | 'kiosk' | 'dashboard';
+  app: 'pos' | 'kds' | 'kiosk' | 'dashboard' | 'display';
   /** Display name */
   name: string;
   /** Short description */
@@ -79,6 +79,17 @@ const appMeta: Omit<AppRelease, 'downloadUrl' | 'version' | 'buildNumber' | 'rel
     size: '~42 MB',
     minAndroid: 'Android 8.0+',
     changelog: ['Initial release', 'Category-based menu browsing', 'Product modifiers and special instructions', 'Dine-in and takeaway order types', 'Age verification gate'],
+  },
+  {
+    app: 'display',
+    name: 'ElevatedPOS Display',
+    buildProfile: 'production-display',
+    description:
+      'Digital signage display — shows promotions, menu items, and order status on a customer-facing screen.',
+    packageName: 'com.au.elevatedpos.display',
+    size: '~38 MB',
+    minAndroid: 'Android 8.0+',
+    changelog: ['Initial release', 'Promotional content slideshow', 'Real-time order status board', 'Menu item highlights', 'Configurable from the back-office'],
   },
 ];
 

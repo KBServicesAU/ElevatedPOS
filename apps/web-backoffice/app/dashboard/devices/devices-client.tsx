@@ -896,10 +896,10 @@ export default function DevicesClient() {
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Device Role</label>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                {(['pos', 'kds', 'kiosk', 'customer-display', 'dashboard', 'display'] as DeviceRole[]).map((r) => (
+                {(['pos', 'kds', 'kiosk', 'dashboard', 'display'] as DeviceRole[]).map((r) => (
                   <button key={r} type="button" onClick={() => setGenRole(r)}
                     className={`rounded-xl py-2.5 text-xs font-bold uppercase transition-colors ${genRole === r ? 'bg-indigo-500 text-white' : 'bg-white dark:bg-[#1e1e2e] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-transparent'}`}>
-                    {r === 'customer-display' ? 'Cust. Display' : r}
+                    {r}
                   </button>
                 ))}
               </div>
