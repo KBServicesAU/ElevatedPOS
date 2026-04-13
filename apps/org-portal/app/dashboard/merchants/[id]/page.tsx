@@ -405,8 +405,8 @@ function ResetPasswordModal({ orgId, employees, onClose }: ResetPasswordModalPro
 // ---------------------------------------------------------------------------
 
 export default function MerchantDetailPage() {
-  const params = useParams();
-  const orgId = params['id'] as string;
+  const rawParams = useParams();
+  const orgId = (rawParams?.['id'] ?? '') as string;
 
   const [org, setOrg] = useState<OrgDetail | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);

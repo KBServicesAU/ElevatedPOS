@@ -104,7 +104,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {navItems.map(({ href, label, icon: Icon }) => {
             const active = href === '/dashboard'
               ? pathname === '/dashboard'
-              : pathname.startsWith(href);
+              : pathname?.startsWith(href) ?? false;
             return (
               <Link
                 key={href}

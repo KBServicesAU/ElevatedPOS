@@ -623,8 +623,8 @@ function StaffContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const [orgIdInput, setOrgIdInput] = useState(searchParams.get('orgId') ?? '');
-  const [activeOrgId, setActiveOrgId] = useState(searchParams.get('orgId') ?? '');
+  const [orgIdInput, setOrgIdInput] = useState(searchParams?.get('orgId') ?? '');
+  const [activeOrgId, setActiveOrgId] = useState(searchParams?.get('orgId') ?? '');
   const [activeOrgName, setActiveOrgName] = useState('');
   const [search, setSearch] = useState('');
   const [employees, setEmployees] = useState<OrgEmployee[]>([]);
@@ -667,7 +667,7 @@ function StaffContent() {
 
   // Auto-fetch when page loads with ?orgId=
   useEffect(() => {
-    const initial = searchParams.get('orgId');
+    const initial = searchParams?.get('orgId');
     if (initial) {
       setActiveOrgId(initial);
       setOrgIdInput(initial);

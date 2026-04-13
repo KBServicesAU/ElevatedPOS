@@ -32,8 +32,8 @@ const INVOICE_STATUS_STYLES: Record<string, string> = {
 type Tab = 'overview' | 'locations' | 'billing' | 'settings';
 
 export default function TenantDetailPage() {
-  const params = useParams();
-  const tenantId = params['id'] as string;
+  const rawParams = useParams();
+  const tenantId = (rawParams?.['id'] ?? '') as string;
   const [tenant, setTenant] = useState<TenantDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activity, setActivity] = useState<Array<{ time: string; event: string; detail: string }>>([]);

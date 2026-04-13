@@ -190,8 +190,8 @@ function OrdersContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const [orgId, setOrgId] = useState(searchParams.get('orgId') ?? '');
-  const [orgIdInput, setOrgIdInput] = useState(searchParams.get('orgId') ?? '');
+  const [orgId, setOrgId] = useState(searchParams?.get('orgId') ?? '');
+  const [orgIdInput, setOrgIdInput] = useState(searchParams?.get('orgId') ?? '');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [status, setStatus] = useState<OrderStatus>('');

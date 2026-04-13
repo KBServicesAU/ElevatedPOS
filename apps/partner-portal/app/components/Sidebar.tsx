@@ -22,7 +22,7 @@ export function Sidebar() {
 
   function isActive(href: string): boolean {
     if (href === '/') return pathname === '/';
-    return pathname.startsWith(href);
+    return pathname?.startsWith(href) ?? false;
   }
 
   return (

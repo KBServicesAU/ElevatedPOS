@@ -31,7 +31,7 @@ function LoginForm() {
         return;
       }
 
-      const next = searchParams.get('next');
+      const next = searchParams?.get('next');
       router.push(next && next.startsWith('/') ? next : '/dashboard');
     } catch {
       setError('Network error. Please try again.');

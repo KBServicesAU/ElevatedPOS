@@ -22,7 +22,7 @@ interface ApiResponse {
 function MerchantsContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [query, setQuery] = useState(searchParams.get('search') ?? '');
+  const [query, setQuery] = useState(searchParams?.get('search') ?? '');
   const [orgs, setOrgs] = useState<Organisation[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
@@ -52,7 +52,7 @@ function MerchantsContent() {
   }, []);
 
   useEffect(() => {
-    const initial = searchParams.get('search') ?? '';
+    const initial = searchParams?.get('search') ?? '';
     fetchOrgs(initial);
   }, [fetchOrgs, searchParams]);
 
