@@ -1,19 +1,32 @@
 {
-  "cli": { "version": ">= 12.0.0", "appVersionSource": "local" },
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "local"
+  },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "ios": { "simulator": false }
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false
+      }
     },
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "ios": { "simulator": true }
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      }
     },
     "production": {
-      "android": { "buildType": "apk" },
+      "android": {
+        "buildType": "apk"
+      },
       "ios": {
         "credentialsSource": "remote",
         "enterpriseProvisioning": "adhoc"
@@ -21,28 +34,112 @@
     },
     "production-pos": {
       "channel": "production",
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au", "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_live_51Pl93PBTbEjyfNqA2yXoawbkOXsAgHIBQajdTspDzeBSmwPxaulzhxOu7ITsUKSs45GyowKXxlG57dub4s2hsnoO00aMT7OGGm" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "pos", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au", "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_live_51Pl93PBTbEjyfNqA2yXoawbkOXsAgHIBQajdTspDzeBSmwPxaulzhxOu7ITsUKSs45GyowKXxlG57dub4s2hsnoO00aMT7OGGm" } }
+      "android": {
+        "buildType": "apk",
+        "env": {
+          "EXPO_PUBLIC_ROLE_LOCK": "pos",
+          "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au",
+          "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_live_51Pl93PBTbEjyfNqA2yXoawbkOXsAgHIBQajdTspDzeBSmwPxaulzhxOu7ITsUKSs45GyowKXxlG57dub4s2hsnoO00aMT7OGGm"
+        }
+      },
+      "ios": {
+        "credentialsSource": "remote",
+        "enterpriseProvisioning": "adhoc",
+        "env": {
+          "EXPO_PUBLIC_ROLE_LOCK": "pos",
+          "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au",
+          "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_live_51Pl93PBTbEjyfNqA2yXoawbkOXsAgHIBQajdTspDzeBSmwPxaulzhxOu7ITsUKSs45GyowKXxlG57dub4s2hsnoO00aMT7OGGm"
+        }
+      },
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968"
+      }
     },
     "production-kds": {
       "channel": "production",
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au", "EXPO_PUBLIC_ORDERS_API_URL": "https://api.elevatedpos.com.au" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kds", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au", "EXPO_PUBLIC_ORDERS_API_URL": "https://api.elevatedpos.com.au" } }
+      "android": {
+        "buildType": "apk",
+        "env": {
+          "EXPO_PUBLIC_ROLE_LOCK": "kds",
+          "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au",
+          "EXPO_PUBLIC_ORDERS_API_URL": "https://api.elevatedpos.com.au"
+        }
+      },
+      "ios": {
+        "credentialsSource": "remote",
+        "enterpriseProvisioning": "adhoc",
+        "env": {
+          "EXPO_PUBLIC_ROLE_LOCK": "kds",
+          "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au",
+          "EXPO_PUBLIC_ORDERS_API_URL": "https://api.elevatedpos.com.au"
+        }
+      },
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968"
+      }
     },
     "production-kiosk": {
       "channel": "production",
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "kiosk", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au" } }
+      "android": {
+        "buildType": "apk",
+        "env": {
+          "EXPO_PUBLIC_ROLE_LOCK": "kiosk",
+          "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au"
+        }
+      },
+      "ios": {
+        "credentialsSource": "remote",
+        "enterpriseProvisioning": "adhoc",
+        "env": {
+          "EXPO_PUBLIC_ROLE_LOCK": "kiosk",
+          "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au"
+        }
+      },
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968"
+      }
     },
     "production-dashboard": {
       "channel": "production",
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "dashboard", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "dashboard", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au" } }
+      "android": {
+        "buildType": "apk",
+        "env": {
+          "EXPO_PUBLIC_ROLE_LOCK": "dashboard",
+          "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au"
+        }
+      },
+      "ios": {
+        "credentialsSource": "remote",
+        "enterpriseProvisioning": "adhoc",
+        "env": {
+          "EXPO_PUBLIC_ROLE_LOCK": "dashboard",
+          "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au"
+        }
+      },
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968"
+      }
     },
     "production-display": {
       "channel": "production",
-      "android": { "buildType": "apk", "env": { "EXPO_PUBLIC_ROLE_LOCK": "display", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au" } },
-      "ios": { "credentialsSource": "remote", "enterpriseProvisioning": "adhoc", "env": { "EXPO_PUBLIC_ROLE_LOCK": "display", "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au" } }
+      "android": {
+        "buildType": "apk",
+        "env": {
+          "EXPO_PUBLIC_ROLE_LOCK": "display",
+          "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au"
+        }
+      },
+      "ios": {
+        "credentialsSource": "remote",
+        "enterpriseProvisioning": "adhoc",
+        "env": {
+          "EXPO_PUBLIC_ROLE_LOCK": "display",
+          "EXPO_PUBLIC_API_URL": "https://api.elevatedpos.com.au"
+        }
+      },
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://9049a6ea1e67da657fe154a48687a074@o4511210114383872.ingest.de.sentry.io/4511210159013968"
+      }
     }
   },
   "submit": {
