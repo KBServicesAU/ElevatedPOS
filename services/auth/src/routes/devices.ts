@@ -26,7 +26,16 @@ const pairSchema = z.object({
   appVersion: z.string().max(20).optional(),
 });
 
-function getRoleLimit(org: typeof schema.organisations.$inferSelect, role: string): number {
+interface OrgLimits {
+  maxDevices: number;
+  maxPosDevices: number;
+  maxKdsDevices: number;
+  maxKioskDevices: number;
+  maxDashboardDevices: number;
+  maxDisplayDevices: number;
+}
+
+function getRoleLimit(org: OrgLimits, role: string): number {
   switch (role) {
     case 'pos':       return org.maxPosDevices;
     case 'kds':       return org.maxKdsDevices;

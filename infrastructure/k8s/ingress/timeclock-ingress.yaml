@@ -1,27 +1,199 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: elevatedpos-ingress-timeclock
+  name: elevatedpos-ingress-api
   namespace: elevatedpos
   annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/use-regex: "true"
-  labels:
-    app.kubernetes.io/name: elevatedpos
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
-  rules:
-  - host: api.elevatedpos.com.au
-    http:
-      paths:
-      - path: /api/v1/time-clock(/|$)(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: auth
-            port:
-              number: 4001
   tls:
   - hosts:
     - api.elevatedpos.com.au
     secretName: elevatedpos-api-tls
+  rules:
+  - host: api.elevatedpos.com.au
+    http:
+      paths:
+        # ── Auth service ──────────────────────────────────────────────
+        - path: /api/v1/auth
+          pathType: Prefix
+          backend:
+            service:
+              name: auth
+              port:
+                number: 4001
+        - path: /api/v1/devices
+          pathType: Prefix
+          backend:
+            service:
+              name: auth
+              port:
+                number: 4001
+        - path: /api/v1/employees
+          pathType: Prefix
+          backend:
+            service:
+              name: auth
+              port:
+                number: 4001
+        - path: /api/v1/locations
+          pathType: Prefix
+          backend:
+            service:
+              name: auth
+              port:
+                number: 4001
+        - path: /api/v1/organisations
+          pathType: Prefix
+          backend:
+            service:
+              name: auth
+              port:
+                number: 4001
+        - path: /api/v1/time-clock
+          pathType: Prefix
+          backend:
+            service:
+              name: auth
+              port:
+                number: 4001
+        - path: /api/v1/billing
+          pathType: Prefix
+          backend:
+            service:
+              name: auth
+              port:
+                number: 4001
+        # ── Catalog service ───────────────────────────────────────────
+        - path: /api/v1/catalog
+          pathType: Prefix
+          backend:
+            service:
+              name: catalog
+              port:
+                number: 4002
+        # ── Inventory service ─────────────────────────────────────────
+        - path: /api/v1/inventory
+          pathType: Prefix
+          backend:
+            service:
+              name: inventory
+              port:
+                number: 4003
+        # ── Orders + KDS service ──────────────────────────────────────
+        - path: /api/v1/orders
+          pathType: Prefix
+          backend:
+            service:
+              name: orders
+              port:
+                number: 4004
+        - path: /api/v1/kds
+          pathType: Prefix
+          backend:
+            service:
+              name: orders
+              port:
+                number: 4004
+        # ── Payments service (incl. Stripe Terminal) ──────────────────
+        - path: /api/v1/payments
+          pathType: Prefix
+          backend:
+            service:
+              name: payments
+              port:
+                number: 4005
+        - path: /api/v1/stripe
+          pathType: Prefix
+          backend:
+            service:
+              name: payments
+              port:
+                number: 4005
+        # ── Customers service ─────────────────────────────────────────
+        - path: /api/v1/customers
+          pathType: Prefix
+          backend:
+            service:
+              name: customers
+              port:
+                number: 4006
+        # ── Loyalty service ───────────────────────────────────────────
+        - path: /api/v1/loyalty
+          pathType: Prefix
+          backend:
+            service:
+              name: loyalty
+              port:
+                number: 4007
+        # ── Campaigns service ─────────────────────────────────────────
+        - path: /api/v1/campaigns
+          pathType: Prefix
+          backend:
+            service:
+              name: campaigns
+              port:
+                number: 4008
+        # ── Notifications service ─────────────────────────────────────
+        - path: /api/v1/notifications
+          pathType: Prefix
+          backend:
+            service:
+              name: notifications
+              port:
+                number: 4009
+        # ── Integrations service ──────────────────────────────────────
+        - path: /api/v1/integrations
+          pathType: Prefix
+          backend:
+            service:
+              name: integrations
+              port:
+                number: 4010
+        # ── Automations service ───────────────────────────────────────
+        - path: /api/v1/automations
+          pathType: Prefix
+          backend:
+            service:
+              name: automations
+              port:
+                number: 4011
+        # ── AI service ────────────────────────────────────────────────
+        - path: /api/v1/ai
+          pathType: Prefix
+          backend:
+            service:
+              name: ai
+              port:
+                number: 4012
+        # ── Franchise service ─────────────────────────────────────────
+        - path: /api/v1/franchise
+          pathType: Prefix
+          backend:
+            service:
+              name: franchise
+              port:
+                number: 4013
+        # ── Reporting service ─────────────────────────────────────────
+        - path: /api/v1/reports
+          pathType: Prefix
+          backend:
+            service:
+              name: reporting
+              port:
+                number: 4014
+        # ── Webhooks service ──────────────────────────────────────────
+        - path: /api/v1/webhooks
+          pathType: Prefix
+          backend:
+            service:
+              name: webhooks
+              port:
+                number: 4015

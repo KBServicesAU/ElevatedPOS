@@ -35,7 +35,7 @@ const tips = [
 
 function CompleteContent() {
   const searchParams = useSearchParams();
-  const orgId = searchParams.get('orgId') || '';
+  const orgId = searchParams?.get('orgId') || '';
 
   return (
     <div className="flex-1 flex items-start justify-center px-4 py-12">

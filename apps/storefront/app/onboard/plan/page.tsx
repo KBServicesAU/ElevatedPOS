@@ -37,8 +37,8 @@ const plans = [
 function PlanPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const orgId = searchParams.get('orgId') || '';
-  const token = searchParams.get('token') || '';
+  const orgId = searchParams?.get('orgId') || '';
+  const token = searchParams?.get('token') || '';
 
   function selectPlan(planId: string) {
     const params = new URLSearchParams({ orgId });

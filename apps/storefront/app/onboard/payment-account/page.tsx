@@ -37,9 +37,9 @@ const infoCards = [
 
 function PaymentAccountContent() {
   const searchParams = useSearchParams();
-  const orgId = searchParams.get('orgId') || '';
-  const plan = searchParams.get('plan') || 'starter';
-  const token = searchParams.get('token') || '';
+  const orgId = searchParams?.get('orgId') || '';
+  const plan = searchParams?.get('plan') || 'starter';
+  const token = searchParams?.get('token') || '';
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

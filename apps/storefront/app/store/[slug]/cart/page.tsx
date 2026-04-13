@@ -18,7 +18,8 @@ function formatPrice(cents: number): string {
 }
 
 export default function CartPage() {
-  const params = useParams<{ slug: string }>();
+  const rawParams = useParams<{ slug: string }>();
+  const params = { slug: rawParams?.slug ?? '' };
   const [cart, setCart] = useState<CartItem[]>([]);
 
   useEffect(() => {

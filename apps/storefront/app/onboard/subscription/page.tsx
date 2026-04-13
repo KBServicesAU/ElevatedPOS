@@ -27,10 +27,10 @@ const planDetails: Record<string, { name: string; price: string; period: string;
 
 function SubscriptionContent() {
   const searchParams = useSearchParams();
-  const orgId = searchParams.get('orgId') || '';
-  const plan = searchParams.get('plan') || 'starter';
-  const token = searchParams.get('token') || '';
-  const connected = searchParams.get('connected') === 'true';
+  const orgId = searchParams?.get('orgId') || '';
+  const plan = searchParams?.get('plan') || 'starter';
+  const token = searchParams?.get('token') || '';
+  const connected = searchParams?.get('connected') === 'true';
 
   const selectedPlan = planDetails[plan] ?? planDetails['starter']!;
   const continueHref = `/onboard/complete?orgId=${orgId}&plan=${plan}${token ? `&token=${token}` : ''}`;

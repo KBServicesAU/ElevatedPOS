@@ -477,9 +477,11 @@ export default function PosSellScreen() {
       return;
     }
 
-    // Check for Stripe Terminal
+    // Check for Stripe Terminal (Tap to Pay)
+    // Guard with `enabled` flag — having the publishable key in the build env
+    // does NOT mean Terminal is installed or configured on this device.
     const stripeKey = stripeConfig.publishableKey;
-    if (stripeKey && !isTyroInitialized() && !getServerAnzConfig()) {
+    if (stripeConfig.enabled && stripeKey && !isTyroInitialized() && !getServerAnzConfig()) {
       setStripeAmount(Math.round(total * 100));
       setShowStripeModal(true);
       return;

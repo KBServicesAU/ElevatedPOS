@@ -14,6 +14,13 @@ const STORAGE_KEY = 'stripe_terminal_config';
 
 export interface StripeTerminalConfig {
   publishableKey: string;
+  /**
+   * Whether Stripe Terminal (Tap to Pay) is actively enabled on this device.
+   * Defaults to false — the merchant must explicitly enable it in device settings.
+   * Having a publishableKey alone is NOT enough to activate Terminal; the SDK
+   * (@stripe/stripe-terminal-react-native) must also be installed.
+   */
+  enabled: boolean;
   /** Stripe Terminal location ID (optional — used for reader registration) */
   locationId?: string;
 }
@@ -26,6 +33,9 @@ interface StripeTerminalStore {
 
 const DEFAULT_CONFIG: StripeTerminalConfig = {
   publishableKey: process.env['EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?? '',
+  // Stripe Terminal is opt-in — must be explicitly enabled via device settings.
+  // This prevents card payments routing through an uninstalled Terminal SDK.
+  enabled: false,
 };
 
 export const useStripeTerminalStore = create<StripeTerminalStore>((set, get) => ({

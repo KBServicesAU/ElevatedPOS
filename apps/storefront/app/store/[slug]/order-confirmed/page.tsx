@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
 export default function OrderConfirmedPage() {
-  const params = useParams<{ slug: string }>();
+  const rawParams = useParams<{ slug: string }>();
+  const params = { slug: rawParams?.slug ?? '' };
 
   useEffect(() => {
     localStorage.removeItem('elevatedpos_cart');

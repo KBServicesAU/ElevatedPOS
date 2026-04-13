@@ -131,6 +131,13 @@ spec:
                 name: payments
                 port:
                   number: 4005
+          - path: /api/v1/stripe
+            pathType: Prefix
+            backend:
+              service:
+                name: payments
+                port:
+                  number: 4005
           - path: /api/v1/customers
             pathType: Prefix
             backend:

@@ -21,7 +21,12 @@
     "noEmit": true,
     "incremental": true,
     "isolatedModules": true,
-    "paths": { "@/*": ["./*"] }
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "strictNullChecks": true
   },
   "include": [
     "**/*.ts",
