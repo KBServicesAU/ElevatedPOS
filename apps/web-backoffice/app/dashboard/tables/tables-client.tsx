@@ -83,6 +83,83 @@ async function proxyFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// ─── AddSectionModal ──────────────────────────────────────────────────────────
+
+interface AddSectionModalProps {
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function AddSectionModal({ onClose, onSaved }: AddSectionModalProps) {
+  const { toast } = useToast();
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!name.trim()) {
+      toast({ title: 'Section name is required', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    try {
+      await proxyFetch('tables/sections', {
+        method: 'POST',
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      toast({ title: 'Section added', variant: 'success' });
+      onSaved();
+      onClose();
+    } catch (err) {
+      toast({ title: 'Failed to add section', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white">Add Section</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="space-y-4 p-6">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Section name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Main Floor, Outdoor, Bar"
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Add Section
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── AddTableModal ────────────────────────────────────────────────────────────
 
 interface AddTableModalProps {
@@ -385,6 +462,7 @@ export function TablesClient() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAddSectionModal, setShowAddSectionModal] = useState(false);
   const [detailTable, setDetailTable] = useState<TableRow | null>(null);
   const [merging, setMerging] = useState(false);
 
@@ -600,21 +678,31 @@ export function TablesClient() {
           ))}
         </div>
 
-        {/* Section tabs */}
-        <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-1 w-fit overflow-x-auto dark:border-gray-800 dark:bg-gray-900">
-          {sectionTabs.map(({ id, name }) => (
-            <button
-              key={id}
-              onClick={() => setActiveSection(id)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors ${
-                activeSection === id
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
-              }`}
-            >
-              {name}
-            </button>
-          ))}
+        {/* Section tabs + Add Section */}
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-1 overflow-x-auto dark:border-gray-800 dark:bg-gray-900">
+            {sectionTabs.map(({ id, name }) => (
+              <button
+                key={id}
+                onClick={() => setActiveSection(id)}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors ${
+                  activeSection === id
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowAddSectionModal(true)}
+            className="flex items-center gap-1 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 dark:border-gray-600 dark:text-gray-400 dark:hover:border-indigo-500 dark:hover:text-indigo-400 transition-colors"
+            title="Add new section"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Section
+          </button>
         </div>
 
         {/* ── Floor Plan (Grid) View ── */}
@@ -797,6 +885,14 @@ export function TablesClient() {
         <AddTableModal
           sections={sections}
           onClose={() => setShowAddModal(false)}
+          onSaved={() => void fetchData(true)}
+        />
+      )}
+
+      {/* ── Add Section Modal ── */}
+      {showAddSectionModal && (
+        <AddSectionModal
+          onClose={() => setShowAddSectionModal(false)}
           onSaved={() => void fetchData(true)}
         />
       )}

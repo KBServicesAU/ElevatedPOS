@@ -93,6 +93,13 @@ export default function PosSellScreen() {
   const [splitMode, setSplitMode] = useState(false);
   const [splitCardAmount, setSplitCardAmount] = useState('');
   const [splitCashAmount, setSplitCashAmount] = useState('');
+  // Tracks cash/card amounts from a split payment so results can be reported
+  // after the card terminal (Tyro / ANZ) approves the card portion.
+  const [pendingSplit, setPendingSplit] = useState<{
+    cardAmt: number;
+    cashAmt: number;
+    change: number;
+  } | null>(null);
 
   // Optional Tyro extras (cert: Integrated Cashout, Surcharging, Tipping)
   const [cashoutDollars, setCashoutDollars] = useState('');
@@ -141,6 +148,20 @@ export default function PosSellScreen() {
   const [showStripeModal, setShowStripeModal] = useState(false);
   const [stripeAmount, setStripeAmount] = useState(0);
   const stripeConfig = useStripeTerminalStore((s) => s.config);
+
+  // Gift card issuing modal
+  const [showGiftCardModal, setShowGiftCardModal] = useState(false);
+  const [giftCardAmount, setGiftCardAmount] = useState('');
+  const [giftCardRecipientName, setGiftCardRecipientName] = useState('');
+  const [giftCardRecipientEmail, setGiftCardRecipientEmail] = useState('');
+  const [giftCardIssuing, setGiftCardIssuing] = useState(false);
+
+  // Layby creation modal
+  const [showLaybyModal, setShowLaybyModal] = useState(false);
+  const [laybyDepositAmount, setLaybyDepositAmount] = useState('');
+  const [laybyCustomerName, setLaybyCustomerName] = useState('');
+  const [laybyCustomerPhone, setLaybyCustomerPhone] = useState('');
+  const [laybyCreating, setLaybyCreating] = useState(false);
 
   // Fetch catalog + hydrate customer display on mount
   useEffect(() => {
@@ -655,13 +676,6 @@ export default function PosSellScreen() {
     }
   }
 
-  // Track cash/change from a split so we can report after Tyro approves.
-  const [pendingSplit, setPendingSplit] = useState<{
-    cardAmt: number;
-    cashAmt: number;
-    change: number;
-  } | null>(null);
-
   function handlePaySplit() {
     const cardAmt = parseFloat(splitCardAmount) || 0;
     const cashAmt = parseFloat(splitCashAmount) || 0;
@@ -743,6 +757,100 @@ export default function PosSellScreen() {
   function handleSwitchEmployee() {
     authLogout();
     router.replace('/employee-login');
+  }
+
+  // ── Issue gift card ──────────────────────────────────────────────
+  async function handleIssueGiftCard() {
+    const amount = parseFloat(giftCardAmount) || 0;
+    if (amount <= 0) {
+      toast.warning('Invalid Amount', 'Please enter a valid gift card amount.');
+      return;
+    }
+    setGiftCardIssuing(true);
+    try {
+      const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
+      const token = useAuthStore.getState().employeeToken ?? identity?.deviceToken ?? '';
+      const res = await fetch(`${base}/api/v1/gift-cards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          balance: Math.round(amount * 100),
+          customerName: giftCardRecipientName.trim() || undefined,
+          locationId: identity?.locationId ?? '',
+          ...(giftCardRecipientEmail.trim() ? { email: giftCardRecipientEmail.trim(), sendEmail: true } : {}),
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { message?: string; detail?: string };
+        toast.error('Gift Card Failed', err.message ?? err.detail ?? `Error ${res.status}`);
+        return;
+      }
+      const data = await res.json() as { code?: string; balance?: number };
+      const code = data.code ?? '';
+      toast.success('Gift Card Issued', `${code} · $${amount.toFixed(2)}`);
+      setShowGiftCardModal(false);
+      setShowPayment(false);
+      setGiftCardAmount('');
+      setGiftCardRecipientName('');
+      setGiftCardRecipientEmail('');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error('Gift Card Failed', msg);
+    } finally {
+      setGiftCardIssuing(false);
+    }
+  }
+
+  // ── Create layby ─────────────────────────────────────────────────
+  async function handleCreateLayby() {
+    if (cart.length === 0) return;
+    const depositAmt = parseFloat(laybyDepositAmount) || 0;
+    if (depositAmt <= 0) {
+      toast.warning('Invalid Deposit', 'Please enter a deposit amount.');
+      return;
+    }
+    if (!laybyCustomerName.trim()) {
+      toast.warning('Customer Required', 'Please enter the customer name.');
+      return;
+    }
+    setLaybyCreating(true);
+    try {
+      const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
+      const token = useAuthStore.getState().employeeToken ?? identity?.deviceToken ?? '';
+      const res = await fetch(`${base}/api/v1/laybys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          customerName: laybyCustomerName.trim(),
+          customerPhone: laybyCustomerPhone.trim() || undefined,
+          description: cart.map((i) => `${i.qty}x ${i.name}`).join(', '),
+          totalAmount: Math.round(total * 100),
+          depositAmount: Math.round(depositAmt * 100),
+          locationId: identity?.locationId ?? '',
+          items: cart.map((i) => ({ productId: i.id, name: i.name, quantity: i.qty, unitPrice: i.price })),
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { message?: string; detail?: string };
+        toast.error('Layby Failed', err.message ?? err.detail ?? `Error ${res.status}`);
+        return;
+      }
+      toast.success('Layby Created', `$${depositAmt.toFixed(2)} deposit recorded`);
+      setShowLaybyModal(false);
+      setLaybyDepositAmount('');
+      setLaybyCustomerName('');
+      setLaybyCustomerPhone('');
+      clearCart();
+      setOrderDiscountAmount(0);
+      setLoyaltyAccount(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error('Layby Failed', msg);
+    } finally {
+      setLaybyCreating(false);
+    }
   }
 
   // ── Customer search ──────────────────────────────────────────────
@@ -1053,7 +1161,12 @@ export default function PosSellScreen() {
                       <Text style={styles.qtyBtnLabel}>+</Text>
                     </TouchableOpacity>
                     <Text style={styles.lineTotal}>
-                      ${(item.price * item.qty).toFixed(2)}
+                      ${(() => {
+                        const disc = item.discount
+                          ? (item.discountType === '%' ? (item.price * item.discount / 100) : item.discount)
+                          : 0;
+                        return ((item.price - Math.min(disc, item.price)) * item.qty).toFixed(2);
+                      })()}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -1098,6 +1211,12 @@ export default function PosSellScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.clearBtn, { flex: 1 }]} onPress={() => setShowOrderDiscount(true)}>
                   <Text style={[styles.clearText, { color: '#f59e0b' }]}>Discount</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.clearBtn, { flex: 1, borderColor: '#22c55e44' }]}
+                  onPress={() => { setLaybyDepositAmount(''); setLaybyCustomerName(customerName ?? ''); setLaybyCustomerPhone(''); setShowLaybyModal(true); }}
+                >
+                  <Text style={[styles.clearText, { color: '#22c55e' }]}>Layby</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.clearBtn, { flex: 1 }]} onPress={() => { clearCart(); setOrderDiscountAmount(0); setLoyaltyAccount(null); }}>
                   <Text style={styles.clearText}>Clear</Text>
@@ -1169,6 +1288,12 @@ export default function PosSellScreen() {
                   onPress={() => { setSplitMode(true); setSplitCardAmount(''); setSplitCashAmount(''); }}
                 >
                   <Text style={{ fontSize: 15, fontWeight: '700', color: '#f59e0b' }}>Split Payment</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ backgroundColor: '#141425', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: '#22c55e44' }}
+                  onPress={() => { setShowPayment(false); setGiftCardAmount(''); setGiftCardRecipientName(''); setGiftCardRecipientEmail(''); setShowGiftCardModal(true); }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: '#22c55e' }}>Issue Gift Card</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -1673,6 +1798,121 @@ export default function PosSellScreen() {
         }}
         onCancel={() => setShowStripeModal(false)}
       />
+
+      {/* ═══ Issue Gift Card Modal ═══ */}
+      <Modal visible={showGiftCardModal} transparent animationType="fade" onRequestClose={() => setShowGiftCardModal(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setShowGiftCardModal(false)}>
+          <Pressable style={{ backgroundColor: '#1a1a2e', borderRadius: 20, padding: 24, width: 340, borderWidth: 1, borderColor: '#2a2a3a' }} onPress={() => {}}>
+            <Text style={{ fontSize: 20, fontWeight: '900', color: '#fff', marginBottom: 6 }}>Issue Gift Card</Text>
+            <Text style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>Create a new gift card for a customer</Text>
+
+            <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Amount ($)</Text>
+            <TextInput
+              style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 24, color: '#fff', textAlign: 'center', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 14 }}
+              value={giftCardAmount}
+              onChangeText={setGiftCardAmount}
+              keyboardType="decimal-pad"
+              placeholder="50.00"
+              placeholderTextColor="#444"
+            />
+
+            <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Recipient Name (optional)</Text>
+            <TextInput
+              style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, color: '#fff', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 12 }}
+              value={giftCardRecipientName}
+              onChangeText={setGiftCardRecipientName}
+              placeholder="e.g. Jane Smith"
+              placeholderTextColor="#444"
+              autoCapitalize="words"
+            />
+
+            <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Recipient Email (optional)</Text>
+            <TextInput
+              style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, color: '#fff', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 20 }}
+              value={giftCardRecipientEmail}
+              onChangeText={setGiftCardRecipientEmail}
+              placeholder="jane@example.com"
+              placeholderTextColor="#444"
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+
+            <TouchableOpacity
+              style={{ backgroundColor: '#22c55e', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 10, opacity: giftCardIssuing ? 0.6 : 1 }}
+              onPress={handleIssueGiftCard}
+              disabled={giftCardIssuing}
+            >
+              <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>
+                {giftCardIssuing ? 'Issuing...' : 'Issue Gift Card'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowGiftCardModal(false)} style={{ alignItems: 'center', paddingVertical: 10 }}>
+              <Text style={{ color: '#666', fontSize: 14 }}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ═══ Create Layby Modal ═══ */}
+      <Modal visible={showLaybyModal} transparent animationType="fade" onRequestClose={() => setShowLaybyModal(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setShowLaybyModal(false)}>
+          <Pressable style={{ backgroundColor: '#1a1a2e', borderRadius: 20, padding: 24, width: 340, borderWidth: 1, borderColor: '#2a2a3a' }} onPress={() => {}}>
+            <Text style={{ fontSize: 20, fontWeight: '900', color: '#fff', marginBottom: 4 }}>Create Layby</Text>
+            <Text style={{ fontSize: 13, color: '#888', marginBottom: 18 }}>Total: ${total.toFixed(2)} · {cart.length} item{cart.length !== 1 ? 's' : ''}</Text>
+
+            <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Customer Name</Text>
+            <TextInput
+              style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, color: '#fff', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 12 }}
+              value={laybyCustomerName}
+              onChangeText={setLaybyCustomerName}
+              placeholder="e.g. Jane Smith"
+              placeholderTextColor="#444"
+              autoCapitalize="words"
+            />
+
+            <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Customer Phone (optional)</Text>
+            <TextInput
+              style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, color: '#fff', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 12 }}
+              value={laybyCustomerPhone}
+              onChangeText={setLaybyCustomerPhone}
+              placeholder="e.g. 0412 345 678"
+              placeholderTextColor="#444"
+              keyboardType="phone-pad"
+            />
+
+            <Text style={{ color: '#888', fontSize: 13, marginBottom: 6 }}>Deposit Amount ($)</Text>
+            <TextInput
+              style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 22, color: '#fff', textAlign: 'center', borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 8 }}
+              value={laybyDepositAmount}
+              onChangeText={setLaybyDepositAmount}
+              keyboardType="decimal-pad"
+              placeholder={`Min $${(total * 0.1).toFixed(2)} (10%)`}
+              placeholderTextColor="#444"
+            />
+            {laybyDepositAmount && parseFloat(laybyDepositAmount) > 0 && (
+              <Text style={{ color: parseFloat(laybyDepositAmount) >= total * 0.1 ? '#22c55e' : '#f59e0b', fontSize: 13, fontWeight: '700', textAlign: 'center', marginBottom: 12 }}>
+                {parseFloat(laybyDepositAmount) >= total * 0.1
+                  ? `Remaining: $${Math.max(0, total - parseFloat(laybyDepositAmount)).toFixed(2)}`
+                  : `Min deposit is $${(total * 0.1).toFixed(2)} (10%)`}
+              </Text>
+            )}
+            {!laybyDepositAmount && <View style={{ height: 12 }} />}
+
+            <TouchableOpacity
+              style={{ backgroundColor: '#22c55e', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 10, opacity: laybyCreating ? 0.6 : 1 }}
+              onPress={handleCreateLayby}
+              disabled={laybyCreating}
+            >
+              <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>
+                {laybyCreating ? 'Creating...' : 'Create Layby'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowLaybyModal(false)} style={{ alignItems: 'center', paddingVertical: 10 }}>
+              <Text style={{ color: '#666', fontSize: 14 }}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
     </SafeAreaView>
   );

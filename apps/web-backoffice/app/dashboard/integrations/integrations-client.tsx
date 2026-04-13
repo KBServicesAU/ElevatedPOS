@@ -179,6 +179,22 @@ function XeroCard({
   const [autoSync, setAutoSync] = useState(false);
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily');
   const [coaMapping, setCoaMapping] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function handleSaveSettings() {
+    setSaving(true);
+    try {
+      await apiFetch('integrations/xero/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ autoSync, frequency, coaMapping }),
+      });
+      toast({ title: 'Xero settings saved', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Failed to save settings', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleConnect() {
     setConnecting(true);
@@ -335,9 +351,11 @@ function XeroCard({
               </FieldRow>
               <div className="flex justify-end">
                 <button
-                  onClick={() => toast({ title: 'Xero settings saved', variant: 'success' })}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                  onClick={() => void handleSaveSettings()}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
                 >
+                  {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   Save Settings
                 </button>
               </div>
@@ -366,6 +384,22 @@ function MYOBCard({
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [autoSync, setAutoSync] = useState(false);
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily');
+  const [saving, setSaving] = useState(false);
+
+  async function handleSaveSettings() {
+    setSaving(true);
+    try {
+      await apiFetch('integrations/myob/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ autoSync, frequency }),
+      });
+      toast({ title: 'MYOB settings saved', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Failed to save settings', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleConnect() {
     setConnecting(true);
@@ -512,9 +546,11 @@ function MYOBCard({
               </FieldRow>
               <div className="flex justify-end">
                 <button
-                  onClick={() => toast({ title: 'MYOB settings saved', variant: 'success' })}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                  onClick={() => void handleSaveSettings()}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
                 >
+                  {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   Save Settings
                 </button>
               </div>

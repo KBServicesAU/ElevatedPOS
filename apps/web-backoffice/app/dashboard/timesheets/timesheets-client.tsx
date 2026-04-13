@@ -223,9 +223,21 @@ function AddShiftModal({ onClose, onAdded }: AddShiftModalProps) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    apiFetch<Employee[] | { data: Employee[] }>('employees?limit=100')
+    apiFetch<Record<string, unknown>[] | { data: Record<string, unknown>[] }>('employees?limit=100')
       .then((res) => {
-        const list = Array.isArray(res) ? res : (res as { data: Employee[] }).data ?? [];
+        const raw: Record<string, unknown>[] = Array.isArray(res)
+          ? (res as Record<string, unknown>[])
+          : ((res as { data?: Record<string, unknown>[] }).data ?? []);
+        const list: Employee[] = raw.map((e) => ({
+          id: String(e.id ?? ''),
+          name: String(
+            e.name ??
+            (e.firstName
+              ? `${String(e.firstName)} ${String(e.lastName ?? '')}`.trim()
+              : (e.lastName ?? 'Unknown'))
+          ),
+          hourlyRate: e.hourlyRate != null ? Number(e.hourlyRate) : undefined,
+        }));
         setEmployees(list);
         if (list.length > 0) setEmployeeId(list[0].id);
       })

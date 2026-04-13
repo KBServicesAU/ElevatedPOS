@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useKioskStore } from '../../store/kiosk';
+import { useKioskStore, t } from '../../store/kiosk';
 import { useDeviceStore } from '../../store/device';
 
 const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? '';
@@ -42,6 +42,7 @@ export default function KioskLoyaltyScreen() {
   const router = useRouter();
   const loyaltyAccount = useKioskStore((s) => s.loyaltyAccount);
   const setLoyaltyAccount = useKioskStore((s) => s.setLoyaltyAccount);
+  const language = useKioskStore((s) => s.language);
 
   const [mode, setMode] = useState<InputMode>('keypad');
   const [phone, setPhone] = useState('');
@@ -190,21 +191,21 @@ export default function KioskLoyaltyScreen() {
     const tierIcon = TIER_ICONS[loyaltyAccount.tier] ?? '⭐';
     return (
       <SafeAreaView style={styles.container}>
-        <Text style={styles.title}>Loyalty Rewards</Text>
-        <Text style={styles.subtitle}>You're earning points on this order</Text>
+        <Text style={styles.title}>{t(language, 'loyaltyRewards')}</Text>
+        <Text style={styles.subtitle}>{t(language, 'earningPoints')}</Text>
 
         <View style={styles.linkedCard}>
           <View style={[styles.tierBadgeLarge, { backgroundColor: tierColor }]}>
             <Text style={styles.tierIconLarge}>{tierIcon}</Text>
             <Text style={styles.tierLabelLarge}>{loyaltyAccount.tier}</Text>
           </View>
-          <Text style={styles.linkedName}>Earning points as</Text>
+          <Text style={styles.linkedName}>{t(language, 'earningPointsAs')}</Text>
           <Text style={styles.linkedNameBig}>{loyaltyAccount.name}</Text>
           <View style={styles.pointsRow}>
             <Text style={styles.pointsNumber}>
               {loyaltyAccount.points.toLocaleString()}
             </Text>
-            <Text style={styles.pointsLabel}> pts available</Text>
+            <Text style={styles.pointsLabel}>{t(language, 'ptsAvailable')}</Text>
           </View>
           <View style={styles.divider} />
           <TouchableOpacity
@@ -212,7 +213,7 @@ export default function KioskLoyaltyScreen() {
             onPress={handleChange}
             activeOpacity={0.85}
           >
-            <Text style={styles.changeBtnText}>Change Account</Text>
+            <Text style={styles.changeBtnText}>{t(language, 'changeAccount')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -221,10 +222,10 @@ export default function KioskLoyaltyScreen() {
           onPress={handleContinue}
           activeOpacity={0.9}
         >
-          <Text style={styles.primaryButtonText}>Continue to Menu →</Text>
+          <Text style={styles.primaryButtonText}>{t(language, 'continueToMenu')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
-          <Text style={styles.skipText}>Skip — Order as Guest</Text>
+          <Text style={styles.skipText}>{t(language, 'skipGuest')}</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -232,9 +233,9 @@ export default function KioskLoyaltyScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Sign In for Rewards</Text>
+      <Text style={styles.title}>{t(language, 'loyaltyTitle')}</Text>
       <Text style={styles.subtitle}>
-        Scan your QR code or enter your mobile number
+        {t(language, 'loyaltySub')}
       </Text>
 
       {/* Mode toggle */}
@@ -252,7 +253,7 @@ export default function KioskLoyaltyScreen() {
           <Text
             style={[styles.modeBtnText, mode === 'camera' && styles.modeBtnTextActive]}
           >
-            Scan QR
+            {t(language, 'scanQR')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -268,7 +269,7 @@ export default function KioskLoyaltyScreen() {
           <Text
             style={[styles.modeBtnText, mode === 'keypad' && styles.modeBtnTextActive]}
           >
-            Phone
+            {t(language, 'phone')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -290,13 +291,13 @@ export default function KioskLoyaltyScreen() {
             <View style={styles.cameraPlaceholder}>
               <Ionicons name="qr-code" size={48} color="#22c55e" />
               <Text style={styles.cameraPlaceholderText}>
-                Position QR code in frame
+                {t(language, 'positionQR')}
               </Text>
             </View>
           </Animated.View>
 
           <Text style={styles.cameraHint}>
-            Open your ElevatedPOS loyalty app and show your QR code
+            {t(language, 'openLoyaltyApp')}
           </Text>
         </View>
       )}
@@ -318,7 +319,7 @@ export default function KioskLoyaltyScreen() {
           {loading && (
             <View style={styles.loadingRow}>
               <ActivityIndicator color="#f59e0b" size="small" />
-              <Text style={styles.loadingText}>Looking up account…</Text>
+              <Text style={styles.loadingText}>{t(language, 'lookingUpAccount')}</Text>
             </View>
           )}
 
@@ -345,7 +346,7 @@ export default function KioskLoyaltyScreen() {
             <View style={styles.notFoundCard}>
               <Ionicons name="person-outline" size={22} color="#888" />
               <Text style={styles.notFoundText}>
-                No account found. Continue as guest.
+                {t(language, 'noAccountFound')}
               </Text>
             </View>
           )}
@@ -384,11 +385,11 @@ export default function KioskLoyaltyScreen() {
             onPress={handleContinue}
             activeOpacity={0.9}
           >
-            <Text style={styles.primaryButtonText}>Apply & Continue →</Text>
+            <Text style={styles.primaryButtonText}>{t(language, 'applyAndContinue')}</Text>
           </TouchableOpacity>
         ) : null}
         <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
-          <Text style={styles.skipText}>Skip — Order as Guest</Text>
+          <Text style={styles.skipText}>{t(language, 'skipGuest')}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   Plus, Megaphone, Mail, MessageSquare, Tag, Calendar, X,
-  BarChart2, ChevronRight, ChevronLeft, Smartphone,
+  BarChart2, ChevronRight, ChevronLeft, Smartphone, Pencil, Trash2,
 } from 'lucide-react';
 import { useCampaigns } from '@/lib/hooks';
 import { useQueryClient } from '@tanstack/react-query';
@@ -257,26 +257,35 @@ function SchedulePanel({
 function CreateCampaignModal({
   onClose,
   onCreated,
+  initial,
 }: {
   onClose: () => void;
   onCreated: () => void;
+  initial?: Campaign;
 }) {
   const { toast } = useToast();
+  const isEditing = !!initial;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   // Core fields
-  const [name, setName] = useState('');
-  const [type, setType] = useState<CampaignType>('email');
-  const [audience, setAudience] = useState('all');
+  const [name, setName] = useState(initial?.name ?? '');
+  const [type, setType] = useState<CampaignType>((initial?.type as CampaignType) ?? 'email');
+  const [audience, setAudience] = useState(
+    (initial?.targetSegment as Record<string, string> | undefined)?.audience ?? 'all',
+  );
 
   // Email fields
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
+  const [subject, setSubject] = useState((initial as Record<string, unknown> | undefined)?.subject as string ?? '');
+  const [body, setBody] = useState((initial as Record<string, unknown> | undefined)?.body as string ?? '');
 
   // SMS fields
-  const [fromName, setFromName] = useState('ElevatedPOS');
-  const [smsMessage, setSmsMessage] = useState('');
+  const [fromName, setFromName] = useState(
+    (initial as Record<string, unknown> | undefined)?.fromName as string ?? 'ElevatedPOS',
+  );
+  const [smsMessage, setSmsMessage] = useState(
+    (initial as Record<string, unknown> | undefined)?.message as string ?? '',
+  );
 
   // A/B Test
   const [abConfig, setAbConfig] = useState<AbConfig>({
@@ -289,8 +298,14 @@ function CreateCampaignModal({
   });
 
   // Schedule
-  const [sendOption, setSendOption] = useState<SendOption>('now');
-  const [scheduledAt, setScheduledAt] = useState('');
+  const [sendOption, setSendOption] = useState<SendOption>(
+    initial?.scheduledAt ? 'scheduled' : 'now',
+  );
+  const [scheduledAt, setScheduledAt] = useState(
+    initial?.scheduledAt
+      ? new Date(initial.scheduledAt).toISOString().slice(0, 16)
+      : '',
+  );
 
   // Derived
   const smsChars = smsMessage.length;
@@ -352,24 +367,36 @@ function CreateCampaignModal({
     }
 
     try {
-      await apiFetch('campaigns', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      toast({
-        title: sendOption === 'now' ? 'Campaign launched' : 'Campaign scheduled',
-        description:
-          sendOption === 'now'
-            ? `"${name}" is now active.`
-            : `"${name}" scheduled for ${new Date(scheduledAt).toLocaleString()}.`,
-        variant: 'success',
-      });
+      if (isEditing) {
+        await apiFetch(`campaigns/${initial!.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+        toast({
+          title: 'Campaign updated',
+          description: `"${name}" has been updated.`,
+          variant: 'success',
+        });
+      } else {
+        await apiFetch('campaigns', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        toast({
+          title: sendOption === 'now' ? 'Campaign launched' : 'Campaign scheduled',
+          description:
+            sendOption === 'now'
+              ? `"${name}" is now active.`
+              : `"${name}" scheduled for ${new Date(scheduledAt).toLocaleString()}.`,
+          variant: 'success',
+        });
+      }
       onCreated();
       onClose();
     } catch (err) {
-      const msg = getErrorMessage(err, 'Failed to create campaign');
+      const msg = getErrorMessage(err, isEditing ? 'Failed to update campaign' : 'Failed to create campaign');
       setError(msg);
-      toast({ title: 'Failed to create campaign', description: msg, variant: 'destructive' });
+      toast({ title: isEditing ? 'Failed to update campaign' : 'Failed to create campaign', description: msg, variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -382,7 +409,7 @@ function CreateCampaignModal({
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-gray-900 max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800 flex-shrink-0">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Create Campaign</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{isEditing ? 'Edit Campaign' : 'Create Campaign'}</h2>
           <button
             onClick={onClose}
             className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -629,9 +656,11 @@ function CreateCampaignModal({
             >
               {saving
                 ? 'Saving…'
-                : sendOption === 'now'
-                  ? 'Launch Campaign'
-                  : 'Schedule Campaign'}
+                : isEditing
+                  ? 'Save Changes'
+                  : sendOption === 'now'
+                    ? 'Launch Campaign'
+                    : 'Schedule Campaign'}
             </button>
           </div>
         </form>
@@ -894,22 +923,74 @@ function AnalyticsPanel({
 
 export function CampaignsClient() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { data, isLoading, isError } = useCampaigns();
   const campaigns = data?.data ?? [];
   const active = campaigns.filter((c) => c.status === 'active').length;
 
   const [showCreate, setShowCreate] = useState(false);
   const [analyticsFor, setAnalyticsFor] = useState<Campaign | null>(null);
+  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const isCompleted = (c: Campaign) => c.status === 'sent' || c.status === 'completed';
 
+  function handleEdit(campaign: Campaign) {
+    setEditingCampaign(campaign);
+  }
+
+  async function handleDelete(id: string) {
+    // Optimistic removal
+    queryClient.setQueryData(['campaigns'], (old: { data: Campaign[] } | undefined) => {
+      if (!old) return old;
+      return { ...old, data: old.data.filter((c) => c.id !== id) };
+    });
+    setConfirmDeleteId(null);
+    try {
+      await apiFetch(`campaigns/${id}`, { method: 'DELETE' });
+      toast({ title: 'Campaign deleted', variant: 'success' });
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+    } catch (err) {
+      // Revert on error
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      toast({ title: 'Failed to delete campaign', description: getErrorMessage(err), variant: 'destructive' });
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {showCreate && (
+      {(showCreate || editingCampaign) && (
         <CreateCampaignModal
-          onClose={() => setShowCreate(false)}
+          onClose={() => { setShowCreate(false); setEditingCampaign(null); }}
           onCreated={() => { queryClient.invalidateQueries({ queryKey: ['campaigns'] }); }}
+          initial={editingCampaign ?? undefined}
         />
+      )}
+
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setConfirmDeleteId(null)} />
+          <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-900">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-2">Delete Campaign?</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              This action cannot be undone. The campaign will be permanently removed.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void handleDelete(confirmDeleteId); }}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {analyticsFor && (
@@ -1050,15 +1131,31 @@ export function CampaignsClient() {
                           </span>
                         </td>
                         <td className="px-5 py-3.5">
-                          {isCompleted(c) && (
+                          <div className="flex items-center gap-1.5">
+                            {isCompleted(c) && (
+                              <button
+                                onClick={() => setAnalyticsFor(c)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+                              >
+                                <BarChart2 className="h-3.5 w-3.5" />
+                                View Analytics
+                              </button>
+                            )}
                             <button
-                              onClick={() => setAnalyticsFor(c)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+                              onClick={() => handleEdit(c)}
+                              title="Edit campaign"
+                              className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-1.5 text-gray-500 hover:bg-gray-50 hover:text-indigo-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-indigo-400"
                             >
-                              <BarChart2 className="h-3.5 w-3.5" />
-                              View Analytics
+                              <Pencil className="h-3.5 w-3.5" />
                             </button>
-                          )}
+                            <button
+                              onClick={() => setConfirmDeleteId(c.id)}
+                              title="Delete campaign"
+                              className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-1.5 text-gray-500 hover:bg-gray-50 hover:text-red-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-red-400"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

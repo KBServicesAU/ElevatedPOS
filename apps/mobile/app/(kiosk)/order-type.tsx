@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useKioskStore } from '../../store/kiosk';
+import { useKioskStore, t } from '../../store/kiosk';
 
 const NUMPAD_ROWS = [
   ['1', '2', '3'],
@@ -20,7 +20,7 @@ const NUMPAD_ROWS = [
 
 export default function OrderTypeScreen() {
   const router = useRouter();
-  const { orderType, setOrderType, tableNumber, setTableNumber } = useKioskStore();
+  const { orderType, setOrderType, tableNumber, setTableNumber, language } = useKioskStore();
 
   const [localOrderType, setLocalOrderType] = useState<'dine_in' | 'takeaway'>(
     orderType === 'takeaway' ? 'takeaway' : 'dine_in',
@@ -87,8 +87,8 @@ export default function OrderTypeScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll} bounces={false}>
         <View style={styles.headerArea}>
-          <Text style={styles.title}>How are you dining?</Text>
-          <Text style={styles.subtitle}>Select your order type to continue</Text>
+          <Text style={styles.title}>{t(language, 'howDining')}</Text>
+          <Text style={styles.subtitle}>{t(language, 'selectOrderType')}</Text>
         </View>
 
         <View style={styles.typeRow}>
@@ -104,9 +104,9 @@ export default function OrderTypeScreen() {
               <Text style={styles.typeIcon}>🍽️</Text>
             </View>
             <Text style={[styles.typeLabel, localOrderType === 'dine_in' && styles.typeLabelActive]}>
-              Dine In
+              {t(language, 'dineIn')}
             </Text>
-            <Text style={styles.typeDesc}>{'Eat here\nat a table'}</Text>
+            <Text style={styles.typeDesc}>{t(language, 'dineInDesc')}</Text>
             {localOrderType === 'dine_in' && (
               <View style={styles.typeCheckmark}>
                 <Text style={styles.typeCheckmarkText}>✓</Text>
@@ -126,9 +126,9 @@ export default function OrderTypeScreen() {
               <Text style={styles.typeIcon}>🛍️</Text>
             </View>
             <Text style={[styles.typeLabel, localOrderType === 'takeaway' && styles.typeLabelActive]}>
-              Take Away
+              {t(language, 'takeAway')}
             </Text>
-            <Text style={styles.typeDesc}>{'Collect when\nready'}</Text>
+            <Text style={styles.typeDesc}>{t(language, 'takeAwayDesc')}</Text>
             {localOrderType === 'takeaway' && (
               <View style={styles.typeCheckmark}>
                 <Text style={styles.typeCheckmarkText}>✓</Text>
@@ -148,19 +148,19 @@ export default function OrderTypeScreen() {
             ]}
           >
             <View style={styles.numpadDisplay}>
-              <Text style={styles.numpadLabel}>Table Number</Text>
+              <Text style={styles.numpadLabel}>{t(language, 'tableNumber')}</Text>
               <View style={styles.numpadValueRow}>
                 <Text style={[styles.numpadValue, tableInput.length === 0 && styles.numpadPlaceholder]}>
                   {tableInput.length > 0 ? tableInput : '—'}
                 </Text>
                 {tableValid && (
                   <View style={styles.tableValidBadge}>
-                    <Text style={styles.tableValidText}>Table {tableInput}</Text>
+                    <Text style={styles.tableValidText}>{t(language, 'tableNumber')} {tableInput}</Text>
                   </View>
                 )}
               </View>
               {tableInput.length > 0 && !tableValid && (
-                <Text style={styles.numpadError}>Enter a table number between 1 and 99</Text>
+                <Text style={styles.numpadError}>{t(language, 'tableRangeError')}</Text>
               )}
             </View>
 
@@ -211,10 +211,10 @@ export default function OrderTypeScreen() {
           >
             <Text style={[styles.continueBtnText, !canContinue && styles.continueBtnTextDisabled]}>
               {localOrderType === 'dine_in' && tableValid
-                ? `Continue — Table ${tableInput} →`
+                ? t(language, 'continueTableFmt', { n: tableInput })
                 : localOrderType === 'takeaway'
-                ? 'Continue — Take Away →'
-                : 'Enter your table number'}
+                ? t(language, 'continueTakeaway')
+                : t(language, 'enterTableNumber')}
             </Text>
           </TouchableOpacity>
         </View>

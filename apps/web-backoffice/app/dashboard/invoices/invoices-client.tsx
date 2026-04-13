@@ -4,82 +4,80 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 import { getErrorMessage } from '@/lib/formatting';
-import { FileText, Plus, X, Eye, ArrowRight, Ban, Trash2, Printer, Loader2 } from 'lucide-react';
+import { FileText, Plus, X, Eye, Send, CheckCircle, Ban, Trash2, Loader2 } from 'lucide-react';
 
-type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'expired' | 'cancelled' | 'converted';
+type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
 
-interface QuoteItem {
+interface InvoiceItem {
   productName: string;
   qty: number;
   unitPrice: number;
 }
 
-interface Quote {
+interface Invoice {
   id: string;
-  quoteNumber: string;
+  invoiceNumber: string;
   customerName: string;
-  status: QuoteStatus;
-  items: QuoteItem[];
-  discountPct: number;
+  customerEmail: string;
+  status: InvoiceStatus;
+  items: InvoiceItem[];
+  subtotal: number;
+  tax: number;
   total: number;
-  validUntil: string;
+  dueDate: string;
   notes: string;
   createdAt: string;
 }
 
-interface QuotesResponse {
-  data: Quote[];
+interface InvoicesResponse {
+  data: Invoice[];
 }
 
-type FilterTab = 'all' | QuoteStatus;
+type FilterTab = 'all' | InvoiceStatus;
 
-const STATUS_STYLES: Record<QuoteStatus, string> = {
+const STATUS_STYLES: Record<InvoiceStatus, string> = {
   draft: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
   sent: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
-  accepted: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
-  expired: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
+  paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
+  overdue: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
   cancelled: 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400',
-  converted: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400',
 };
 
-const CONVERTIBLE_STATUSES: QuoteStatus[] = ['draft', 'sent', 'accepted'];
+const emptyItem = (): InvoiceItem => ({ productName: '', qty: 1, unitPrice: 0 });
 
-const emptyItem = (): QuoteItem => ({ productName: '', qty: 1, unitPrice: 0 });
-
-function calcTotal(items: QuoteItem[], discountPct: number): number {
+function calcTotals(items: InvoiceItem[], taxRate: number): { subtotal: number; tax: number; total: number } {
   const subtotal = items.reduce((s, it) => s + it.qty * it.unitPrice, 0);
-  return subtotal * (1 - discountPct / 100);
+  const tax = subtotal * (taxRate / 100);
+  return { subtotal, tax, total: subtotal + tax };
 }
 
-export default function QuotesClient() {
+export default function InvoicesClient() {
   const { toast } = useToast();
-  const [items, setItems] = useState<Quote[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [viewQuote, setViewQuote] = useState<Quote | null>(null);
-  const [convertingId, setConvertingId] = useState<string | null>(null);
-  const [confirmConvertId, setConfirmConvertId] = useState<string | null>(null);
-  const [printingId, setPrintingId] = useState<string | null>(null);
+  const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     customerName: '',
     customerEmail: '',
     customerPhone: '',
     lineItems: [emptyItem()],
-    discountPct: '',
-    validUntil: '',
+    taxRate: '',
+    dueDate: '',
     notes: '',
   });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch<QuotesResponse>('quotes');
-      setItems(res.data ?? []);
+      const res = await apiFetch<InvoicesResponse>('invoices');
+      setInvoices(res.data ?? []);
     } catch {
-      setItems([]);
+      setInvoices([]);
     } finally {
       setLoading(false);
     }
@@ -88,10 +86,10 @@ export default function QuotesClient() {
   useEffect(() => { load(); }, [load]);
 
   function resetForm() {
-    setForm({ customerName: '', customerEmail: '', customerPhone: '', lineItems: [emptyItem()], discountPct: '', validUntil: '', notes: '' });
+    setForm({ customerName: '', customerEmail: '', customerPhone: '', lineItems: [emptyItem()], taxRate: '', dueDate: '', notes: '' });
   }
 
-  function updateLineItem(index: number, field: keyof QuoteItem, value: string | number) {
+  function updateLineItem(index: number, field: keyof InvoiceItem, value: string | number) {
     setForm((prev) => {
       const updated = [...prev.lineItems];
       updated[index] = { ...updated[index], [field]: value };
@@ -110,126 +108,101 @@ export default function QuotesClient() {
   async function handleSave(status: 'draft' | 'sent') {
     if (!form.customerName) return;
     setSaving(true);
-    const discount = Number(form.discountPct) || 0;
-    const total = calcTotal(form.lineItems, discount);
+    const taxRate = Number(form.taxRate) || 0;
+    const { subtotal, tax, total } = calcTotals(form.lineItems, taxRate);
     try {
-      await apiFetch('quotes', {
+      await apiFetch('invoices', {
         method: 'POST',
         body: JSON.stringify({
           customerName: form.customerName,
           customerEmail: form.customerEmail || undefined,
           customerPhone: form.customerPhone || undefined,
           items: form.lineItems,
-          discountPct: discount,
-          validUntil: form.validUntil,
+          taxRate,
+          dueDate: form.dueDate,
           notes: form.notes,
           status,
         }),
       });
-      const newQuote: Quote = {
-        id: `q${Date.now()}`,
-        quoteNumber: `QT-2026-${String(items.length + 1).padStart(4, '0')}`,
+      const newInvoice: Invoice = {
+        id: `inv${Date.now()}`,
+        invoiceNumber: `INV-2026-${String(invoices.length + 1).padStart(4, '0')}`,
         customerName: form.customerName,
+        customerEmail: form.customerEmail,
         status,
         items: form.lineItems,
-        discountPct: discount,
+        subtotal,
+        tax,
         total,
-        validUntil: form.validUntil || 'N/A',
+        dueDate: form.dueDate || 'N/A',
         notes: form.notes,
         createdAt: new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
       };
-      setItems((prev) => [newQuote, ...prev]);
+      setInvoices((prev) => [newInvoice, ...prev]);
       resetForm();
       setShowModal(false);
-      toast({ title: status === 'sent' ? 'Quote sent' : 'Quote saved', description: `Quote for ${form.customerName} has been ${status === 'sent' ? 'sent' : 'saved as draft'}.`, variant: 'success' });
+      toast({
+        title: status === 'sent' ? 'Invoice sent' : 'Invoice saved',
+        description: `Invoice for ${form.customerName} has been ${status === 'sent' ? 'sent' : 'saved as draft'}.`,
+        variant: 'success',
+      });
     } catch (err) {
       const msg = getErrorMessage(err);
-      toast({ title: 'Failed to save quote', description: msg, variant: 'destructive' });
+      toast({ title: 'Failed to save invoice', description: msg, variant: 'destructive' });
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleConvert(id: string) {
-    setConfirmConvertId(null);
-    setConvertingId(id);
+  async function handleUpdateStatus(id: string, status: InvoiceStatus) {
+    setUpdatingId(id);
     try {
-      const res = await apiFetch<{ orderNumber?: string; data?: { orderNumber?: string } }>(`quotes/${id}/convert`, { method: 'POST' });
-      const orderNumber = res.orderNumber ?? res.data?.orderNumber;
-      setItems((prev) => prev.map((q) => q.id === id ? { ...q, status: 'converted' as QuoteStatus } : q));
-      toast({
-        title: 'Order created',
-        description: orderNumber
-          ? `Quote converted to order #${orderNumber}`
-          : 'The quote has been converted to a live order.',
-        variant: 'success',
+      await apiFetch(`invoices/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
       });
+      setInvoices((prev) => prev.map((inv) => inv.id === id ? { ...inv, status } : inv));
+      const labels: Record<InvoiceStatus, string> = {
+        draft: 'Draft',
+        sent: 'Sent',
+        paid: 'Paid',
+        overdue: 'Overdue',
+        cancelled: 'Cancelled',
+      };
+      toast({ title: `Invoice marked as ${labels[status]}`, variant: 'success' });
     } catch (err) {
       const msg = getErrorMessage(err);
-      toast({ title: 'Failed to convert quote', description: msg, variant: 'destructive' });
+      toast({ title: 'Failed to update invoice', description: msg, variant: 'destructive' });
     } finally {
-      setConvertingId(null);
-    }
-  }
-
-  async function handleCancel(id: string) {
-    try {
-      await apiFetch(`quotes/${id}/cancel`, { method: 'POST' });
-    } catch (err) {
-      const msg = getErrorMessage(err);
-      toast({ title: 'Failed to cancel quote', description: msg, variant: 'destructive' });
-      return;
-    }
-    setItems((prev) => prev.map((q) => q.id === id ? { ...q, status: 'cancelled' as QuoteStatus } : q));
-    toast({ title: 'Quote cancelled', variant: 'success' });
-  }
-
-  async function handlePrint(quote: Quote) {
-    setPrintingId(quote.id);
-    try {
-      const res = await fetch(`/api/proxy/quotes/${quote.id}/pdf`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${quote.quoteNumber}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      // Fallback: open print view in a new tab
-      window.open(`/dashboard/quotes/${quote.id}/print`, '_blank');
-    } finally {
-      setPrintingId(null);
+      setUpdatingId(null);
     }
   }
 
   const TABS: { id: FilterTab; label: string }[] = [
-    { id: 'all', label: `All (${items.length})` },
-    { id: 'draft', label: `Draft (${items.filter((i) => i.status === 'draft').length})` },
-    { id: 'sent', label: `Sent (${items.filter((i) => i.status === 'sent').length})` },
-    { id: 'accepted', label: `Accepted (${items.filter((i) => i.status === 'accepted').length})` },
-    { id: 'expired', label: `Expired (${items.filter((i) => i.status === 'expired').length})` },
-    { id: 'converted', label: `Converted (${items.filter((i) => i.status === 'converted').length})` },
+    { id: 'all', label: `All (${invoices.length})` },
+    { id: 'draft', label: `Draft (${invoices.filter((i) => i.status === 'draft').length})` },
+    { id: 'sent', label: `Sent (${invoices.filter((i) => i.status === 'sent').length})` },
+    { id: 'paid', label: `Paid (${invoices.filter((i) => i.status === 'paid').length})` },
+    { id: 'overdue', label: `Overdue (${invoices.filter((i) => i.status === 'overdue').length})` },
   ];
 
-  const filtered = activeTab === 'all' ? items : items.filter((q) => q.status === activeTab);
-  const previewTotal = calcTotal(form.lineItems, Number(form.discountPct) || 0);
+  const filtered = activeTab === 'all' ? invoices : invoices.filter((inv) => inv.status === activeTab);
+  const previewTotals = calcTotals(form.lineItems, Number(form.taxRate) || 0);
 
   return (
     <div>
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Quotes</h1>
-          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Create and manage sales quotes</p>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Invoices</h1>
+          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Create and manage customer invoices</p>
         </div>
         <button
           onClick={() => { resetForm(); setShowModal(true); }}
           className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 transition-colors"
         >
           <Plus className="h-4 w-4" />
-          New Quote
+          New Invoice
         </button>
       </div>
 
@@ -263,7 +236,7 @@ export default function QuotesClient() {
       {!loading && filtered.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 py-16 dark:border-gray-700 dark:bg-gray-800/40">
           <FileText className="mb-3 h-10 w-10 text-gray-300 dark:text-gray-600" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">No {activeTab !== 'all' ? activeTab : ''} quotes found.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No {activeTab !== 'all' ? activeTab : ''} invoices found.</p>
         </div>
       )}
 
@@ -273,68 +246,74 @@ export default function QuotesClient() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-800">
-                <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Quote #</th>
+                <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Invoice #</th>
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Customer</th>
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Status</th>
-                <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Items</th>
                 <th className="px-5 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Total</th>
-                <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Valid Until</th>
+                <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Due Date</th>
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {filtered.map((quote) => (
-                <tr key={quote.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                  <td className="px-5 py-3.5 font-mono text-xs text-gray-400 dark:text-gray-500">{quote.quoteNumber}</td>
-                  <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">{quote.customerName}</td>
+              {filtered.map((inv) => (
+                <tr key={inv.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                  <td className="px-5 py-3.5 font-mono text-xs text-gray-400 dark:text-gray-500">{inv.invoiceNumber}</td>
                   <td className="px-5 py-3.5">
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[quote.status]}`}>
-                      {quote.status}
+                    <p className="font-medium text-gray-900 dark:text-white">{inv.customerName}</p>
+                    {inv.customerEmail && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500">{inv.customerEmail}</p>
+                    )}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[inv.status]}`}>
+                      {inv.status}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400">{quote.items.length} item{quote.items.length !== 1 ? 's' : ''}</td>
-                  <td className="px-5 py-3.5 text-right font-medium text-gray-900 dark:text-white">${quote.total.toFixed(2)}</td>
-                  <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400">{quote.validUntil}</td>
+                  <td className="px-5 py-3.5 text-right font-medium text-gray-900 dark:text-white">${inv.total.toFixed(2)}</td>
+                  <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400">{inv.dueDate}</td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => setViewQuote(quote)}
+                        onClick={() => setViewInvoice(inv)}
                         title="View"
                         className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors"
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </button>
-                      <button
-                        onClick={() => { void handlePrint(quote); }}
-                        disabled={printingId === quote.id}
-                        title="Print / Export PDF"
-                        className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors disabled:opacity-50"
-                      >
-                        {printingId === quote.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Printer className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                      {CONVERTIBLE_STATUSES.includes(quote.status) && (
+                      {inv.status === 'draft' && (
                         <button
-                          onClick={() => setConfirmConvertId(quote.id)}
-                          disabled={convertingId === quote.id}
-                          title="Convert to Order"
-                          className="rounded p-1 text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/30 transition-colors disabled:opacity-50"
+                          onClick={() => { void handleUpdateStatus(inv.id, 'sent'); }}
+                          disabled={updatingId === inv.id}
+                          title="Send Invoice"
+                          className="rounded p-1 text-blue-500 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/30 transition-colors disabled:opacity-50"
                         >
-                          {convertingId === quote.id ? (
+                          {updatingId === inv.id ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
-                            <ArrowRight className="h-3.5 w-3.5" />
+                            <Send className="h-3.5 w-3.5" />
                           )}
                         </button>
                       )}
-                      {quote.status !== 'cancelled' && quote.status !== 'expired' && (
+                      {(inv.status === 'sent' || inv.status === 'overdue') && (
                         <button
-                          onClick={() => { void handleCancel(quote.id); }}
+                          onClick={() => { void handleUpdateStatus(inv.id, 'paid'); }}
+                          disabled={updatingId === inv.id}
+                          title="Mark as Paid"
+                          className="rounded p-1 text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/30 transition-colors disabled:opacity-50"
+                        >
+                          {updatingId === inv.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <CheckCircle className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      )}
+                      {inv.status !== 'cancelled' && inv.status !== 'paid' && (
+                        <button
+                          onClick={() => { void handleUpdateStatus(inv.id, 'cancelled'); }}
+                          disabled={updatingId === inv.id}
                           title="Cancel"
-                          className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 transition-colors"
+                          className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 transition-colors disabled:opacity-50"
                         >
                           <Ban className="h-3.5 w-3.5" />
                         </button>
@@ -348,21 +327,23 @@ export default function QuotesClient() {
         </div>
       )}
 
-      {/* New Quote Modal */}
+      {/* New Invoice Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-2xl rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900 flex flex-col max-h-[90vh]">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700 flex-shrink-0">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-white">New Quote</h2>
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">New Invoice</h2>
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <div className="overflow-y-auto p-6 space-y-5">
-              {/* Customer */}
+              {/* Customer Name */}
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Customer Name <span className="text-red-500">*</span></label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
+                  Customer Name <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. Acme Corp"
@@ -446,23 +427,23 @@ export default function QuotesClient() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Discount %</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Tax Rate %</label>
                   <input
                     type="number"
                     min="0"
                     max="100"
                     placeholder="0"
-                    value={form.discountPct}
-                    onChange={(e) => setForm({ ...form, discountPct: e.target.value })}
+                    value={form.taxRate}
+                    onChange={(e) => setForm({ ...form, taxRate: e.target.value })}
                     className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Valid Until</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Due Date</label>
                   <input
                     type="date"
-                    value={form.validUntil}
-                    onChange={(e) => setForm({ ...form, validUntil: e.target.value })}
+                    value={form.dueDate}
+                    onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
                     className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                   />
                 </div>
@@ -479,10 +460,22 @@ export default function QuotesClient() {
                 />
               </div>
 
-              {/* Preview Total */}
-              <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-4 py-3 flex items-center justify-between">
-                <span className="text-sm text-gray-500 dark:text-gray-400">Estimated Total{Number(form.discountPct) > 0 ? ` (${form.discountPct}% off)` : ''}</span>
-                <span className="text-base font-bold text-gray-900 dark:text-white">${previewTotal.toFixed(2)}</span>
+              {/* Preview Totals */}
+              <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-4 py-3 space-y-1.5">
+                <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+                  <span>Subtotal</span>
+                  <span>${previewTotals.subtotal.toFixed(2)}</span>
+                </div>
+                {Number(form.taxRate) > 0 && (
+                  <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+                    <span>Tax ({form.taxRate}%)</span>
+                    <span>${previewTotals.tax.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 pt-1.5">
+                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Total</span>
+                  <span className="text-base font-bold text-gray-900 dark:text-white">${previewTotals.total.toFixed(2)}</span>
+                </div>
               </div>
             </div>
 
@@ -494,75 +487,55 @@ export default function QuotesClient() {
                 Cancel
               </button>
               <button
-                onClick={() => handleSave('draft')}
+                onClick={() => { void handleSave('draft'); }}
                 disabled={!form.customerName || saving}
                 className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
               >
                 Save as Draft
               </button>
               <button
-                onClick={() => handleSave('sent')}
+                onClick={() => { void handleSave('sent'); }}
                 disabled={!form.customerName || saving}
                 className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
               >
                 {saving ? (
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
                 ) : (
-                  <FileText className="h-4 w-4" />
+                  <Send className="h-4 w-4" />
                 )}
-                Send to Customer
+                Send Invoice
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Convert Confirmation Modal */}
-      {confirmConvertId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900 p-6">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-2">Convert to Order</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Convert this quote to a live order?</p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setConfirmConvertId(null)}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => { void handleConvert(confirmConvertId); }}
-                disabled={convertingId !== null}
-                className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
-              >
-                {convertingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                Convert to Order
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* View Quote Modal */}
-      {viewQuote && (
+      {/* View Invoice Modal */}
+      {viewInvoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900 flex flex-col max-h-[90vh]">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
               <div>
-                <h2 className="text-base font-semibold text-gray-900 dark:text-white">{viewQuote.quoteNumber}</h2>
-                <p className="text-xs text-gray-400 mt-0.5">{viewQuote.customerName}</p>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white">{viewInvoice.invoiceNumber}</h2>
+                <p className="text-xs text-gray-400 mt-0.5">{viewInvoice.customerName}</p>
               </div>
-              <button onClick={() => setViewQuote(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+              <button onClick={() => setViewInvoice(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div className="overflow-y-auto p-6 space-y-4">
-              <div className="flex items-center gap-2">
-                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[viewQuote.status]}`}>
-                  {viewQuote.status}
+              <div className="flex items-center gap-3">
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[viewInvoice.status]}`}>
+                  {viewInvoice.status}
                 </span>
-                <span className="text-xs text-gray-400">Valid until {viewQuote.validUntil}</span>
+                {viewInvoice.dueDate && viewInvoice.dueDate !== 'N/A' && (
+                  <span className="text-xs text-gray-400">Due {viewInvoice.dueDate}</span>
+                )}
               </div>
+
+              {viewInvoice.customerEmail && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">{viewInvoice.customerEmail}</p>
+              )}
 
               <div>
                 <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Line Items</p>
@@ -577,7 +550,7 @@ export default function QuotesClient() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                      {viewQuote.items.map((it, i) => (
+                      {viewInvoice.items.map((it, i) => (
                         <tr key={i}>
                           <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200">{it.productName}</td>
                           <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400">{it.qty}</td>
@@ -590,51 +563,57 @@ export default function QuotesClient() {
                 </div>
               </div>
 
-              {viewQuote.discountPct > 0 && (
+              <div className="space-y-1.5">
                 <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
-                  <span>Discount ({viewQuote.discountPct}%)</span>
-                  <span className="text-red-500">-${(viewQuote.items.reduce((s, it) => s + it.qty * it.unitPrice, 0) * viewQuote.discountPct / 100).toFixed(2)}</span>
+                  <span>Subtotal</span>
+                  <span>${viewInvoice.subtotal.toFixed(2)}</span>
                 </div>
-              )}
-
-              <div className="flex justify-between border-t border-gray-100 dark:border-gray-800 pt-3">
-                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Total</span>
-                <span className="text-base font-bold text-gray-900 dark:text-white">${viewQuote.total.toFixed(2)}</span>
+                {viewInvoice.tax > 0 && (
+                  <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
+                    <span>Tax</span>
+                    <span>${viewInvoice.tax.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t border-gray-100 dark:border-gray-800 pt-2">
+                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Total</span>
+                  <span className="text-base font-bold text-gray-900 dark:text-white">${viewInvoice.total.toFixed(2)}</span>
+                </div>
               </div>
 
-              {viewQuote.notes && (
+              {viewInvoice.notes && (
                 <div>
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wide">Notes</p>
-                  <p className="text-sm text-gray-700 dark:text-gray-300">{viewQuote.notes}</p>
+                  <p className="text-sm text-gray-700 dark:text-gray-300">{viewInvoice.notes}</p>
                 </div>
               )}
+
+              <div className="text-xs text-gray-400 dark:text-gray-500">Created {viewInvoice.createdAt}</div>
             </div>
             <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
               <button
-                onClick={() => setViewQuote(null)}
+                onClick={() => setViewInvoice(null)}
                 className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
               >
                 Close
               </button>
-              <button
-                onClick={() => { void handlePrint(viewQuote); }}
-                disabled={printingId === viewQuote.id}
-                className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
-              >
-                {printingId === viewQuote.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Printer className="h-4 w-4" />
-                )}
-                Print / PDF
-              </button>
-              {CONVERTIBLE_STATUSES.includes(viewQuote.status) && (
+              {viewInvoice.status === 'draft' && (
                 <button
-                  onClick={() => { setConfirmConvertId(viewQuote.id); setViewQuote(null); }}
-                  className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+                  onClick={() => { void handleUpdateStatus(viewInvoice.id, 'sent'); setViewInvoice(null); }}
+                  disabled={updatingId === viewInvoice.id}
+                  className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
                 >
-                  <ArrowRight className="h-4 w-4" />
-                  Convert to Order
+                  {updatingId === viewInvoice.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  Send Invoice
+                </button>
+              )}
+              {(viewInvoice.status === 'sent' || viewInvoice.status === 'overdue') && (
+                <button
+                  onClick={() => { void handleUpdateStatus(viewInvoice.id, 'paid'); setViewInvoice(null); }}
+                  disabled={updatingId === viewInvoice.id}
+                  className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+                >
+                  {updatingId === viewInvoice.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                  Mark as Paid
                 </button>
               )}
             </div>

@@ -111,8 +111,8 @@ function StatusToggle({
       onClick={() => onToggle(product)}
       disabled={isToggling}
       title={isActive ? 'Deactivate product' : 'Activate product'}
-      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
-        isActive ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
+        isActive ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
       }`}
     >
       <span
@@ -672,6 +672,7 @@ export function CatalogClient() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [duplicatingIds, setDuplicatingIds] = useState<Set<string>>(new Set());
@@ -770,7 +771,10 @@ export function CatalogClient() {
 
   const handleToggleStatus = useCallback(
     async (product: ProductWithChannels) => {
-      const nextStatus = product.status === 'active' ? 'inactive' : 'active';
+      const currentStatus = statusOverrides[product.id] ?? product.status;
+      const nextStatus = currentStatus === 'active' ? 'inactive' : 'active';
+      // Immediately flip the toggle (optimistic UI)
+      setStatusOverrides((prev) => ({ ...prev, [product.id]: nextStatus }));
       setTogglingIds((prev) => new Set(prev).add(product.id));
 
       try {
@@ -782,6 +786,12 @@ export function CatalogClient() {
         });
         queryClient.invalidateQueries({ queryKey: ['products'] });
       } catch (err) {
+        // Revert optimistic update on error
+        setStatusOverrides((prev) => {
+          const next = { ...prev };
+          delete next[product.id];
+          return next;
+        });
         toast({
           title: 'Failed to update status',
           description: getErrorMessage(err, 'Please try again.'),
@@ -795,7 +805,7 @@ export function CatalogClient() {
         });
       }
     },
-    [toast, queryClient],
+    [toast, queryClient, statusOverrides],
   );
 
   // ─── Task 5: Duplicate product ───────────────────────────────────────────────
@@ -1139,7 +1149,7 @@ export function CatalogClient() {
                           {/* Status toggle */}
                           <td className="px-4 py-3.5">
                             <StatusToggle
-                              product={product}
+                              product={statusOverrides[product.id] ? { ...product, status: statusOverrides[product.id] } : product}
                               onToggle={handleToggleStatus}
                               isToggling={isToggling}
                             />

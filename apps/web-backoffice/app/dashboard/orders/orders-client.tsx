@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Filter, Eye, RefreshCw, Loader2, X, RotateCcw, ChevronDown, ChevronUp, Mail, MessageSquare, Send } from 'lucide-react';
 import { useOrders, useInvalidateOrders } from '@/lib/hooks';
 import { apiFetch } from '@/lib/api';
@@ -72,6 +72,7 @@ interface OrderNote {
 export function OrdersClient() {
   const { toast } = useToast();
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [channelFilter, setChannelFilter] = useState('');
   const [showMoreFilters, setShowMoreFilters] = useState(false);
@@ -80,8 +81,14 @@ export function OrdersClient() {
   const invalidate = useInvalidateOrders();
   const [limit, setLimit] = useState(50);
 
+  // Debounce search input so we don't fire a request on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const { data, isLoading, isError, refetch, isFetching } = useOrders({
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     status: statusFilter || undefined,
     channel: channelFilter || undefined,
     dateFrom: dateFrom || undefined,

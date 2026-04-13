@@ -1212,8 +1212,8 @@ export function ReservationsClient() {
   const [loadingWait, setLoadingWait] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchReservations = useCallback(async () => {
-    setLoadingRes(true);
+  const fetchReservations = useCallback(async (silent = false) => {
+    if (!silent) setLoadingRes(true);
     try {
       const qs = new URLSearchParams({
         dateFrom: todayIso(),
@@ -1222,21 +1222,27 @@ export function ReservationsClient() {
       const res = await apiFetch<{ data: Reservation[] }>(`reservations?${qs}`);
       setReservations(res.data ?? []);
     } catch (err) {
-      toast({ title: 'Failed to load reservations', description: getErrorMessage(err), variant: 'destructive' });
+      // Only show error toast on manual/initial fetch, not background polls
+      if (!silent) {
+        toast({ title: 'Failed to load reservations', description: getErrorMessage(err), variant: 'destructive' });
+      }
     } finally {
-      setLoadingRes(false);
+      if (!silent) setLoadingRes(false);
     }
   }, [toast]);
 
-  const fetchWaitlist = useCallback(async () => {
-    setLoadingWait(true);
+  const fetchWaitlist = useCallback(async (silent = false) => {
+    if (!silent) setLoadingWait(true);
     try {
       const res = await apiFetch<{ data: WaitlistEntry[] }>('reservations/waitlist');
       setWaitlist(res.data ?? []);
     } catch (err) {
-      toast({ title: 'Failed to load waitlist', description: getErrorMessage(err), variant: 'destructive' });
+      // Only show error toast on manual/initial fetch, not background polls
+      if (!silent) {
+        toast({ title: 'Failed to load waitlist', description: getErrorMessage(err), variant: 'destructive' });
+      }
     } finally {
-      setLoadingWait(false);
+      if (!silent) setLoadingWait(false);
     }
   }, [toast]);
 
@@ -1255,8 +1261,8 @@ export function ReservationsClient() {
     fetchTables();
 
     intervalRef.current = setInterval(() => {
-      fetchReservations();
-      fetchWaitlist();
+      void fetchReservations(true);
+      void fetchWaitlist(true);
     }, 30_000);
 
     return () => {

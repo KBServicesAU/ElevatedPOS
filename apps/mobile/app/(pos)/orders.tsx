@@ -25,7 +25,13 @@ import {
 } from '../../components/TyroTransactionModal';
 import { getServerAnzConfig } from '../../store/device-settings';
 
-const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+// In local dev, orders service runs on EXPO_PUBLIC_ORDERS_API_URL (default port 4004).
+// In production, EXPO_PUBLIC_API_URL points at the nginx gateway which routes
+// /api/v1/orders → orders service, so it also works as a fallback.
+const API_BASE =
+  process.env['EXPO_PUBLIC_ORDERS_API_URL'] ??
+  process.env['EXPO_PUBLIC_API_URL'] ??
+  'http://localhost:4004';
 
 interface Order {
   id: string;

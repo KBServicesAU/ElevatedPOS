@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useKioskStore, type CartItem } from '../../store/kiosk';
+import { useKioskStore, type CartItem, t } from '../../store/kiosk';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 
 const UPSELL_LIMIT = 6;
@@ -26,6 +26,7 @@ export default function CartScreen() {
     setDineIn,
     customerName,
     setCustomerName,
+    language,
   } = useKioskStore();
   const {
     products,
@@ -103,9 +104,9 @@ export default function CartScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.emptyState}>
           <Text style={styles.emptyEmoji}>🛒</Text>
-          <Text style={styles.emptyTitle}>Your cart is empty</Text>
+          <Text style={styles.emptyTitle}>{t(language, 'yourCartEmpty')}</Text>
           <TouchableOpacity style={styles.browseButton} onPress={() => router.back()}>
-            <Text style={styles.browseButtonText}>← Browse Menu</Text>
+            <Text style={styles.browseButtonText}>{t(language, 'browseMenu')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -119,21 +120,21 @@ export default function CartScreen() {
           style={[styles.toggleBtn, dineIn && styles.toggleBtnActive]}
           onPress={() => setDineIn(true)}
         >
-          <Text style={[styles.toggleText, dineIn && styles.toggleTextActive]}>🍽 Dine In</Text>
+          <Text style={[styles.toggleText, dineIn && styles.toggleTextActive]}>{t(language, 'dineInLabel')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.toggleBtn, !dineIn && styles.toggleBtnActive]}
           onPress={() => setDineIn(false)}
         >
-          <Text style={[styles.toggleText, !dineIn && styles.toggleTextActive]}>🥡 Takeaway</Text>
+          <Text style={[styles.toggleText, !dineIn && styles.toggleTextActive]}>{t(language, 'takeawayLabel')}</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.nameRow}>
-        <Text style={styles.nameLabel}>Name / Table / Buzzer</Text>
+        <Text style={styles.nameLabel}>{t(language, 'nameTableBuzzer')}</Text>
         <TextInput
           style={styles.nameInput}
-          placeholder="Enter your name or buzzer number"
+          placeholder={t(language, 'nameTablePlaceholder')}
           placeholderTextColor="#555"
           value={nameInput}
           onChangeText={setNameInput}
@@ -164,22 +165,22 @@ export default function CartScreen() {
         )}
         ListFooterComponent={
           <TouchableOpacity style={styles.addMoreBtn} onPress={() => router.back()}>
-            <Text style={styles.addMoreText}>+ Add More Items</Text>
+            <Text style={styles.addMoreText}>{t(language, 'addMoreItems')}</Text>
           </TouchableOpacity>
         }
       />
 
       <View style={styles.summary}>
         <View style={[styles.summaryRow, styles.summaryTotal]}>
-          <Text style={styles.totalLabel}>Total</Text>
+          <Text style={styles.totalLabel}>{t(language, 'total')}</Text>
           <Text style={styles.totalValue}>${total.toFixed(2)}</Text>
         </View>
         <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Incl. GST</Text>
+          <Text style={styles.summaryLabel}>{t(language, 'inclGST')}</Text>
           <Text style={styles.summaryValue}>${gstIncluded.toFixed(2)}</Text>
         </View>
         <TouchableOpacity style={styles.checkoutButton} onPress={handleCheckout}>
-          <Text style={styles.checkoutText}>Proceed to Payment →</Text>
+          <Text style={styles.checkoutText}>{t(language, 'proceedToPayment')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -194,8 +195,8 @@ export default function CartScreen() {
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalEmoji}>✨</Text>
-            <Text style={styles.modalTitle}>Would you like anything else?</Text>
-            <Text style={styles.modalSubtitle}>Tap to add — or skip and pay now.</Text>
+            <Text style={styles.modalTitle}>{t(language, 'wouldYouLikeAnythingElse')}</Text>
+            <Text style={styles.modalSubtitle}>{t(language, 'tapToAddOrSkip')}</Text>
 
             <FlatList
               data={upsellSuggestions}
@@ -224,7 +225,7 @@ export default function CartScreen() {
                     <Text style={styles.upsellPrice}>${item.basePrice}</Text>
                     <View style={[styles.upsellAddPill, inCart && styles.upsellAddedPill]}>
                       <Text style={styles.upsellAddText}>
-                        {inCart ? 'Added ✓' : '+ Add'}
+                        {inCart ? t(language, 'added') : t(language, 'addItem')}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -234,10 +235,10 @@ export default function CartScreen() {
 
             <View style={styles.modalFooter}>
               <TouchableOpacity style={styles.skipBtn} onPress={handleSkipUpsell}>
-                <Text style={styles.skipBtnText}>No thanks</Text>
+                <Text style={styles.skipBtnText}>{t(language, 'noThanks')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirmUpsell}>
-                <Text style={styles.confirmBtnText}>Continue to Payment →</Text>
+                <Text style={styles.confirmBtnText}>{t(language, 'continueToPayment')}</Text>
               </TouchableOpacity>
             </View>
           </View>

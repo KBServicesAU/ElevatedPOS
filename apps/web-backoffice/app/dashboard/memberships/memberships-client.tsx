@@ -72,6 +72,9 @@ export default function MembershipsClient() {
   const [saving, setSaving] = useState(false);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   const [planForm, setPlanForm] = useState(emptyPlanForm());
+  const [showAddSubscriberModal, setShowAddSubscriberModal] = useState(false);
+  const [subscriberForm, setSubscriberForm] = useState({ customerEmail: '', planId: '', startDate: '' });
+  const [addingSubscriber, setAddingSubscriber] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -204,6 +207,30 @@ export default function MembershipsClient() {
     }
   }
 
+  async function handleAddSubscriber() {
+    if (!subscriberForm.customerEmail || !subscriberForm.planId || !subscriberForm.startDate) return;
+    setAddingSubscriber(true);
+    try {
+      await apiFetch('membership-subscriptions', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerEmail: subscriberForm.customerEmail,
+          planId: subscriberForm.planId,
+          startDate: subscriberForm.startDate,
+        }),
+      });
+      toast({ title: 'Subscriber added', description: `${subscriberForm.customerEmail} has been subscribed.`, variant: 'success' });
+      setShowAddSubscriberModal(false);
+      setSubscriberForm({ customerEmail: '', planId: '', startDate: '' });
+      load();
+    } catch (err) {
+      const msg = getErrorMessage(err);
+      toast({ title: 'Failed to add subscriber', description: msg, variant: 'destructive' });
+    } finally {
+      setAddingSubscriber(false);
+    }
+  }
+
   const SUB_FILTER_TABS: { id: SubFilterTab; label: string }[] = [
     { id: 'all', label: `All (${subs.length})` },
     { id: 'active', label: `Active (${subs.filter((s) => s.status === 'active').length})` },
@@ -321,21 +348,33 @@ export default function MembershipsClient() {
       {/* Subscribers Tab */}
       {!loading && activeMainTab === 'subscribers' && (
         <div>
-          {/* Sub filter tabs */}
-          <div className="mb-5 flex gap-1 border-b border-gray-200 dark:border-gray-800">
-            {SUB_FILTER_TABS.map(({ id, label }) => (
-              <button
-                key={id}
-                onClick={() => setSubFilter(id)}
-                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                  subFilter === id
-                    ? 'border-elevatedpos-500 text-elevatedpos-600 dark:text-elevatedpos-400'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+          {/* Sub filter tabs + Add Subscriber button */}
+          <div className="mb-5 flex items-center justify-between border-b border-gray-200 dark:border-gray-800">
+            <div className="flex gap-1">
+              {SUB_FILTER_TABS.map(({ id, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setSubFilter(id)}
+                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                    subFilter === id
+                      ? 'border-elevatedpos-500 text-elevatedpos-600 dark:text-elevatedpos-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                setSubscriberForm({ customerEmail: '', planId: '', startDate: '' });
+                setShowAddSubscriberModal(true);
+              }}
+              className="mb-1 flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              Add Subscriber
+            </button>
           </div>
 
           {filteredSubs.length === 0 && (
@@ -552,6 +591,76 @@ export default function MembershipsClient() {
               >
                 {saving ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <Check className="h-4 w-4" />}
                 {editingPlan ? 'Save Changes' : 'Create Plan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Subscriber Modal */}
+      {showAddSubscriberModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900 flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700 flex-shrink-0">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">Add Subscriber</h2>
+              <button onClick={() => setShowAddSubscriberModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Customer Email <span className="text-red-500">*</span></label>
+                <input
+                  type="email"
+                  placeholder="customer@example.com"
+                  value={subscriberForm.customerEmail}
+                  onChange={(e) => setSubscriberForm({ ...subscriberForm, customerEmail: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Membership Plan <span className="text-red-500">*</span></label>
+                <select
+                  value={subscriberForm.planId}
+                  onChange={(e) => setSubscriberForm({ ...subscriberForm, planId: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
+                >
+                  <option value="">Select a plan…</option>
+                  {plans.filter((p) => p.isActive).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} — ${p.price}{BILLING_CYCLE_LABEL[p.billingCycle]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Start Date <span className="text-red-500">*</span></label>
+                <input
+                  type="date"
+                  value={subscriberForm.startDate}
+                  onChange={(e) => setSubscriberForm({ ...subscriberForm, startDate: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700 flex-shrink-0">
+              <button
+                onClick={() => setShowAddSubscriberModal(false)}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddSubscriber}
+                disabled={!subscriberForm.customerEmail || !subscriberForm.planId || !subscriberForm.startDate || addingSubscriber}
+                className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
+              >
+                {addingSubscriber ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <Plus className="h-4 w-4" />}
+                Add Subscriber
               </button>
             </div>
           </div>

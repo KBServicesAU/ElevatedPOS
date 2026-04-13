@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useKioskStore } from '../../store/kiosk';
+import { useKioskStore, t } from '../../store/kiosk';
 
 export default function AgeVerificationScreen() {
   const router = useRouter();
@@ -23,6 +23,7 @@ export default function AgeVerificationScreen() {
   const setPendingAgeRestrictedProductId = useKioskStore(
     (s) => s.setPendingAgeRestrictedProductId,
   );
+  const language = useKioskStore((s) => s.language);
 
   // Pulse halo animation around the icon
   const pulseAnim = useRef(new Animated.Value(0)).current;
@@ -140,13 +141,12 @@ export default function AgeVerificationScreen() {
           </Animated.View>
         </View>
 
-        <Text style={styles.title}>Age Verification Required</Text>
+        <Text style={styles.title}>{t(language, 'ageVerificationRequired')}</Text>
         <Text style={styles.subtitle}>
-          This item is restricted to customers aged 18 and over.
+          {t(language, 'ageVerificationSubtitle')}
         </Text>
         <Text style={styles.legal}>
-          By confirming, you declare that you are 18 years of age or older.
-          Staff may request photo ID before order completion.
+          {t(language, 'ageVerificationLegal')}
         </Text>
 
         <TouchableOpacity
@@ -155,7 +155,7 @@ export default function AgeVerificationScreen() {
           activeOpacity={0.9}
         >
           <Ionicons name="checkmark-circle" size={22} color="#fff" />
-          <Text style={styles.confirmBtnText}>Yes, I am 18 or older</Text>
+          <Text style={styles.confirmBtnText}>{t(language, 'yesIAm18')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -164,7 +164,7 @@ export default function AgeVerificationScreen() {
           activeOpacity={0.9}
         >
           <Ionicons name="close-circle-outline" size={20} color="#888" />
-          <Text style={styles.denyBtnText}>No, remove item</Text>
+          <Text style={styles.denyBtnText}>{t(language, 'noRemoveItem')}</Text>
         </TouchableOpacity>
       </Animated.View>
     </SafeAreaView>

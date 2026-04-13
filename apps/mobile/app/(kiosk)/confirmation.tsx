@@ -3,13 +3,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useKioskStore } from '../../store/kiosk';
+import { useKioskStore, t } from '../../store/kiosk';
 
 const AUTO_RESET_SECONDS = 12;
 
 export default function ConfirmationScreen() {
   const router = useRouter();
-  const { orderNumber, loyaltyAccount, earnedPoints, resetKiosk } = useKioskStore();
+  const { orderNumber, loyaltyAccount, earnedPoints, resetKiosk, language } = useKioskStore();
   const [countdown, setCountdown] = useState(AUTO_RESET_SECONDS);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -45,19 +45,19 @@ export default function ConfirmationScreen() {
         <Text style={styles.successIcon}>✓</Text>
       </View>
 
-      <Text style={styles.title}>Order Placed!</Text>
-      <Text style={styles.subtitle}>Your order is being prepared</Text>
+      <Text style={styles.title}>{t(language, 'orderPlaced')}</Text>
+      <Text style={styles.subtitle}>{t(language, 'orderBeingPrepared')}</Text>
 
       <Animated.View style={[styles.orderNumberCard, { transform: [{ scale: pulseAnim }] }]}>
-        <Text style={styles.orderLabel}>Your Order Number</Text>
+        <Text style={styles.orderLabel}>{t(language, 'yourOrderNumber')}</Text>
         <Text style={styles.orderNumber}>{orderNumber ?? '—'}</Text>
       </Animated.View>
 
       <View style={styles.waitCard}>
         <Text style={styles.waitIcon}>⏱</Text>
         <View>
-          <Text style={styles.waitTitle}>Estimated Wait</Text>
-          <Text style={styles.waitTime}>10–15 minutes</Text>
+          <Text style={styles.waitTitle}>{t(language, 'estimatedWait')}</Text>
+          <Text style={styles.waitTime}>{t(language, 'waitTime')}</Text>
         </View>
       </View>
 
@@ -79,10 +79,10 @@ export default function ConfirmationScreen() {
         </View>
       )}
 
-      <Text style={styles.countdown}>Returning to home in {countdown}s...</Text>
+      <Text style={styles.countdown}>{t(language, 'returningHome', { n: String(countdown) })}</Text>
 
       <TouchableOpacity style={styles.newOrderButton} onPress={handleNewOrder}>
-        <Text style={styles.newOrderText}>Start New Order</Text>
+        <Text style={styles.newOrderText}>{t(language, 'startNewOrder')}</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );

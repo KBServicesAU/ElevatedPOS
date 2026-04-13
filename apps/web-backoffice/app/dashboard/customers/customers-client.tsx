@@ -876,16 +876,10 @@ function CreateSegmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
     if (!name.trim()) { setError('Segment name is required'); return; }
     setSaving(true);
     try {
-      const res = await fetch('/api/proxy/customers/segments', {
+      await apiFetch('customers/segments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), description: description.trim() || undefined, conditions }),
       });
-      if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        try { const b = await res.json() as { message?: string; error?: string }; msg = b.message ?? b.error ?? msg; } catch { /* ignore */ }
-        throw new Error(msg);
-      }
       toast({ title: 'Segment created', description: `"${name}" has been saved.`, variant: 'success' });
       onSaved();
       onClose();
@@ -930,12 +924,12 @@ function CreateSegmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
 
           <div>
             <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-            <input
-              type="text"
+            <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional description"
-              className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              rows={2}
+              className="w-full resize-none rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             />
           </div>
 

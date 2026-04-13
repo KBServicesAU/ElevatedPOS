@@ -27,7 +27,7 @@ interface TaxRate {
   percent: number;
 }
 
-type Tab = 'organisation' | 'locations' | 'hours' | 'receipts' | 'tax' | 'payments' | 'notifications' | 'devices' | 'printers' | 'terminal';
+type Tab = 'organisation' | 'locations' | 'hours' | 'receipts' | 'tax' | 'payments' | 'notifications' | 'devices' | 'printers';
 
 // ─── Toggle Switch ────────────────────────────────────────────────────────────
 
@@ -953,6 +953,77 @@ function PaymentsTab() {
           </div>
         </div>
       </SectionCard>
+
+      {/* ─── Payment Processor & Terminal Connect ─────────────────────────────── */}
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800">
+          <div className="rounded-lg bg-elevatedpos-50 p-2 dark:bg-elevatedpos-900/30">
+            <Plug className="h-5 w-5 text-elevatedpos-600 dark:text-elevatedpos-400" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Payment Processors & Terminal</h3>
+            <p className="text-sm text-gray-500">Connect and configure your EFTPOS terminal and payment gateways</p>
+          </div>
+        </div>
+        <div className="grid gap-3 p-5 sm:grid-cols-2">
+          {[
+            {
+              name: 'EFTPOS Terminal',
+              description: 'Stripe Terminal, Tyro, or ANZ',
+              icon: CreditCard,
+              href: '/dashboard/settings/terminal',
+              color: 'bg-indigo-600',
+              abbr: 'EF',
+            },
+            {
+              name: 'Stripe',
+              description: 'Online payments & invoicing',
+              icon: CreditCard,
+              href: '/dashboard/settings/terminal',
+              color: 'bg-violet-600',
+              abbr: 'ST',
+            },
+            {
+              name: 'Tyro',
+              description: 'Integrated EFTPOS for hospitality',
+              icon: CreditCard,
+              href: '/dashboard/settings/terminal',
+              color: 'bg-blue-600',
+              abbr: 'TY',
+            },
+            {
+              name: 'ANZ',
+              description: 'ANZ Worldline terminal integration',
+              icon: CreditCard,
+              href: '/dashboard/settings/terminal',
+              color: 'bg-sky-700',
+              abbr: 'AN',
+            },
+          ].map((proc) => (
+            <a
+              key={proc.name}
+              href={proc.href}
+              className="group flex items-center justify-between rounded-xl border border-gray-200 p-4 hover:border-elevatedpos-300 hover:bg-elevatedpos-50/30 dark:border-gray-700 dark:hover:border-elevatedpos-700 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${proc.color} text-xs font-bold text-white`}>
+                  {proc.abbr}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{proc.name}</p>
+                  <p className="text-xs text-gray-500">{proc.description}</p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-elevatedpos-600 transition-colors" />
+            </a>
+          ))}
+        </div>
+        <div className="border-t border-gray-100 px-5 py-3 dark:border-gray-800">
+          <a href="/dashboard/settings/terminal" className="text-sm font-medium text-elevatedpos-600 hover:text-elevatedpos-700 dark:text-elevatedpos-400">
+            Manage terminal settings →
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1221,12 +1292,11 @@ const TABS: { id: Tab; label: string; icon: React.ElementType; href?: string }[]
   { id: 'locations', label: 'Locations', icon: MapPin },
   { id: 'hours', label: 'Trading Hours', icon: Clock },
   { id: 'receipts', label: 'Receipts', icon: PrinterIcon },
-  { id: 'tax', label: 'Tax', icon: Receipt },
-  { id: 'payments', label: 'Payments', icon: CreditCard },
+  { id: 'tax', label: 'Tax / GST', icon: Receipt },
+  { id: 'payments', label: 'Payments & Connect', icon: CreditCard },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'devices', label: 'Devices', icon: Smartphone, href: '/dashboard/settings/devices' },
   { id: 'printers', label: 'Printers', icon: PrinterIcon, href: '/dashboard/settings/printers' },
-  { id: 'terminal', label: 'EFTPOS Terminal', icon: CreditCard, href: '/dashboard/settings/terminal' },
 ];
 
 export default function SettingsPage() {

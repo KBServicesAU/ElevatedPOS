@@ -9,20 +9,20 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useKioskStore } from '../../store/kiosk';
+import { useKioskStore, t } from '../../store/kiosk';
 import { useDeviceStore } from '../../store/device';
 
 type PaymentMethod = 'card' | 'cash' | 'qr';
 
-const METHODS: { id: PaymentMethod; label: string; icon: string; subtitle: string }[] = [
-  { id: 'card', label: 'Card', icon: '💳', subtitle: 'Tap, insert or swipe' },
-  { id: 'cash', label: 'Cash', icon: '💵', subtitle: 'Pay at counter' },
-  { id: 'qr', label: 'QR Pay', icon: '📱', subtitle: 'WeChat Pay · Alipay' },
-];
-
 export default function PaymentScreen() {
   const router = useRouter();
-  const { cartItems, clearCart, setOrderNumber, setEarnedPoints, orderType, tableNumber, loyaltyAccount } = useKioskStore();
+  const { cartItems, clearCart, setOrderNumber, setEarnedPoints, orderType, tableNumber, loyaltyAccount, language } = useKioskStore();
+
+  const METHODS: { id: PaymentMethod; label: string; icon: string; subtitle: string }[] = [
+    { id: 'card', label: t(language, 'cardLabel'), icon: '💳', subtitle: t(language, 'cardSub') },
+    { id: 'cash', label: t(language, 'cashLabel'), icon: '💵', subtitle: t(language, 'cashSub') },
+    { id: 'qr', label: t(language, 'qrLabel'), icon: '📱', subtitle: t(language, 'qrSub') },
+  ];
   const [selected, setSelected] = useState<PaymentMethod>('card');
   const [processing, setProcessing] = useState(false);
 
@@ -106,7 +106,7 @@ export default function PaymentScreen() {
       <View style={styles.orderTypeBadge}>
         <Text style={styles.orderTypeBadgeText}>{orderTypeBadge}</Text>
       </View>
-      <Text style={styles.title}>Choose Payment Method</Text>
+      <Text style={styles.title}>{t(language, 'choosePayment')}</Text>
 
       <View style={styles.methods}>
         {METHODS.map((method) => (
@@ -129,7 +129,7 @@ export default function PaymentScreen() {
       </View>
 
       <View style={styles.summaryCard}>
-        <Text style={styles.summaryTitle}>Order Summary</Text>
+        <Text style={styles.summaryTitle}>{t(language, 'orderSummary')}</Text>
         {cartItems.map((item) => (
           <View key={item.cartKey} style={styles.summaryRow}>
             <Text style={styles.summaryItemName}>{item.qty}x {item.name}</Text>
@@ -156,10 +156,10 @@ export default function PaymentScreen() {
         {processing ? (
           <View style={styles.processingRow}>
             <ActivityIndicator color="#fff" />
-            <Text style={styles.payButtonText}>Processing...</Text>
+            <Text style={styles.payButtonText}>{t(language, 'processing')}</Text>
           </View>
         ) : (
-          <Text style={styles.payButtonText}>Pay ${total.toFixed(2)}</Text>
+          <Text style={styles.payButtonText}>{t(language, 'payFmt', { amount: total.toFixed(2) })}</Text>
         )}
       </TouchableOpacity>
     </SafeAreaView>

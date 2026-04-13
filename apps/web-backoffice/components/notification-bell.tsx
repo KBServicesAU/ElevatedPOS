@@ -43,12 +43,31 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
+  const [prefetchedUnread, setPrefetchedUnread] = useState<number | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.length > 0
+    ? notifications.filter((n) => !n.read).length
+    : (prefetchedUnread ?? 0);
 
-  // Fetch on open
+  // Prefetch unread count on mount (so badge shows without opening panel)
+  useEffect(() => {
+    apiFetch('notifications/unread-count')
+      .then((data: unknown) => {
+        const count =
+          data && typeof data === 'object' && 'count' in data
+            ? Number((data as { count: unknown }).count)
+            : typeof data === 'number'
+              ? data
+              : null;
+        if (count !== null && !isNaN(count)) setPrefetchedUnread(count);
+        else setPrefetchedUnread(DEMO_NOTIFICATIONS.filter((n) => !n.read).length);
+      })
+      .catch(() => setPrefetchedUnread(DEMO_NOTIFICATIONS.filter((n) => !n.read).length));
+  }, []);
+
+  // Fetch full list on open
   useEffect(() => {
     if (!open) return;
     setLoading(true);
@@ -61,9 +80,14 @@ export function NotificationBell() {
             : Array.isArray(data)
               ? data
               : null;
-        setNotifications(list ? (list as Notification[]) : DEMO_NOTIFICATIONS);
+        const resolved = list ? (list as Notification[]) : DEMO_NOTIFICATIONS;
+        setNotifications(resolved);
+        setPrefetchedUnread(resolved.filter((n) => !n.read).length);
       })
-      .catch(() => setNotifications(DEMO_NOTIFICATIONS))
+      .catch(() => {
+        setNotifications(DEMO_NOTIFICATIONS);
+        setPrefetchedUnread(DEMO_NOTIFICATIONS.filter((n) => !n.read).length);
+      })
       .finally(() => setLoading(false));
   }, [open]);
 
@@ -90,6 +114,7 @@ export function NotificationBell() {
 
   const markAllRead = async () => {
     setNotifications((ns) => ns.map((n) => ({ ...n, read: true })));
+    setPrefetchedUnread(0);
     try {
       await apiFetch('notifications/mark-all-read', { method: 'POST' });
     } catch {
@@ -98,7 +123,11 @@ export function NotificationBell() {
   };
 
   const markRead = async (id: string) => {
-    setNotifications((ns) => ns.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    setNotifications((ns) => {
+      const wasUnread = ns.find((n) => n.id === id && !n.read);
+      if (wasUnread) setPrefetchedUnread((c) => Math.max(0, (c ?? 1) - 1));
+      return ns.map((n) => (n.id === id ? { ...n, read: true } : n));
+    });
     try {
       await apiFetch(`notifications/${id}/read`, { method: 'PATCH' });
     } catch {

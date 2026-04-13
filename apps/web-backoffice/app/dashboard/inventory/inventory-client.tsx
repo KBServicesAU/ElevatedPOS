@@ -994,12 +994,17 @@ type ActiveTab = 'stock' | 'movements';
 export function InventoryClient() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data: stockData, isLoading: stockLoading } = useStock();
+  const { data: stockData, isLoading: stockLoading, isError: stockError } = useStock();
   const { data: posData, isLoading: posLoading } = usePurchaseOrders();
   const [activeTab, setActiveTab] = useState<ActiveTab>('stock');
   const [adjustItem, setAdjustItem] = useState<StockItemWithPricing | null>(null);
 
-  const stockItems = (stockData?.data ?? []) as StockItemWithPricing[];
+  // Handle both { data: [...] } and bare array responses
+  const stockItems = useMemo<StockItemWithPricing[]>(() => {
+    if (!stockData) return [];
+    const raw = Array.isArray(stockData) ? stockData : (stockData.data ?? []);
+    return raw as StockItemWithPricing[];
+  }, [stockData]);
   const purchaseOrders = posData?.data ?? [];
 
   const critical = stockItems.filter((i) => stockStatus(i) === 'Critical').length;
@@ -1041,8 +1046,21 @@ export function InventoryClient() {
         </div>
       </div>
 
+      {/* Error banner */}
+      {stockError && !stockLoading && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/30 dark:bg-red-900/20">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+          <div>
+            <p className="text-sm font-medium text-red-800 dark:text-red-300">Failed to load inventory</p>
+            <p className="mt-0.5 text-sm text-red-700 dark:text-red-400">
+              Could not connect to the inventory service. Check that the backend is running and try refreshing.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Alert banner */}
-      {!stockLoading && (critical > 0 || low > 0) && (
+      {!stockLoading && !stockError && (critical > 0 || low > 0) && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/30 dark:bg-amber-900/20">
           <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-500" />
           <div>

@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 import { getErrorMessage } from '@/lib/formatting';
-import { Tag, Plus, X, Ban, AlertCircle, Ticket, Copy, Pencil, RefreshCw } from 'lucide-react';
+import { Tag, Plus, X, Ban, AlertCircle, Ticket, Copy, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 
 type MarkdownStatus = 'active' | 'scheduled' | 'expired';
 type DiscountType = 'percentage' | 'fixed';
@@ -178,6 +178,37 @@ export default function MarkdownsClient() {
     isFirstTimeOnly: false,
   });
 
+  // ── Product search autocomplete state ──
+  const [productResults, setProductResults] = useState<{ id: string; name: string; sku?: string }[]>([]);
+  const [productSearching, setProductSearching] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const productSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleProductSearch(query: string) {
+    setForm((prev) => ({ ...prev, productSearch: query }));
+    setSelectedProductId('');
+    if (productSearchTimer.current) clearTimeout(productSearchTimer.current);
+    if (!query.trim()) {
+      setProductResults([]);
+      setProductSearching(false);
+      return;
+    }
+    setProductSearching(true);
+    productSearchTimer.current = setTimeout(async () => {
+      try {
+        const res = await apiFetch<{ data: { id: string; name: string; sku?: string }[] } | { id: string; name: string; sku?: string }[]>(
+          'catalog/products?search=' + encodeURIComponent(query) + '&limit=8'
+        );
+        const list = Array.isArray(res) ? res : ((res as { data: { id: string; name: string; sku?: string }[] }).data ?? []);
+        setProductResults(list);
+      } catch {
+        setProductResults([]);
+      } finally {
+        setProductSearching(false);
+      }
+    }, 400);
+  }
+
   // ── Load markdowns ──
   const load = useCallback(async () => {
     setLoading(true);
@@ -320,6 +351,18 @@ export default function MarkdownsClient() {
     }
     setItems((prev) => prev.map((m) => m.id === id ? { ...m, status: 'expired' as MarkdownStatus } : m));
     toast({ title: 'Markdown deactivated', variant: 'success' });
+  }
+
+  async function handleDelete(id: string) {
+    const prev = items;
+    setItems((arr) => arr.filter((m) => m.id !== id));
+    try {
+      await apiFetch(`markdowns/${id}`, { method: 'DELETE' });
+      toast({ title: 'Markdown deleted', variant: 'success' });
+    } catch (err) {
+      setItems(prev);
+      toast({ title: 'Failed to delete markdown', description: getErrorMessage(err), variant: 'destructive' });
+    }
   }
 
   // ── Promo Codes helpers ──
@@ -603,15 +646,24 @@ export default function MarkdownsClient() {
                           )}
                         </td>
                         <td className="px-5 py-3.5">
-                          {md.status !== 'expired' && (
+                          <div className="flex items-center gap-1">
+                            {md.status !== 'expired' && (
+                              <button
+                                onClick={() => { void handleDeactivate(md.id); }}
+                                title="Deactivate"
+                                className="rounded p-1 text-amber-500 hover:bg-amber-50 hover:text-amber-700 dark:hover:bg-amber-900/30 transition-colors"
+                              >
+                                <Ban className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                             <button
-                              onClick={() => { void handleDeactivate(md.id); }}
-                              title="Deactivate"
+                              onClick={() => { void handleDelete(md.id); }}
+                              title="Delete"
                               className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 transition-colors"
                             >
-                              <Ban className="h-3.5 w-3.5" />
+                              <Trash2 className="h-3.5 w-3.5" />
                             </button>
-                          )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -820,7 +872,7 @@ export default function MarkdownsClient() {
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Scope</label>
                 <select
                   value={form.scope}
-                  onChange={(e) => setForm({ ...form, scope: e.target.value as ScopeType, category: '', productSearch: '' })}
+                  onChange={(e) => { setForm({ ...form, scope: e.target.value as ScopeType, category: '', productSearch: '' }); setSelectedProductId(''); setProductResults([]); }}
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 bg-white"
                 >
                   <option value="all">All Products</option>
@@ -848,13 +900,47 @@ export default function MarkdownsClient() {
               {form.scope === 'product' && (
                 <div>
                   <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Product</label>
-                  <input
-                    type="text"
-                    placeholder="Search for a product..."
-                    value={form.productSearch}
-                    onChange={(e) => setForm({ ...form, productSearch: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search for a product..."
+                      value={form.productSearch}
+                      onChange={(e) => handleProductSearch(e.target.value)}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 pr-8 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                    />
+                    {productSearching && (
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                        <svg className="h-4 w-4 animate-spin text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                      </span>
+                    )}
+                    {productResults.length > 0 && (
+                      <ul className="absolute top-full z-10 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900 max-h-48 overflow-y-auto">
+                        {productResults.map((p) => (
+                          <li key={p.id}>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setForm((prev) => ({ ...prev, productSearch: p.name }));
+                                setSelectedProductId(p.id);
+                                setProductResults([]);
+                              }}
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-200"
+                            >
+                              <span className="font-medium">{p.name}</span>
+                              {p.sku && <span className="ml-2 text-xs text-gray-400">{p.sku}</span>}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {!productSearching && productResults.length === 0 && form.productSearch.length > 2 && !selectedProductId && (
+                      <p className="mt-1 text-xs text-gray-400">No products found</p>
+                    )}
+                  </div>
                 </div>
               )}
 

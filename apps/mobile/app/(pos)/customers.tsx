@@ -17,7 +17,13 @@ import { useAuthStore } from '../../store/auth';
 import { usePosStore } from '../../store/pos';
 import { toast } from '../../components/ui';
 
-const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+// In local dev, customers service runs on EXPO_PUBLIC_CUSTOMERS_API_URL (default port 4006).
+// In production, EXPO_PUBLIC_API_URL points at the nginx gateway which routes
+// /api/v1/customers → customers service, so it also works as a fallback.
+const API_BASE =
+  process.env['EXPO_PUBLIC_CUSTOMERS_API_URL'] ??
+  process.env['EXPO_PUBLIC_API_URL'] ??
+  'http://localhost:4006';
 
 interface Customer {
   id: string;

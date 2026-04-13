@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useKioskStore } from '../../store/kiosk';
+import { useKioskStore, t } from '../../store/kiosk';
 import { useCatalogStore } from '../../store/catalog';
 
 const FONT_SIZE_KEY = '@kiosk_font_size';
@@ -41,14 +41,17 @@ interface Product {
 
 export default function MenuScreen() {
   const router = useRouter();
-  const { cartItems, addToCart, ageVerified, setAgeVerified, setPendingAgeRestrictedProductId } =
+  const { cartItems, addToCart, ageVerified, setAgeVerified, setPendingAgeRestrictedProductId, language } =
     useKioskStore();
-  const { products: catalogProducts, categories: catalogCategories, fetchAll } = useCatalogStore();
+  const { products: catalogProducts, categories: catalogCategories, fetchAll, unavailable, hydrateUnavailable, loading: catalogLoading, error: catalogError } = useCatalogStore();
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [search, setSearch] = useState('');
 
-  // Fetch real catalog on mount
-  useEffect(() => { fetchAll(); }, []);
+  // Fetch real catalog and hydrate unavailable list on mount
+  useEffect(() => {
+    hydrateUnavailable();
+    fetchAll();
+  }, []);
 
   // Build category list from real data
   const CATEGORIES = useMemo(() => {
@@ -57,34 +60,37 @@ export default function MenuScreen() {
   }, [catalogCategories]);
 
   // Map catalog products to the Product shape used by the UI
+  // Excludes products that are isActive===false or marked unavailable (86'd) on this device.
   const realProducts: Product[] = useMemo(() => {
     const catMap = new Map(catalogCategories.map(c => [c.id, c.name]));
-    return catalogProducts.map(p => {
-      // The API may return extra fields not declared in CatalogProduct.
-      // Cast to access ageRestricted and tags when present.
-      const raw = p as typeof p & {
-        ageRestricted?: boolean;
-        tags?: string[];
-        description?: string;
-        emoji?: string;
-      };
-      const tags: string[] = Array.isArray(raw.tags) ? raw.tags : [];
-      // Accept explicit ageRestricted flag OR the presence of an 'age-restricted' tag.
-      const ageRestricted =
-        raw.ageRestricted === true ||
-        tags.some((t) => t.toLowerCase() === 'age-restricted');
-      return {
-        id: p.id,
-        name: p.name,
-        price: parseFloat(String(p.basePrice)) || 0, // already in dollars from catalog store
-        category: (p.categoryId && catMap.get(p.categoryId)) ?? 'Other',
-        emoji: raw.emoji ?? '',
-        description: raw.description ?? '',
-        ageRestricted,
-        tags,
-      };
-    });
-  }, [catalogProducts, catalogCategories]);
+    return catalogProducts
+      .filter(p => p.isActive !== false && !unavailable.has(p.id))
+      .map(p => {
+        // The API may return extra fields not declared in CatalogProduct.
+        // Cast to access ageRestricted and tags when present.
+        const raw = p as typeof p & {
+          ageRestricted?: boolean;
+          tags?: string[];
+          description?: string;
+          emoji?: string;
+        };
+        const tags: string[] = Array.isArray(raw.tags) ? raw.tags : [];
+        // Accept explicit ageRestricted flag OR the presence of an 'age-restricted' tag.
+        const ageRestricted =
+          raw.ageRestricted === true ||
+          tags.some((tag) => tag.toLowerCase() === 'age-restricted');
+        return {
+          id: p.id,
+          name: p.name,
+          price: parseFloat(String(p.basePrice)) || 0, // already in dollars from catalog store
+          category: (p.categoryId && catMap.get(p.categoryId)) ?? 'Other',
+          emoji: raw.emoji ?? '',
+          description: raw.description ?? '',
+          ageRestricted,
+          tags,
+        };
+      });
+  }, [catalogProducts, catalogCategories, unavailable]);
 
   const [fontSize, setFontSize] = useState<FontSize>('medium');
   useEffect(() => {
@@ -163,7 +169,7 @@ export default function MenuScreen() {
       <View style={styles.topBar}>
         <TextInput
           style={[styles.searchInput, { fontSize: 14 * scale }]}
-          placeholder="Search menu..."
+          placeholder={t(language, 'searchPlaceholder')}
           placeholderTextColor="#666"
           value={search}
           onChangeText={setSearch}
@@ -192,10 +198,22 @@ export default function MenuScreen() {
 
       {ageVerified && (
         <View style={styles.ageVerifiedBanner}>
-          <Text style={styles.ageVerifiedText}>✓ Age verified — alcohol and tobacco available</Text>
+          <Text style={styles.ageVerifiedText}>{t(language, 'ageVerifiedBanner')}</Text>
           <TouchableOpacity onPress={() => setAgeVerified(false)}>
-            <Text style={styles.ageVerifiedClear}>Remove</Text>
+            <Text style={styles.ageVerifiedClear}>{t(language, 'removeLabel')}</Text>
           </TouchableOpacity>
+        </View>
+      )}
+
+      {catalogLoading && realProducts.length === 0 && (
+        <View style={styles.statusBanner}>
+          <Text style={styles.statusText}>Loading menu…</Text>
+        </View>
+      )}
+
+      {!catalogLoading && catalogError && realProducts.length === 0 && (
+        <View style={styles.statusBanner}>
+          <Text style={[styles.statusText, { color: '#ef4444' }]}>{catalogError}</Text>
         </View>
       )}
 
@@ -285,7 +303,7 @@ export default function MenuScreen() {
           <View style={styles.cartCount}>
             <Text style={styles.cartCountText}>{cartCount}</Text>
           </View>
-          <Text style={styles.cartBarText}>View Order</Text>
+          <Text style={styles.cartBarText}>{t(language, 'viewOrder')}</Text>
           <Text style={styles.cartBarTotal}>${cartTotal.toFixed(2)}</Text>
         </TouchableOpacity>
       )}
@@ -361,6 +379,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     textDecorationLine: 'underline',
+  },
+  statusBanner: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#333',
+    alignItems: 'center',
+  },
+  statusText: {
+    fontSize: 14,
+    color: '#888',
+    fontWeight: '600',
   },
   catScroll: { flexGrow: 0 },
   catContent: { paddingHorizontal: 16, gap: 8, paddingBottom: 12 },

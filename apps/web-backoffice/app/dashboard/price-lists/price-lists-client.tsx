@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Plus, ChevronDown, ChevronRight, MoreVertical, Tag,
-  Search, X, Check,
+  Search, X, Check, Pencil, Trash2,
 } from 'lucide-react';
-import { formatCurrency } from '@/lib/formatting';
+import { formatCurrency, getErrorMessage } from '@/lib/formatting';
 import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -72,16 +72,19 @@ function adjustmentDisplay(pl: PriceList) {
 
 interface CreateModalProps {
   onClose: () => void;
-  onCreate: (pl: Omit<PriceList, 'id' | 'productCount' | 'overrides'>) => void;
+  onCreate?: (pl: Omit<PriceList, 'id' | 'productCount' | 'overrides'>) => void;
+  onUpdate?: (pl: Omit<PriceList, 'id' | 'productCount' | 'overrides'>) => void;
+  initial?: Partial<PriceList>;
 }
 
-function CreatePriceListModal({ onClose, onCreate }: CreateModalProps) {
-  const [name, setName] = useState('');
-  const [type, setType] = useState<PriceListType>('custom');
-  const [description, setDescription] = useState('');
-  const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>('percent_off');
-  const [adjustmentValue, setAdjustmentValue] = useState(0);
-  const [isDefault, setIsDefault] = useState(false);
+function CreatePriceListModal({ onClose, onCreate, onUpdate, initial }: CreateModalProps) {
+  const isEdit = !!initial?.id;
+  const [name, setName] = useState(initial?.name ?? '');
+  const [type, setType] = useState<PriceListType>(initial?.type ?? 'custom');
+  const [description, setDescription] = useState(initial?.description ?? '');
+  const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(initial?.adjustmentType ?? 'percent_off');
+  const [adjustmentValue, setAdjustmentValue] = useState(initial?.adjustmentValue ?? 0);
+  const [isDefault, setIsDefault] = useState(initial?.isDefault ?? false);
 
   // Close on Escape
   useEffect(() => {
@@ -93,15 +96,20 @@ function CreatePriceListModal({ onClose, onCreate }: CreateModalProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onCreate({
+    const payload = {
       name: name.trim(),
       type,
       description: description.trim(),
       adjustmentType,
       adjustmentValue,
       isDefault,
-      isActive: true,
-    });
+      isActive: initial?.isActive ?? true,
+    };
+    if (isEdit && onUpdate) {
+      onUpdate(payload);
+    } else if (!isEdit && onCreate) {
+      onCreate(payload);
+    }
     onClose();
   };
 
@@ -116,7 +124,7 @@ function CreatePriceListModal({ onClose, onCreate }: CreateModalProps) {
       >
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-gray-800">
           <h2 id="create-pl-title" className="text-base font-semibold text-gray-900 dark:text-white">
-            Create Price List
+            {isEdit ? 'Edit Price List' : 'Create Price List'}
           </h2>
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800">
             <X className="h-5 w-5" />
@@ -220,7 +228,7 @@ function CreatePriceListModal({ onClose, onCreate }: CreateModalProps) {
               type="submit"
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
             >
-              Create Price List
+              {isEdit ? 'Save Changes' : 'Create Price List'}
             </button>
           </div>
         </form>
@@ -389,11 +397,15 @@ function AddOverrideModal({ priceListId, onClose, onAdd }: AddOverrideModalProps
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function PriceListsClient() {
+  const { toast } = useToast();
   const [priceLists, setPriceLists] = useState<PriceList[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [addOverrideForId, setAddOverrideForId] = useState<string | null>(null);
+  const [editingPriceList, setEditingPriceList] = useState<PriceList | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Fetch price lists (with mock fallback)
   useEffect(() => {
@@ -478,6 +490,39 @@ export function PriceListsClient() {
         };
       }),
     );
+  };
+
+  const handleUpdate = async (id: string, data: Omit<PriceList, 'id' | 'productCount' | 'overrides'>) => {
+    const backup = priceLists.find((pl) => pl.id === id);
+    setPriceLists((prev) =>
+      prev.map((pl) => (pl.id === id ? { ...pl, ...data } : pl)),
+    );
+    try {
+      const res = await fetch(`/api/proxy/price-lists/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast({ title: 'Price list updated', variant: 'success' });
+    } catch (err) {
+      if (backup) setPriceLists((prev) => prev.map((pl) => (pl.id === id ? backup : pl)));
+      toast({ title: 'Failed to update', description: getErrorMessage(err, 'Please try again.'), variant: 'destructive' });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    const backup = priceLists.find((pl) => pl.id === id);
+    setConfirmDeleteId(null);
+    setPriceLists((prev) => prev.filter((pl) => pl.id !== id));
+    try {
+      const res = await fetch(`/api/proxy/price-lists/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast({ title: 'Price list deleted', variant: 'success' });
+    } catch (err) {
+      if (backup) setPriceLists((prev) => [...prev, backup]);
+      toast({ title: 'Failed to delete', description: getErrorMessage(err, 'Please try again.'), variant: 'destructive' });
+    }
   };
 
   return (
@@ -574,10 +619,29 @@ export function PriceListsClient() {
                             {pl.isActive ? 'Active' : 'Inactive'}
                           </span>
                         </td>
-                        <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
-                          <button className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
+                        <td className="relative px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === pl.id ? null : pl.id); }}
+                            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          >
                             <MoreVertical className="h-4 w-4" />
                           </button>
+                          {menuOpenId === pl.id && (
+                            <div className="absolute right-4 top-10 z-20 min-w-[130px] rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+                              <button
+                                onClick={() => { setEditingPriceList(pl); setMenuOpenId(null); }}
+                                className="flex w-full items-center gap-2 rounded-t-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
+                              >
+                                <Pencil className="h-3.5 w-3.5" /> Edit
+                              </button>
+                              <button
+                                onClick={() => { setConfirmDeleteId(pl.id); setMenuOpenId(null); }}
+                                className="flex w-full items-center gap-2 rounded-b-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" /> Delete
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
 
@@ -680,9 +744,43 @@ export function PriceListsClient() {
         </table>
       </div>
 
+      {/* Close menu on outside click */}
+      {menuOpenId && (
+        <div className="fixed inset-0 z-10" onClick={() => setMenuOpenId(null)} />
+      )}
+
       {/* Modals */}
       {showCreateModal && (
         <CreatePriceListModal onClose={() => setShowCreateModal(false)} onCreate={handleCreate} />
+      )}
+      {editingPriceList && (
+        <CreatePriceListModal
+          onClose={() => setEditingPriceList(null)}
+          initial={editingPriceList}
+          onUpdate={(data) => handleUpdate(editingPriceList.id, data)}
+        />
+      )}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900 p-6">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-white">Delete Price List?</h3>
+            <p className="mt-1 text-sm text-gray-500">This cannot be undone.</p>
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDelete(confirmDeleteId)}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {addOverrideForId && (
         <AddOverrideModal
