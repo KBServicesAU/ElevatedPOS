@@ -108,7 +108,7 @@ export async function handleOrderCompleted(payload: Record<string, unknown>): Pr
   const htmlBody = receiptEmailHtml({
     storeName,
     orderNumber,
-    customerName,
+    ...(customerName !== undefined ? { customerName } : {}),
     items,
     subtotal,
     gst,
@@ -128,7 +128,7 @@ export async function handleOrderCompleted(payload: Record<string, unknown>): Pr
       recipient: customerEmail,
       subject,
       status: result.success ? 'sent' : 'failed',
-      ...(result.success ? { sentAt: new Date() } : { errorMessage: result.error }),
+      ...(result.success ? { sentAt: new Date() } : { errorMessage: result.error ?? null }),
     });
 
     if (result.success) {

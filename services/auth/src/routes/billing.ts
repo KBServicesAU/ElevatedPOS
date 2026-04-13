@@ -24,7 +24,7 @@ import { db, schema } from '../db/index.js';
 function getStripe(): Stripe {
   const key = process.env['STRIPE_SECRET_KEY'];
   if (!key) throw new Error('STRIPE_SECRET_KEY not configured');
-  return new Stripe(key, { apiVersion: '2024-06-20' });
+  return new Stripe(key, { apiVersion: '2025-02-24.acacia' });
 }
 
 const PLAN_PRICE_IDS: Record<string, string> = {
@@ -57,7 +57,7 @@ export async function billingRoutes(app: FastifyInstance) {
     let stripeCustomerId = org.stripeCustomerId ?? undefined;
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
-        email: org.billingEmail ?? undefined,
+        ...(org.billingEmail ? { email: org.billingEmail } : {}),
         name: org.name,
         metadata: { orgId: org.id },
       });

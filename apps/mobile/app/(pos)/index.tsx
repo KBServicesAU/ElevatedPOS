@@ -259,7 +259,7 @@ export default function PosSellScreen() {
   async function handleCharge(
     paymentMethod: 'Card' | 'Cash' | 'Split' = 'Card',
     changeGiven = 0,
-    tyroExtras?: { tipCents?: number; surchargeCents?: number; transactionTotalCents?: number },
+    tyroExtras?: { tipCents?: number; surchargeCents?: number; transactionTotalCents?: number; authCode?: string; cardLast4?: string; cardScheme?: string },
   ) {
     if (cart.length === 0) return;
     setCharging(true);

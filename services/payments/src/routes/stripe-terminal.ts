@@ -11,13 +11,11 @@
 import type { FastifyInstance } from 'fastify';
 import Stripe from 'stripe';
 import { z } from 'zod';
-import { eq, and } from 'drizzle-orm';
-import { db, schema } from '../db';
 
 function getStripe(): Stripe {
   const key = process.env['STRIPE_SECRET_KEY'];
   if (!key) throw new Error('STRIPE_SECRET_KEY not configured');
-  return new Stripe(key, { apiVersion: '2024-06-20' });
+  return new Stripe(key, { apiVersion: '2025-02-24.acacia' });
 }
 
 export async function stripeTerminalRoutes(app: FastifyInstance) {
@@ -25,7 +23,7 @@ export async function stripeTerminalRoutes(app: FastifyInstance) {
   // POST /api/v1/stripe/connection-token
   // Called by the mobile app SDK to get a connection token for the terminal.
   // Requires device auth (Bearer device token).
-  app.post('/connection-token', async (request, reply) => {
+  app.post('/connection-token', async (_request, reply) => {
     // Accept both device token and staff JWT
     const stripe = getStripe();
     const token = await stripe.terminal.connectionTokens.create();
@@ -51,7 +49,7 @@ export async function stripeTerminalRoutes(app: FastifyInstance) {
       currency:       body.data.currency.toLowerCase(),
       payment_method_types: ['card_present'],
       capture_method: body.data.captureMethod,
-      description:    body.data.description,
+      ...(body.data.description !== undefined ? { description: body.data.description } : {}),
       metadata: {
         orderId:  body.data.orderId ?? '',
         source:   'elevatedpos-terminal',

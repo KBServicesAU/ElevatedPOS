@@ -18,7 +18,7 @@ import {
   ActivityIndicator, Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useStripeTerminal } from '@stripe/stripe-react-native';
+import { useStripeTerminal } from './useStripeTerminalStub';
 import { useDeviceStore } from '../../store/device';
 
 export interface StripePaymentResult {
