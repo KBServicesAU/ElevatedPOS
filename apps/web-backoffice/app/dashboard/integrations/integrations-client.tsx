@@ -1968,92 +1968,11 @@ function DeputyCard({
   );
 }
 
-// ─── Payment Terminals: Tyro EFTPOS ──────────────────────────────────────────
+// ─── Payment Terminals ───────────────────────────────────────────────────────
+// Tyro and ANZ Worldline settings have been consolidated into
+// /dashboard/payments (Terminals tab). These cards redirect there.
 
-function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; onRefresh: () => void }) {
-  const { toast } = useToast();
-  // Sanitise persisted values: only digits and dashes are allowed for Tyro MID/TID
-  const sanitiseId = (v: string) => /^[0-9-]+$/.test(v) ? v : '';
-  const [merchantId, setMerchantId] = useState(sanitiseId(status.merchantId ?? ''));
-  const [terminalId, setTerminalId] = useState(sanitiseId(status.terminalId ?? ''));
-  const [surchargeToggle, setSurchargeToggle] = useState(status.tyroHandlesSurcharge ?? false);
-  const [saving, setSaving] = useState(false);
-  const [pairing, setPairing] = useState(false);
-
-  // Defensive: clear browser autofill garbage shortly after mount
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const mid = document.getElementById('tyro-mid') as HTMLInputElement | null;
-      const tid = document.getElementById('tyro-tid') as HTMLInputElement | null;
-      if (mid && mid.value && !/^[0-9-]+$/.test(mid.value)) {
-        mid.value = '';
-        setMerchantId('');
-      }
-      if (tid && tid.value && !/^[0-9-]+$/.test(tid.value)) {
-        tid.value = '';
-        setTerminalId('');
-      }
-    }, 100);
-    return () => clearTimeout(t);
-  }, []);
-
-  async function handleSave() {
-    if (!merchantId || !terminalId) {
-      toast({ title: 'Missing Fields', description: 'Merchant ID and Terminal ID are required.', variant: 'destructive' });
-      return;
-    }
-    setSaving(true);
-    try {
-      await apiFetch('terminal/credentials', {
-        method: 'POST',
-        body: JSON.stringify({
-          provider: 'tyro',
-          label: `Tyro Terminal ${terminalId}`,
-          terminalIp: '',
-          terminalPort: 0,
-          metadata: {
-            merchantId,
-            terminalId,
-            tyroHandlesSurcharge: surchargeToggle,
-          },
-        }),
-      });
-      toast({ title: 'Tyro Saved', description: 'Terminal paired. Merchant ID: ' + merchantId, variant: 'success' });
-      onRefresh();
-    } catch (err) {
-      toast({ title: 'Save Failed', description: err instanceof Error ? err.message : 'Could not save', variant: 'destructive' });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handlePair() {
-    setPairing(true);
-    try {
-      const { loadTyroScript, pairTyroTerminal } = await import('@/lib/tyro-provider');
-      await loadTyroScript(true);
-      // API key comes from server env (TYRO_API_KEY), not from merchant
-      const configRes = await fetch('/api/tyro/config');
-      const configData = await configRes.json();
-      const result = await pairTyroTerminal({
-        apiKey: configData.apiKey ?? '',
-        merchantId,
-        terminalId,
-        testMode: configData.testMode ?? true,
-        tyroHandlesSurcharge: surchargeToggle,
-      });
-      if (result.status === 'success') {
-        toast({ title: 'Paired', description: 'Tyro terminal paired successfully.', variant: 'success' });
-      } else {
-        toast({ title: 'Pairing Failed', description: result.message ?? 'Could not pair terminal.', variant: 'destructive' });
-      }
-    } catch (err) {
-      toast({ title: 'Pairing Error', description: err instanceof Error ? err.message : 'Pairing failed', variant: 'destructive' });
-    } finally {
-      setPairing(false);
-    }
-  }
-
+function TyroCard({ status }: { status: IntegrationsStatus['tyro']; onRefresh: () => void }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <div className="flex items-start justify-between p-5">
@@ -2069,267 +1988,47 @@ function TyroCard({ status, onRefresh }: { status: IntegrationsStatus['tyro']; o
         <StatusBadge connected={status.connected} />
       </div>
       <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800">
-        <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-          Integrated EFTPOS with Tyro terminals. Browser-based — no IP required.
+        <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+          Configure your Tyro Merchant ID, Terminal ID, and surcharge settings in Payment &amp; Connect.
         </p>
-        <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="tyro-mid" className="mb-1 block text-xs font-medium text-gray-500">Merchant ID</label>
-            <input
-              id="tyro-mid"
-              name="tyro-mid"
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              data-form-type="other"
-              data-lpignore="true"
-              data-1p-ignore="true"
-              value={merchantId}
-              onChange={e => setMerchantId(e.target.value)}
-              placeholder="e.g. 400012345"
-              className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:border-indigo-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label htmlFor="tyro-tid" className="mb-1 block text-xs font-medium text-gray-500">Terminal ID</label>
-            <input
-              id="tyro-tid"
-              name="tyro-tid"
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              data-form-type="other"
-              data-lpignore="true"
-              data-1p-ignore="true"
-              value={terminalId}
-              onChange={e => setTerminalId(e.target.value)}
-              placeholder="e.g. 1"
-              className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:border-indigo-500 focus:outline-none"
-            />
-          </div>
-        </div>
-        <div className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
-          <div>
-            <p className="text-sm text-white">Tyro handles surcharging</p>
-            <p className="text-xs text-gray-500">Let the terminal apply card surcharges (ACCC compliant)</p>
-          </div>
-          <button
-            onClick={() => setSurchargeToggle(!surchargeToggle)}
-            className={`relative h-6 w-11 rounded-full transition-colors ${surchargeToggle ? 'bg-indigo-600' : 'bg-gray-700'}`}
-          >
-            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${surchargeToggle ? 'translate-x-5' : 'translate-x-0.5'}`} />
-          </button>
-        </div>
-        <div className="flex gap-2 pt-1">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-          <button
-            onClick={handlePair}
-            disabled={pairing || !merchantId || !terminalId}
-            className="flex-1 rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-gray-300 hover:text-white hover:border-white/30 transition-colors disabled:opacity-50"
-          >
-            {pairing ? 'Pairing...' : 'Pair Terminal'}
-          </button>
-        </div>
-        </div>
+        <a
+          href="/dashboard/payments?tab=terminals"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
+        >
+          Configure in Payment &amp; Connect →
+        </a>
       </div>
     </div>
   );
 }
 
-// ─── Payment Terminals: ANZ Worldline ────────────────────────────────────────
-
-function ANZWorldlineCard({ status, onRefresh }: { status: IntegrationsStatus['anzWorldline']; onRefresh: () => void }) {
-  const { toast } = useToast();
-  const [terminalIp, setTerminalIp] = useState(status.terminalIp ?? '');
-  // Port 80 = ANZ TIM API WebSocket default
-  const [terminalPort, setTerminalPort] = useState<string>(String(status.terminalPort && status.terminalPort !== 8080 && status.terminalPort !== 4100 ? status.terminalPort : 80));
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-
-  // Fetch existing credentials on mount
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await apiFetch<{ terminalIp?: string; terminalPort?: number }>('terminal/credentials');
-        if (!cancelled && res.terminalIp) {
-          setTerminalIp(res.terminalIp);
-          // If port is stored as old default (8080/4100), reset to correct default (80)
-          const p = res.terminalPort;
-          setTerminalPort(String(p && p !== 8080 && p !== 4100 ? p : 80));
-        }
-      } catch {
-        // No credentials saved yet — ignore
-      }
-    }
-    void load();
-    return () => { cancelled = true; };
-  }, []);
-
-  async function handleSave() {
-    if (!terminalIp.trim()) {
-      toast({ title: 'Terminal IP is required', variant: 'destructive' });
-      return;
-    }
-    const port = Number(terminalPort);
-    if (!port || port < 1 || port > 65535) {
-      toast({ title: 'Enter a valid port number (1–65535)', variant: 'destructive' });
-      return;
-    }
-    setSaving(true);
-    try {
-      await apiFetch('terminal/credentials', {
-        method: 'POST',
-        body: JSON.stringify({ terminalIp: terminalIp.trim(), terminalPort: port }),
-      });
-      toast({ title: 'ANZ Worldline credentials saved', variant: 'success' });
-      onRefresh();
-    } catch (err) {
-      toast({ title: 'Failed to save', description: getErrorMessage(err), variant: 'destructive' });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleTest() {
-    setTesting(true);
-    try {
-      await apiFetch('terminal/anz/test', { method: 'POST' });
-      toast({ title: 'Connection successful', description: 'ANZ Worldline terminal is reachable.', variant: 'success' });
-    } catch (err) {
-      toast({ title: 'Connection failed', description: getErrorMessage(err), variant: 'destructive' });
-    } finally {
-      setTesting(false);
-    }
-  }
-
-  async function handleDisconnect() {
-    setDisconnecting(true);
-    setConfirmDisconnect(false);
-    try {
-      await apiFetch('terminal/credentials', { method: 'DELETE' });
-      toast({ title: 'ANZ Worldline disconnected', variant: 'default' });
-      setTerminalIp('');
-      setTerminalPort('4100');
-      onRefresh();
-    } catch (err) {
-      toast({ title: 'Failed to disconnect', description: getErrorMessage(err), variant: 'destructive' });
-    } finally {
-      setDisconnecting(false);
-    }
-  }
-
+function ANZWorldlineCard({ status }: { status: IntegrationsStatus['anzWorldline']; onRefresh: () => void }) {
   return (
-    <>
-      {confirmDisconnect && (
-        <ConfirmModal
-          title="Disconnect ANZ Worldline?"
-          message="The saved terminal credentials will be removed. You can reconfigure at any time."
-          confirmLabel="Disconnect"
-          danger
-          onConfirm={handleDisconnect}
-          onCancel={() => setConfirmDisconnect(false)}
-        />
-      )}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <div className="flex items-start justify-between p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
-              <CreditCard className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="font-semibold text-gray-900 dark:text-white">ANZ Worldline</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Payment Terminal</p>
-            </div>
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex items-start justify-between p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
+            <CreditCard className="h-5 w-5" />
           </div>
-          <StatusBadge connected={status.connected} />
-        </div>
-
-        <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800">
-          <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-            Connect your ANZ Worldline EFTPOS terminal to accept card payments directly from the POS.
-            Uses the TIM API (WebSocket on port 80). Ensure the terminal is in <strong>ECR / Integrated</strong> mode.
-          </p>
-          <div className="space-y-4">
-            <FieldRow label="Terminal IP Address">
-              <input
-                type="text"
-                value={terminalIp}
-                onChange={(e) => setTerminalIp(e.target.value)}
-                placeholder="e.g. 192.168.1.100"
-                className={inputCls()}
-              />
-            </FieldRow>
-            <FieldRow label="Terminal Port">
-              <input
-                type="number"
-                value={terminalPort}
-                onChange={(e) => setTerminalPort(e.target.value)}
-                placeholder="80"
-                min={1}
-                max={65535}
-                className={inputCls()}
-              />
-              <p className="mt-1 text-xs text-gray-400">ANZ TIM API default is port 80 (WebSocket)</p>
-            </FieldRow>
-            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
-              <strong>SDK setup required:</strong> Place <code>timapi.js</code> and <code>timapi.wasm</code> in{' '}
-              <code>/public/timapi/</code> on the web server, and set <code>ANZ_INTEGRATOR_ID</code> in your
-              environment. Obtain both from{' '}
-              <a href="https://start.portal.anzworldline-solutions.com.au/" target="_blank" rel="noopener noreferrer" className="underline">
-                the ANZ Worldline portal
-              </a>.
-            </div>
+          <div>
+            <p className="font-semibold text-gray-900 dark:text-white">ANZ Worldline</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Payment Terminal</p>
           </div>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 px-5 py-3 dark:border-gray-800">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
-          >
-            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            Save
-          </button>
-          {status.connected && (
-            <button
-              onClick={handleTest}
-              disabled={testing}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 disabled:opacity-60"
-            >
-              {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-              Test Connection
-            </button>
-          )}
-          {status.connected && (
-            <button
-              onClick={() => setConfirmDisconnect(true)}
-              disabled={disconnecting}
-              className="flex items-center gap-1 ml-auto text-xs font-medium text-gray-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
-            >
-              {disconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2Off className="h-3.5 w-3.5" />}
-              Disconnect
-            </button>
-          )}
-        </div>
+        <StatusBadge connected={status.connected} />
       </div>
-    </>
+      <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800">
+        <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+          Configure IP, port, commit settings, and crash recovery in Payment &amp; Connect.
+        </p>
+        <a
+          href="/dashboard/payments?tab=terminals"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
+        >
+          Configure in Payment &amp; Connect →
+        </a>
+      </div>
+    </div>
   );
 }
 
