@@ -93,7 +93,8 @@
       // --------------------------------------------------------------
 
       function loadTyroScript(scriptUrl, done) {
-        if (state.scriptLoaded && window.TYRO && window.TYRO.IClientWithUI) {
+        // Accept either IClientWithUI (headful/production) or IClient (headless/test)
+        if (state.scriptLoaded && window.TYRO && (window.TYRO.IClientWithUI || window.TYRO.IClient)) {
           done(null);
           return;
         }
@@ -103,8 +104,8 @@
         s.src = scriptUrl;
         s.onload = function () {
           state.scriptLoaded = true;
-          if (window.TYRO && window.TYRO.IClientWithUI) done(null);
-          else done(new Error('TYRO.IClientWithUI not defined after script load'));
+          if (window.TYRO && (window.TYRO.IClientWithUI || window.TYRO.IClient)) done(null);
+          else done(new Error('TYRO.IClientWithUI and TYRO.IClient both undefined after script load'));
         };
         s.onerror = function () {
           done(new Error('Failed to load ' + scriptUrl));
@@ -113,19 +114,43 @@
       }
 
       // --------------------------------------------------------------
-      // Callback factory — headful mode only needs receipt + complete.
-      // All in-flight UI (status messages, questions, cancel) is handled
-      // by Tyro's built-in iframe overlay.
+      // Callback factory.
+      // IClientWithUI (headful): Tyro's iframe handles status/questions/cancel;
+      //   only receiptCallback + transactionCompleteCallback needed.
+      // IClient (headless fallback): questionCallback is REQUIRED or Tyro
+      //   throws "questionCallback must be a function". We auto-answer YES.
+      // receiptCallback handles both IClientWithUI (single object arg) and
+      //   IClient (positional: tag, signatureRequired, merchantReceipt).
       // --------------------------------------------------------------
 
       function buildCallbacks(tag) {
         return {
-          receiptCallback: function (receipt) {
-            send('onReceipt', {
-              tag: tag,
-              signatureRequired: !!(receipt && receipt.signatureRequired),
-              merchantReceipt: (receipt && receipt.merchantReceipt) || '',
-            });
+          // IClient (headless fallback) requires statusMessageCallback or throws.
+          // IClientWithUI (headful) ignores it.
+          statusMessageCallback: function (msg) {
+            log('status: ' + String(msg));
+          },
+          // IClient requires questionCallback; question is { text, options, isError }.
+          // Answer with options[0] — covers "OK" error dialogs and "YES/NO" prompts.
+          // IClientWithUI ignores this — its modal handles questions natively.
+          questionCallback: function (question, answer) {
+            var opts = (question && typeof question === 'object' && question.options) ? question.options : [];
+            var response = (opts.length > 0) ? opts[0] : 'YES';
+            log('questionCallback: ' + (question && question.text || String(question)) + ' → ' + response);
+            if (typeof answer === 'function') answer(response);
+          },
+          // Handle both IClientWithUI (single receipt object) and
+          // IClient (positional args: tag, signatureRequired, merchantReceipt).
+          receiptCallback: function (tagOrReceipt, signatureRequired, merchantReceipt) {
+            var sigReq, rcpt;
+            if (tagOrReceipt && typeof tagOrReceipt === 'object') {
+              sigReq = !!(tagOrReceipt.signatureRequired);
+              rcpt = tagOrReceipt.merchantReceipt || '';
+            } else {
+              sigReq = !!signatureRequired;
+              rcpt = merchantReceipt || '';
+            }
+            send('onReceipt', { tag: tag, signatureRequired: sigReq, merchantReceipt: rcpt });
           },
           transactionCompleteCallback: function (response) {
             send('onTransactionComplete', { tag: tag, response: response || {} });
@@ -166,7 +191,12 @@
                 return;
               }
               try {
-                state.client = new window.TYRO.IClientWithUI(apiKey, state.posProduct);
+                // Prefer IClientWithUI (headful — Tyro renders its own modal UI).
+                // Fall back to IClient (headless) for the test environment SDK.
+                var TyroConstructor = (window.TYRO && (window.TYRO.IClientWithUI || window.TYRO.IClient));
+                if (!TyroConstructor) throw new Error('Tyro SDK: neither IClientWithUI nor IClient found');
+                log('Using ' + (window.TYRO.IClientWithUI ? 'IClientWithUI' : 'IClient') + ' constructor');
+                state.client = new TyroConstructor(apiKey, state.posProduct);
                 send('onReady', { ok: true });
               } catch (e) {
                 send('onInitError', { message: (e && e.message) || String(e) });

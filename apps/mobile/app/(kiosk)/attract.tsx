@@ -4,15 +4,12 @@ import {
   AppState,
   AppStateStatus,
   Animated,
-  Dimensions,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { useKioskStore } from '../../store/kiosk';
-
-const { width } = Dimensions.get('window');
 
 const IDLE_TIMEOUT_MS = 90_000;
 
@@ -231,7 +228,6 @@ export default function AttractScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    width,
   },
   gradientBase: {
     ...StyleSheet.absoluteFillObject,

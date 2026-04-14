@@ -1,12 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CreditCard, Loader2, X, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { CreditCard, Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import {
   loadTyroScript,
   initiateTyroPurchase,
   simulateTyroPurchase,
-  cancelTyroTransaction,
   type TyroConfig,
   type TyroTransactionResult,
 } from '@/lib/tyro-provider';
@@ -29,7 +28,7 @@ interface TyroPaymentOverlayProps {
   }) => void;
   /** Called when transaction is declined/cancelled/failed */
   onFailed: (reason: string) => void;
-  /** Called when user cancels */
+  /** Called when user cancels (unused in headful mode — Tyro's UI handles cancel) */
   onCancel: () => void;
 }
 
@@ -40,10 +39,8 @@ export function TyroPaymentOverlay({
   config,
   onApproved,
   onFailed,
-  onCancel,
 }: TyroPaymentOverlayProps) {
   const [phase, setPhase] = useState<Phase>('loading');
-  const [statusMessage, setStatusMessage] = useState('Connecting to Tyro terminal...');
   const [errorMessage, setErrorMessage] = useState('');
   const initiatedRef = useRef(false);
 
@@ -59,33 +56,23 @@ export function TyroPaymentOverlay({
 
         if (!config || !config.apiKey) {
           // Demo mode — simulate
-          setStatusMessage('Simulating Tyro payment...');
           setPhase('processing');
           result = await simulateTyroPurchase(amountCents);
         } else {
-          // Real Tyro transaction
-          setStatusMessage('Loading Tyro terminal...');
+          // Real Tyro transaction — load SDK then hand off to Tyro's modal UI
+          setPhase('loading');
           await loadTyroScript(config.testMode);
 
+          // Tyro will render its own modal iframe on top of this overlay.
+          // We switch to 'processing' so the backdrop stays visible while
+          // Tyro's modal is open.
           setPhase('processing');
-          setStatusMessage('Waiting for card on terminal...');
-
-          result = await initiateTyroPurchase(config, amountCents, {
-            onStatusMessage: (msg) => setStatusMessage(msg),
-            onReceipt: () => { /* handled in transactionComplete */ },
-            onQuestion: (question, answer) => {
-              // Auto-answer common questions — for headful mode, Tyro's UI handles these
-              // This callback is for edge cases
-              answer('YES');
-            },
-          });
+          result = await initiateTyroPurchase(config, amountCents);
         }
 
-        // Handle result
+        // Tyro's modal has closed — show result state briefly
         if (result.result === 'APPROVED') {
           setPhase('approved');
-          setStatusMessage('Payment approved!');
-          // Brief delay to show the approved state
           setTimeout(() => {
             onApproved({
               transactionRef: result.transactionId ?? `TYRO-${Date.now()}`,
@@ -123,11 +110,6 @@ export function TyroPaymentOverlay({
 
     runTransaction();
   }, [amount, config, onApproved, onFailed]);
-
-  function handleCancel() {
-    cancelTyroTransaction();
-    onCancel();
-  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -168,7 +150,13 @@ export function TyroPaymentOverlay({
           : phase === 'declined' || phase === 'error' ? 'text-red-400'
           : 'text-gray-400'
         }`}>
-          {errorMessage || statusMessage}
+          {phase === 'approved'
+            ? 'Payment approved!'
+            : phase === 'declined' || phase === 'error'
+              ? errorMessage
+              : phase === 'loading'
+                ? 'Loading Tyro terminal...'
+                : 'Follow prompts on the Tyro terminal'}
         </p>
 
         {/* Demo badge */}
@@ -179,20 +167,9 @@ export function TyroPaymentOverlay({
         )}
 
         {/* Tyro branding */}
-        <p className="text-xs text-gray-600 mb-6">
+        <p className="text-xs text-gray-600">
           Powered by Tyro EFTPOS
         </p>
-
-        {/* Cancel button — only during processing */}
-        {(phase === 'loading' || phase === 'processing') && (
-          <button
-            onClick={handleCancel}
-            className="w-full py-3 rounded-xl border border-white/10 text-gray-400 hover:text-white hover:border-white/30 font-semibold text-sm transition-colors flex items-center justify-center gap-2"
-          >
-            <X size={16} />
-            Cancel Transaction
-          </button>
-        )}
       </div>
     </div>
   );

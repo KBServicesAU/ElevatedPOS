@@ -1,16 +1,17 @@
 /**
- * Tyro iClient (Headful Browser) Payment Provider
+ * Tyro IClientWithUI (Headful Browser) Payment Provider
  *
  * Dynamically loads the Tyro iClient JS SDK and provides typed wrappers
  * for purchase, refund, and pairing operations. In headful mode, Tyro
- * renders its own transaction UI modal — the POS just calls the methods
- * and handles callbacks.
+ * renders its own transaction modal iframe — the POS just calls the methods
+ * and awaits the result. No status messages, question prompts, or cancel
+ * buttons needed — Tyro's UI handles all of that.
  *
  * @see https://iclient.tyro.com
  */
 
 /* ------------------------------------------------------------------ */
-/* Type Declarations for Tyro iClient SDK                              */
+/* Type Declarations for Tyro IClientWithUI SDK                        */
 /* ------------------------------------------------------------------ */
 
 export interface TyroConfig {
@@ -60,16 +61,46 @@ interface TyroRefundRequest {
   tid?: number;
 }
 
-/** Shape of the TYRO.IClient class from the SDK */
-interface TyroIClient {
+/**
+ * Shape of the TYRO.IClientWithUI / TYRO.IClient class from the SDK.
+ *
+ * In headful (IClientWithUI) mode Tyro renders its own modal iframe — no
+ * setStatusMessageCallback / setQuestionCallback needed.
+ * In headless (IClient) fallback mode, questionCallback must be supplied;
+ * we auto-answer YES to keep transactions flowing.
+ * Receipts arrive via receiptCallback inside the transaction callbacks object.
+ */
+/** Question payload from the headless IClient SDK. */
+interface TyroQuestion {
+  text: string;
+  options: string[];
+  isError?: boolean;
+}
+
+interface TyroIClientWithUI {
   initiatePurchase(
     request: TyroPurchaseRequest,
-    transactionCallbacks: { transactionCompleteCallback: (result: TyroTransactionResult) => void },
+    callbacks: {
+      transactionCompleteCallback: (result: TyroTransactionResult) => void;
+      receiptCallback?: (tag: string, signatureRequired: boolean, merchantReceipt: string) => void;
+      /** Required by IClient (headless) SDK; ignored by IClientWithUI (headful). */
+      statusMessageCallback?: (message: string, updateLastMessage?: boolean) => void;
+      /** Required by IClient (headless) SDK; ignored by IClientWithUI (headful).
+       *  question is { text, options, isError } — answer must be one of question.options. */
+      questionCallback?: (question: TyroQuestion | string, answer: (response: string) => void) => void;
+    },
   ): void;
 
   initiateRefund(
     request: TyroRefundRequest,
-    transactionCallbacks: { transactionCompleteCallback: (result: TyroTransactionResult) => void },
+    callbacks: {
+      transactionCompleteCallback: (result: TyroTransactionResult) => void;
+      receiptCallback?: (tag: string, signatureRequired: boolean, merchantReceipt: string) => void;
+      /** Required by IClient (headless) SDK; ignored by IClientWithUI (headful). */
+      statusMessageCallback?: (message: string, updateLastMessage?: boolean) => void;
+      /** Required by IClient (headless) SDK; ignored by IClientWithUI (headful). */
+      questionCallback?: (question: TyroQuestion | string, answer: (response: string) => void) => void;
+    },
   ): void;
 
   pairTerminal(
@@ -82,15 +113,15 @@ interface TyroIClient {
     responseReceivedCallback: (response: { status: string; config?: unknown }) => void,
   ): void;
 
+  /** Emergency cancel — Tyro's modal UI has its own cancel button in headful mode. */
   cancelCurrentTransaction(): void;
-
-  setStatusMessageCallback(callback: (message: string) => void): void;
-  setReceiptCallback(callback: (merchantReceipt: string, customerReceipt: string, signatureRequired: boolean) => void): void;
-  setQuestionCallback(callback: (question: string, answerCallback: (answer: string) => void) => void): void;
 }
 
 interface TyroGlobal {
-  IClient: new (apiKey: string, options: TyroIClientOptions) => TyroIClient;
+  /** Headful mode — Tyro renders its own modal UI (production SDK). */
+  IClientWithUI?: new (apiKey: string, options: TyroIClientOptions) => TyroIClientWithUI;
+  /** Headless mode — POS supplies UI callbacks (test SDK fallback). */
+  IClient?: new (apiKey: string, options: TyroIClientOptions) => TyroIClientWithUI;
 }
 
 declare global {
@@ -118,7 +149,7 @@ const POS_PRODUCT = {
 
 let scriptLoaded = false;
 let scriptLoading: Promise<void> | null = null;
-let clientInstance: TyroIClient | null = null;
+let clientInstance: TyroIClientWithUI | null = null;
 let currentConfig: TyroConfig | null = null;
 
 /* ------------------------------------------------------------------ */
@@ -170,15 +201,21 @@ export function loadTyroScript(testMode = true): Promise<void> {
 /* Client Instance                                                     */
 /* ------------------------------------------------------------------ */
 
-/** Get or create the Tyro iClient singleton */
-export function getTyroClient(config: TyroConfig): TyroIClient {
+/** Get or create the Tyro IClientWithUI (or IClient) singleton */
+export function getTyroClient(config: TyroConfig): TyroIClientWithUI {
   if (clientInstance && currentConfig?.apiKey === config.apiKey) {
     return clientInstance;
   }
   if (!window.TYRO) {
     throw new Error('Tyro SDK not loaded. Call loadTyroScript() first.');
   }
-  clientInstance = new window.TYRO.IClient(config.apiKey, POS_PRODUCT);
+  // Prefer IClientWithUI (headful — Tyro renders its own modal UI).
+  // Fall back to IClient (headless) when the test SDK is in use.
+  const Constructor = window.TYRO.IClientWithUI ?? window.TYRO.IClient;
+  if (!Constructor) {
+    throw new Error('Tyro SDK: neither IClientWithUI nor IClient found on window.TYRO');
+  }
+  clientInstance = new Constructor(config.apiKey, POS_PRODUCT);
   currentConfig = config;
   return clientInstance;
 }
@@ -187,29 +224,23 @@ export function getTyroClient(config: TyroConfig): TyroIClient {
 /* Purchase                                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Initiate a purchase via Tyro IClientWithUI.
+ *
+ * Tyro renders its own modal iframe — no status/question callbacks are
+ * needed. The promise resolves with the final result once Tyro's UI
+ * closes. Receipt data captured via receiptCallback is merged into the
+ * resolved result.
+ */
 export function initiateTyroPurchase(
   config: TyroConfig,
   amountCents: number,
-  callbacks?: {
-    onStatusMessage?: (message: string) => void;
-    onReceipt?: (merchant: string, customer: string, signatureRequired: boolean) => void;
-    onQuestion?: (question: string, answer: (response: string) => void) => void;
-  },
 ): Promise<TyroTransactionResult> {
   return new Promise((resolve, reject) => {
     try {
       const client = getTyroClient(config);
-
-      // Register optional callbacks
-      if (callbacks?.onStatusMessage) {
-        client.setStatusMessageCallback(callbacks.onStatusMessage);
-      }
-      if (callbacks?.onReceipt) {
-        client.setReceiptCallback(callbacks.onReceipt);
-      }
-      if (callbacks?.onQuestion) {
-        client.setQuestionCallback(callbacks.onQuestion);
-      }
+      let capturedMerchantReceipt: string | undefined;
+      let capturedSignatureRequired: boolean | undefined;
 
       client.initiatePurchase(
         {
@@ -220,8 +251,30 @@ export function initiateTyroPurchase(
           tid: config.terminalId ? parseInt(config.terminalId) : undefined,
         },
         {
+          // IClient (headless fallback) requires statusMessageCallback or throws.
+          // IClientWithUI (headful) ignores it — Tyro's modal shows status.
+          statusMessageCallback: () => {},
+          // IClient requires questionCallback; question arg is { text, options, isError }.
+          // Answer with first valid option (covers "OK" errors and "YES/NO" prompts).
+          // IClientWithUI ignores this — its modal handles questions natively.
+          questionCallback: (question, answer) => {
+            if (typeof answer === 'function') {
+              const opts = question && typeof question === 'object'
+                ? (question as TyroQuestion).options
+                : undefined;
+              answer(opts && opts.length > 0 ? opts[0] : 'YES');
+            }
+          },
+          receiptCallback: (_tag, signatureRequired, merchantReceipt) => {
+            capturedMerchantReceipt = merchantReceipt;
+            capturedSignatureRequired = signatureRequired;
+          },
           transactionCompleteCallback: (result: TyroTransactionResult) => {
-            resolve(result);
+            resolve({
+              ...result,
+              merchantReceipt: capturedMerchantReceipt ?? result.merchantReceipt,
+              signatureRequired: capturedSignatureRequired ?? result.signatureRequired,
+            });
           },
         },
       );
@@ -235,24 +288,19 @@ export function initiateTyroPurchase(
 /* Refund                                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Initiate a refund via Tyro IClientWithUI.
+ * Tyro renders its own modal — await the returned promise for the result.
+ */
 export function initiateTyroRefund(
   config: TyroConfig,
   amountCents: number,
-  callbacks?: {
-    onStatusMessage?: (message: string) => void;
-    onReceipt?: (merchant: string, customer: string, signatureRequired: boolean) => void;
-  },
 ): Promise<TyroTransactionResult> {
   return new Promise((resolve, reject) => {
     try {
       const client = getTyroClient(config);
-
-      if (callbacks?.onStatusMessage) {
-        client.setStatusMessageCallback(callbacks.onStatusMessage);
-      }
-      if (callbacks?.onReceipt) {
-        client.setReceiptCallback(callbacks.onReceipt);
-      }
+      let capturedMerchantReceipt: string | undefined;
+      let capturedSignatureRequired: boolean | undefined;
 
       client.initiateRefund(
         {
@@ -262,8 +310,25 @@ export function initiateTyroRefund(
           tid: config.terminalId ? parseInt(config.terminalId) : undefined,
         },
         {
+          statusMessageCallback: () => {},
+          questionCallback: (question, answer) => {
+            if (typeof answer === 'function') {
+              const opts = question && typeof question === 'object'
+                ? (question as TyroQuestion).options
+                : undefined;
+              answer(opts && opts.length > 0 ? opts[0] : 'YES');
+            }
+          },
+          receiptCallback: (_tag, signatureRequired, merchantReceipt) => {
+            capturedMerchantReceipt = merchantReceipt;
+            capturedSignatureRequired = signatureRequired;
+          },
           transactionCompleteCallback: (result: TyroTransactionResult) => {
-            resolve(result);
+            resolve({
+              ...result,
+              merchantReceipt: capturedMerchantReceipt ?? result.merchantReceipt,
+              signatureRequired: capturedSignatureRequired ?? result.signatureRequired,
+            });
           },
         },
       );
@@ -312,9 +377,13 @@ export function getTyroConfiguration(
 }
 
 /* ------------------------------------------------------------------ */
-/* Cancel                                                              */
+/* Cancel (emergency)                                                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Emergency cancel — in headful mode Tyro's modal has its own cancel
+ * button. Only call this if the modal appears stuck.
+ */
 export function cancelTyroTransaction(): void {
   clientInstance?.cancelCurrentTransaction();
 }

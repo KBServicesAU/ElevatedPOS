@@ -61,9 +61,16 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
   ready: false,
 
   _hydrate: async () => {
+    // 5-second timeout: if SecureStore hangs (can happen on some iMin/custom
+    // Android ROMs with locked keystores), fall through so ready=true fires
+    // and the pair screen shows instead of a permanent blank/splash screen.
+    const timeout = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), 5000),
+    );
+
     try {
-      const [deviceId, deviceToken, role, locationId, registerId, orgId, label, activeLocationId] =
-        await Promise.all([
+      const result = await Promise.race([
+        Promise.all([
           SecureStore.getItemAsync(KEYS.deviceId),
           SecureStore.getItemAsync(KEYS.deviceToken),
           SecureStore.getItemAsync(KEYS.role),
@@ -72,7 +79,17 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
           SecureStore.getItemAsync(KEYS.orgId),
           SecureStore.getItemAsync(KEYS.label),
           SecureStore.getItemAsync(KEYS.activeLocationId),
-        ]);
+        ]),
+        timeout,
+      ]);
+
+      // Timeout fired — treat as no stored identity so pair screen shows.
+      if (result === null) {
+        set({ identity: null, activeLocationId: null, ready: true });
+        return;
+      }
+
+      const [deviceId, deviceToken, role, locationId, registerId, orgId, label, activeLocationId] = result;
 
       if (
         deviceId && deviceToken &&

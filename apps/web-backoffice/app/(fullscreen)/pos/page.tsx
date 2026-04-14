@@ -1519,7 +1519,6 @@ function POSTerminalInnerWrapper({ deviceInfo, staff, onStaffLogout }: { deviceI
 
 export default function POSPage() {
   const [mounted, setMounted] = useState(false);
-  const [validating, setValidating] = useState(false);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
   const [paired, setPaired] = useState(false);
   const [staff, setStaff] = useState<StaffMember | null>(null);
@@ -1529,28 +1528,28 @@ export default function POSPage() {
     const token = getDeviceToken();
     if (!token) return;
 
-    // Validate the stored token against the server (heartbeat).
-    // While validating, show a blank screen to avoid a flash of the pairing UI.
-    setValidating(true);
+    // Optimistically trust the stored token so the POS loads instantly on
+    // every refresh/new tab — no blank-screen wait for the heartbeat.
+    setDeviceInfo(getDeviceInfo());
+    setPaired(true);
+
+    // Validate in the background. Only force re-pairing if the server
+    // explicitly rejects the token (401 / 403 = device revoked/unknown).
+    // Network errors, 5xx, or any other status → stay paired (offline-safe).
     fetchWithDeviceAuth('/api/proxy/devices/heartbeat', { method: 'POST' })
       .then((r) => {
-        if (r.ok) {
-          setDeviceInfo(getDeviceInfo());
-          setPaired(true);
-        } else {
-          // Token rejected — clear it so the pairing screen shows
+        if (r.status === 401 || r.status === 403) {
           import('@/lib/device-auth').then(({ clearDeviceSession }) => clearDeviceSession());
+          setDeviceInfo(null);
+          setPaired(false);
         }
       })
       .catch(() => {
-        // Network error — trust the local token so offline use still works
-        setDeviceInfo(getDeviceInfo());
-        setPaired(true);
-      })
-      .finally(() => setValidating(false));
+        // Network error — stay paired
+      });
   }, []);
 
-  if (!mounted || validating) return null;
+  if (!mounted) return null;
 
   if (!paired) {
     return (
