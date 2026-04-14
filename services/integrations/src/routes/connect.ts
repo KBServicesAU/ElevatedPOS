@@ -500,6 +500,12 @@ export async function connectRoutes(app: FastifyInstance) {
       dueDate: invoice.due_date ? new Date(invoice.due_date * 1000) : null,
       invoiceUrl: invoice.hosted_invoice_url ?? null,
       invoicePdf: invoice.invoice_pdf ?? null,
+      // Store display info in metadata so the list endpoint doesn't need Stripe calls
+      metadata: {
+        customerName: body.customerName ?? null,
+        customerEmail: body.customerEmail ?? null,
+        memo: body.memo ?? null,
+      },
     });
 
     return reply.status(201).send({
@@ -532,6 +538,56 @@ export async function connectRoutes(app: FastifyInstance) {
       .where(eq(stripeInvoices.stripeInvoiceId, invoiceId));
 
     return reply.send({ sent: true });
+  });
+
+  // ── Void a draft or open invoice ────────────────────────────────────────────
+  app.post('/connect/invoices/:invoiceId/void', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { invoiceId } = request.params as { invoiceId: string };
+
+    const rows = await db.select().from(stripeInvoices)
+      .where(eq(stripeInvoices.stripeInvoiceId, invoiceId)).limit(1);
+    if (rows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
+
+    try {
+      await stripe.invoices.voidInvoice(invoiceId, {}, { stripeAccount: rows[0]!.stripeAccountId });
+    } catch (err) {
+      const e = err as { message?: string };
+      return reply.status(422).send({ error: e.message ?? 'Cannot void invoice' });
+    }
+
+    await db.update(stripeInvoices)
+      .set({ status: 'void', updatedAt: new Date() })
+      .where(eq(stripeInvoices.stripeInvoiceId, invoiceId));
+
+    return reply.send({ voided: true });
+  });
+
+  // ── Mark invoice paid out-of-band (cash / offline payment) ──────────────────
+  app.post('/connect/invoices/:invoiceId/mark-paid', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { invoiceId } = request.params as { invoiceId: string };
+
+    const rows = await db.select().from(stripeInvoices)
+      .where(eq(stripeInvoices.stripeInvoiceId, invoiceId)).limit(1);
+    if (rows.length === 0) return reply.status(404).send({ error: 'Invoice not found' });
+
+    try {
+      // paid_out_of_band marks the invoice as paid without charging the customer
+      await stripe.invoices.pay(
+        invoiceId,
+        { paid_out_of_band: true },
+        { stripeAccount: rows[0]!.stripeAccountId },
+      );
+    } catch (err) {
+      const e = err as { message?: string };
+      return reply.status(422).send({ error: e.message ?? 'Cannot mark invoice as paid' });
+    }
+
+    const stripeInv = await stripe.invoices.retrieve(invoiceId, { stripeAccount: rows[0]!.stripeAccountId });
+    await db.update(stripeInvoices)
+      .set({ status: 'paid', amountPaid: stripeInv.amount_paid, updatedAt: new Date() })
+      .where(eq(stripeInvoices.stripeInvoiceId, invoiceId));
+
+    return reply.send({ paid: true });
   });
 
   // ── Storefront checkout session (Stripe Hosted Checkout) ─────────────────────

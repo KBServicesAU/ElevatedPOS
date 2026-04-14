@@ -3,10 +3,38 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
-import { getErrorMessage } from '@/lib/formatting';
-import { FileText, Plus, X, Eye, Send, CheckCircle, Ban, Trash2, Loader2 } from 'lucide-react';
+import { FileText, Plus, X, Eye, Send, CheckCircle, Ban, Trash2, Loader2, ExternalLink } from 'lucide-react';
 
-type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
+// ── Types matching the stripeInvoices DB row ──────────────────────────────────
+
+/**
+ * Status values stored in our DB (Stripe-native) mapped to display labels.
+ * Stripe:  draft | open | paid | uncollectible | void
+ * Display: Draft | Sent  | Paid | Cancelled     | Cancelled
+ */
+type StripeInvoiceStatus = 'draft' | 'open' | 'paid' | 'uncollectible' | 'void';
+type DisplayStatus = 'draft' | 'sent' | 'paid' | 'cancelled';
+
+interface InvoiceMetadata {
+  customerName?: string | null;
+  customerEmail?: string | null;
+  memo?: string | null;
+}
+
+interface StripeInvoiceRow {
+  id: string;               // UUID in our DB
+  stripeInvoiceId: string;  // 'in_xxx'
+  stripeCustomerId: string;
+  status: StripeInvoiceStatus;
+  amountDue: number;        // cents
+  amountPaid: number;       // cents
+  currency: string;
+  dueDate: string | null;   // ISO date string or null
+  invoiceUrl: string | null;
+  invoicePdf: string | null;
+  metadata: InvoiceMetadata;
+  createdAt: string;
+}
 
 interface InvoiceItem {
   productName: string;
@@ -14,51 +42,56 @@ interface InvoiceItem {
   unitPrice: number;
 }
 
-interface Invoice {
-  id: string;
-  invoiceNumber: string;
-  customerName: string;
-  customerEmail: string;
-  status: InvoiceStatus;
-  items: InvoiceItem[];
-  subtotal: number;
-  tax: number;
-  total: number;
-  dueDate: string;
-  notes: string;
-  createdAt: string;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function toDisplayStatus(stripe: StripeInvoiceStatus): DisplayStatus {
+  if (stripe === 'open') return 'sent';
+  if (stripe === 'void' || stripe === 'uncollectible') return 'cancelled';
+  return stripe as DisplayStatus;
 }
 
-interface InvoicesResponse {
-  data: Invoice[];
+function fmtAmount(cents: number, currency = 'AUD') {
+  return (cents / 100).toLocaleString('en-AU', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    minimumFractionDigits: 2,
+  });
 }
 
-type FilterTab = 'all' | InvoiceStatus;
+function fmtDate(iso: string | null) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
-const STATUS_STYLES: Record<InvoiceStatus, string> = {
-  draft: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-  sent: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
-  paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
-  overdue: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
-  cancelled: 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400',
-};
-
-const emptyItem = (): InvoiceItem => ({ productName: '', qty: 1, unitPrice: 0 });
-
-function calcTotals(items: InvoiceItem[], taxRate: number): { subtotal: number; tax: number; total: number } {
+function calcTotals(items: InvoiceItem[], taxRate: number) {
   const subtotal = items.reduce((s, it) => s + it.qty * it.unitPrice, 0);
   const tax = subtotal * (taxRate / 100);
   return { subtotal, tax, total: subtotal + tax };
 }
 
+const emptyItem = (): InvoiceItem => ({ productName: '', qty: 1, unitPrice: 0 });
+
+// ── Status styles ─────────────────────────────────────────────────────────────
+
+const STATUS_STYLES: Record<DisplayStatus, string> = {
+  draft:     'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+  sent:      'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
+  paid:      'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
+  cancelled: 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400',
+};
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function InvoicesClient() {
   const { toast } = useToast();
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<FilterTab>('all');
-  const [showModal, setShowModal] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
+
+  const [orgId, setOrgId]           = useState<string | null>(null);
+  const [invoices, setInvoices]     = useState<StripeInvoiceRow[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [activeTab, setActiveTab]   = useState<DisplayStatus | 'all'>('all');
+  const [showModal, setShowModal]   = useState(false);
+  const [saving, setSaving]         = useState(false);
+  const [viewInvoice, setViewInvoice] = useState<StripeInvoiceRow | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
@@ -71,11 +104,22 @@ export default function InvoicesClient() {
     notes: '',
   });
 
-  const load = useCallback(async () => {
+  // ── Fetch org identity on mount ───────────────────────────────────────────
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me: { orgId?: string } | null) => { setOrgId(me?.orgId ?? null); })
+      .catch(() => setOrgId(null));
+  }, []);
+
+  // ── Load invoices whenever orgId is known ─────────────────────────────────
+
+  const load = useCallback(async (id: string) => {
     setLoading(true);
     try {
-      const res = await apiFetch<InvoicesResponse>('invoices');
-      setInvoices(res.data ?? []);
+      const res = await apiFetch<{ invoices: StripeInvoiceRow[] }>(`connect/invoices/${id}`);
+      setInvoices(res.invoices ?? []);
     } catch {
       setInvoices([]);
     } finally {
@@ -83,7 +127,12 @@ export default function InvoicesClient() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (orgId) void load(orgId);
+    else setLoading(false);
+  }, [orgId, load]);
+
+  // ── Form helpers ──────────────────────────────────────────────────────────
 
   function resetForm() {
     setForm({ customerName: '', customerEmail: '', customerPhone: '', lineItems: [emptyItem()], taxRate: '', dueDate: '', notes: '' });
@@ -105,89 +154,113 @@ export default function InvoicesClient() {
     setForm((prev) => ({ ...prev, lineItems: prev.lineItems.filter((_, i) => i !== index) }));
   }
 
-  async function handleSave(status: 'draft' | 'sent') {
+  // ── Create invoice ────────────────────────────────────────────────────────
+
+  async function handleSave(autoSend: boolean) {
     if (!form.customerName) return;
     setSaving(true);
-    const taxRate = Number(form.taxRate) || 0;
-    const { subtotal, tax, total } = calcTotals(form.lineItems, taxRate);
     try {
-      await apiFetch('invoices', {
+      // Map frontend line items to the Stripe invoice items format
+      // amount is in cents (unitPrice is in dollars)
+      await apiFetch('connect/invoices', {
         method: 'POST',
         body: JSON.stringify({
           customerName: form.customerName,
           customerEmail: form.customerEmail || undefined,
-          customerPhone: form.customerPhone || undefined,
-          items: form.lineItems,
-          taxRate,
-          dueDate: form.dueDate,
-          notes: form.notes,
-          status,
+          items: form.lineItems.map((it) => ({
+            description: it.productName,
+            amount: Math.round(it.unitPrice * 100), // cents
+            quantity: it.qty,
+          })),
+          dueDate: form.dueDate || undefined,
+          memo: form.notes || undefined,
+          autoSend,
         }),
       });
-      const newInvoice: Invoice = {
-        id: `inv${Date.now()}`,
-        invoiceNumber: `INV-2026-${String(invoices.length + 1).padStart(4, '0')}`,
-        customerName: form.customerName,
-        customerEmail: form.customerEmail,
-        status,
-        items: form.lineItems,
-        subtotal,
-        tax,
-        total,
-        dueDate: form.dueDate || 'N/A',
-        notes: form.notes,
-        createdAt: new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
-      };
-      setInvoices((prev) => [newInvoice, ...prev]);
-      resetForm();
-      setShowModal(false);
+
       toast({
-        title: status === 'sent' ? 'Invoice sent' : 'Invoice saved',
-        description: `Invoice for ${form.customerName} has been ${status === 'sent' ? 'sent' : 'saved as draft'}.`,
+        title: autoSend ? 'Invoice sent' : 'Invoice saved as draft',
+        description: `Invoice for ${form.customerName} has been ${autoSend ? 'sent to ' + (form.customerEmail || 'customer') : 'saved'}.`,
         variant: 'success',
       });
+
+      resetForm();
+      setShowModal(false);
+      // Reload from server so we show the real Stripe invoice ID
+      if (orgId) await load(orgId);
     } catch (err) {
-      const msg = getErrorMessage(err);
+      const msg = err instanceof Error ? err.message : 'Failed to save invoice';
       toast({ title: 'Failed to save invoice', description: msg, variant: 'destructive' });
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleUpdateStatus(id: string, status: InvoiceStatus) {
-    setUpdatingId(id);
+  // ── Invoice actions ───────────────────────────────────────────────────────
+
+  async function handleSend(stripeInvoiceId: string) {
+    setUpdatingId(stripeInvoiceId);
     try {
-      await apiFetch(`invoices/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status }),
-      });
-      setInvoices((prev) => prev.map((inv) => inv.id === id ? { ...inv, status } : inv));
-      const labels: Record<InvoiceStatus, string> = {
-        draft: 'Draft',
-        sent: 'Sent',
-        paid: 'Paid',
-        overdue: 'Overdue',
-        cancelled: 'Cancelled',
-      };
-      toast({ title: `Invoice marked as ${labels[status]}`, variant: 'success' });
+      await apiFetch(`connect/invoices/${stripeInvoiceId}/send`, { method: 'POST' });
+      toast({ title: 'Invoice sent', variant: 'success' });
+      if (orgId) await load(orgId);
     } catch (err) {
-      const msg = getErrorMessage(err);
+      const msg = err instanceof Error ? err.message : 'Failed to send';
+      toast({ title: 'Failed to send invoice', description: msg, variant: 'destructive' });
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function handleMarkPaid(stripeInvoiceId: string) {
+    setUpdatingId(stripeInvoiceId);
+    try {
+      await apiFetch(`connect/invoices/${stripeInvoiceId}/mark-paid`, { method: 'POST' });
+      toast({ title: 'Invoice marked as paid', variant: 'success' });
+      if (orgId) await load(orgId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to mark paid';
       toast({ title: 'Failed to update invoice', description: msg, variant: 'destructive' });
     } finally {
       setUpdatingId(null);
     }
   }
 
-  const TABS: { id: FilterTab; label: string }[] = [
-    { id: 'all', label: `All (${invoices.length})` },
-    { id: 'draft', label: `Draft (${invoices.filter((i) => i.status === 'draft').length})` },
-    { id: 'sent', label: `Sent (${invoices.filter((i) => i.status === 'sent').length})` },
-    { id: 'paid', label: `Paid (${invoices.filter((i) => i.status === 'paid').length})` },
-    { id: 'overdue', label: `Overdue (${invoices.filter((i) => i.status === 'overdue').length})` },
+  async function handleVoid(stripeInvoiceId: string) {
+    setUpdatingId(stripeInvoiceId);
+    try {
+      await apiFetch(`connect/invoices/${stripeInvoiceId}/void`, { method: 'POST' });
+      toast({ title: 'Invoice voided', variant: 'success' });
+      if (orgId) await load(orgId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to void';
+      toast({ title: 'Failed to void invoice', description: msg, variant: 'destructive' });
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  // ── Derived state ─────────────────────────────────────────────────────────
+
+  const TABS: { id: DisplayStatus | 'all'; label: string }[] = [
+    { id: 'all',       label: `All (${invoices.length})` },
+    { id: 'draft',     label: `Draft (${invoices.filter((i) => i.status === 'draft').length})` },
+    { id: 'sent',      label: `Sent (${invoices.filter((i) => i.status === 'open').length})` },
+    { id: 'paid',      label: `Paid (${invoices.filter((i) => i.status === 'paid').length})` },
+    { id: 'cancelled', label: `Voided (${invoices.filter((i) => i.status === 'void' || i.status === 'uncollectible').length})` },
   ];
 
-  const filtered = activeTab === 'all' ? invoices : invoices.filter((inv) => inv.status === activeTab);
+  const filtered = activeTab === 'all'
+    ? invoices
+    : activeTab === 'sent'
+      ? invoices.filter((i) => i.status === 'open')
+      : activeTab === 'cancelled'
+        ? invoices.filter((i) => i.status === 'void' || i.status === 'uncollectible')
+        : invoices.filter((i) => i.status === activeTab);
+
   const previewTotals = calcTotals(form.lineItems, Number(form.taxRate) || 0);
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div>
@@ -195,7 +268,7 @@ export default function InvoicesClient() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Invoices</h1>
-          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Create and manage customer invoices</p>
+          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Create and send Stripe invoices to your customers</p>
         </div>
         <button
           onClick={() => { resetForm(); setShowModal(true); }}
@@ -223,6 +296,14 @@ export default function InvoicesClient() {
         ))}
       </div>
 
+      {/* No account prompt */}
+      {!loading && !orgId && (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 py-16 dark:border-gray-700 dark:bg-gray-800/40">
+          <FileText className="mb-3 h-10 w-10 text-gray-300 dark:text-gray-600" />
+          <p className="text-sm text-gray-500 dark:text-gray-400">Could not load your account. Please refresh.</p>
+        </div>
+      )}
+
       {/* Loading */}
       {loading && (
         <div className="space-y-3">
@@ -233,7 +314,7 @@ export default function InvoicesClient() {
       )}
 
       {/* Empty */}
-      {!loading && filtered.length === 0 && (
+      {!loading && orgId && filtered.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 py-16 dark:border-gray-700 dark:bg-gray-800/40">
           <FileText className="mb-3 h-10 w-10 text-gray-300 dark:text-gray-600" />
           <p className="text-sm text-gray-500 dark:text-gray-400">No {activeTab !== 'all' ? activeTab : ''} invoices found.</p>
@@ -241,87 +322,104 @@ export default function InvoicesClient() {
       )}
 
       {/* Table */}
-      {!loading && filtered.length > 0 && (
+      {!loading && orgId && filtered.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-800">
-                <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Invoice #</th>
+                <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Invoice</th>
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Customer</th>
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Status</th>
-                <th className="px-5 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Total</th>
+                <th className="px-5 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Amount</th>
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Due Date</th>
                 <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {filtered.map((inv) => (
-                <tr key={inv.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                  <td className="px-5 py-3.5 font-mono text-xs text-gray-400 dark:text-gray-500">{inv.invoiceNumber}</td>
-                  <td className="px-5 py-3.5">
-                    <p className="font-medium text-gray-900 dark:text-white">{inv.customerName}</p>
-                    {inv.customerEmail && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500">{inv.customerEmail}</p>
-                    )}
-                  </td>
-                  <td className="px-5 py-3.5">
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[inv.status]}`}>
-                      {inv.status}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3.5 text-right font-medium text-gray-900 dark:text-white">${inv.total.toFixed(2)}</td>
-                  <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400">{inv.dueDate}</td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setViewInvoice(inv)}
-                        title="View"
-                        className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                      </button>
-                      {inv.status === 'draft' && (
-                        <button
-                          onClick={() => { void handleUpdateStatus(inv.id, 'sent'); }}
-                          disabled={updatingId === inv.id}
-                          title="Send Invoice"
-                          className="rounded p-1 text-blue-500 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/30 transition-colors disabled:opacity-50"
-                        >
-                          {updatingId === inv.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Send className="h-3.5 w-3.5" />
-                          )}
-                        </button>
+              {filtered.map((inv) => {
+                const displayStatus = toDisplayStatus(inv.status);
+                const isUpdating = updatingId === inv.stripeInvoiceId;
+                return (
+                  <tr key={inv.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                    <td className="px-5 py-3.5 font-mono text-xs text-gray-400 dark:text-gray-500">
+                      {inv.stripeInvoiceId}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <p className="font-medium text-gray-900 dark:text-white">
+                        {inv.metadata?.customerName || inv.stripeCustomerId}
+                      </p>
+                      {inv.metadata?.customerEmail && (
+                        <p className="text-xs text-gray-400 dark:text-gray-500">{inv.metadata.customerEmail}</p>
                       )}
-                      {(inv.status === 'sent' || inv.status === 'overdue') && (
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[displayStatus]}`}>
+                        {displayStatus}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-right font-medium text-gray-900 dark:text-white">
+                      {fmtAmount(inv.amountDue, inv.currency)}
+                    </td>
+                    <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400">{fmtDate(inv.dueDate)}</td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2">
+                        {/* View / open in Stripe */}
                         <button
-                          onClick={() => { void handleUpdateStatus(inv.id, 'paid'); }}
-                          disabled={updatingId === inv.id}
-                          title="Mark as Paid"
-                          className="rounded p-1 text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/30 transition-colors disabled:opacity-50"
+                          onClick={() => setViewInvoice(inv)}
+                          title="View details"
+                          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors"
                         >
-                          {updatingId === inv.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <CheckCircle className="h-3.5 w-3.5" />
-                          )}
+                          <Eye className="h-3.5 w-3.5" />
                         </button>
-                      )}
-                      {inv.status !== 'cancelled' && inv.status !== 'paid' && (
-                        <button
-                          onClick={() => { void handleUpdateStatus(inv.id, 'cancelled'); }}
-                          disabled={updatingId === inv.id}
-                          title="Cancel"
-                          className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 transition-colors disabled:opacity-50"
-                        >
-                          <Ban className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        {inv.invoiceUrl && (
+                          <a
+                            href={inv.invoiceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open invoice in Stripe"
+                            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                        {/* Send (draft only) */}
+                        {inv.status === 'draft' && (
+                          <button
+                            onClick={() => void handleSend(inv.stripeInvoiceId)}
+                            disabled={isUpdating}
+                            title="Send Invoice"
+                            className="rounded p-1 text-blue-500 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/30 transition-colors disabled:opacity-50"
+                          >
+                            {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
+                        {/* Mark paid (open only) */}
+                        {inv.status === 'open' && (
+                          <button
+                            onClick={() => void handleMarkPaid(inv.stripeInvoiceId)}
+                            disabled={isUpdating}
+                            title="Mark as Paid (offline)"
+                            className="rounded p-1 text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/30 transition-colors disabled:opacity-50"
+                          >
+                            {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
+                        {/* Void (draft or open only) */}
+                        {(inv.status === 'draft' || inv.status === 'open') && (
+                          <button
+                            onClick={() => void handleVoid(inv.stripeInvoiceId)}
+                            disabled={isUpdating}
+                            title="Void Invoice"
+                            className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 transition-colors disabled:opacity-50"
+                          >
+                            <Ban className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -393,24 +491,19 @@ export default function InvoicesClient() {
                     <div key={idx} className="flex gap-2 items-center">
                       <input
                         type="text"
-                        placeholder="Product name"
+                        placeholder="Product / service name"
                         value={item.productName}
                         onChange={(e) => updateLineItem(idx, 'productName', e.target.value)}
                         className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                       />
                       <input
-                        type="number"
-                        min="1"
-                        placeholder="Qty"
+                        type="number" min="1" placeholder="Qty"
                         value={item.qty}
                         onChange={(e) => updateLineItem(idx, 'qty', Number(e.target.value))}
                         className="w-20 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                       />
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="Unit $"
+                        type="number" min="0" step="0.01" placeholder="Unit $"
                         value={item.unitPrice || ''}
                         onChange={(e) => updateLineItem(idx, 'unitPrice', Number(e.target.value))}
                         className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
@@ -429,10 +522,7 @@ export default function InvoicesClient() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Tax Rate %</label>
                   <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    placeholder="0"
+                    type="number" min="0" max="100" placeholder="10 (GST)"
                     value={form.taxRate}
                     onChange={(e) => setForm({ ...form, taxRate: e.target.value })}
                     className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
@@ -450,10 +540,10 @@ export default function InvoicesClient() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Notes</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Notes / Memo</label>
                 <textarea
                   rows={3}
-                  placeholder="Optional notes for the customer..."
+                  placeholder="Optional notes visible on the invoice…"
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500 resize-none"
@@ -487,22 +577,19 @@ export default function InvoicesClient() {
                 Cancel
               </button>
               <button
-                onClick={() => { void handleSave('draft'); }}
+                onClick={() => { void handleSave(false); }}
                 disabled={!form.customerName || saving}
                 className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
               >
                 Save as Draft
               </button>
               <button
-                onClick={() => { void handleSave('sent'); }}
-                disabled={!form.customerName || saving}
+                onClick={() => { void handleSave(true); }}
+                disabled={!form.customerName || !form.customerEmail || saving}
+                title={!form.customerEmail ? 'Email required to send' : undefined}
                 className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
               >
-                {saving ? (
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 Send Invoice
               </button>
             </div>
@@ -510,112 +597,85 @@ export default function InvoicesClient() {
         </div>
       )}
 
-      {/* View Invoice Modal */}
+      {/* Invoice Detail Modal */}
       {viewInvoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900 flex flex-col max-h-[90vh]">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
-              <div>
-                <h2 className="text-base font-semibold text-gray-900 dark:text-white">{viewInvoice.invoiceNumber}</h2>
-                <p className="text-xs text-gray-400 mt-0.5">{viewInvoice.customerName}</p>
-              </div>
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <FileText className="h-4 w-4 text-elevatedpos-600" />
+                Invoice Details
+              </h2>
               <button onClick={() => setViewInvoice(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="overflow-y-auto p-6 space-y-4">
-              <div className="flex items-center gap-3">
-                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[viewInvoice.status]}`}>
-                  {viewInvoice.status}
-                </span>
-                {viewInvoice.dueDate && viewInvoice.dueDate !== 'N/A' && (
-                  <span className="text-xs text-gray-400">Due {viewInvoice.dueDate}</span>
-                )}
-              </div>
 
-              {viewInvoice.customerEmail && (
-                <p className="text-sm text-gray-500 dark:text-gray-400">{viewInvoice.customerEmail}</p>
-              )}
-
-              <div>
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Line Items</p>
-                <div className="rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 dark:bg-gray-800">
-                        <th className="px-4 py-2 text-left text-xs text-gray-400">Product</th>
-                        <th className="px-4 py-2 text-right text-xs text-gray-400">Qty</th>
-                        <th className="px-4 py-2 text-right text-xs text-gray-400">Unit</th>
-                        <th className="px-4 py-2 text-right text-xs text-gray-400">Subtotal</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                      {viewInvoice.items.map((it, i) => (
-                        <tr key={i}>
-                          <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200">{it.productName}</td>
-                          <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400">{it.qty}</td>
-                          <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400">${it.unitPrice.toFixed(2)}</td>
-                          <td className="px-4 py-2.5 text-right font-medium text-gray-900 dark:text-white">${(it.qty * it.unitPrice).toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
-                  <span>Subtotal</span>
-                  <span>${viewInvoice.subtotal.toFixed(2)}</span>
-                </div>
-                {viewInvoice.tax > 0 && (
-                  <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
-                    <span>Tax</span>
-                    <span>${viewInvoice.tax.toFixed(2)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between border-t border-gray-100 dark:border-gray-800 pt-2">
-                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Total</span>
-                  <span className="text-base font-bold text-gray-900 dark:text-white">${viewInvoice.total.toFixed(2)}</span>
-                </div>
-              </div>
-
-              {viewInvoice.notes && (
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wide">Notes</p>
-                  <p className="text-sm text-gray-700 dark:text-gray-300">{viewInvoice.notes}</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Stripe ID</p>
+                  <p className="font-mono text-gray-700 dark:text-gray-300 text-xs">{viewInvoice.stripeInvoiceId}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Status</p>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[toDisplayStatus(viewInvoice.status)]}`}>
+                    {toDisplayStatus(viewInvoice.status)}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Customer</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{viewInvoice.metadata?.customerName || '—'}</p>
+                  {viewInvoice.metadata?.customerEmail && (
+                    <p className="text-xs text-gray-500">{viewInvoice.metadata.customerEmail}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Amount Due</p>
+                  <p className="font-bold text-gray-900 dark:text-white">{fmtAmount(viewInvoice.amountDue, viewInvoice.currency)}</p>
+                  {viewInvoice.amountPaid > 0 && (
+                    <p className="text-xs text-emerald-600">Paid: {fmtAmount(viewInvoice.amountPaid, viewInvoice.currency)}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Due Date</p>
+                  <p className="text-gray-700 dark:text-gray-300">{fmtDate(viewInvoice.dueDate)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Created</p>
+                  <p className="text-gray-700 dark:text-gray-300">{fmtDate(viewInvoice.createdAt)}</p>
+                </div>
+              </div>
+
+              {viewInvoice.metadata?.memo && (
+                <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-4 py-3">
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Notes</p>
+                  <p className="text-sm text-gray-700 dark:text-gray-300">{viewInvoice.metadata.memo}</p>
                 </div>
               )}
 
-              <div className="text-xs text-gray-400 dark:text-gray-500">Created {viewInvoice.createdAt}</div>
-            </div>
-            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
-              <button
-                onClick={() => setViewInvoice(null)}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
-              >
-                Close
-              </button>
-              {viewInvoice.status === 'draft' && (
-                <button
-                  onClick={() => { void handleUpdateStatus(viewInvoice.id, 'sent'); setViewInvoice(null); }}
-                  disabled={updatingId === viewInvoice.id}
-                  className="flex items-center gap-2 rounded-lg bg-elevatedpos-600 px-4 py-2 text-sm font-medium text-white hover:bg-elevatedpos-500 disabled:opacity-50 transition-colors"
-                >
-                  {updatingId === viewInvoice.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  Send Invoice
-                </button>
-              )}
-              {(viewInvoice.status === 'sent' || viewInvoice.status === 'overdue') && (
-                <button
-                  onClick={() => { void handleUpdateStatus(viewInvoice.id, 'paid'); setViewInvoice(null); }}
-                  disabled={updatingId === viewInvoice.id}
-                  className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
-                >
-                  {updatingId === viewInvoice.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-                  Mark as Paid
-                </button>
-              )}
+              <div className="flex gap-3 pt-2">
+                {viewInvoice.invoiceUrl && (
+                  <a
+                    href={viewInvoice.invoiceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" /> View Invoice
+                  </a>
+                )}
+                {viewInvoice.invoicePdf && (
+                  <a
+                    href={viewInvoice.invoicePdf}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    <FileText className="h-3.5 w-3.5" /> Download PDF
+                  </a>
+                )}
+              </div>
             </div>
           </div>
         </div>
