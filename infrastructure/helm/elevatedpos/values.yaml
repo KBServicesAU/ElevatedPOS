@@ -23,6 +23,7 @@ services:
     enabled: true
     replicas: 1
     port: 4002
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "100m"
@@ -34,6 +35,7 @@ services:
     enabled: true
     replicas: 1
     port: 4003
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "100m"
@@ -45,6 +47,7 @@ services:
     enabled: true
     replicas: 1
     port: 4004
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "200m"
@@ -56,6 +59,7 @@ services:
     enabled: true
     replicas: 1
     port: 4005
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "200m"
@@ -67,6 +71,7 @@ services:
     enabled: true
     replicas: 1
     port: 4006
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "100m"
@@ -78,6 +83,7 @@ services:
     enabled: true
     replicas: 1
     port: 4007
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "100m"
@@ -89,6 +95,7 @@ services:
     enabled: true
     replicas: 1
     port: 4008
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "100m"
@@ -100,6 +107,7 @@ services:
     enabled: true
     replicas: 1
     port: 4009
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "100m"
@@ -111,6 +119,7 @@ services:
     enabled: true
     replicas: 1
     port: 4010
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "100m"
@@ -122,6 +131,7 @@ services:
     enabled: true
     replicas: 1
     port: 4011
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "100m"
@@ -133,6 +143,7 @@ services:
     enabled: true
     replicas: 1
     port: 4012
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "200m"
@@ -144,6 +155,7 @@ services:
     enabled: true
     replicas: 1
     port: 4013
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "100m"
@@ -155,6 +167,7 @@ services:
     enabled: true
     replicas: 1
     port: 4014
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "200m"
@@ -166,6 +179,7 @@ services:
     enabled: true
     replicas: 1
     port: 4015
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "100m"
@@ -177,6 +191,7 @@ services:
     enabled: true
     replicas: 1
     port: 9999
+    keepPathPrefix: true
     resources:
       requests:
         cpu: "50m"

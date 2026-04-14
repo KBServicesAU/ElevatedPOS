@@ -43,12 +43,20 @@ export default function RootLayout() {
   // Hydrate stored identity on mount, then fetch server-side device config
   useEffect(() => {
     _hydrate().then(() => {
-      SplashScreen.hideAsync();
-      // Fetch server-managed settings (terminal, printers, display) after hydration.
       // Non-fatal if it fails — app still works with local fallbacks.
       fetchDeviceSettings().catch(() => { /* ignore */ });
     });
   }, [_hydrate, fetchDeviceSettings]);
+
+  // Hide the splash only after the component has re-rendered with ready=true.
+  // Calling hideAsync() inside the _hydrate().then() callback races with
+  // React's state flush — the splash can vanish before the first real frame
+  // renders, leaving a black screen on slower devices.
+  useEffect(() => {
+    if (ready) {
+      SplashScreen.hideAsync();
+    }
+  }, [ready]);
 
   // Periodic heartbeat: detects when the device has been revoked server-side
   // and forces a redirect to the pair screen so the user can re-pair.

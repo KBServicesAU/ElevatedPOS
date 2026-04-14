@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useKioskStore } from '../../store/kiosk';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 const IDLE_TIMEOUT_MS = 90_000;
 
@@ -232,7 +232,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     width,
-    height,
   },
   gradientBase: {
     ...StyleSheet.absoluteFillObject,
@@ -263,7 +262,7 @@ const styles = StyleSheet.create({
   decorCircle3: {
     width: 250,
     height: 250,
-    top: height * 0.3,
+    top: '28%',
     right: -80,
     backgroundColor: 'rgba(139,92,246,0.08)',
   },
