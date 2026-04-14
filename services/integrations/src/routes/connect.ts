@@ -188,6 +188,62 @@ export async function connectRoutes(app: FastifyInstance) {
     });
   });
 
+  // ── GET /connect/account-status ─────────────────────────────────────────────
+  // Authenticated variant — orgId comes from the JWT, never from the URL.
+  // Returns the connected account for the requesting org (or null if none).
+  app.get('/connect/account-status', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+
+    const rows = await db.select()
+      .from(stripeConnectAccounts)
+      .where(eq(stripeConnectAccounts.orgId, orgId))
+      .limit(1);
+
+    if (rows.length === 0) return reply.send(null);
+
+    const row = rows[0]!;
+
+    // Refresh status from Stripe if key is configured
+    if (process.env['STRIPE_SECRET_KEY']) {
+      try {
+        const account = await stripe.accounts.retrieve(row.stripeAccountId);
+        const status = account.charges_enabled ? 'active'
+          : account.details_submitted ? 'restricted'
+          : 'onboarding';
+
+        await db.update(stripeConnectAccounts).set({
+          chargesEnabled: account.charges_enabled,
+          payoutsEnabled: account.payouts_enabled,
+          detailsSubmitted: account.details_submitted,
+          status,
+          updatedAt: new Date(),
+        }).where(eq(stripeConnectAccounts.orgId, orgId));
+
+        return reply.send({
+          stripeAccountId: row.stripeAccountId,
+          status,
+          chargesEnabled: account.charges_enabled,
+          payoutsEnabled: account.payouts_enabled,
+          detailsSubmitted: account.details_submitted,
+          businessName: account.business_profile?.name,
+          platformFeePercent: row.platformFeePercent,
+        });
+      } catch {
+        // Fall through to cached DB values if Stripe call fails
+      }
+    }
+
+    return reply.send({
+      stripeAccountId: row.stripeAccountId,
+      status: row.status,
+      chargesEnabled: row.chargesEnabled ?? false,
+      payoutsEnabled: row.payoutsEnabled ?? false,
+      detailsSubmitted: row.detailsSubmitted ?? false,
+      businessName: row.businessName ?? undefined,
+      platformFeePercent: row.platformFeePercent,
+    });
+  });
+
   // ── Create Stripe login link (dashboard access) ──────────────────────────────
   app.post('/connect/login-link/:orgId', async (request, reply) => {
     const { orgId } = request.params as { orgId: string };
@@ -201,6 +257,82 @@ export async function connectRoutes(app: FastifyInstance) {
 
     const loginLink = await stripe.accounts.createLoginLink(rows[0]!.stripeAccountId);
     return reply.send({ url: loginLink.url });
+  });
+
+  // ── POST /connect/account-session ────────────────────────────────────────────
+  // Creates a short-lived AccountSession client_secret for use with
+  // Stripe Connect Embedded Components.  The session enables the
+  // account_onboarding, payments, payouts, and balances components so the
+  // merchant dashboard can render them in-page without any Stripe redirect.
+  app.post('/connect/account-session', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+
+    if (!process.env['STRIPE_SECRET_KEY']) {
+      return reply.status(503).send({ error: 'Payment processing not configured' });
+    }
+
+    // Get or create the connected account for this org
+    const existing = await db.select()
+      .from(stripeConnectAccounts)
+      .where(eq(stripeConnectAccounts.orgId, orgId))
+      .limit(1);
+
+    let accountId: string;
+
+    if (existing.length > 0) {
+      accountId = existing[0]!.stripeAccountId;
+    } else {
+      const account = await stripe.accounts.create({
+        type: 'express',
+        country: 'AU',
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+          au_becs_debit_payments: { requested: true },
+        },
+        metadata: { orgId },
+      });
+      accountId = account.id;
+      await db.insert(stripeConnectAccounts).values({
+        orgId,
+        stripeAccountId: accountId,
+        status: 'onboarding',
+        platformFeePercent: PLATFORM_FEE_BASIS_POINTS,
+      });
+    }
+
+    const session = await stripe.accountSessions.create({
+      account: accountId,
+      components: {
+        account_onboarding: { enabled: true },
+        payments: {
+          enabled: true,
+          features: {
+            refund_management: true,
+            dispute_management: true,
+            capture_payments: true,
+          },
+        },
+        payouts: {
+          enabled: true,
+          features: {
+            instant_payouts: true,
+            standard_payouts: true,
+            edit_payout_schedule: true,
+          },
+        },
+        balances: {
+          enabled: true,
+          features: {
+            instant_payouts: true,
+            standard_payouts: true,
+            edit_payout_schedule: true,
+          },
+        },
+      },
+    });
+
+    return reply.send({ clientSecret: session.client_secret });
   });
 
   // ── Create subscription for merchant's customer ──────────────────────────────

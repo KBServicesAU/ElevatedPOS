@@ -18,10 +18,10 @@
  *   Recovery    — ANZ Worldline crash-recovery for unresolved payment intents
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   CreditCard, Save, RefreshCw, CheckCircle,
-  AlertCircle, XCircle, Loader2, Info, Eye, EyeOff,
+  AlertCircle, XCircle, Loader2, Info,
   Zap, Link2Off, DollarSign, Percent,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
@@ -53,14 +53,14 @@ const darkInputCls =
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
-type Tab = 'methods' | 'terminals' | 'compliance' | 'stripe' | 'recovery';
+type Tab = 'methods' | 'terminals' | 'compliance' | 'elevatedpay' | 'recovery';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'methods',    label: 'Payment Methods', icon: '💳' },
-  { id: 'terminals',  label: 'Terminals',        icon: '🖥️' },
-  { id: 'compliance', label: 'Compliance',       icon: '⚖️' },
-  { id: 'stripe',     label: 'Stripe Connect',   icon: '🔗' },
-  { id: 'recovery',   label: 'Recovery',         icon: '🛡️' },
+  { id: 'methods',     label: 'Payment Methods', icon: '💳' },
+  { id: 'terminals',   label: 'Terminals',        icon: '🖥️' },
+  { id: 'compliance',  label: 'Compliance',       icon: '⚖️' },
+  { id: 'elevatedpay', label: 'ElevatedPOS Pay',  icon: '🔗' },
+  { id: 'recovery',    label: 'Recovery',         icon: '🛡️' },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -556,42 +556,29 @@ function ANZPanel() {
 
 // ─── Stripe Terminal ─────────────────────────────────────────────────────────
 
-function StripeTerminalPanel() {
+// ─── ElevatedPOS Pay Terminal (Tap to Pay via platform account) ───────────────
+
+function ElevatedPOSTerminalPanel() {
   const { toast } = useToast();
-  const [loading, setLoading]             = useState(true);
-  const [saving, setSaving]               = useState(false);
-  const [publishableKey, setPublishableKey] = useState('');
-  const [secretKey, setSecretKey]         = useState('');
-  const [secretKeyMask, setSecretKeyMask] = useState('');
-  const [showSecret, setShowSecret]       = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const data = await apiFetch<{ publishableKey?: string; secretKeyMask?: string }>('terminal/credentials?provider=stripe');
-        if (data.publishableKey) setPublishableKey(data.publishableKey);
-        if (data.secretKeyMask)  setSecretKeyMask(data.secretKeyMask);
-      } catch { /* not configured */ }
-      finally { setLoading(false); }
-    })();
+    apiFetch<{ enabled?: boolean }>('terminal/credentials?provider=tap-to-pay')
+      .then((d) => { if (d.enabled !== undefined) setEnabled(d.enabled); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   async function handleSave() {
-    if (!publishableKey.trim()) { toast({ title: 'Publishable key is required', variant: 'destructive' }); return; }
-    if (!publishableKey.trim().startsWith('pk_')) { toast({ title: 'Publishable key must start with pk_live_ or pk_test_', variant: 'destructive' }); return; }
-    if (secretKey && !secretKey.trim().startsWith('sk_')) { toast({ title: 'Secret key must start with sk_live_ or sk_test_', variant: 'destructive' }); return; }
     setSaving(true);
     try {
       await apiFetch('terminal/credentials', {
         method: 'POST',
-        body: JSON.stringify({
-          provider: 'stripe',
-          publishableKey: publishableKey.trim(),
-          ...(secretKey.trim() ? { secretKey: secretKey.trim() } : {}),
-        }),
+        body: JSON.stringify({ provider: 'tap-to-pay', enabled }),
       });
-      setSecretKey('');
-      toast({ title: 'Stripe Terminal settings saved', variant: 'success' });
+      toast({ title: enabled ? 'Tap to Pay enabled' : 'Tap to Pay disabled', variant: 'success' });
     } catch {
       toast({ title: 'Save failed', variant: 'destructive' });
     } finally {
@@ -602,51 +589,27 @@ function StripeTerminalPanel() {
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>;
 
   return (
-    <div className="space-y-4 rounded-xl border border-[#1e2a40] bg-[#0f172a] p-5">
-      <div>
-        <h3 className="font-semibold text-white">Stripe Terminal</h3>
-        <p className="text-xs text-gray-400">Tap to Pay on Android — uses the device&apos;s own NFC reader</p>
-      </div>
-
-      <div className="flex gap-3 rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3 text-xs text-indigo-200">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-indigo-400" />
-        <p>
-          Get your API keys from{' '}
-          <a href="https://dashboard.stripe.com/developers/api-keys" target="_blank" rel="noreferrer" className="underline">
-            dashboard.stripe.com → Developers → API Keys
-          </a>.
-          Use live keys for production and test keys for staging.
-        </p>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs text-gray-400">Publishable Key <span className="text-red-400">*</span></label>
-        <input value={publishableKey} onChange={(e) => setPublishableKey(e.target.value)} placeholder="pk_live_... or pk_test_..." className={darkInputCls} />
-        <p className="mt-1 text-xs text-gray-600">Used by the POS app to initialize the Stripe Terminal SDK.</p>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs text-gray-400">Secret Key</label>
-        {secretKeyMask && !secretKey && (
-          <p className="mb-1 font-mono text-xs text-gray-400">Current: {secretKeyMask}</p>
-        )}
-        <div className="relative">
-          <input
-            value={secretKey}
-            onChange={(e) => setSecretKey(e.target.value)}
-            type={showSecret ? 'text' : 'password'}
-            placeholder={secretKeyMask ? 'Enter new key to replace…' : 'sk_live_... or sk_test_...'}
-            className={darkInputCls + ' pr-10'}
-          />
-          <button
-            type="button"
-            onClick={() => setShowSecret((v) => !v)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
-          >
-            {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
+    <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-900/30">
+          <CreditCard className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
         </div>
-        <p className="mt-1 text-xs text-gray-600">Leave blank to keep existing key.</p>
+        <div>
+          <h3 className="font-semibold text-gray-900 dark:text-white">Tap to Pay</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            NFC contactless payments using the device&apos;s built-in reader
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+        <div>
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Tap to Pay</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Processes payments through your ElevatedPOS Pay account. No additional setup required once your account is active.
+          </p>
+        </div>
+        <Toggle checked={enabled} onChange={setEnabled} />
       </div>
 
       <div className="flex justify-end">
@@ -656,7 +619,7 @@ function StripeTerminalPanel() {
           className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Save Settings
+          Save
         </button>
       </div>
     </div>
@@ -671,7 +634,7 @@ function TerminalsTab() {
       </p>
       <TyroPanel />
       <ANZPanel />
-      <StripeTerminalPanel />
+      <ElevatedPOSTerminalPanel />
     </div>
   );
 }
@@ -865,7 +828,8 @@ function ComplianceTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Tab 4 — Stripe Connect
+// Tab 4 — ElevatedPOS Pay (white-labelled payments hub)
+// Uses Stripe Connect Embedded Components — no Stripe branding in surrounding UI
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface ConnectAccount {
@@ -886,153 +850,259 @@ const STATUS_COLORS: Record<string, string> = {
   disabled:   'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
 };
 
-function StripeConnectTab() {
-  const [account, setAccount]   = useState<ConnectAccount | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [onboarding, setOnboarding] = useState(false);
-  const [orgId, setOrgId]       = useState<string | null>(null);
+type ElevatedPaySubTab = 'onboarding' | 'transactions' | 'payouts' | 'balance';
 
+function ElevatedPOSPayTab() {
+  const { toast } = useToast();
+  const [account, setAccount]     = useState<ConnectAccount | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [subTab, setSubTab]       = useState<ElevatedPaySubTab>('onboarding');
+  const [instanceReady, setInstanceReady] = useState(false);
+
+  // Refs for Stripe Connect Embedded Component mount points
+  const onboardingRef    = useRef<HTMLDivElement>(null);
+  const transactionsRef  = useRef<HTMLDivElement>(null);
+  const payoutsRef       = useRef<HTMLDivElement>(null);
+  const balanceRef       = useRef<HTMLDivElement>(null);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stripeInstanceRef = useRef<any>(null);
+
+  // Fetch account status
   useEffect(() => {
-    fetch('/api/auth/me')
-      .then((r) => r.ok ? r.json() : null)
-      .then((me: { orgId?: string } | null) => {
-        const id = me?.orgId ?? null;
-        setOrgId(id);
-        if (!id) { setLoading(false); return; }
-        return fetch(`/api/proxy/integrations/api/v1/connect/account/${id}`)
-          .then((r) => r.ok ? r.json() : null)
-          .then((data: ConnectAccount | null) => setAccount(data))
-          .catch(() => setAccount(null))
-          .finally(() => setLoading(false));
-      })
-      .catch(() => { setOrgId(null); setLoading(false); });
+    apiFetch<ConnectAccount | null>('connect/account-status')
+      .then((data) => setAccount(data))
+      .catch(() => setAccount(null))
+      .finally(() => setLoading(false));
   }, []);
 
-  async function handleConnect() {
-    setOnboarding(true);
-    try {
-      const res = await fetch('/api/proxy/integrations/api/v1/connect/onboard', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgId }),
-      });
-      const data = await res.json() as { url: string };
-      window.location.href = data.url;
-    } catch {
-      setOnboarding(false);
-    }
-  }
+  // Initialise Stripe Connect Embedded Components once account is known
+  useEffect(() => {
+    if (loading) return;
 
-  async function handleDashboard() {
-    const res = await fetch(`/api/proxy/integrations/api/v1/connect/login-link/${orgId}`, { method: 'POST' });
-    const data = await res.json() as { url: string };
-    window.open(data.url, '_blank');
-  }
+    async function init() {
+      try {
+        const { loadConnectAndInitialize } = await import('@stripe/connect-js');
+
+        const instance = loadConnectAndInitialize({
+          publishableKey: process.env['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?? '',
+          fetchClientSecret: async () => {
+            const data = await apiFetch<{ clientSecret: string }>('connect/account-session', { method: 'POST' });
+            return data.clientSecret;
+          },
+          appearance: {
+            overlays: 'dialog',
+            variables: {
+              colorPrimary: '#6366f1',
+              colorBackground: '#ffffff',
+              colorText: '#111827',
+              fontFamily: 'Inter, system-ui, sans-serif',
+              borderRadius: '8px',
+            },
+          },
+        });
+
+        stripeInstanceRef.current = instance;
+        setInstanceReady(true);
+      } catch (err) {
+        console.error('Failed to initialise ElevatedPOS Pay:', err);
+        toast({ title: 'Could not initialise payment components', variant: 'destructive' });
+      }
+    }
+
+    void init();
+  }, [loading, toast]);
+
+  // Mount the correct component when instance is ready or subTab changes
+  useEffect(() => {
+    const instance = stripeInstanceRef.current;
+    if (!instance || !instanceReady) return;
+
+    const pairs: [ElevatedPaySubTab, React.RefObject<HTMLDivElement>, string][] = [
+      ['onboarding',   onboardingRef,   'account-onboarding'],
+      ['transactions', transactionsRef, 'payments'],
+      ['payouts',      payoutsRef,      'payouts'],
+      ['balance',      balanceRef,      'balances'],
+    ];
+
+    for (const [tab, ref, componentName] of pairs) {
+      const el = ref.current;
+      if (!el) continue;
+      if (tab !== subTab) {
+        // Clear inactive mount points so they re-mount fresh on next visit
+        el.innerHTML = '';
+        continue;
+      }
+      if (el.childElementCount > 0) continue; // already mounted
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const component = (instance as any).create(componentName);
+        component.mount(el);
+      } catch (e) {
+        console.warn(`Failed to mount ${componentName}:`, e);
+      }
+    }
+  }, [instanceReady, subTab]);
 
   if (loading) return (
     <div className="space-y-4 animate-pulse">
       <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-48" />
-      <div className="h-40 bg-gray-200 dark:bg-gray-700 rounded-2xl" />
+      <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded-2xl" />
     </div>
   );
 
-  if (!account || account.status === 'pending') {
-    return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center max-w-md dark:border-gray-800 dark:bg-gray-900">
-        <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <span className="text-3xl">💳</span>
-        </div>
-        <h2 className="text-xl font-bold mb-2 text-gray-900 dark:text-white">Connect Stripe</h2>
-        <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm">
-          Link your Stripe account to accept online payments, subscriptions, and invoices.
-          A 1% platform fee applies on top of standard Stripe fees.
-        </p>
-        <button
-          onClick={handleConnect}
-          disabled={onboarding}
-          className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-        >
-          {onboarding ? 'Redirecting to Stripe…' : 'Connect with Stripe →'}
-        </button>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-4">Powered by Stripe Connect · Your data is secure</p>
-      </div>
-    );
-  }
+  const isActive = account?.chargesEnabled && account?.status === 'active';
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {account.businessName ?? 'Your Stripe Account'}
-            </h2>
-            <p className="text-sm text-gray-500 font-mono">{account.stripeAccountId}</p>
-          </div>
+    <div className="space-y-6 max-w-4xl">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <span className="text-xl">🔗</span> ElevatedPOS Pay
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            Accept payments, manage payouts, and monitor your balance — all in one place.
+          </p>
+        </div>
+        {account && (
           <span className={`px-3 py-1 rounded-full text-sm font-medium capitalize ${STATUS_COLORS[account.status] ?? ''}`}>
-            {account.status}
+            {account.status === 'onboarding' ? 'Setup required' : account.status}
           </span>
-        </div>
-
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          {[
-            { icon: account.chargesEnabled ? '✅' : '⏳', label: 'Charges',       sub: account.chargesEnabled ? 'Enabled' : 'Pending' },
-            { icon: account.payoutsEnabled ? '✅' : '⏳', label: 'Payouts',       sub: account.payoutsEnabled ? 'Enabled' : 'Pending' },
-            { icon: '💰',                                  label: 'Platform fee',  sub: `${account.platformFeePercent / 100}% per txn` },
-          ].map((item) => (
-            <div key={item.label} className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-center">
-              <div className="text-2xl mb-1">{item.icon}</div>
-              <p className="text-sm font-medium text-gray-900 dark:text-white">{item.label}</p>
-              <p className="text-xs text-gray-500">{item.sub}</p>
-            </div>
-          ))}
-        </div>
-
-        {account.status === 'onboarding' && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4 text-sm dark:bg-yellow-900/20 dark:border-yellow-800">
-            <strong className="text-yellow-800 dark:text-yellow-300">Action required:</strong>{' '}
-            <span className="text-yellow-700 dark:text-yellow-400">Your Stripe onboarding is incomplete.</span>
-            <button onClick={handleConnect} className="ml-2 text-yellow-700 dark:text-yellow-300 underline font-medium">
-              Continue onboarding →
-            </button>
-          </div>
         )}
-
-        <div className="flex gap-3">
-          <button
-            onClick={handleDashboard}
-            className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          >
-            Open Stripe Dashboard ↗
-          </button>
-          {account.status === 'onboarding' && (
-            <button
-              onClick={handleConnect}
-              className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors"
-            >
-              Complete setup →
-            </button>
-          )}
-        </div>
       </div>
 
-      {account.chargesEnabled && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[
-            { href: '/dashboard/subscriptions', icon: '🔄', label: 'Subscriptions', sub: 'Manage recurring billing' },
-            { href: '/dashboard/invoices',       icon: '🧾', label: 'Invoices',      sub: 'Send invoices to customers' },
-            { href: '/dashboard/catalog',        icon: '🛍️', label: 'Web Store',    sub: 'Manage online store products' },
-          ].map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className="rounded-2xl border border-gray-200 bg-white p-5 hover:border-indigo-300 hover:shadow-sm transition-all dark:border-gray-800 dark:bg-gray-900 dark:hover:border-indigo-700 group"
-            >
-              <div className="text-2xl mb-3">{link.icon}</div>
-              <h3 className="font-semibold mb-1 text-gray-900 dark:text-white group-hover:text-indigo-600">{link.label}</h3>
-              <p className="text-sm text-gray-500">{link.sub}</p>
-            </a>
-          ))}
+      {/* No account yet — prompt to set up */}
+      {!account && (
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center max-w-lg dark:border-gray-800 dark:bg-gray-900">
+          <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl">💳</span>
+          </div>
+          <h3 className="text-xl font-bold mb-2 text-gray-900 dark:text-white">Activate ElevatedPOS Pay</h3>
+          <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm leading-relaxed">
+            Set up your payment account to accept card payments, receive payouts directly to your bank, and access detailed transaction history.
+          </p>
+          <div
+            ref={onboardingRef}
+            className="min-h-[400px]"
+          />
+          {!instanceReady && (
+            <div className="flex items-center justify-center gap-2 text-gray-400 py-8">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">Loading setup form…</span>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* Account exists — show sub-tabs */}
+      {account && (
+        <>
+          {/* Stats strip */}
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { icon: account.chargesEnabled ? '✅' : '⏳', label: 'Payments',   sub: account.chargesEnabled ? 'Active' : 'Pending setup' },
+              { icon: account.payoutsEnabled ? '✅' : '⏳', label: 'Payouts',    sub: account.payoutsEnabled ? 'Active' : 'Pending setup' },
+              { icon: '💰',                                  label: 'Platform fee', sub: `${(account.platformFeePercent ?? 0) / 100}% per transaction` },
+            ].map((item) => (
+              <div key={item.label} className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-center">
+                <div className="text-2xl mb-1">{item.icon}</div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">{item.label}</p>
+                <p className="text-xs text-gray-500">{item.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Onboarding banner */}
+          {(account.status === 'onboarding' || !account.detailsSubmitted) && (
+            <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-800 dark:bg-yellow-900/20">
+              <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-1">
+                ⚠️ Account setup incomplete
+              </p>
+              <p className="text-sm text-yellow-700 dark:text-yellow-400 mb-3">
+                Complete your account details to enable payments and payouts.
+              </p>
+              <button
+                onClick={() => setSubTab('onboarding')}
+                className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 underline"
+              >
+                Continue setup →
+              </button>
+            </div>
+          )}
+
+          {/* Sub-tab bar — only show extra tabs when active */}
+          <div className="flex gap-1 rounded-xl bg-gray-100 p-1 dark:bg-gray-800 w-fit">
+            {(account.status === 'onboarding' || !isActive) && (
+              <button
+                onClick={() => setSubTab('onboarding')}
+                className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${subTab === 'onboarding' ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
+              >
+                Setup
+              </button>
+            )}
+            {isActive && (
+              <>
+                <button
+                  onClick={() => setSubTab('transactions')}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${subTab === 'transactions' ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
+                >
+                  Transactions
+                </button>
+                <button
+                  onClick={() => setSubTab('payouts')}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${subTab === 'payouts' ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
+                >
+                  Payouts
+                </button>
+                <button
+                  onClick={() => setSubTab('balance')}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${subTab === 'balance' ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
+                >
+                  Balance
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Embedded component mount points */}
+          <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 overflow-hidden">
+            {!instanceReady ? (
+              <div className="flex items-center justify-center gap-2 text-gray-400 py-16">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm">Loading…</span>
+              </div>
+            ) : (
+              <>
+                <div ref={onboardingRef}   className={subTab === 'onboarding'   ? 'min-h-[500px]' : 'hidden'} />
+                <div ref={transactionsRef} className={subTab === 'transactions' ? 'min-h-[500px]' : 'hidden'} />
+                <div ref={payoutsRef}      className={subTab === 'payouts'      ? 'min-h-[500px]' : 'hidden'} />
+                <div ref={balanceRef}      className={subTab === 'balance'      ? 'min-h-[500px]' : 'hidden'} />
+              </>
+            )}
+          </div>
+
+          {/* Quick links */}
+          {isActive && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[
+                { href: '/dashboard/subscriptions', icon: '🔄', label: 'Subscriptions', sub: 'Manage recurring billing' },
+                { href: '/dashboard/invoices',       icon: '🧾', label: 'Invoices',      sub: 'Send invoices to customers' },
+                { href: '/dashboard/catalog',        icon: '🛍️', label: 'Web Store',    sub: 'Manage online store products' },
+              ].map((link) => (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  className="rounded-2xl border border-gray-200 bg-white p-5 hover:border-indigo-300 hover:shadow-sm transition-all dark:border-gray-800 dark:bg-gray-900 dark:hover:border-indigo-700 group"
+                >
+                  <div className="text-2xl mb-3">{link.icon}</div>
+                  <h3 className="font-semibold mb-1 text-gray-900 dark:text-white group-hover:text-indigo-600">{link.label}</h3>
+                  <p className="text-sm text-gray-500">{link.sub}</p>
+                </a>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1234,7 +1304,7 @@ export default function PaymentsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payment &amp; Connect</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">
-          Manage payment methods, terminal hardware, compliance settings, and Stripe account.
+          Manage payment methods, terminal hardware, compliance settings, and your ElevatedPOS Pay account.
         </p>
       </div>
 
@@ -1260,7 +1330,7 @@ export default function PaymentsPage() {
       {tab === 'methods'    && <MethodsTab />}
       {tab === 'terminals'  && <TerminalsTab />}
       {tab === 'compliance' && <ComplianceTab />}
-      {tab === 'stripe'     && <StripeConnectTab />}
+      {tab === 'elevatedpay' && <ElevatedPOSPayTab />}
       {tab === 'recovery'   && <RecoveryTab />}
     </div>
   );

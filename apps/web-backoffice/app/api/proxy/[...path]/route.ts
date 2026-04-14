@@ -114,6 +114,12 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.INTEGRATIONS_API_URL ?? 'http://localhost:4010',
     prefix: '',
   },
+  // "connect" shorthand — routes to the integrations service's /api/v1/connect/* surface.
+  // Keeps component code concise: apiFetch('connect/account-status') works without the full path.
+  connect: {
+    base: process.env.INTEGRATIONS_API_URL ?? 'http://localhost:4010',
+    prefix: '/api/v1/connect',
+  },
   webhooks: {
     base: process.env.WEBHOOKS_API_URL ?? 'http://localhost:4015',
     prefix: '/api/v1/webhooks',
