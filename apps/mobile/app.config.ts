@@ -40,7 +40,63 @@ const roleConfig: Record<
 
 const resolved = ROLE_LOCK ? roleConfig[ROLE_LOCK] : null;
 
-export default ({ config }: ConfigContext): ExpoConfig => ({
+export default ({ config }: ConfigContext): ExpoConfig => {
+  // The Stripe React Native SDK's native StripeInitializer (Jetpack Initializer /
+  // ContentProvider) runs at Application.onCreate() — before any JS. If it starts
+  // with an empty publishable key it throws IllegalStateException and the process
+  // dies immediately. Only POS builds have the Stripe publishable key set, so we
+  // must NOT include the @stripe/stripe-react-native config plugin for other roles.
+  const basePlugins: ExpoConfig['plugins'] = [
+    'expo-router',
+    'expo-secure-store',
+    [
+      '@sentry/react-native/expo',
+      {
+        organization: 'elevatedpos',
+        project: 'elevatedpos-mobile',
+      },
+    ],
+    './plugins/withCleartextTraffic',
+    './plugins/withGradleWrapper',
+    './plugins/withUsbPrinter',
+    './plugins/withUsbPrinterPatch',
+    './plugins/withTimApiBridge',
+    [
+      'expo-build-properties',
+      {
+        android: {
+          compileSdkVersion: 34,
+          targetSdkVersion: 34,
+          buildToolsVersion: '34.0.0',
+          kotlinVersion: '1.9.23',
+        },
+      },
+    ],
+    [
+      'expo-splash-screen',
+      {
+        backgroundColor: '#0a0a0a',
+        image: './assets/splash.png',
+        resizeMode: 'contain',
+      },
+    ],
+    'expo-screen-orientation',
+  ];
+
+  // Only include the Stripe native plugin for POS builds (or unspecified role for dev).
+  // All other roles (kds, kiosk, dashboard, display) do not use Stripe and the native
+  // initializer crashes on launch when no publishable key is present.
+  if (!ROLE_LOCK || ROLE_LOCK === 'pos') {
+    basePlugins.push([
+      '@stripe/stripe-react-native',
+      {
+        merchantIdentifier: 'merchant.au.elevatedpos',
+        enableGooglePay: true,
+      },
+    ]);
+  }
+
+  return {
   ...config,
   owner: 'kbservicesau',
   name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
@@ -84,49 +140,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     package: resolved?.package ?? process.env['APP_PACKAGE_ANDROID'] ?? 'com.au.elevatedpos.mobile',
   },
-  plugins: [
-    'expo-router',
-    'expo-secure-store',
-    [
-      '@sentry/react-native/expo',
-      {
-        organization: 'elevatedpos',
-        project: 'elevatedpos-mobile',
-      },
-    ],
-    './plugins/withCleartextTraffic',
-    './plugins/withGradleWrapper',
-    './plugins/withUsbPrinter',
-    './plugins/withUsbPrinterPatch',
-    './plugins/withTimApiBridge',
-    [
-      'expo-build-properties',
-      {
-        android: {
-          compileSdkVersion: 34,
-          targetSdkVersion: 34,
-          buildToolsVersion: '34.0.0',
-          kotlinVersion: '1.9.23',
-        },
-      },
-    ],
-    [
-      'expo-splash-screen',
-      {
-        backgroundColor: '#0a0a0a',
-        image: './assets/splash.png',
-        resizeMode: 'contain',
-      },
-    ],
-    'expo-screen-orientation',
-    [
-      '@stripe/stripe-react-native',
-      {
-        merchantIdentifier: 'merchant.au.elevatedpos',
-        enableGooglePay: true,
-      },
-    ],
-  ],
+  plugins: basePlugins,
   updates: {
     enabled: true,
     url: 'https://u.expo.dev/5f03d9c6-0120-4047-aa27-f71a823afa7b',
@@ -139,4 +153,5 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     eas: { projectId: process.env['EAS_PROJECT_ID'] ?? '5f03d9c6-0120-4047-aa27-f71a823afa7b' },
     roleLock: ROLE_LOCK ?? null,
   },
-});
+  };
+};

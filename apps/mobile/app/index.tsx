@@ -8,9 +8,10 @@ const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk
 export default function Index() {
   const { identity, ready } = useDeviceStore();
 
-  // Dashboard app skips device pairing and native login — goes straight to WebView
+  // Dashboard app — requires a paired device identity before entering
   if (ROLE_LOCK === 'dashboard') {
     if (!ready) return null;
+    if (!identity) return <Redirect href="/pair" />;
     return <Redirect href="/(dashboard)" />;
   }
 

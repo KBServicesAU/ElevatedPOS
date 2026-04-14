@@ -86,7 +86,7 @@ export default function DisplayScreen() {
       const res = await fetch(`${API_BASE}/api/v1/display/content`, {
         headers: { Authorization: `Bearer ${identity.deviceToken}` },
       });
-      if (!res.ok) return;
+      if (!res.ok) { setLoading(false); return; }
       const data = (await res.json()) as {
         data: { content: DisplayContent | null; pollIntervalSeconds: number };
       };

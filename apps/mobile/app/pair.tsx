@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import { pairDevice } from '../lib/pairing';
 import { useDeviceStore } from '../store/device';
 
-const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk' | undefined;
+const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk' | 'dashboard' | 'display' | undefined;
 
 const CODE_LENGTH = 6;
 

@@ -380,23 +380,9 @@ export default function DashboardHomeScreen() {
     }
   }
 
-  // ── Device heartbeat (revocation check) ────────────────────────
-  useEffect(() => {
-    // Initial check on mount, then every 60 seconds
-    checkHeartbeat().then(() => {
-      if (!useDeviceStore.getState().identity) {
-        router.replace('/pair');
-      }
-    });
-    const interval = setInterval(() => {
-      checkHeartbeat().then(() => {
-        if (!useDeviceStore.getState().identity) {
-          router.replace('/pair');
-        }
-      });
-    }, 60_000);
-    return () => clearInterval(interval);
-  }, []);
+  // Device heartbeat / revocation is handled globally by app/_layout.tsx.
+  // We do NOT duplicate it here — two concurrent router.replace('/pair') calls
+  // racing on the same navigation event cause a black screen in Expo Router.
 
   // Fetch stats on mount and then every 2 minutes
   useEffect(() => {
