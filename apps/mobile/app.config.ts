@@ -133,9 +133,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     fallbackToCacheTimeout: 5000,
     checkAutomatically: 'ON_LOAD',
   },
-  runtimeVersion: {
-    policy: 'sdkVersion',
-  },
+  runtimeVersion: '1.9.1',
   experiments: { typedRoutes: true },
   extra: {
     eas: { projectId: process.env['EAS_PROJECT_ID'] ?? '5f03d9c6-0120-4047-aa27-f71a823afa7b' },

@@ -11,7 +11,7 @@ export type TyroEnvironment = 'simulator' | 'test' | 'production';
 /* ------------------------------------------------------------------ */
 
 /**
- * Raw transactionCompleteCallback payload from the Tyro iClient SDK.
+ * Raw transactionCompleteCallback payload from the Tyro IClientWithUI SDK.
  * All fields are strings per the Tyro docs. Numeric amounts are in
  * CENTS as strings. Only {@link TyroTransactionResult.result} is
  * guaranteed to be present — the rest are best-effort.
@@ -20,47 +20,32 @@ export interface TyroTransactionResult {
   /** APPROVED, DECLINED, CANCELLED, REVERSED, SYSTEM ERROR, NOT STARTED, UNKNOWN */
   result: 'APPROVED' | 'DECLINED' | 'CANCELLED' | 'REVERSED' | 'SYSTEM ERROR' | 'NOT STARTED' | 'UNKNOWN' | string;
 
-  /** Tyro's reference for this transaction. Quote to Tyro support. */
   transactionReference?: string;
-  /** Scheme (Visa / Mastercard / etc.) authorisation code. */
   authorisationCode?: string;
-  /** Raw issuer action code. */
   issuerActionCode?: string;
-  /** Card scheme: Visa, Mastercard, Amex, Alipay, etc. */
   cardType?: string;
-  /** Elided PAN, e.g. "XXXXXXXXXXXX1111". */
   elidedPan?: string;
-  /** Retrieval Reference Number — unique per merchant for 7 days. */
   rrn?: string;
 
-  /** Purchase amount in cents. */
   baseAmount?: string;
-  /** Transaction total in cents. */
   transactionAmount?: string;
-  /** Surcharge amount in cents (if enableSurcharge was true). */
   surchargeAmount?: string;
-  /** Tip amount in cents (from a tip completion). */
   tipAmount?: string;
-  /** Cashout amount in cents. */
   cashoutAmount?: string;
 
-  /** Tyro's reference for a tip completion. */
   tipCompletionReference?: string;
-  /** Tyro's reference for a bar tab. */
   tabCompletionReference?: string;
-  /** Tyro's reference for a pre-auth. */
   preAuthCompletionReference?: string;
 
-  /** Card token (if requestCardToken was set). */
   cardToken?: string;
   cardTokenExpiryDate?: string;
   cardTokenStatusCode?: string;
   cardTokenErrorMessage?: string;
 
-  /** Integrated customer receipt (text, monospaced font expected). */
+  /** Integrated customer receipt text (monospaced font expected). */
   customerReceipt?: string;
 
-  /** Error message for SYSTEM ERROR results (our own bridge field). */
+  /** Error message for SYSTEM ERROR results (bridge field). */
   errorMessage?: string;
 
   [key: string]: string | undefined;
@@ -70,18 +55,7 @@ export interface TyroTransactionResult {
 /* Event payloads                                                      */
 /* ------------------------------------------------------------------ */
 
-export interface TyroStatusMessageEvent {
-  tag: string;
-  message: string;
-}
-
-export interface TyroQuestionEvent {
-  tag: string;
-  text: string;
-  options: string[];
-  isError: boolean;
-}
-
+/** Merchant receipt provided when integratedReceipt=true. */
 export interface TyroReceiptEvent {
   tag: string;
   signatureRequired: boolean;
@@ -118,15 +92,19 @@ export interface TyroLogEvent {
 /* ------------------------------------------------------------------ */
 
 interface TyroTTANative {
-  init(apiKey: string, vendor: string, productName: string, version: string, environment: string): void;
+  /** Create the IClientWithUI instance. Wait for onReady before transactions. */
+  init(apiKey: string, vendor: string, productName: string, version: string, siteReference: string, environment: string): void;
   isInitialized(): boolean;
 
+  /** Headless pairing — mandatory on Android 12+ before transactions. */
   pair(mid: string, tid: string): void;
 
+  /** Purchase — shows Tyro's WebView UI automatically. */
   purchase(amountCents: string, cashoutCents: string, integratedReceipt: boolean, enableSurcharge: boolean, transactionId: string): void;
+  /** Refund — shows Tyro's WebView UI automatically. */
   refund(amountCents: string, integratedReceipt: boolean, transactionId: string): void;
 
-  submitAnswer(answer: string): void;
+  /** Emergency cancel (Tyro's UI has its own cancel button in headful mode). */
   cancelTransaction(): void;
 
   openTab(amountCents: string, integratedReceipt: boolean): void;
@@ -156,7 +134,6 @@ const noop: TyroTTANative = {
   pair: () => {},
   purchase: () => {},
   refund: () => {},
-  submitAnswer: () => {},
   cancelTransaction: () => {},
   openTab: () => {},
   closeTab: () => {},
@@ -197,8 +174,6 @@ const emitter = Platform.OS === 'android' ? (() => {
 type TyroEventMap = {
   onReady: { ok: boolean };
   onInitError: TyroInitErrorEvent;
-  onStatusMessage: TyroStatusMessageEvent;
-  onQuestion: TyroQuestionEvent;
   onReceipt: TyroReceiptEvent;
   onTransactionComplete: TyroTransactionCompleteEvent;
   onResponse: TyroResponseEvent;
@@ -221,19 +196,23 @@ export function addTyroListener<K extends keyof TyroEventMap>(
 /* ------------------------------------------------------------------ */
 
 /**
- * Initialise the Tyro iClient SDK.
+ * Initialise the Tyro IClientWithUI SDK.
  * Wait for the `onReady` event before issuing transactions.
+ *
+ * @param siteReference  Optional site reference from Tyro portal.
  */
 export function initTyro(
   apiKey: string,
   environment: TyroEnvironment = 'simulator',
   posProductVersion = '1.0.0',
+  siteReference = '',
 ): void {
   TyroTTANativeModule.init(
     apiKey,
     'ElevatedPOS',
     'ElevatedPOS Mobile POS',
     posProductVersion,
+    siteReference,
     environment,
   );
 }
@@ -242,16 +221,14 @@ export function isTyroInitialized(): boolean {
   return TyroTTANativeModule.isInitialized();
 }
 
-/** Start the custom pairing flow. Result is streamed via onPairingStatus events. */
+/** Start the headless pairing flow. Result is streamed via onPairingStatus events. */
 export function pairTyro(mid: string, tid: string): void {
   TyroTTANativeModule.pair(mid, tid);
 }
 
 /**
  * Initiate a purchase.
- *
- * @param amountCents  Integer-string cents for the sale amount (NEVER a double).
- * @param opts         Optional extras.
+ * Tyro's WebView overlay appears automatically — no modal needed.
  */
 export function tyroPurchase(
   amountCents: string,
@@ -273,6 +250,7 @@ export function tyroPurchase(
 
 /**
  * Initiate a refund.
+ * Tyro's WebView overlay appears automatically — no modal needed.
  */
 export function tyroRefund(
   amountCents: string,
@@ -288,27 +266,22 @@ export function tyroRefund(
   );
 }
 
-/** Submit the merchant's answer to a pending question. */
-export function tyroAnswerQuestion(answer: string): void {
-  TyroTTANativeModule.submitAnswer(answer);
-}
-
-/** Cancel the currently running transaction. */
+/**
+ * Emergency cancel. In headful mode Tyro's iframe has its own cancel
+ * button — only call this if the WebView appears stuck.
+ */
 export function tyroCancelTransaction(): void {
   TyroTTANativeModule.cancelTransaction();
 }
 
-/** Open a bar tab. */
 export function tyroOpenTab(amountCents: string, integratedReceipt = true): void {
   TyroTTANativeModule.openTab(amountCents, integratedReceipt);
 }
 
-/** Close a previously opened bar tab. */
 export function tyroCloseTab(completionReference: string, amountCents: string): void {
   TyroTTANativeModule.closeTab(completionReference, amountCents);
 }
 
-/** Open pre-auth. */
 export function tyroOpenPreAuth(amountCents: string, integratedReceipt = true): void {
   TyroTTANativeModule.openPreAuth(amountCents, integratedReceipt);
 }
@@ -333,24 +306,32 @@ export function tyroVoidPreAuth(completionReference: string, integratedReceipt =
   TyroTTANativeModule.voidPreAuth(completionReference, integratedReceipt);
 }
 
-/** Add a tip to a completed purchase. */
 export function tyroAddTip(completionReference: string, tipCents: string): void {
   TyroTTANativeModule.addTip(completionReference, tipCents);
 }
 
-/** Trigger manual settlement (end-of-day close). */
 export function tyroManualSettlement(): void {
   TyroTTANativeModule.manualSettlement();
 }
 
-/** Fetch an integrated reconciliation report. */
 export function tyroReconciliationReport(reportType: 'txt' | 'xml' = 'txt', date = ''): void {
   TyroTTANativeModule.reconciliationReport(reportType, date);
 }
 
-/** Fetch the current pairing configuration (MID / TID / printer location). */
 export function tyroGetConfiguration(): void {
   TyroTTANativeModule.getConfiguration();
+}
+
+/* ------------------------------------------------------------------ */
+/* Transaction outcome type (shared with components)                   */
+/* ------------------------------------------------------------------ */
+
+export interface TyroTransactionOutcome {
+  result: TyroTransactionResult;
+  /** Merchant receipt text from receiptCallback (when integratedReceipt=true). */
+  merchantReceipt?: string;
+  /** Whether the terminal requested a merchant-copy signature. */
+  signatureRequired?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -358,32 +339,34 @@ export function tyroGetConfiguration(): void {
 /* ------------------------------------------------------------------ */
 
 /**
- * Run a transaction and resolve on the `onTransactionComplete` event.
- * Intermediate status/question/receipt events are forwarded to the
- * supplied callbacks so the caller can drive a React Native modal.
+ * Run a Tyro transaction and resolve when complete.
  *
- * The returned promise never rejects — errors are surfaced as
+ * In headful mode, Tyro's WebView overlay handles all in-flight UI.
+ * This helper wires up the onReceipt and onTransactionComplete listeners
+ * and resolves with the outcome once the SDK reports the final result.
+ *
+ * The returned promise never rejects — errors surface as
  * `{ result: 'SYSTEM ERROR', errorMessage }`.
  */
 export function runTyroTransaction(
   start: () => void,
-  handlers?: {
-    onStatusMessage?: (e: TyroStatusMessageEvent) => void;
-    onQuestion?: (e: TyroQuestionEvent) => void;
-    onReceipt?: (e: TyroReceiptEvent) => void;
-  },
-): Promise<TyroTransactionResult> {
-  return new Promise<TyroTransactionResult>((resolve) => {
+): Promise<TyroTransactionOutcome> {
+  return new Promise<TyroTransactionOutcome>((resolve) => {
+    let capturedReceipt: TyroReceiptEvent | undefined;
     const subs: Subscription[] = [];
     const cleanup = () => subs.forEach((s) => s.remove());
 
     subs.push(
-      addTyroListener('onStatusMessage', (e) => handlers?.onStatusMessage?.(e)),
-      addTyroListener('onQuestion', (e) => handlers?.onQuestion?.(e)),
-      addTyroListener('onReceipt', (e) => handlers?.onReceipt?.(e)),
+      addTyroListener('onReceipt', (e) => {
+        capturedReceipt = e;
+      }),
       addTyroListener('onTransactionComplete', (e) => {
         cleanup();
-        resolve(e.response ?? { result: 'UNKNOWN' });
+        resolve({
+          result: e.response ?? { result: 'UNKNOWN' },
+          merchantReceipt: capturedReceipt?.merchantReceipt,
+          signatureRequired: capturedReceipt?.signatureRequired,
+        });
       }),
     );
 
@@ -392,8 +375,10 @@ export function runTyroTransaction(
     } catch (err) {
       cleanup();
       resolve({
-        result: 'SYSTEM ERROR',
-        errorMessage: err instanceof Error ? err.message : String(err),
+        result: {
+          result: 'SYSTEM ERROR',
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
       });
     }
   });

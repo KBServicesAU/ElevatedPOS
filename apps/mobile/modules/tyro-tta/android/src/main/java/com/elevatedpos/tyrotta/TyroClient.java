@@ -1,29 +1,33 @@
 package com.elevatedpos.tyrotta;
 
 import android.annotation.SuppressLint;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.view.View;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * Host-side wrapper around the Tyro iClient JavaScript SDK.
+ * Host-side wrapper around the Tyro iClient JavaScript SDK (headful mode).
  *
- * The WebView loads a local HTML asset ({@code tyro-bridge.html}) that
- * pulls in {@code iclient-v1.js} from the appropriate Tyro environment
- * and exposes a small {@code window.tyroBridge} object the Java side can
- * drive via {@link WebView#evaluateJavascript(String, ValueCallback)}.
+ * The WebView loads {@code tyro-bridge.html} which pulls in
+ * {@code iclient-v1.js} from the Tyro environment and creates a
+ * {@code TYRO.IClientWithUI} instance. Tyro renders its own modal
+ * iframe inside the WebView — the POS app does not need to provide any
+ * transaction UI.
  *
- * All transaction callbacks (status / question / receipt / complete /
- * pairing) are routed back to Java via {@link #Android} (the bound
- * {@link JavascriptInterface}) and fan out to a single
- * {@link TyroEventListener}. That listener is implemented by
- * {@code TyroTTAModule} which fans out again to JavaScript as Expo
- * module events.
+ * Native → JS: {@link WebView#evaluateJavascript(String, ValueCallback)}
+ * JS → Native: the {@code Android} {@link JavascriptInterface} bound below
+ *
+ * The {@link TyroTTAModule} is responsible for making the WebView
+ * visible (fullscreen overlay) before a transaction starts and hiding it
+ * after {@code onTransactionComplete} fires.
  */
 public class TyroClient {
 
@@ -35,6 +39,7 @@ public class TyroClient {
 
     private String apiKey;
     private PosProductData posProductData;
+    private String siteReference;
     private boolean scriptReady = false;
     private boolean clientReady = false;
     private String pendingInitJs = null;
@@ -51,28 +56,26 @@ public class TyroClient {
     }
 
     /**
-     * Initialise the Tyro iClient. Loads the HTML bridge (if not already
-     * loaded) then calls {@code tyroBridge.init(...)} to create the
-     * {@code TYRO.IClient} instance. Callers should wait for the
-     * {@code onReady} event via {@link TyroEventListener#onReady()}
-     * before issuing transactions.
+     * Initialise Tyro IClientWithUI. Loads the bridge page then calls
+     * {@code tyroBridge.init(...)}. Wait for {@code onReady} before
+     * issuing transactions.
      */
-    public void init(String apiKey, PosProductData posProductData) {
+    public void init(String apiKey, PosProductData posProductData, String siteReference) {
         this.apiKey = apiKey;
         this.posProductData = posProductData;
+        this.siteReference = siteReference != null ? siteReference : "";
 
         final String scriptUrl = source.getUrl() + "/iclient-v1.js";
         final String initJs = String.format(
-                "window.tyroBridge && window.tyroBridge.init(%s,%s,%s,%s,%s);",
+                "window.tyroBridge && window.tyroBridge.init(%s,%s,%s,%s,%s,%s);",
                 jsString(apiKey),
                 jsString(posProductData.getPosProductVendor()),
                 jsString(posProductData.getPosProductName()),
                 jsString(posProductData.getPosProductVersion()),
+                jsString(this.siteReference),
                 jsString(scriptUrl)
         );
 
-        // If the bridge script hasn't loaded yet, stash the init call
-        // and run it from onScriptLoaded.
         if (!scriptReady) {
             this.pendingInitJs = initJs;
             webView.loadUrl(BRIDGE_URL);
@@ -109,10 +112,10 @@ public class TyroClient {
         ));
     }
 
-    public void submitAnswer(String answer) {
-        evalJs(String.format("window.tyroBridge.submitAnswer(%s);", jsString(answer)));
-    }
-
+    /**
+     * Emergency cancel — in headful mode Tyro's iframe provides its own
+     * cancel button. Only call this if the WebView is stuck.
+     */
     public void cancel() {
         evalJs("window.tyroBridge.cancel();");
     }
@@ -198,7 +201,6 @@ public class TyroClient {
     @JavascriptInterface
     public void onScriptLoaded(String json) {
         scriptReady = true;
-        // Fire any queued init call.
         if (pendingInitJs != null) {
             final String toRun = pendingInitJs;
             pendingInitJs = null;
@@ -216,23 +218,6 @@ public class TyroClient {
     public void onInitError(String json) {
         clientReady = false;
         if (listener != null) listener.onInitError(parseMessage(json));
-    }
-
-    @JavascriptInterface
-    public void onStatusMessage(String json) {
-        if (listener == null) return;
-        try {
-            JSONObject o = new JSONObject(json);
-            listener.onStatusMessage(o.optString("tag"), o.optString("message"));
-        } catch (JSONException e) {
-            listener.onStatusMessage("", json);
-        }
-    }
-
-    @JavascriptInterface
-    public void onQuestion(String json) {
-        if (listener == null) return;
-        listener.onQuestion(json);
     }
 
     @JavascriptInterface
@@ -271,11 +256,32 @@ public class TyroClient {
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     private void initialiseWebView(WebView webView) {
         webView.addJavascriptInterface(this, "Android");
-        webView.getSettings().setJavaScriptEnabled(true);
-        webView.getSettings().setDomStorageEnabled(true);
-        webView.getSettings().setDatabaseEnabled(true);
-        webView.getSettings().setAllowContentAccess(true);
-        webView.getSettings().setAllowFileAccess(true);
+
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setAllowContentAccess(true);
+        settings.setAllowFileAccess(true);
+        // Tyro's iframe loads from https://iclient.tyro.com. Allow the
+        // file:// host page to make cross-origin XHR/fetch if needed.
+        settings.setAllowUniversalAccessFromFileURLs(false);
+        // Required for Tyro's iframe to open popup windows (e.g. iOS-style
+        // prompts rendered as child windows on some SDK versions).
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setSupportMultipleWindows(true);
+        // Mixed-content: the host page is file:// but the iframe is https://.
+        // ALWAYS_ALLOW avoids grey-iframe issues on older Android builds.
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+
+        // Accept third-party cookies so the Tyro iframe can read its session
+        // cookies on Android < 12 (Android 12+ uses the headless pairing
+        // path which does not rely on third-party cookies).
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+
+        // Hardware layer for smooth Tyro UI rendering.
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
         webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient());
     }

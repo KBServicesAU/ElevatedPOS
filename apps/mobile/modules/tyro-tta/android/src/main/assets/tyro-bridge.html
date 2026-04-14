@@ -8,39 +8,52 @@
     html, body {
       margin: 0;
       padding: 0;
+      width: 100%;
+      height: 100%;
+      /* Transparent — Tyro IClientWithUI renders its own iframe UI inside
+         this WebView. The POS app never needs to supply transaction UI. */
       background: transparent;
-      color: #fff;
-      font-family: sans-serif;
     }
-    /* Hidden helper. The visible UI lives on the React Native side. */
-    #log { display: none; }
   </style>
 </head>
 <body>
-  <div id="log"></div>
 
   <!--
-    Tyro iClient JavaScript SDK.
+    Tyro iClient JavaScript SDK (headful / IClientWithUI mode).
     The correct URL is swapped in at runtime by injected JS before
     calling tyroBridge.init(), so we can switch between:
       - https://iclient.tyro.com          (production)
       - https://iclient.test.tyro.com     (pre-prod, physical terminal)
       - https://iclientsimulator.test.tyro.com (simulator, no terminal)
+
+    Headful mode: TYRO.IClientWithUI renders its own modal iframe inside
+    this WebView. The POS side only receives receiptCallback and
+    transactionCompleteCallback — all status messages, questions, and
+    cancel/confirm prompts are handled by Tyro's built-in UI.
+
+    Pairing still uses the headless pairTerminal() method (mandatory for
+    Android 12+ where third-party cookies are blocked for headless flows).
   -->
   <script>
     // ================================================================
-    // TYRO BRIDGE
+    // TYRO HEADFUL BRIDGE (IClientWithUI)
     // ================================================================
-    // This page is loaded inside a native WebView. It wraps the Tyro
-    // iClient JS SDK and exposes a simple JSON bridge back to the
-    // native Android host via window.Android (addJavascriptInterface).
     //
     // Native -> JS: evaluateJavascript("tyroBridge.xxx(...)")
     // JS -> Native: window.Android.xxx(jsonString)
     //
-    // All callbacks (status / question / receipt / transaction
-    // complete / pairing) are forwarded to the native host where a
-    // React Native modal renders the UI.
+    // Callbacks forwarded to native:
+    //   onReady              — IClientWithUI instantiated
+    //   onInitError          — script load or constructor failure
+    //   onReceipt            — merchant receipt text (when integratedReceipt=true)
+    //   onTransactionComplete — final result (APPROVED / DECLINED / etc.)
+    //   onResponse           — settlement / report / tip / closeTab / etc.
+    //   onPairingStatus      — pairing success / failure / inProgress
+    //   onScriptLoaded       — DOM ready, awaiting tyroBridge.init()
+    //   log                  — diagnostic strings
+    //
+    // NOTE: statusMessageCallback and questionCallback are handled by
+    // Tyro's own iframe UI — we do NOT forward them to native.
     // ================================================================
 
     (function () {
@@ -50,9 +63,6 @@
         posProduct: null,
         scriptLoaded: false,
         scriptUrl: null,
-        // Keep answer callbacks around keyed by a uid so native can
-        // respond to a question with the merchant's chosen option.
-        pendingAnswer: null,
       };
 
       // --------------------------------------------------------------
@@ -70,7 +80,6 @@
           var json = (typeof payload === 'string') ? payload : JSON.stringify(payload || {});
           n[method](json);
         } catch (e) {
-          // Swallow – don't let bridge errors kill a transaction.
           try { var n2 = native(); if (n2 && n2.log) n2.log('bridge send failed: ' + (e && e.message)); } catch (e2) {}
         }
       }
@@ -84,7 +93,7 @@
       // --------------------------------------------------------------
 
       function loadTyroScript(scriptUrl, done) {
-        if (state.scriptLoaded && window.TYRO && window.TYRO.IClient) {
+        if (state.scriptLoaded && window.TYRO && window.TYRO.IClientWithUI) {
           done(null);
           return;
         }
@@ -94,8 +103,8 @@
         s.src = scriptUrl;
         s.onload = function () {
           state.scriptLoaded = true;
-          if (window.TYRO && window.TYRO.IClient) done(null);
-          else done(new Error('TYRO.IClient not defined after script load'));
+          if (window.TYRO && window.TYRO.IClientWithUI) done(null);
+          else done(new Error('TYRO.IClientWithUI not defined after script load'));
         };
         s.onerror = function () {
           done(new Error('Failed to load ' + scriptUrl));
@@ -104,27 +113,13 @@
       }
 
       // --------------------------------------------------------------
-      // Callback factory – builds the transactionCallbacks object that
-      // Tyro's IClient expects for initiatePurchase / initiateRefund /
-      // openTab / closeTab / etc.
+      // Callback factory — headful mode only needs receipt + complete.
+      // All in-flight UI (status messages, questions, cancel) is handled
+      // by Tyro's built-in iframe overlay.
       // --------------------------------------------------------------
 
       function buildCallbacks(tag) {
         return {
-          statusMessageCallback: function (message) {
-            send('onStatusMessage', { tag: tag, message: String(message || '') });
-          },
-          questionCallback: function (question, answerCallback) {
-            // Keep the latest answer callback around for submitAnswer().
-            state.pendingAnswer = answerCallback;
-            send('onQuestion', {
-              tag: tag,
-              text: (question && question.text) || '',
-              options: (question && question.options) || [],
-              // isError / type can be set by newer SDK versions
-              isError: !!(question && question.isError),
-            });
-          },
           receiptCallback: function (receipt) {
             send('onReceipt', {
               tag: tag,
@@ -133,27 +128,26 @@
             });
           },
           transactionCompleteCallback: function (response) {
-            // Clear any dangling answer callback.
-            state.pendingAnswer = null;
             send('onTransactionComplete', { tag: tag, response: response || {} });
           },
         };
       }
 
       // --------------------------------------------------------------
-      // Public API – called by native via evaluateJavascript
+      // Public API — called by native via evaluateJavascript
       // --------------------------------------------------------------
 
       var api = {
         /**
-         * Load the Tyro iClient script and create an IClient instance.
+         * Load the Tyro iClient script and create an IClientWithUI instance.
          * @param apiKey         String - Tyro-provided API key
          * @param posVendor      String - e.g. "ElevatedPOS"
          * @param posName        String - e.g. "ElevatedPOS Mobile POS"
-         * @param posVersion     String - e.g. "1.0.0"
+         * @param posVersion     String - e.g. "1.9.1"
+         * @param siteReference  String - site reference from Tyro portal (may be empty)
          * @param scriptUrl      String - full URL to iclient-v1.js
          */
-        init: function (apiKey, posVendor, posName, posVersion, scriptUrl) {
+        init: function (apiKey, posVendor, posName, posVersion, siteReference, scriptUrl) {
           try {
             state.apiKey = apiKey;
             state.scriptUrl = scriptUrl;
@@ -162,13 +156,17 @@
               posProductName: posName || 'ElevatedPOS Mobile POS',
               posProductVersion: posVersion || '1.0.0',
             };
+            // siteReference is optional but included if provided
+            if (siteReference) {
+              state.posProduct.siteReference = siteReference;
+            }
             loadTyroScript(scriptUrl, function (err) {
               if (err) {
                 send('onInitError', { message: err.message || String(err) });
                 return;
               }
               try {
-                state.client = new window.TYRO.IClient(apiKey, state.posProduct);
+                state.client = new window.TYRO.IClientWithUI(apiKey, state.posProduct);
                 send('onReady', { ok: true });
               } catch (e) {
                 send('onInitError', { message: (e && e.message) || String(e) });
@@ -180,8 +178,9 @@
         },
 
         /**
-         * Start a custom pairing flow. Result is streamed via
-         * onPairingStatus events with { status, message, integrationKey? }.
+         * Headless pairing — mandatory on Android 12+ where third-party
+         * cookies are unavailable for the headless transaction flow.
+         * Result is streamed via onPairingStatus events.
          */
         pair: function (mid, tid) {
           try {
@@ -198,10 +197,8 @@
         },
 
         /**
-         * Initiate a purchase. Amount is cents as a string (integer-only).
-         * cashout is cents as a string, or "" for none.
-         * integratedReceipt true = POS prints; false = terminal prints.
-         * enableSurcharge true = let Tyro apply card surcharge.
+         * Initiate a purchase.
+         * Tyro's iframe UI will appear inside this WebView automatically.
          */
         purchase: function (amountCents, cashoutCents, integratedReceipt, enableSurcharge, transactionId) {
           try {
@@ -224,6 +221,7 @@
 
         /**
          * Initiate a refund.
+         * Tyro's iframe UI will appear inside this WebView automatically.
          */
         refund: function (amountCents, integratedReceipt, transactionId) {
           try {
@@ -243,23 +241,9 @@
         },
 
         /**
-         * Submit the merchant's answer to the most recent question
-         * (e.g. "Approve with Signature?" -> "YES").
-         */
-        submitAnswer: function (answer) {
-          try {
-            var cb = state.pendingAnswer;
-            if (typeof cb === 'function') {
-              cb(String(answer || ''));
-            }
-          } catch (e) {
-            send('log', 'submitAnswer error: ' + ((e && e.message) || String(e)));
-          }
-        },
-
-        /**
-         * Cancel the currently running transaction. Tyro will send a
-         * question asking the merchant to confirm the cancel.
+         * Cancel the currently running transaction.
+         * In headful mode this is a safety-valve — Tyro's UI provides
+         * its own cancel button. Only call this if the WebView is stuck.
          */
         cancel: function () {
           try {
@@ -267,13 +251,11 @@
               state.client.cancelCurrentTransaction();
             }
           } catch (e) {
-            send('log', 'cancel error: ' + ((e && e.message) || String(e)));
+            log('cancel error: ' + ((e && e.message) || String(e)));
           }
         },
 
-        /**
-         * Open a bar tab (pre-auth style).
-         */
+        /** Open a bar tab (pre-auth style). */
         openTab: function (amountCents, integratedReceipt) {
           try {
             if (!state.client) { send('onTransactionComplete', { tag: 'openTab', response: { result: 'SYSTEM ERROR', errorMessage: 'Tyro not initialized' } }); return; }
@@ -286,9 +268,7 @@
           }
         },
 
-        /**
-         * Close a bar tab. completionReference is returned by openTab.
-         */
+        /** Close a bar tab. completionReference is returned by openTab. */
         closeTab: function (completionReference, amountCents) {
           try {
             if (!state.client) { send('onResponse', { tag: 'closeTab', response: { result: 'failure', message: 'Tyro not initialized' } }); return; }
@@ -300,9 +280,7 @@
           }
         },
 
-        /**
-         * Open pre-auth.
-         */
+        /** Open pre-auth. */
         openPreAuth: function (amountCents, integratedReceipt) {
           try {
             if (!state.client) { send('onTransactionComplete', { tag: 'openPreAuth', response: { result: 'SYSTEM ERROR', errorMessage: 'Tyro not initialized' } }); return; }
@@ -315,9 +293,7 @@
           }
         },
 
-        /**
-         * Increment pre-auth by a given amount.
-         */
+        /** Increment pre-auth. */
         incrementPreAuth: function (completionReference, amountCents, integratedReceipt) {
           try {
             if (!state.client) { send('onTransactionComplete', { tag: 'incrementPreAuth', response: { result: 'SYSTEM ERROR', errorMessage: 'Tyro not initialized' } }); return; }
@@ -334,9 +310,7 @@
           }
         },
 
-        /**
-         * Complete (close) pre-auth with a final amount.
-         */
+        /** Complete (close) pre-auth with a final amount. */
         completePreAuth: function (completionReference, amountCents, integratedReceipt) {
           try {
             if (!state.client) { send('onResponse', { tag: 'completePreAuth', response: { result: 'failure', message: 'Tyro not initialized' } }); return; }
@@ -351,9 +325,7 @@
           }
         },
 
-        /**
-         * Void a pre-auth.
-         */
+        /** Void a pre-auth. */
         voidPreAuth: function (completionReference, integratedReceipt) {
           try {
             if (!state.client) { send('onResponse', { tag: 'voidPreAuth', response: { result: 'failure', message: 'Tyro not initialized' } }); return; }
@@ -367,9 +339,7 @@
           }
         },
 
-        /**
-         * Add a tip to a completed purchase.
-         */
+        /** Add a tip to a completed purchase. */
         addTip: function (completionReference, tipCents) {
           try {
             if (!state.client) { send('onResponse', { tag: 'addTip', response: { result: 'failure', message: 'Tyro not initialized' } }); return; }
@@ -383,9 +353,7 @@
           }
         },
 
-        /**
-         * Trigger manual settlement (end-of-day close).
-         */
+        /** Trigger manual settlement (end-of-day close). */
         manualSettlement: function () {
           try {
             if (!state.client) { send('onResponse', { tag: 'settlement', response: { result: 'failure', message: 'Tyro not initialized' } }); return; }
@@ -397,10 +365,7 @@
           }
         },
 
-        /**
-         * Integrated reconciliation report.
-         * reportType: 'txt' or 'xml'
-         */
+        /** Integrated reconciliation report. reportType: 'txt' or 'xml' */
         reconciliationReport: function (reportType, date) {
           try {
             if (!state.client) { send('onResponse', { tag: 'report', response: { result: 'failure', message: 'Tyro not initialized' } }); return; }
@@ -415,9 +380,7 @@
           }
         },
 
-        /**
-         * Get current pairing configuration (MID / TID).
-         */
+        /** Get current pairing configuration (MID / TID). */
         getConfiguration: function () {
           try {
             if (!state.client) { send('onResponse', { tag: 'config', response: { result: 'failure', message: 'Tyro not initialized' } }); return; }
@@ -430,10 +393,8 @@
         },
       };
 
-      // Expose under window.tyroBridge
       window.tyroBridge = api;
 
-      // Tell native we're ready to receive init()
       try { send('onScriptLoaded', { ok: true }); } catch (e) {}
     })();
   </script>
