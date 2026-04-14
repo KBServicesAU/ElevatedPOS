@@ -25,6 +25,7 @@ export async function organisationRoutes(app: FastifyInstance) {
       id: org.id,
       slug: org.slug,
       name: org.name,
+      accountNumber: org.accountNumber ?? null,
       industry: org.industry ?? null,
       featureFlags: (org.featureFlags as Record<string, boolean> | null) ?? null,
       billingModel: org.billingModel ?? 'legacy',

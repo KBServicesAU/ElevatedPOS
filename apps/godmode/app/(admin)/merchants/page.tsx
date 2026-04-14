@@ -9,6 +9,7 @@ interface Org {
   id: string;
   name: string;
   slug: string;
+  accountNumber: string | null;
   plan: string;
   maxLocations: number;
   maxDevices: number;
@@ -161,7 +162,7 @@ export default function MerchantsPage() {
             type="text"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-            placeholder="Search by name..."
+            placeholder="Search by name, slug or account number…"
             className="w-full bg-[#111118] border border-[#1e1e2e] rounded px-4 py-2 pl-9 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-indigo-500"
           />
         </div>
@@ -182,6 +183,7 @@ export default function MerchantsPage() {
           <thead>
             <tr className="border-b border-[#1e1e2e]">
               <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">Business Name</th>
+              <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">Account #</th>
               <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">Plan</th>
               <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">ElevatedPOS Pay</th>
               <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">Max Locations</th>
@@ -194,11 +196,11 @@ export default function MerchantsPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-6 py-8 text-center text-gray-600">Loading...</td>
+                <td colSpan={9} className="px-6 py-8 text-center text-gray-600">Loading...</td>
               </tr>
             ) : orgs.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-6 py-8 text-center text-gray-600">No merchants found</td>
+                <td colSpan={9} className="px-6 py-8 text-center text-gray-600">No merchants found</td>
               </tr>
             ) : (
               orgs.map((org) => (
@@ -208,6 +210,11 @@ export default function MerchantsPage() {
                       <p className="text-white font-medium">{org.name}</p>
                       <p className="text-gray-600 text-xs">{org.slug}</p>
                     </div>
+                  </td>
+                  <td className="px-6 py-3">
+                    <span className="font-mono text-xs text-gray-300 tracking-widest">
+                      {org.accountNumber ?? '—'}
+                    </span>
                   </td>
                   <td className="px-6 py-3">
                     <span className={`px-2 py-0.5 rounded border text-xs font-medium ${planBadgeColor(org.plan)}`}>

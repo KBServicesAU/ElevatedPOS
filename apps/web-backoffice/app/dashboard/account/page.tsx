@@ -12,6 +12,8 @@ import {
   Lock,
   Eye,
   EyeOff,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useToast } from '@/lib/use-toast';
 
@@ -27,6 +29,12 @@ interface SessionMe {
 
 interface OrgSettings {
   businessName?: string;
+}
+
+interface OrgMe {
+  accountNumber?: string | null;
+  slug?: string;
+  name?: string;
 }
 
 function formatMemberSince(dateStr?: string): string {
@@ -168,20 +176,51 @@ function ChangePasswordSection() {
   );
 }
 
+// ─── Copy button ─────────────────────────────────────────────────────────────
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => undefined);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+      aria-label="Copy account number"
+    >
+      {copied ? (
+        <><Check className="w-3 h-3" /> Copied</>
+      ) : (
+        <><Copy className="w-3 h-3" /> Copy</>
+      )}
+    </button>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AccountPage() {
   const [me, setMe] = useState<SessionMe | null>(null);
   const [orgSettings, setOrgSettings] = useState<OrgSettings | null>(null);
+  const [orgMe, setOrgMe] = useState<OrgMe | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       fetch('/api/auth/me').then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch('/api/proxy/settings/organisation').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-    ]).then(([meData, orgData]: [SessionMe | null, OrgSettings | null]) => {
+      fetch('/api/proxy/organisations/me').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([meData, orgData, orgMeData]: [SessionMe | null, OrgSettings | null, OrgMe | null]) => {
       setMe(meData);
       setOrgSettings(orgData);
+      setOrgMe(orgMeData);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -200,10 +239,8 @@ export default function AccountPage() {
     );
   }
 
-  const accountNumber = me?.orgId
-    ? `EPS-${me.orgId.slice(0, 8).toUpperCase()}`
-    : 'EPS---------';
-  const businessName = orgSettings?.businessName || 'Your Business';
+  const accountNumber = orgMe?.accountNumber ?? null;
+  const businessName = orgSettings?.businessName || orgMe?.name || 'Your Business';
   const fullName =
     [me?.firstName, me?.lastName].filter(Boolean).join(' ') || 'Account Owner';
   const email = me?.email ?? '';
@@ -228,20 +265,32 @@ export default function AccountPage() {
           </h2>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Account Number */}
-          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Hash className="w-3 h-3 text-gray-400" />
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Account Number
-              </p>
-            </div>
-            <p className="text-sm font-mono font-semibold text-gray-900 dark:text-white">
-              {accountNumber}
+        {/* Account Number — full-width, prominent */}
+        <div className="mb-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700/50 rounded-xl p-4">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Hash className="w-3.5 h-3.5 text-indigo-500" />
+            <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+              Account Number
             </p>
           </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {accountNumber ? (
+              <>
+                <p className="text-2xl font-mono font-bold text-gray-900 dark:text-white tracking-widest">
+                  {accountNumber}
+                </p>
+                <CopyButton text={accountNumber} />
+              </>
+            ) : (
+              <p className="text-sm text-gray-400 italic">Generating…</p>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+            Quote this number when contacting our support team.
+          </p>
+        </div>
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Business Name */}
           <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
             <div className="flex items-center gap-1.5 mb-1">

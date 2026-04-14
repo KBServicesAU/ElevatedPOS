@@ -147,6 +147,7 @@ export async function platformRoutes(app: FastifyInstance) {
         or(
           ilike(schema.organisations.name, `%${q.search}%`),
           ilike(schema.organisations.slug, `%${q.search}%`),
+          ilike(schema.organisations.accountNumber, `%${q.search}%`),
         ) as SQL,
       );
     }
@@ -163,6 +164,7 @@ export async function platformRoutes(app: FastifyInstance) {
           id: schema.organisations.id,
           name: schema.organisations.name,
           slug: schema.organisations.slug,
+          accountNumber: schema.organisations.accountNumber,
           plan: schema.organisations.plan,
           maxLocations: schema.organisations.maxLocations,
           maxDevices: schema.organisations.maxDevices,

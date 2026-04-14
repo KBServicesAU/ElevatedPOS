@@ -1,7 +1,7 @@
 import {
   pgTable, uuid, text, varchar, boolean, timestamp, jsonb, integer, numeric, pgEnum, date, index, uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 export const organisationPlanEnum = pgEnum('organisation_plan', ['starter', 'growth', 'pro', 'enterprise', 'custom']);
 export const organisationPlanStatusEnum = pgEnum('organisation_plan_status', ['trialing', 'active', 'past_due', 'cancelled', 'paused']);
@@ -53,6 +53,11 @@ export const organisations = pgTable('organisations', {
   businessAddress: jsonb('business_address').default({}),
   websiteUrl: varchar('website_url', { length: 500 }),
   billingEmail: varchar('billing_email', { length: 255 }),
+  // 9-digit zero-padded sequential account number (e.g. "000000001")
+  accountNumber: varchar('account_number', { length: 9 })
+    .notNull()
+    .unique()
+    .default(sql`LPAD(nextval('org_account_number_seq')::text, 9, '0')`),
   // Per-device billing (new model)
   billingModel: varchar('billing_model', { length: 20 }).notNull().default('legacy'), // 'legacy' | 'per_device'
   subscriptionStatus: subscriptionStatusEnum('subscription_status').notNull().default('incomplete'),
