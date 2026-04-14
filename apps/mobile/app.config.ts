@@ -95,6 +95,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     './plugins/withCleartextTraffic',
+    './plugins/withGradleWrapper',
     './plugins/withUsbPrinter',
     './plugins/withUsbPrinterPatch',
     './plugins/withTimApiBridge',
