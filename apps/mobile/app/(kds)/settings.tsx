@@ -49,6 +49,11 @@ export interface KdsSettings {
   soundEnabled: boolean;
   /** Which beep to play for new orders */
   beepType: BeepType;
+  /**
+   * Seconds between repeated beeps while there are pending tickets.
+   * null = only beep once when the ticket first arrives (original behaviour).
+   */
+  beepIntervalSeconds: number | null;
   /** Custom display name for this KDS station */
   stationName: string;
   /** Default view mode */
@@ -74,6 +79,7 @@ const BEEP_LABELS: Record<BeepType, string> = {
 const DEFAULT_SETTINGS: KdsSettings = {
   soundEnabled: true,
   beepType: 'ding',
+  beepIntervalSeconds: null,
   stationName: '',
   viewMode: 'station',
   itemsPerRow: 3,
@@ -305,6 +311,38 @@ export default function KDSSettingsScreen() {
                           <Ionicons name="play" size={12} color="#888" />
                         </TouchableOpacity>
                       </View>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* K5 — Repeat alert interval */}
+              <View style={s.divider} />
+              <View style={[s.row, { flexDirection: 'column', alignItems: 'flex-start', paddingVertical: 12 }]}>
+                <Text style={[s.rowLabel, { marginBottom: 4 }]}>Repeat Alert</Text>
+                <Text style={[s.rowLabel, { fontSize: 11, color: '#64748b', fontWeight: '400', marginBottom: 10 }]}>
+                  Re-beep while there are pending orders
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  {([
+                    { label: 'Off',  value: null },
+                    { label: '15 s', value: 15 },
+                    { label: '30 s', value: 30 },
+                    { label: '1 min', value: 60 },
+                    { label: '2 min', value: 120 },
+                  ] as { label: string; value: number | null }[]).map((opt) => {
+                    const active = settings.beepIntervalSeconds === opt.value;
+                    return (
+                      <TouchableOpacity
+                        key={String(opt.value)}
+                        style={[s.beepOption, active && s.beepOptionActive]}
+                        onPress={() => updateSetting('beepIntervalSeconds', opt.value)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[s.beepOptionText, active && s.beepOptionTextActive]}>
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
                     );
                   })}
                 </View>

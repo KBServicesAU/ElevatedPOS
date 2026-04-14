@@ -522,6 +522,44 @@ export default function KDSScreen() {
     prevTicketIdsRef.current = currentIds;
   }, [tickets, soundEnabled, kdsSettings]);
 
+  // K5 — Repeating beep while there are pending tickets.
+  // Fires every `beepIntervalSeconds` seconds as long as:
+  //   • kdsSettings.beepIntervalSeconds is not null
+  //   • sound is enabled
+  //   • there is at least one pending ticket
+  const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    // Clear any existing interval first
+    if (beepIntervalRef.current !== null) {
+      clearInterval(beepIntervalRef.current);
+      beepIntervalRef.current = null;
+    }
+
+    const intervalSecs = kdsSettings?.beepIntervalSeconds ?? null;
+    const soundOn = kdsSettings ? kdsSettings.soundEnabled : soundEnabled;
+
+    if (intervalSecs === null || !soundOn || tickets.length === 0) return;
+
+    beepIntervalRef.current = setInterval(() => {
+      if (useDeviceStore.getState().identity === null) return; // safety
+      (async () => {
+        try {
+          const beepType = kdsSettings?.beepType ?? 'ding';
+          const uri = BEEP_URLS[beepType];
+          const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
+          setTimeout(() => sound.unloadAsync(), 3000);
+        } catch { /* non-critical */ }
+      })();
+    }, intervalSecs * 1000);
+
+    return () => {
+      if (beepIntervalRef.current !== null) {
+        clearInterval(beepIntervalRef.current);
+        beepIntervalRef.current = null;
+      }
+    };
+  }, [tickets.length, kdsSettings?.beepIntervalSeconds, kdsSettings?.soundEnabled, kdsSettings?.beepType, soundEnabled]);
+
   // Filtered tickets by station
   const visibleTickets = useMemo(() => {
     if (activeStation === 'all') return tickets;
