@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
-  Building, MapPin, Printer as PrinterIcon, Receipt, CreditCard, Bell, Plug,
+  Building, MapPin, Printer as PrinterIcon, Receipt, Bell, Plug,
   Plus, Trash2, Check, X, ChevronRight, ToggleLeft, ToggleRight,
   Upload, Globe, Clock, Calendar, Percent, Loader2,
   Smartphone,
@@ -27,7 +27,7 @@ interface TaxRate {
   percent: number;
 }
 
-type Tab = 'organisation' | 'locations' | 'hours' | 'receipts' | 'tax' | 'payments' | 'notifications' | 'devices' | 'printers';
+type Tab = 'organisation' | 'locations' | 'hours' | 'receipts' | 'tax' | 'notifications' | 'devices' | 'printers';
 
 // ─── Toggle Switch ────────────────────────────────────────────────────────────
 
@@ -683,31 +683,6 @@ function TaxTab() {
   );
 }
 
-// ─── Payments Tab ─────────────────────────────────────────────────────────────
-// All payment settings have been consolidated into /dashboard/payments.
-// This tab now redirects there.
-
-function PaymentsTab() {
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-8 text-center dark:border-gray-800 dark:bg-gray-900">
-      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-900/20">
-        <CreditCard className="h-7 w-7 text-indigo-600 dark:text-indigo-400" />
-      </div>
-      <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-white">Payment settings have moved</h3>
-      <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
-        Payment methods, terminals (Tyro, ANZ Worldline, Stripe), compliance settings,
-        and Stripe Connect are all in one place.
-      </p>
-      <a
-        href="/dashboard/payments"
-        className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
-      >
-        Go to Payment &amp; Connect →
-      </a>
-    </div>
-  );
-}
-
 // ─── Notifications Tab ────────────────────────────────────────────────────────
 
 function NotificationsTab() {
@@ -973,7 +948,6 @@ const TABS: { id: Tab; label: string; icon: React.ElementType; href?: string }[]
   { id: 'hours', label: 'Trading Hours', icon: Clock },
   { id: 'receipts', label: 'Receipts', icon: PrinterIcon },
   { id: 'tax', label: 'Tax / GST', icon: Receipt },
-  { id: 'payments', label: 'Payments & Connect', icon: CreditCard },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'devices', label: 'Devices', icon: Smartphone, href: '/dashboard/settings/devices' },
   { id: 'printers', label: 'Printers', icon: PrinterIcon, href: '/dashboard/settings/printers' },
@@ -1027,7 +1001,6 @@ export default function SettingsPage() {
         {activeTab === 'hours' && <TradingHoursTab />}
         {activeTab === 'receipts' && <ReceiptsTab />}
         {activeTab === 'tax' && <TaxTab />}
-        {activeTab === 'payments' && <PaymentsTab />}
         {activeTab === 'notifications' && <NotificationsTab />}
       </div>
     </div>
