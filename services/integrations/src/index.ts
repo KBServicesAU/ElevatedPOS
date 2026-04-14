@@ -10,6 +10,7 @@ import { connectorRoutes } from './routes/connectors';
 import { connectRoutes } from './routes/connect';
 import { connectExtendedRoutes } from './routes/connect-extended';
 import { stripeWebhookRoutes } from './routes/stripe-webhook';
+import { terminalHardwareRoutes } from './routes/terminal-hardware';
 import { startRetryPoller } from './lib/webhookDelivery';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
@@ -60,6 +61,7 @@ async function start() {
   await app.register(connectRoutes, { prefix: '/api/v1' });
   await app.register(connectExtendedRoutes, { prefix: '/api/v1' });
   await app.register(stripeWebhookRoutes, { prefix: '/api/v1' });
+  await app.register(terminalHardwareRoutes, { prefix: '/api/v1' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'integrations' }));
 

@@ -143,13 +143,85 @@ async function handleEvent(event: Stripe.Event) {
       break;
     }
 
+    // Invoice finalised — draft → open (ready to be sent / paid)
+    case 'invoice.finalized': {
+      const inv = event.data.object as Stripe.Invoice;
+      const invoiceId = (inv as { id?: string }).id;
+      if (!invoiceId) break;
+      await db
+        .update(stripeInvoices)
+        .set({ status: 'open', updatedAt: new Date() })
+        .where(eq(stripeInvoices.stripeInvoiceId, invoiceId));
+      break;
+    }
+
+    // Invoice voided by the merchant
+    case 'invoice.voided': {
+      const inv = event.data.object as Stripe.Invoice;
+      const invoiceId = (inv as { id?: string }).id;
+      if (!invoiceId) break;
+      await db
+        .update(stripeInvoices)
+        .set({ status: 'void', updatedAt: new Date() })
+        .where(eq(stripeInvoices.stripeInvoiceId, invoiceId));
+      break;
+    }
+
+    // Invoice written off as uncollectible
+    case 'invoice.marked_uncollectible': {
+      const inv = event.data.object as Stripe.Invoice;
+      const invoiceId = (inv as { id?: string }).id;
+      if (!invoiceId) break;
+      await db
+        .update(stripeInvoices)
+        .set({ status: 'uncollectible', updatedAt: new Date() })
+        .where(eq(stripeInvoices.stripeInvoiceId, invoiceId));
+      break;
+    }
+
+    // ── Subscriptions: trial ending soon ─────────────────────────────────────
+    // Fired 3 days before trial ends — forward to notifications service so the
+    // merchant can send a heads-up email to their customer.
+    case 'customer.subscription.trial_will_end': {
+      const sub = event.data.object as Stripe.Subscription;
+      const NOTIFICATIONS_API = process.env['NOTIFICATIONS_API_URL'] ?? 'http://localhost:4009';
+      try {
+        await fetch(`${NOTIFICATIONS_API}/api/v1/notifications/internal/trial-ending`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscriptionId: sub.id,
+            customerId: typeof sub.customer === 'string' ? sub.customer : sub.customer?.id,
+            trialEnd: (sub as unknown as { trial_end: number }).trial_end,
+          }),
+        });
+      } catch { /* non-fatal — notifications service may be offline */ }
+      break;
+    }
+
+    // ── Disputes ──────────────────────────────────────────────────────────────
+    case 'charge.dispute.created':
+    case 'charge.dispute.updated':
+    case 'charge.dispute.closed':
+    case 'charge.dispute.funds_withdrawn':
+    case 'charge.dispute.funds_reinstated':
+      // Disputes are surfaced via the embedded 'payments' component in the
+      // dashboard. Log here for audit; future: notify the merchant via push.
+      break;
+
     // ── Payments ──────────────────────────────────────────────────────────────
     case 'payment_intent.succeeded':
     case 'payment_intent.payment_failed':
     case 'payment_intent.canceled':
-    case 'charge.refunded':
-    case 'charge.dispute.created':
       // Logged above — future: forward to orders service or notify merchant
+      break;
+
+    case 'charge.refunded':
+      // Logged — future: update orders service with refund status
+      break;
+
+    case 'charge.succeeded':
+      // Logged — future: forward to notifications/orders
       break;
 
     // ── Payouts ───────────────────────────────────────────────────────────────
@@ -157,9 +229,13 @@ async function handleEvent(event: Stripe.Event) {
     case 'payout.paid':
     case 'payout.failed':
     case 'payout.canceled':
-    // ── Charges ───────────────────────────────────────────────────────────────
-    case 'charge.succeeded':
-      // Logged by the outer handler — future: forward to notifications/orders
+      // Logged — surfaced via the 'payouts' embedded component
+      break;
+
+    // ── Terminal hardware ─────────────────────────────────────────────────────
+    case 'terminal.reader.action_succeeded':
+    case 'terminal.reader.action_failed':
+      // Logged — POS devices handle their own terminal state machines
       break;
 
     default:

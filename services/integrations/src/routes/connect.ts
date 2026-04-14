@@ -303,8 +303,19 @@ export async function connectRoutes(app: FastifyInstance) {
 
     const session = await stripe.accountSessions.create({
       account: accountId,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       components: {
+        // ── Core account ────────────────────────────────────────────────────────
         account_onboarding: { enabled: true },
+        account_management: {
+          enabled: true,
+          features: { external_account_collection: true },
+        },
+        notification_banner: {
+          enabled: true,
+          features: { external_account_collection: true },
+        },
+        // ── Payments & disputes ─────────────────────────────────────────────────
         payments: {
           enabled: true,
           features: {
@@ -313,6 +324,7 @@ export async function connectRoutes(app: FastifyInstance) {
             capture_payments: true,
           },
         },
+        // ── Payouts & balance ───────────────────────────────────────────────────
         payouts: {
           enabled: true,
           features: {
@@ -329,7 +341,12 @@ export async function connectRoutes(app: FastifyInstance) {
             edit_payout_schedule: true,
           },
         },
-      },
+        // ── Reporting & financing (cast: may not be in SDK types for this API version) ──
+        ...({
+          reporting_chart: { enabled: true },
+          capital_overview: { enabled: true },
+        } as Record<string, unknown>),
+      } as Parameters<typeof stripe.accountSessions.create>[0]['components'],
     });
 
     return reply.send({ clientSecret: session.client_secret });

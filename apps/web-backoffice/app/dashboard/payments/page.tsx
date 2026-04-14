@@ -23,6 +23,7 @@ import {
   CreditCard, Save, RefreshCw, CheckCircle,
   AlertCircle, XCircle, Loader2, Info,
   Zap, Link2Off, DollarSign, Percent,
+  Monitor, Trash2, Plus, Package, MapPin, Image, ShoppingCart,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
@@ -53,13 +54,14 @@ const darkInputCls =
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
-type Tab = 'methods' | 'terminals' | 'compliance' | 'elevatedpay' | 'recovery';
+type Tab = 'methods' | 'terminals' | 'compliance' | 'elevatedpay' | 'hardware' | 'recovery';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'methods',     label: 'Payment Methods', icon: '💳' },
   { id: 'terminals',   label: 'Terminals',        icon: '🖥️' },
   { id: 'compliance',  label: 'Compliance',       icon: '⚖️' },
   { id: 'elevatedpay', label: 'ElevatedPOS Pay',  icon: '🔗' },
+  { id: 'hardware',    label: 'Card Readers',     icon: '📟' },
   { id: 'recovery',    label: 'Recovery',         icon: '🛡️' },
 ];
 
@@ -850,7 +852,7 @@ const STATUS_COLORS: Record<string, string> = {
   disabled:   'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
 };
 
-type ElevatedPaySubTab = 'onboarding' | 'transactions' | 'payouts' | 'balance';
+type ElevatedPaySubTab = 'onboarding' | 'transactions' | 'payouts' | 'balance' | 'account' | 'reports' | 'financing';
 
 function ElevatedPOSPayTab() {
   const { toast } = useToast();
@@ -860,10 +862,14 @@ function ElevatedPOSPayTab() {
   const [instanceReady, setInstanceReady] = useState(false);
 
   // Refs for Stripe Connect Embedded Component mount points
+  const notifBannerRef   = useRef<HTMLDivElement>(null);
   const onboardingRef    = useRef<HTMLDivElement>(null);
   const transactionsRef  = useRef<HTMLDivElement>(null);
   const payoutsRef       = useRef<HTMLDivElement>(null);
   const balanceRef       = useRef<HTMLDivElement>(null);
+  const accountRef       = useRef<HTMLDivElement>(null);
+  const reportsRef       = useRef<HTMLDivElement>(null);
+  const financingRef     = useRef<HTMLDivElement>(null);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stripeInstanceRef = useRef<any>(null);
@@ -913,6 +919,21 @@ function ElevatedPOSPayTab() {
     void init();
   }, [loading, toast]);
 
+  // Mount notification-banner once — always visible at top regardless of sub-tab
+  useEffect(() => {
+    const instance = stripeInstanceRef.current;
+    if (!instance || !instanceReady) return;
+    const el = notifBannerRef.current;
+    if (!el || el.childElementCount > 0) return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const banner = (instance as any).create('notification-banner');
+      banner.mount(el);
+    } catch (e) {
+      console.warn('Failed to mount notification-banner:', e);
+    }
+  }, [instanceReady]);
+
   // Mount the correct component when instance is ready or subTab changes
   useEffect(() => {
     const instance = stripeInstanceRef.current;
@@ -923,6 +944,9 @@ function ElevatedPOSPayTab() {
       ['transactions', transactionsRef, 'payments'],
       ['payouts',      payoutsRef,      'payouts'],
       ['balance',      balanceRef,      'balances'],
+      ['account',      accountRef,      'account-management'],
+      ['reports',      reportsRef,      'reporting-chart'],
+      ['financing',    financingRef,    'capital-overview'],
     ];
 
     for (const [tab, ref, componentName] of pairs) {
@@ -995,6 +1019,11 @@ function ElevatedPOSPayTab() {
         </div>
       )}
 
+      {/* Notification banner — always mounted when Stripe instance is ready (shows pending action alerts) */}
+      {account && instanceReady && (
+        <div ref={notifBannerRef} className="min-h-[0px]" />
+      )}
+
       {/* Account exists — show sub-tabs */}
       {account && (
         <>
@@ -1032,7 +1061,7 @@ function ElevatedPOSPayTab() {
           )}
 
           {/* Sub-tab bar — only show extra tabs when active */}
-          <div className="flex gap-1 rounded-xl bg-gray-100 p-1 dark:bg-gray-800 w-fit">
+          <div className="flex flex-wrap gap-1 rounded-xl bg-gray-100 p-1 dark:bg-gray-800 w-fit">
             {(account.status === 'onboarding' || !isActive) && (
               <button
                 onClick={() => setSubTab('onboarding')}
@@ -1061,6 +1090,24 @@ function ElevatedPOSPayTab() {
                 >
                   Balance
                 </button>
+                <button
+                  onClick={() => setSubTab('account')}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${subTab === 'account' ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
+                >
+                  Account
+                </button>
+                <button
+                  onClick={() => setSubTab('reports')}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${subTab === 'reports' ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
+                >
+                  Reports
+                </button>
+                <button
+                  onClick={() => setSubTab('financing')}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${subTab === 'financing' ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
+                >
+                  Financing
+                </button>
               </>
             )}
           </div>
@@ -1078,6 +1125,9 @@ function ElevatedPOSPayTab() {
                 <div ref={transactionsRef} className={subTab === 'transactions' ? 'min-h-[500px]' : 'hidden'} />
                 <div ref={payoutsRef}      className={subTab === 'payouts'      ? 'min-h-[500px]' : 'hidden'} />
                 <div ref={balanceRef}      className={subTab === 'balance'      ? 'min-h-[500px]' : 'hidden'} />
+                <div ref={accountRef}      className={subTab === 'account'      ? 'min-h-[500px]' : 'hidden'} />
+                <div ref={reportsRef}      className={subTab === 'reports'      ? 'min-h-[500px]' : 'hidden'} />
+                <div ref={financingRef}    className={subTab === 'financing'    ? 'min-h-[500px]' : 'hidden'} />
               </>
             )}
           </div>
@@ -1109,7 +1159,651 @@ function ElevatedPOSPayTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Tab 5 — Recovery
+// Tab 5 — Card Readers (Stripe Terminal hardware management)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+interface StripeReader {
+  id: string;
+  object: 'terminal.reader';
+  label: string;
+  status: 'online' | 'offline';
+  device_type: string;
+  serial_number: string;
+  location?: string | null;
+  ip_address?: string | null;
+  base_url?: string | null;
+}
+
+interface StripeLocation {
+  id: string;
+  display_name: string;
+  address?: {
+    line1?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+  };
+}
+
+interface CatalogItem {
+  id: string;
+  name: string;
+  description: string;
+  price_cents: number;
+  currency: string;
+  image: string;
+  features: string[];
+  available: boolean;
+}
+
+function HardwareTab() {
+  const { toast } = useToast();
+
+  // ── Readers ────────────────────────────────────────────────────────────────
+  const [readers, setReaders]         = useState<StripeReader[]>([]);
+  const [readersLoading, setRLoading] = useState(true);
+  const [deletingId, setDeletingId]   = useState<string | null>(null);
+
+  // Register form
+  const [showRegister, setShowRegister]     = useState(false);
+  const [regCode, setRegCode]               = useState('');
+  const [regLabel, setRegLabel]             = useState('');
+  const [regLocation, setRegLocation]       = useState('');
+  const [registering, setRegistering]       = useState(false);
+
+  // ── Locations ──────────────────────────────────────────────────────────────
+  const [locations, setLocations]           = useState<StripeLocation[]>([]);
+  const [showAddLocation, setShowAddLocation] = useState(false);
+  const [newLocName, setNewLocName]           = useState('');
+  const [newLocLine1, setNewLocLine1]         = useState('');
+  const [newLocCity, setNewLocCity]           = useState('');
+  const [newLocState, setNewLocState]         = useState('');
+  const [newLocPostal, setNewLocPostal]       = useState('');
+  const [newLocCountry, setNewLocCountry]     = useState('AU');
+  const [savingLocation, setSavingLocation]   = useState(false);
+
+  // ── Splash screen ──────────────────────────────────────────────────────────
+  const [splashUrl, setSplashUrl]         = useState('');
+  const [currentSplash, setCurrentSplash] = useState<string | null>(null);
+  const [savingSplash, setSavingSplash]   = useState(false);
+
+  // ── Catalog & orders ───────────────────────────────────────────────────────
+  const [catalog, setCatalog]         = useState<CatalogItem[]>([]);
+  const [catalogLoading, setCLoading] = useState(true);
+  const [cart, setCart]               = useState<Record<string, number>>({});
+  const [showOrderForm, setShowOrderForm] = useState(false);
+  const [orderName, setOrderName]     = useState('');
+  const [orderEmail, setOrderEmail]   = useState('');
+  const [orderPhone, setOrderPhone]   = useState('');
+  const [orderLine1, setOrderLine1]   = useState('');
+  const [orderCity, setOrderCity]     = useState('');
+  const [orderState, setOrderState]   = useState('');
+  const [orderPostal, setOrderPostal] = useState('');
+  const [placingOrder, setPlacingOrder] = useState(false);
+
+  // ── Active panel ───────────────────────────────────────────────────────────
+  const [panel, setPanel] = useState<'readers' | 'catalog' | 'branding'>('readers');
+
+  const loadReaders = useCallback(async () => {
+    setRLoading(true);
+    try {
+      const data = await apiFetch<{ readers: StripeReader[] }>('connect/terminal/readers');
+      setReaders(data.readers ?? []);
+    } catch { setReaders([]); }
+    finally { setRLoading(false); }
+  }, []);
+
+  const loadLocations = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ locations: StripeLocation[] }>('connect/terminal/locations');
+      setLocations(data.locations ?? []);
+    } catch { setLocations([]); }
+  }, []);
+
+  const loadCatalog = useCallback(async () => {
+    setCLoading(true);
+    try {
+      const data = await apiFetch<{ catalog: CatalogItem[] }>('connect/hardware/catalog');
+      setCatalog(data.catalog ?? []);
+    } catch { setCatalog([]); }
+    finally { setCLoading(false); }
+  }, []);
+
+  const loadSplash = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ config: { splashscreen?: { landscape_url?: string } } | null }>('connect/terminal/config');
+      setCurrentSplash(data.config?.splashscreen?.landscape_url ?? null);
+      setSplashUrl(data.config?.splashscreen?.landscape_url ?? '');
+    } catch { /* non-fatal */ }
+  }, []);
+
+  useEffect(() => {
+    void loadReaders();
+    void loadLocations();
+    void loadCatalog();
+    void loadSplash();
+  }, [loadReaders, loadLocations, loadCatalog, loadSplash]);
+
+  const handleDeleteReader = async (id: string) => {
+    if (!confirm('Remove this reader from your account?')) return;
+    setDeletingId(id);
+    try {
+      await apiFetch(`connect/terminal/readers/${id}`, { method: 'DELETE' });
+      toast({ title: 'Reader removed', variant: 'success' });
+      await loadReaders();
+    } catch {
+      toast({ title: 'Failed to remove reader', variant: 'destructive' });
+    } finally { setDeletingId(null); }
+  };
+
+  const handleRegister = async () => {
+    if (!regCode.trim()) return;
+    setRegistering(true);
+    try {
+      await apiFetch('connect/terminal/readers', {
+        method: 'POST',
+        body: JSON.stringify({
+          registration_code: regCode.trim(),
+          ...(regLabel.trim() ? { label: regLabel.trim() } : {}),
+          ...(regLocation ? { location: regLocation } : {}),
+        }),
+      });
+      toast({ title: 'Reader registered', variant: 'success' });
+      setRegCode(''); setRegLabel(''); setRegLocation('');
+      setShowRegister(false);
+      await loadReaders();
+    } catch (err) {
+      const e = err as { message?: string };
+      toast({ title: e.message ?? 'Registration failed', variant: 'destructive' });
+    } finally { setRegistering(false); }
+  };
+
+  const handleAddLocation = async () => {
+    if (!newLocName.trim() || !newLocLine1.trim()) return;
+    setSavingLocation(true);
+    try {
+      await apiFetch('connect/terminal/locations', {
+        method: 'POST',
+        body: JSON.stringify({
+          display_name: newLocName.trim(),
+          address: { line1: newLocLine1, city: newLocCity, state: newLocState, postal_code: newLocPostal, country: newLocCountry },
+        }),
+      });
+      toast({ title: 'Location created', variant: 'success' });
+      setShowAddLocation(false);
+      setNewLocName(''); setNewLocLine1(''); setNewLocCity(''); setNewLocState(''); setNewLocPostal('');
+      await loadLocations();
+    } catch {
+      toast({ title: 'Failed to create location', variant: 'destructive' });
+    } finally { setSavingLocation(false); }
+  };
+
+  const handleSaveSplash = async () => {
+    if (!splashUrl.trim() && !currentSplash) return;
+    setSavingSplash(true);
+    try {
+      await apiFetch('connect/terminal/config', {
+        method: 'PUT',
+        body: JSON.stringify(
+          splashUrl.trim()
+            ? { splash_screen_url: splashUrl.trim() }
+            : { clear_splash_screen: true },
+        ),
+      });
+      toast({ title: splashUrl.trim() ? 'Splash screen updated' : 'Splash screen cleared', variant: 'success' });
+      await loadSplash();
+    } catch {
+      toast({ title: 'Failed to update splash screen', variant: 'destructive' });
+    } finally { setSavingSplash(false); }
+  };
+
+  const cartItems = Object.entries(cart).filter(([, qty]) => qty > 0);
+  const cartTotal = cartItems.reduce((sum, [id, qty]) => {
+    const item = catalog.find((c) => c.id === id);
+    return sum + (item?.price_cents ?? 0) * qty;
+  }, 0);
+
+  const handlePlaceOrder = async () => {
+    if (!orderName || !orderEmail || !orderLine1) return;
+    setPlacingOrder(true);
+    try {
+      const res = await apiFetch<{ order: { message?: string } }>('connect/hardware/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: cartItems.map(([id, qty]) => ({ catalog_object_id: id, quantity: qty })),
+          shipping: {
+            name: orderName, email: orderEmail, phone: orderPhone || undefined,
+            address: { line1: orderLine1, city: orderCity, state: orderState, postal_code: orderPostal, country: 'AU' },
+          },
+        }),
+      });
+      toast({ title: 'Order submitted!', variant: 'success' });
+      setCart({}); setShowOrderForm(false);
+      alert(res.order?.message ?? 'Order received. Our team will be in touch shortly.');
+    } catch {
+      toast({ title: 'Order failed', variant: 'destructive' });
+    } finally { setPlacingOrder(false); }
+  };
+
+  const fmtPrice = (cents: number) =>
+    `$${(cents / 100).toLocaleString('en-AU', { minimumFractionDigits: 2 })}`;
+
+  return (
+    <div className="space-y-6 max-w-4xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <span className="text-xl">📟</span> Card Readers
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            Manage your Stripe card readers, locations, and reader branding.
+          </p>
+        </div>
+      </div>
+
+      {/* Panel tabs */}
+      <div className="flex gap-1 rounded-xl bg-gray-100 p-1 dark:bg-gray-800 w-fit">
+        {[
+          { id: 'readers',  label: 'Readers',  Icon: Monitor },
+          { id: 'catalog',  label: 'Order Hardware', Icon: ShoppingCart },
+          { id: 'branding', label: 'Branding', Icon: Image },
+        ].map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            onClick={() => setPanel(id as typeof panel)}
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${panel === id ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Panel: Readers ──────────────────────────────────────────────────── */}
+      {panel === 'readers' && (
+        <div className="space-y-4">
+          {/* Readers list */}
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Registered Readers</h3>
+            <div className="flex gap-2">
+              <button
+                onClick={() => void loadReaders()}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${readersLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+              <button
+                onClick={() => setShowRegister(!showRegister)}
+                className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Register Reader
+              </button>
+            </div>
+          </div>
+
+          {/* Register form */}
+          {showRegister && (
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-4 dark:border-indigo-800 dark:bg-indigo-900/10 space-y-3">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Register a new reader</p>
+              <p className="text-xs text-gray-500">Find the registration code on the reader&apos;s screen (Settings → Generate pairing code) or the quick-start guide.</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Registration Code *</label>
+                  <input className={darkInputCls} placeholder="e.g. FURR-HAUT" value={regCode} onChange={(e) => setRegCode(e.target.value)} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Label (optional)</label>
+                  <input className={darkInputCls} placeholder="e.g. Counter 1" value={regLabel} onChange={(e) => setRegLabel(e.target.value)} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Location (optional)</label>
+                  <select className={darkInputCls} value={regLocation} onChange={(e) => setRegLocation(e.target.value)}>
+                    <option value="">— No location —</option>
+                    {locations.map((l) => <option key={l.id} value={l.id}>{l.display_name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowRegister(false)} className="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Cancel</button>
+                <button
+                  onClick={() => void handleRegister()}
+                  disabled={!regCode.trim() || registering}
+                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {registering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  Register
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Readers list */}
+          {readersLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
+          ) : readers.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-300 py-10 text-center dark:border-gray-700">
+              <Monitor className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-700 mb-3" />
+              <p className="text-sm text-gray-500">No readers registered yet</p>
+              <p className="text-xs text-gray-400 mt-1">Click &quot;Register Reader&quot; to add your first card reader.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {readers.map((r) => (
+                <div key={r.id} className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-2.5 w-2.5 rounded-full ${r.status === 'online' ? 'bg-green-500' : 'bg-gray-300'}`} />
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-white text-sm">{r.label || r.serial_number}</p>
+                      <p className="text-xs text-gray-500">{r.device_type} · {r.id}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs font-medium capitalize ${r.status === 'online' ? 'text-green-600' : 'text-gray-400'}`}>{r.status}</span>
+                    <button
+                      onClick={() => void handleDeleteReader(r.id)}
+                      disabled={deletingId === r.id}
+                      className="text-gray-400 hover:text-red-500 disabled:opacity-50"
+                      title="Remove reader"
+                    >
+                      {deletingId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Locations */}
+          <div className="pt-2">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                <MapPin className="h-4 w-4" /> Locations
+              </h3>
+              <button
+                onClick={() => setShowAddLocation(!showAddLocation)}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+              >
+                <Plus className="h-3 w-3" /> Add Location
+              </button>
+            </div>
+
+            {showAddLocation && (
+              <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-900 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Display Name *</label>
+                    <input className={darkInputCls} placeholder="e.g. Main Street Store" value={newLocName} onChange={(e) => setNewLocName(e.target.value)} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Street Address *</label>
+                    <input className={darkInputCls} placeholder="123 Main St" value={newLocLine1} onChange={(e) => setNewLocLine1(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">City</label>
+                    <input className={darkInputCls} placeholder="Sydney" value={newLocCity} onChange={(e) => setNewLocCity(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">State</label>
+                    <input className={darkInputCls} placeholder="NSW" value={newLocState} onChange={(e) => setNewLocState(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Postcode</label>
+                    <input className={darkInputCls} placeholder="2000" value={newLocPostal} onChange={(e) => setNewLocPostal(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Country</label>
+                    <input className={darkInputCls} value={newLocCountry} onChange={(e) => setNewLocCountry(e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setShowAddLocation(false)} className="rounded-lg px-3 py-1.5 text-sm text-gray-500">Cancel</button>
+                  <button
+                    onClick={() => void handleAddLocation()}
+                    disabled={!newLocName.trim() || !newLocLine1.trim() || savingLocation}
+                    className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    {savingLocation ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                    Save Location
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {locations.length === 0 ? (
+              <p className="text-xs text-gray-500 dark:text-gray-600">No locations yet. Add one to group readers by store.</p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {locations.map((l) => (
+                  <div key={l.id} className="rounded-lg border border-gray-100 bg-gray-50/50 p-3 dark:border-gray-800 dark:bg-gray-900">
+                    <p className="text-sm font-medium text-gray-800 dark:text-white">{l.display_name}</p>
+                    {l.address && <p className="text-xs text-gray-500 mt-0.5">{[l.address.line1, l.address.city, l.address.state].filter(Boolean).join(', ')}</p>}
+                    <p className="text-[10px] text-gray-400 mt-0.5 font-mono">{l.id}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Panel: Order Hardware ───────────────────────────────────────────── */}
+      {panel === 'catalog' && (
+        <div className="space-y-6">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Order genuine Stripe card readers shipped directly to you. Our team processes orders within 1–2 business days.
+          </p>
+
+          {catalogLoading ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[1,2,3].map((i) => <div key={i} className="h-64 animate-pulse rounded-2xl bg-gray-100 dark:bg-gray-800" />)}
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {catalog.map((item) => (
+                <div
+                  key={item.id}
+                  className={`rounded-2xl border p-5 flex flex-col ${
+                    item.available
+                      ? 'border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900'
+                      : 'border-gray-100 bg-gray-50 opacity-60 dark:border-gray-800 dark:bg-gray-900'
+                  }`}
+                >
+                  <div className="flex-1">
+                    <div className="w-full h-32 bg-gray-100 dark:bg-gray-800 rounded-xl mb-4 flex items-center justify-center overflow-hidden">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={item.image} alt={item.name} className="max-h-full max-w-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display='none'; }} />
+                    </div>
+                    <h3 className="font-semibold text-gray-900 dark:text-white mb-1">{item.name}</h3>
+                    <p className="text-xs text-gray-500 mb-3 leading-relaxed">{item.description}</p>
+                    <div className="flex flex-wrap gap-1 mb-4">
+                      {item.features.map((f) => (
+                        <span key={f} className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">{f}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between mt-auto pt-3 border-t border-gray-100 dark:border-gray-800">
+                    <p className="font-semibold text-gray-900 dark:text-white">{fmtPrice(item.price_cents)}</p>
+                    {item.available ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setCart((c) => ({ ...c, [item.id]: Math.max(0, (c[item.id] ?? 0) - 1) }))}
+                          className="w-7 h-7 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 flex items-center justify-center font-bold"
+                        >−</button>
+                        <span className="w-5 text-center text-sm font-medium text-gray-900 dark:text-white">{cart[item.id] ?? 0}</span>
+                        <button
+                          onClick={() => setCart((c) => ({ ...c, [item.id]: (c[item.id] ?? 0) + 1 }))}
+                          className="w-7 h-7 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center font-bold"
+                        >+</button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400">Unavailable</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Cart summary */}
+          {cartItems.length > 0 && (
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50/30 p-5 dark:border-indigo-800 dark:bg-indigo-900/10">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Package className="h-4 w-4 text-indigo-600" /> Order Summary
+                </h3>
+                <p className="font-semibold text-gray-900 dark:text-white">{fmtPrice(cartTotal)}</p>
+              </div>
+              {cartItems.map(([id, qty]) => {
+                const item = catalog.find((c) => c.id === id);
+                if (!item) return null;
+                return (
+                  <div key={id} className="flex items-center justify-between text-sm py-1">
+                    <span className="text-gray-700 dark:text-gray-300">{item.name} × {qty}</span>
+                    <span className="text-gray-500">{fmtPrice(item.price_cents * qty)}</span>
+                  </div>
+                );
+              })}
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => setShowOrderForm(true)}
+                  className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+                >
+                  <ShoppingCart className="h-4 w-4" /> Checkout
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Order form modal */}
+          {showOrderForm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+              <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-900 p-6 space-y-4 shadow-2xl">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Shipping Details</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Full Name *</label>
+                    <input className={darkInputCls} value={orderName} onChange={(e) => setOrderName(e.target.value)} placeholder="Jane Smith" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Email *</label>
+                    <input className={darkInputCls} type="email" value={orderEmail} onChange={(e) => setOrderEmail(e.target.value)} placeholder="jane@business.com.au" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Phone</label>
+                    <input className={darkInputCls} type="tel" value={orderPhone} onChange={(e) => setOrderPhone(e.target.value)} placeholder="+61 4xx xxx xxx" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Street Address *</label>
+                    <input className={darkInputCls} value={orderLine1} onChange={(e) => setOrderLine1(e.target.value)} placeholder="123 Main St" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">City</label>
+                    <input className={darkInputCls} value={orderCity} onChange={(e) => setOrderCity(e.target.value)} placeholder="Sydney" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">State</label>
+                    <input className={darkInputCls} value={orderState} onChange={(e) => setOrderState(e.target.value)} placeholder="NSW" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Postcode</label>
+                    <input className={darkInputCls} value={orderPostal} onChange={(e) => setOrderPostal(e.target.value)} placeholder="2000" />
+                  </div>
+                </div>
+                <div className="flex gap-3 justify-end pt-2">
+                  <button onClick={() => setShowOrderForm(false)} className="rounded-xl px-4 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Cancel</button>
+                  <button
+                    onClick={() => void handlePlaceOrder()}
+                    disabled={!orderName || !orderEmail || !orderLine1 || placingOrder}
+                    className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {placingOrder ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
+                    Place Order — {fmtPrice(cartTotal)}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Panel: Branding ─────────────────────────────────────────────────── */}
+      {panel === 'branding' && (
+        <div className="space-y-6 max-w-xl">
+          <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900 space-y-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0">
+                <Image className="h-5 w-5 text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900 dark:text-white">Reader Splash Screen</h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Your logo or branded image is shown on the reader display when idle.
+                  Use a landscape JPEG or PNG at least 1280×800px. The URL must be publicly accessible over HTTPS.
+                </p>
+              </div>
+            </div>
+
+            {currentSplash && (
+              <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={currentSplash}
+                  alt="Current splash screen"
+                  className="w-full object-cover max-h-36"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+                <p className="px-3 py-2 text-xs text-gray-400 bg-gray-50 dark:bg-gray-800 truncate">{currentSplash}</p>
+              </div>
+            )}
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Image URL</label>
+              <input
+                className={darkInputCls}
+                type="url"
+                placeholder="https://yourcdn.com/reader-splash.png"
+                value={splashUrl}
+                onChange={(e) => setSplashUrl(e.target.value)}
+              />
+              <p className="mt-1.5 text-xs text-gray-500">Leave blank and save to remove the custom splash screen.</p>
+            </div>
+
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-800 dark:bg-yellow-900/20">
+              <p className="text-xs text-yellow-800 dark:text-yellow-300">
+                <strong>Note:</strong> Physical reader casing logo (on the device hardware itself) is only available for Enterprise Stripe accounts with high reader volume. The splash screen is applied to the reader&apos;s display software only.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              {currentSplash && (
+                <button
+                  onClick={() => { setSplashUrl(''); void handleSaveSplash(); }}
+                  disabled={savingSplash}
+                  className="flex items-center gap-1.5 rounded-xl border border-red-200 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Clear
+                </button>
+              )}
+              <button
+                onClick={() => void handleSaveSplash()}
+                disabled={savingSplash || !splashUrl.trim()}
+                className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {savingSplash ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save Splash Screen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Tab 6 — Recovery
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function StateBadge({ state }: { state: string }) {
@@ -1327,11 +2021,12 @@ export default function PaymentsPage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'methods'    && <MethodsTab />}
-      {tab === 'terminals'  && <TerminalsTab />}
-      {tab === 'compliance' && <ComplianceTab />}
+      {tab === 'methods'     && <MethodsTab />}
+      {tab === 'terminals'   && <TerminalsTab />}
+      {tab === 'compliance'  && <ComplianceTab />}
       {tab === 'elevatedpay' && <ElevatedPOSPayTab />}
-      {tab === 'recovery'   && <RecoveryTab />}
+      {tab === 'hardware'    && <HardwareTab />}
+      {tab === 'recovery'    && <RecoveryTab />}
     </div>
   );
 }

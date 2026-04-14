@@ -86,6 +86,31 @@ export const stripeSubscriptions = pgTable('stripe_subscriptions', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Hardware order requests submitted by merchants
+// (Stripe Hardware Orders API is in preview; we store these for manual fulfillment)
+export const hardwareOrders = pgTable('hardware_orders', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  status: varchar('status', { length: 50 }).notNull().default('pending'),
+  // pending | confirmed | shipped | delivered | cancelled
+  lineItems: jsonb('line_items').notNull().default([]),
+  shippingName: varchar('shipping_name', { length: 255 }).notNull(),
+  shippingEmail: varchar('shipping_email', { length: 255 }).notNull(),
+  shippingPhone: varchar('shipping_phone', { length: 50 }),
+  shippingAddressLine1: varchar('shipping_address_line1', { length: 255 }).notNull(),
+  shippingAddressLine2: varchar('shipping_address_line2', { length: 255 }),
+  shippingCity: varchar('shipping_city', { length: 100 }).notNull(),
+  shippingState: varchar('shipping_state', { length: 100 }).notNull(),
+  shippingPostalCode: varchar('shipping_postal_code', { length: 20 }).notNull(),
+  shippingCountry: varchar('shipping_country', { length: 2 }).notNull().default('AU'),
+  totalCents: integer('total_cents').notNull(),
+  currency: varchar('currency', { length: 3 }).notNull().default('AUD'),
+  trackingNumber: varchar('tracking_number', { length: 255 }),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Stripe invoices sent by merchants to their customers
 export const stripeInvoices = pgTable('stripe_invoices', {
   id: uuid('id').primaryKey().defaultRandom(),
