@@ -6,6 +6,26 @@ import { relations } from 'drizzle-orm';
 export const organisationPlanEnum = pgEnum('organisation_plan', ['starter', 'growth', 'pro', 'enterprise', 'custom']);
 export const organisationPlanStatusEnum = pgEnum('organisation_plan_status', ['trialing', 'active', 'past_due', 'cancelled', 'paused']);
 
+// ── Per-device billing ────────────────────────────────────────────────────────
+// Subscription status mirrors Stripe's subscription.status values
+export const subscriptionStatusEnum = pgEnum('subscription_status', [
+  'incomplete', 'trialing', 'active', 'past_due', 'cancelled', 'paused',
+]);
+
+export const deviceTypeEnum = pgEnum('device_type', ['pos', 'kds', 'kiosk', 'display', 'dashboard']);
+
+// ── Onboarding step enum ──────────────────────────────────────────────────────
+export const onboardingStepEnum = pgEnum('onboarding_step_v2', [
+  'business_info',     // org created, awaiting owner account creation
+  'owner_account',     // owner account created
+  'location_setup',    // first location added
+  'staff_setup',       // at least one staff member added
+  'device_selection',  // device quantities + add-ons chosen
+  'stripe_connect',    // Stripe Connect onboarding started / completed
+  'subscription',      // subscription payment step
+  'completed',         // fully onboarded
+]);
+
 export const approvalTypeEnum = pgEnum('approval_type', ['discount', 'refund', 'void', 'cash_disbursement', 'stock_adjustment', 'other']);
 export const locationTypeEnum = pgEnum('location_type', ['retail', 'warehouse', 'kitchen']);
 export const approvalStatusEnum = pgEnum('approval_status', ['pending', 'approved', 'denied']);
@@ -29,10 +49,29 @@ export const organisations = pgTable('organisations', {
   maxDashboardDevices: integer('max_dashboard_devices').notNull().default(1),
   maxDisplayDevices:   integer('max_display_devices').notNull().default(5),
   abn: varchar('abn', { length: 11 }),
+  phone: varchar('phone', { length: 50 }),
+  businessAddress: jsonb('business_address').default({}),
+  websiteUrl: varchar('website_url', { length: 500 }),
   billingEmail: varchar('billing_email', { length: 255 }),
+  // Per-device billing (new model)
+  billingModel: varchar('billing_model', { length: 20 }).notNull().default('legacy'), // 'legacy' | 'per_device'
+  subscriptionStatus: subscriptionStatusEnum('subscription_status').notNull().default('incomplete'),
+  stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
+  subscriptionCurrentPeriodEnd: timestamp('subscription_current_period_end', { withTimezone: true }),
+  websiteAddonEnabled: boolean('website_addon_enabled').notNull().default(false),
+  customDomainAddonEnabled: boolean('custom_domain_addon_enabled').notNull().default(false),
+  // Industry feature flags (set automatically from industry on creation/update)
+  featureFlags: jsonb('feature_flags').notNull().default({}),
+  // Onboarding
   onboardingStep: varchar('onboarding_step', { length: 50 }).notNull().default('completed'),
+  onboardingStepV2: onboardingStepEnum('onboarding_step_v2').default('completed'),
   industry: varchar('industry', { length: 50 }),
   onboardingCompletedAt: timestamp('onboarding_completed_at', { withTimezone: true }),
+  // Onboarding session: short-lived token to allow multi-step pre-login onboarding
+  onboardingToken: varchar('onboarding_token', { length: 255 }),
+  onboardingTokenExpiresAt: timestamp('onboarding_token_expires_at', { withTimezone: true }),
+  // Device selection (stored during onboarding, used to create subscription)
+  pendingDeviceSelection: jsonb('pending_device_selection').default({}),
   whiteLabelThemeId: uuid('white_label_theme_id'),
   // Stripe SaaS billing
   stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
@@ -469,6 +508,23 @@ export const plans = pgTable('plans', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Per-Device Subscription Items ─────────────────────────────────────────────
+// One row per device type per org — tracks quantities and Stripe item IDs.
+
+export const orgSubscriptionItems = pgTable('org_subscription_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
+  deviceType: deviceTypeEnum('device_type').notNull(),
+  quantity: integer('quantity').notNull().default(0),
+  stripeSubscriptionItemId: varchar('stripe_subscription_item_id', { length: 255 }),
+  stripePriceId: varchar('stripe_price_id', { length: 255 }),
+  unitAmountCents: integer('unit_amount_cents').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  orgDeviceUnique: uniqueIndex('org_sub_items_org_device_unique').on(table.orgId, table.deviceType),
+}));
 
 // ── Signup Links ──────────────────────────────────────────────────────────────
 

@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
-  Plus, RefreshCw, Loader2, X, CalendarCheck, List, Clock,
-  Users, Phone, Mail, MessageSquare, Trash2, CheckCircle2,
-  AlertCircle, UserCheck, Ban, LayoutGrid,
+  Plus, RefreshCw, Loader2, X, CalendarCheck, Settings,
+  Users, Phone, Copy, Check, ChevronDown, Globe,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
@@ -12,154 +11,199 @@ import { getErrorMessage } from '@/lib/formatting';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ReservationStatus = 'confirmed' | 'arrived' | 'seated' | 'completed' | 'no-show' | 'cancelled';
+type ReservationStatus =
+  | 'pending' | 'confirmed' | 'seated' | 'in_progress'
+  | 'completed' | 'cancelled' | 'no_show';
+
+type DepositStatus = 'none' | 'pending' | 'paid' | 'refunded' | 'failed';
+type BookingType = 'restaurant' | 'service';
 
 interface Reservation {
   id: string;
-  guestName: string;
-  phone?: string;
-  email?: string;
-  partySize: number;
-  date: string;
-  time: string;
-  duration: number;
-  tableId?: string;
-  tableName?: string;
+  bookingType: BookingType;
+  customerName: string;
+  customerEmail: string;
+  customerPhone?: string;
+  scheduledAt: string;
+  partySize?: number;
   status: ReservationStatus;
+  depositStatus: DepositStatus;
+  depositAmountCents: number;
   notes?: string;
-}
-
-interface WaitlistEntry {
-  id: string;
-  guestName: string;
-  partySize: number;
-  addedAt: string;
-  notes?: string;
-  phone?: string;
-  status: string;
-}
-
-interface TableOption {
-  id: string;
-  name: string;
-  capacity: number;
+  source: string;
+  createdAt: string;
 }
 
 interface ReservationSettings {
-  bookingWindowDays: number;
-  slotDurationMins: number;
-  maxPartySize: number;
-  autoConfirm: boolean;
+  restaurantEnabled: boolean;
+  serviceEnabled: boolean;
+  restaurantDepositRequired: boolean;
+  restaurantDepositCents: number;
+  serviceDepositRequired: boolean;
+  serviceDepositCents: number;
+  advanceBookingDays: number;
+  slotIntervalMinutes: number;
+  openingHours: Record<string, { open: string; close: string; closed?: boolean }>;
+  widgetPrimaryColor: string;
+  widgetLogoUrl?: string | null;
+  widgetTitle?: string | null;
+  confirmationEmailEnabled: boolean;
+  reminderEmailEnabled: boolean;
+  reminderHoursBefore: number;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Status / deposit config ──────────────────────────────────────────────────
 
-const STATUS_BADGE: Record<ReservationStatus, string> = {
-  confirmed:  'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
-  arrived:    'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
-  seated:     'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
-  completed:  'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
-  'no-show':  'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
-  cancelled:  'bg-gray-100 text-gray-600 dark:bg-gray-700/60 dark:text-gray-400',
+const STATUS_CONFIG: Record<ReservationStatus, { label: string; badge: string; dot: string }> = {
+  pending:     { label: 'Pending',     badge: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300', dot: 'bg-yellow-400' },
+  confirmed:   { label: 'Confirmed',   badge: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',         dot: 'bg-blue-500' },
+  seated:      { label: 'Seated',      badge: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300', dot: 'bg-purple-500' },
+  in_progress: { label: 'In Progress', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',     dot: 'bg-amber-500' },
+  completed:   { label: 'Completed',   badge: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',     dot: 'bg-green-500' },
+  cancelled:   { label: 'Cancelled',   badge: 'bg-gray-100 text-gray-600 dark:bg-gray-700/60 dark:text-gray-400',         dot: 'bg-gray-400' },
+  no_show:     { label: 'No Show',     badge: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',             dot: 'bg-red-500' },
 };
 
-const STATUS_LABEL: Record<ReservationStatus, string> = {
-  confirmed:  'Confirmed',
-  arrived:    'Arrived',
-  seated:     'Seated',
-  completed:  'Completed',
-  'no-show':  'No Show',
-  cancelled:  'Cancelled',
+const DEPOSIT_CONFIG: Record<DepositStatus, { label: string; badge: string }> = {
+  none:     { label: 'No Deposit', badge: 'bg-gray-50 text-gray-500 dark:bg-gray-700/40 dark:text-gray-400' },
+  pending:  { label: 'Unpaid',     badge: 'bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' },
+  paid:     { label: 'Paid',       badge: 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+  refunded: { label: 'Refunded',   badge: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+  failed:   { label: 'Failed',     badge: 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
 };
 
-const DURATION_OPTIONS = [
-  { label: '45 min', value: 45 },
-  { label: '60 min', value: 60 },
-  { label: '90 min', value: 90 },
-  { label: '2 hours', value: 120 },
-  { label: 'Custom', value: 0 },
-];
+// Next allowed statuses for each current status
+const NEXT_STATUSES: Partial<Record<ReservationStatus, ReservationStatus[]>> = {
+  pending:     ['confirmed', 'cancelled'],
+  confirmed:   ['seated', 'in_progress', 'no_show', 'cancelled'],
+  seated:      ['completed', 'no_show', 'cancelled'],
+  in_progress: ['completed', 'no_show', 'cancelled'],
+};
+
+const DAYS     = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+function formatDate(iso: string)  { return new Date(iso).toLocaleDateString('en-AU', { dateStyle: 'medium' }); }
+function formatTime(iso: string)  { return new Date(iso).toLocaleTimeString('en-AU', { timeStyle: 'short' }); }
+function todayIso()               { return new Date().toISOString().slice(0, 10); }
+function formatCents(c: number)   { return `$${(c / 100).toFixed(2)}`; }
+
+function generateTimeSlots() {
+  const s: string[] = [];
+  for (let h = 7; h < 23; h++)
+    for (let m = 0; m < 60; m += 15)
+      s.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  return s;
 }
 
-function plusDaysIso(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+const TIME_SLOTS = generateTimeSlots();
+
+// ─── Toggle switch ────────────────────────────────────────────────────────────
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <div
+      onClick={onChange}
+      className={`relative h-6 w-11 cursor-pointer rounded-full transition-colors ${
+        checked ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+          checked ? 'translate-x-5' : 'translate-x-0.5'
+        }`}
+      />
+    </div>
+  );
 }
 
-function waitMinutes(addedAt: string): string {
-  const mins = Math.floor((Date.now() - new Date(addedAt).getTime()) / 60_000);
-  if (mins < 1) return '<1m';
-  if (mins < 60) return `${mins}m`;
-  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+// ─── Action dropdown ──────────────────────────────────────────────────────────
+
+function ActionMenu({
+  reservation,
+  onUpdate,
+}: {
+  reservation: Reservation;
+  onUpdate: (id: string, s: ReservationStatus) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const next = NEXT_STATUSES[reservation.status];
+  if (!next?.length) return null;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+      >
+        Actions <ChevronDown className="h-3 w-3" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-20 mt-1 min-w-[140px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+            {next.map((s) => (
+              <button
+                key={s}
+                onClick={() => { onUpdate(reservation.id, s); setOpen(false); }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                <span className={`h-2 w-2 rounded-full ${STATUS_CONFIG[s].dot}`} />
+                {STATUS_CONFIG[s].label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
-function formatTime12(time24: string): string {
-  const [h, m] = time24.split(':').map(Number);
-  const period = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 || 12;
-  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
-}
+// ─── New Reservation Modal ────────────────────────────────────────────────────
 
-function generateTimeSlots(): string[] {
-  const slots: string[] = [];
-  for (let h = 7; h < 23; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-    }
-  }
-  return slots;
-}
-
-// ─── NewReservationModal ──────────────────────────────────────────────────────
-
-interface NewReservationModalProps {
-  tables: TableOption[];
+function NewReservationModal({
+  onClose,
+  onSaved,
+  restaurantEnabled,
+  serviceEnabled,
+}: {
   onClose: () => void;
   onSaved: () => void;
-}
-
-function NewReservationModal({ tables, onClose, onSaved }: NewReservationModalProps) {
+  restaurantEnabled: boolean;
+  serviceEnabled: boolean;
+}) {
   const { toast } = useToast();
-  const [guestName, setGuestName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [bookingType, setBookingType] = useState<BookingType>(restaurantEnabled ? 'restaurant' : 'service');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [partySize, setPartySize] = useState(2);
+  const [phone, setPhone] = useState('');
   const [date, setDate] = useState(todayIso());
   const [time, setTime] = useState('19:00');
-  const [durationOption, setDurationOption] = useState(60);
-  const [customDuration, setCustomDuration] = useState(60);
-  const [tableId, setTableId] = useState('');
+  const [partySize, setPartySize] = useState(2);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const timeSlots = generateTimeSlots();
-  const effectiveDuration = durationOption === 0 ? customDuration : durationOption;
-
   async function handleSave() {
-    if (!guestName.trim()) {
-      toast({ title: 'Guest name is required', variant: 'destructive' });
+    if (!name.trim() || !email.trim()) {
+      toast({ title: 'Name and email are required', variant: 'destructive' });
       return;
     }
     setSaving(true);
     try {
+      const scheduledAt = new Date(`${date}T${time}:00`).toISOString();
       await apiFetch('reservations', {
         method: 'POST',
         body: JSON.stringify({
-          guestName: guestName.trim(),
-          phone: phone.trim() || undefined,
-          email: email.trim() || undefined,
-          partySize,
-          date,
-          time,
-          duration: effectiveDuration,
-          tableId: tableId || undefined,
+          bookingType,
+          customerName: name.trim(),
+          customerEmail: email.trim(),
+          customerPhone: phone.trim() || undefined,
+          scheduledAt,
+          partySize: bookingType === 'restaurant' ? partySize : undefined,
           notes: notes.trim() || undefined,
+          source: 'dashboard',
         }),
       });
       toast({ title: 'Reservation created', variant: 'success' });
@@ -174,631 +218,423 @@ function NewReservationModal({ tables, onClose, onSaved }: NewReservationModalPr
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="relative w-full max-w-lg rounded-xl bg-white shadow-2xl dark:bg-gray-900 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-6 py-4">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">New Reservation</h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          >
+          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="space-y-4 px-6 py-5">
-          {/* Guest name */}
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Guest name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={guestName}
-              onChange={(e) => setGuestName(e.target.value)}
-              placeholder="e.g. Sarah Johnson"
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
-            />
-          </div>
-
-          {/* Phone & Email */}
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-4 p-6">
+          {/* Booking type selector */}
+          {restaurantEnabled && serviceEnabled && (
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+61 4xx xxx xxx"
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
-              />
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['restaurant', 'service'] as BookingType[]).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setBookingType(t)}
+                    className={`rounded-lg border py-2.5 text-sm font-medium transition-colors ${
+                      bookingType === t
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+                        : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400'
+                    }`}
+                  >
+                    {t === 'restaurant' ? '🍽️ Table' : '✂️ Appointment'}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="guest@example.com"
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
-              />
-            </div>
-          </div>
+          )}
 
-          {/* Party size */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Party size</label>
-            <input
-              type="number"
-              min={1}
-              max={20}
-              value={partySize}
-              onChange={(e) => setPartySize(Math.min(20, Math.max(1, Number(e.target.value))))}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-            />
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Full Name *</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Smith" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Email *</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@example.com" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0412 345 678" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
           </div>
 
-          {/* Date & Time */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
-              <input
-                type="date"
-                value={date}
-                min={todayIso()}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-              />
+              <input type="date" value={date} min={todayIso()} onChange={(e) => setDate(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Time</label>
-              <select
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-              >
-                {timeSlots.map((slot) => (
-                  <option key={slot} value={slot}>{formatTime12(slot)}</option>
-                ))}
+              <select value={time} onChange={(e) => setTime(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+                {TIME_SLOTS.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
           </div>
 
-          {/* Duration */}
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Duration</label>
-            <div className="flex flex-wrap gap-2">
-              {DURATION_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setDurationOption(opt.value)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                    durationOption === opt.value
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+          {bookingType === 'restaurant' && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Party Size</label>
+              <select value={partySize} onChange={(e) => setPartySize(Number(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+                {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>{n} {n === 1 ? 'person' : 'people'}</option>
+                ))}
+              </select>
             </div>
-            {durationOption === 0 && (
-              <div className="mt-2 flex items-center gap-2">
-                <input
-                  type="number"
-                  min={15}
-                  max={480}
-                  step={15}
-                  value={customDuration}
-                  onChange={(e) => setCustomDuration(Number(e.target.value))}
-                  className="w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-                />
-                <span className="text-sm text-gray-500">minutes</span>
+          )}
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Special requests…" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+          <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800">
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Create Reservation
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Settings Tab ─────────────────────────────────────────────────────────────
+
+function SettingsTab({ orgSlug }: { orgSlug: string }) {
+  const { toast } = useToast();
+  const [settings, setSettings] = useState<ReservationSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    apiFetch<ReservationSettings>('reservations/settings')
+      .then((d) => setSettings(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleSave() {
+    if (!settings) return;
+    setSaving(true);
+    try {
+      await apiFetch('reservations/settings', { method: 'PUT', body: JSON.stringify(settings) });
+      toast({ title: 'Settings saved', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Failed to save', description: getErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function copyEmbed() {
+    const code = `<div id="elevatedpos-booking"></div>\n<script src="https://app.elevatedpos.com.au/api/widget/${orgSlug}"></script>`;
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  }
+
+  function setField<K extends keyof ReservationSettings>(key: K, val: ReservationSettings[K]) {
+    setSettings((s) => s ? { ...s, [key]: val } : s);
+  }
+
+  if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-indigo-500" /></div>;
+  if (!settings) return <p className="py-8 text-center text-sm text-gray-500">Unable to load settings.</p>;
+
+  return (
+    <div className="max-w-2xl space-y-10">
+
+      {/* ── Booking Types ─────────────────────────────────────────────────── */}
+      <section>
+        <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Booking Types</h3>
+        <div className="space-y-3">
+          {[
+            { key: 'restaurantEnabled' as const, label: 'Restaurant / Table Reservations', icon: '🍽️' },
+            { key: 'serviceEnabled'    as const, label: 'Service / Appointment Bookings',  icon: '✂️' },
+          ].map(({ key, label, icon }) => (
+            <div key={key} className="flex items-center justify-between rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{icon}</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-white">{label}</span>
+              </div>
+              <Toggle checked={settings[key]} onChange={() => setField(key, !settings[key])} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Deposits ──────────────────────────────────────────────────────── */}
+      {(settings.restaurantEnabled || settings.serviceEnabled) && (
+        <section>
+          <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Deposit Requirements</h3>
+          <div className="space-y-4">
+            {settings.restaurantEnabled && (
+              <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+                <p className="mb-3 text-sm font-medium text-gray-900 dark:text-white">🍽️ Restaurant Deposit</p>
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input type="checkbox" checked={settings.restaurantDepositRequired} onChange={(e) => setField('restaurantDepositRequired', e.target.checked)} className="rounded" />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">Require deposit</span>
+                  </label>
+                  {settings.restaurantDepositRequired && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-gray-500">$</span>
+                      <input
+                        type="number" min="0" step="0.50"
+                        value={settings.restaurantDepositCents / 100}
+                        onChange={(e) => setField('restaurantDepositCents', Math.round(Number(e.target.value) * 100))}
+                        className="w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {settings.serviceEnabled && (
+              <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+                <p className="mb-3 text-sm font-medium text-gray-900 dark:text-white">✂️ Service Deposit</p>
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input type="checkbox" checked={settings.serviceDepositRequired} onChange={(e) => setField('serviceDepositRequired', e.target.checked)} className="rounded" />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">Require deposit</span>
+                  </label>
+                  {settings.serviceDepositRequired && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-gray-500">$</span>
+                      <input
+                        type="number" min="0" step="0.50"
+                        value={settings.serviceDepositCents / 100}
+                        onChange={(e) => setField('serviceDepositCents', Math.round(Number(e.target.value) * 100))}
+                        className="w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
+        </section>
+      )}
 
-          {/* Table preference */}
+      {/* ── Availability ──────────────────────────────────────────────────── */}
+      <section>
+        <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Availability</h3>
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Table preference</label>
-            <select
-              value={tableId}
-              onChange={(e) => setTableId(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-            >
-              <option value="">No preference</option>
-              {tables.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} (seats {t.capacity})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Special requests */}
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Special requests</label>
-            <textarea
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Allergies, high chair, anniversary, etc."
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500 resize-none"
-            />
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-end gap-3 border-t border-gray-200 dark:border-gray-700 px-6 py-4">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-          >
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Save Reservation
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── AddWaitlistModal ─────────────────────────────────────────────────────────
-
-interface AddWaitlistModalProps {
-  onClose: () => void;
-  onSaved: () => void;
-}
-
-function AddWaitlistModal({ onClose, onSaved }: AddWaitlistModalProps) {
-  const { toast } = useToast();
-  const [guestName, setGuestName] = useState('');
-  const [partySize, setPartySize] = useState(2);
-  const [phone, setPhone] = useState('');
-  const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  async function handleSave() {
-    if (!guestName.trim()) {
-      toast({ title: 'Guest name is required', variant: 'destructive' });
-      return;
-    }
-    setSaving(true);
-    try {
-      await apiFetch('reservations/waitlist', {
-        method: 'POST',
-        body: JSON.stringify({
-          guestName: guestName.trim(),
-          partySize,
-          phone: phone.trim() || undefined,
-          notes: notes.trim() || undefined,
-        }),
-      });
-      toast({ title: 'Added to waitlist', variant: 'success' });
-      onSaved();
-    } catch (err) {
-      toast({ title: 'Failed to add to waitlist', description: getErrorMessage(err), variant: 'destructive' });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="relative w-full max-w-md rounded-xl bg-white shadow-2xl dark:bg-gray-900">
-        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Add to Waitlist</h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="space-y-4 px-6 py-5">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Guest name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={guestName}
-              onChange={(e) => setGuestName(e.target.value)}
-              placeholder="e.g. John Smith"
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
-            />
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Advance booking (days)</label>
+            <input type="number" min="1" max="365" value={settings.advanceBookingDays} onChange={(e) => setField('advanceBookingDays', Number(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Party size</label>
-            <input
-              type="number"
-              min={1}
-              max={20}
-              value={partySize}
-              onChange={(e) => setPartySize(Math.min(20, Math.max(1, Number(e.target.value))))}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Phone (for SMS)</label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+61 4xx xxx xxx"
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Preferences, allergies, etc."
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500 resize-none"
-            />
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 border-t border-gray-200 dark:border-gray-700 px-6 py-4">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-          >
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Add to Waitlist
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── SeatWaitlistModal ────────────────────────────────────────────────────────
-
-interface SeatWaitlistModalProps {
-  entry: WaitlistEntry;
-  tables: TableOption[];
-  onClose: () => void;
-  onSeated: () => void;
-}
-
-function SeatWaitlistModal({ entry, tables, onClose, onSeated }: SeatWaitlistModalProps) {
-  const { toast } = useToast();
-  const [tableId, setTableId] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  async function handleSeat() {
-    if (!tableId) {
-      toast({ title: 'Please select a table', variant: 'destructive' });
-      return;
-    }
-    setSaving(true);
-    try {
-      await apiFetch(`reservations/waitlist/${entry.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: 'seated', tableId }),
-      });
-      toast({ title: `${entry.guestName} has been seated`, variant: 'success' });
-      onSeated();
-    } catch (err) {
-      toast({ title: 'Failed to seat guest', description: getErrorMessage(err), variant: 'destructive' });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="relative w-full max-w-sm rounded-xl bg-white shadow-2xl dark:bg-gray-900">
-        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Seat Guest</h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="px-6 py-5 space-y-4">
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            Assign a table for <span className="font-medium text-gray-900 dark:text-white">{entry.guestName}</span> (party of {entry.partySize})
-          </p>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Select table</label>
-            <select
-              value={tableId}
-              onChange={(e) => setTableId(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-            >
-              <option value="">Choose a table...</option>
-              {tables.map((t) => (
-                <option key={t.id} value={t.id}>{t.name} (seats {t.capacity})</option>
-              ))}
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Slot interval</label>
+            <select value={settings.slotIntervalMinutes} onChange={(e) => setField('slotIntervalMinutes', Number(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+              {[15, 20, 30, 45, 60].map((n) => <option key={n} value={n}>{n} min</option>)}
             </select>
           </div>
         </div>
-        <div className="flex justify-end gap-3 border-t border-gray-200 dark:border-gray-700 px-6 py-4">
+      </section>
+
+      {/* ── Opening Hours ─────────────────────────────────────────────────── */}
+      <section>
+        <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Opening Hours</h3>
+        <div className="space-y-2">
+          {DAYS.map((day, i) => {
+            const key = DAY_KEYS[i]!;
+            const h = (settings.openingHours[key] as { open: string; close: string; closed?: boolean } | undefined) ?? { open: '09:00', close: '17:00', closed: false };
+            const closed = h.closed ?? false;
+            return (
+              <div key={key} className="flex flex-wrap items-center gap-3">
+                <span className="w-24 text-sm font-medium text-gray-700 dark:text-gray-300">{day}</span>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={!closed}
+                    onChange={(e) => setField('openingHours', { ...settings.openingHours, [key]: { ...h, closed: !e.target.checked } })}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-gray-500">Open</span>
+                </label>
+                {!closed ? (
+                  <>
+                    <input type="time" value={h.open}  onChange={(e) => setField('openingHours', { ...settings.openingHours, [key]: { ...h, open: e.target.value } })}  className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+                    <span className="text-gray-400">–</span>
+                    <input type="time" value={h.close} onChange={(e) => setField('openingHours', { ...settings.openingHours, [key]: { ...h, close: e.target.value } })} className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+                  </>
+                ) : (
+                  <span className="text-sm italic text-gray-400">Closed</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ── Widget Branding ───────────────────────────────────────────────── */}
+      <section>
+        <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Widget Branding</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Widget Title</label>
+            <input value={settings.widgetTitle ?? ''} onChange={(e) => setField('widgetTitle', e.target.value)} placeholder="Make a Booking" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Primary Colour</label>
+            <div className="flex items-center gap-3">
+              <input type="color" value={settings.widgetPrimaryColor} onChange={(e) => setField('widgetPrimaryColor', e.target.value)} className="h-9 w-16 cursor-pointer rounded-lg border border-gray-300" />
+              <input value={settings.widgetPrimaryColor} onChange={(e) => setField('widgetPrimaryColor', e.target.value)} placeholder="#6366f1" className="w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Embed Code ────────────────────────────────────────────────────── */}
+      <section>
+        <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Embed on Your Website</h3>
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-5 dark:border-indigo-900/40 dark:bg-indigo-950/30">
+          <div className="mb-3 flex items-center gap-2">
+            <Globe className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+              Paste this into any webpage to add the booking widget
+            </p>
+          </div>
+          <pre className="mb-4 overflow-x-auto rounded-lg bg-white p-4 text-xs text-gray-700 dark:bg-gray-900 dark:text-gray-300">
+{`<div id="elevatedpos-booking"></div>
+<script src="https://app.elevatedpos.com.au/api/widget/${orgSlug || 'YOUR-SLUG'}"></script>`}
+          </pre>
           <button
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            onClick={copyEmbed}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
           >
-            Cancel
-          </button>
-          <button
-            onClick={handleSeat}
-            disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-60"
-          >
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Seat Now
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? 'Copied!' : 'Copy Embed Code'}
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
+      </section>
 
-// ─── ReservationCard ──────────────────────────────────────────────────────────
-
-interface ReservationCardProps {
-  reservation: Reservation;
-  onStatusChange: (id: string, status: ReservationStatus) => Promise<void>;
-}
-
-function ReservationCard({ reservation: r, onStatusChange }: ReservationCardProps) {
-  const [busy, setBusy] = useState(false);
-
-  async function changeStatus(status: ReservationStatus) {
-    setBusy(true);
-    try {
-      await onStatusChange(r.id, status);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const actions: { label: string; status: ReservationStatus; icon: React.ReactNode; cls: string }[] = [];
-  if (r.status === 'confirmed') {
-    actions.push(
-      { label: 'Mark Arrived', status: 'arrived', icon: <UserCheck className="h-3.5 w-3.5" />, cls: 'bg-purple-600 hover:bg-purple-700 text-white' },
-      { label: 'No Show', status: 'no-show', icon: <AlertCircle className="h-3.5 w-3.5" />, cls: 'bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/30 dark:hover:bg-red-900/50 dark:text-red-400' },
-      { label: 'Cancel', status: 'cancelled', icon: <Ban className="h-3.5 w-3.5" />, cls: 'bg-gray-100 hover:bg-gray-200 text-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-300' },
-    );
-  } else if (r.status === 'arrived') {
-    actions.push(
-      { label: 'Seat Now', status: 'seated', icon: <CheckCircle2 className="h-3.5 w-3.5" />, cls: 'bg-amber-600 hover:bg-amber-700 text-white' },
-      { label: 'Cancel', status: 'cancelled', icon: <Ban className="h-3.5 w-3.5" />, cls: 'bg-gray-100 hover:bg-gray-200 text-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-300' },
-    );
-  } else if (r.status === 'seated') {
-    actions.push(
-      { label: 'Complete', status: 'completed', icon: <CheckCircle2 className="h-3.5 w-3.5" />, cls: 'bg-green-600 hover:bg-green-700 text-white' },
-    );
-  }
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-gray-900 dark:text-white">{r.guestName}</span>
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[r.status]}`}>
-              {STATUS_LABEL[r.status]}
-            </span>
+      {/* ── Email Notifications ───────────────────────────────────────────── */}
+      <section>
+        <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Email Notifications</h3>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+            <span className="text-sm text-gray-900 dark:text-white">Send confirmation emails to customers</span>
+            <Toggle checked={settings.confirmationEmailEnabled} onChange={() => setField('confirmationEmailEnabled', !settings.confirmationEmailEnabled)} />
           </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-            <span className="flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5" />
-              {formatTime12(r.time)} · {r.duration}m
-            </span>
-            <span className="flex items-center gap-1">
-              <Users className="h-3.5 w-3.5" />
-              {r.partySize} guests
-            </span>
-            {r.tableName && (
-              <span className="flex items-center gap-1">
-                <LayoutGrid className="h-3.5 w-3.5" />
-                {r.tableName}
-              </span>
-            )}
-            {r.phone && (
-              <span className="flex items-center gap-1">
-                <Phone className="h-3.5 w-3.5" />
-                {r.phone}
-              </span>
-            )}
-            {r.email && (
-              <span className="flex items-center gap-1">
-                <Mail className="h-3.5 w-3.5" />
-                {r.email}
-              </span>
-            )}
+          <div className="flex items-center justify-between rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+            <span className="text-sm text-gray-900 dark:text-white">Send reminder emails</span>
+            <Toggle checked={settings.reminderEmailEnabled} onChange={() => setField('reminderEmailEnabled', !settings.reminderEmailEnabled)} />
           </div>
-          {r.notes && (
-            <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400 italic">{r.notes}</p>
+          {settings.reminderEmailEnabled && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Send reminder how many hours before?</label>
+              <select
+                value={settings.reminderHoursBefore}
+                onChange={(e) => setField('reminderHoursBefore', Number(e.target.value))}
+                className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              >
+                {[1, 2, 4, 6, 12, 24, 48].map((n) => (
+                  <option key={n} value={n}>{n} hour{n > 1 ? 's' : ''} before</option>
+                ))}
+              </select>
+            </div>
           )}
         </div>
+      </section>
+
+      <div className="flex justify-end">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+          Save Settings
+        </button>
       </div>
-      {actions.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {actions.map((a) => (
-            <button
-              key={a.status}
-              onClick={() => changeStatus(a.status)}
-              disabled={busy}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 ${a.cls}`}
-            >
-              {a.icon}
-              {a.label}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
-// ─── TimelineView ─────────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
-interface TimelineViewProps {
-  reservations: Reservation[];
-  onStatusChange: (id: string, status: ReservationStatus) => Promise<void>;
-}
+export function ReservationsClient() {
+  const { toast } = useToast();
+  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<'list' | 'settings'>('list');
+  const [showCreate, setShowCreate] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<ReservationStatus | 'all'>('all');
+  const [filterDate, setFilterDate] = useState(todayIso());
+  const [filterType, setFilterType] = useState<BookingType | 'all'>('all');
+  const [bookingSettings, setBookingSettings] = useState({ restaurantEnabled: true, serviceEnabled: false });
+  const [orgSlug, setOrgSlug] = useState('');
 
-function TimelineView({ reservations }: TimelineViewProps) {
-  const byDate = reservations.reduce<Record<string, Reservation[]>>((acc, r) => {
-    if (!acc[r.date]) acc[r.date] = [];
-    acc[r.date].push(r);
-    return acc;
-  }, {});
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams({ date: filterDate });
+      if (filterStatus !== 'all') qs.set('status', filterStatus);
+      const data = await apiFetch<{ data: Reservation[] }>(`reservations?${qs}`);
+      setReservations(data.data ?? []);
+    } catch {
+      setReservations([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filterDate, filterStatus]);
 
-  const sortedDates = Object.keys(byDate).sort();
+  // Load org slug + booking type flags once
+  useEffect(() => {
+    apiFetch<{ slug: string }>('organisations/me')
+      .then((r) => setOrgSlug(r.slug ?? ''))
+      .catch(() => {});
+    apiFetch<ReservationSettings>('reservations/settings')
+      .then((s) => setBookingSettings({ restaurantEnabled: s.restaurantEnabled, serviceEnabled: s.serviceEnabled }))
+      .catch(() => {});
+  }, []);
 
-  if (sortedDates.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-600">
-        <CalendarCheck className="h-12 w-12 mb-3" />
-        <p className="text-sm">No reservations in the next 7 days</p>
-      </div>
-    );
+  useEffect(() => { load(); }, [load]);
+
+  async function updateStatus(id: string, status: ReservationStatus) {
+    try {
+      await apiFetch(`reservations/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+      toast({ title: `Marked as ${STATUS_CONFIG[status].label}`, variant: 'success' });
+      load();
+    } catch (err) {
+      toast({ title: 'Failed to update', description: getErrorMessage(err), variant: 'destructive' });
+    }
   }
 
-  const pixelsPerHour = 80;
-  const hours = Array.from({ length: 16 }, (_, i) => i + 7);
+  const filtered = filterType === 'all'
+    ? reservations
+    : reservations.filter((r) => r.bookingType === filterType);
 
   return (
     <div className="space-y-6">
-      {sortedDates.map((date) => {
-        const label = new Date(date + 'T00:00:00').toLocaleDateString('en-AU', {
-          weekday: 'long', day: 'numeric', month: 'long',
-        });
-        const dayReservations = byDate[date].sort((a, b) => a.time.localeCompare(b.time));
-
-        return (
-          <div key={date}>
-            <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">{label}</h3>
-            <div className="relative overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-              <div className="flex">
-                {/* Time axis */}
-                <div className="flex-shrink-0 w-14 border-r border-gray-200 dark:border-gray-700">
-                  <div className="h-6" />
-                  {hours.map((h) => (
-                    <div key={h} style={{ height: pixelsPerHour }} className="flex items-start justify-end pr-2 pt-0.5">
-                      <span className="text-[10px] text-gray-400">{formatTime12(`${String(h).padStart(2, '0')}:00`)}</span>
-                    </div>
-                  ))}
-                </div>
-                {/* Grid */}
-                <div className="relative flex-1" style={{ minWidth: 500 }}>
-                  <div className="h-6 border-b border-gray-100 dark:border-gray-700/50" />
-                  {hours.map((h) => (
-                    <div key={h} style={{ height: pixelsPerHour }} className="border-b border-gray-100 dark:border-gray-700/50" />
-                  ))}
-                  {dayReservations.map((r) => {
-                    const [rh, rm] = r.time.split(':').map(Number);
-                    const startMins = (rh - 7) * 60 + rm;
-                    const top = (startMins / 60) * pixelsPerHour + 24;
-                    const height = Math.max(20, (r.duration / 60) * pixelsPerHour - 4);
-
-                    return (
-                      <div
-                        key={r.id}
-                        className="absolute left-2 right-2 rounded-lg border border-blue-300 bg-blue-50 px-2 py-1 dark:border-blue-700 dark:bg-blue-900/30"
-                        style={{ top, height }}
-                      >
-                        <p className="truncate text-xs font-semibold text-blue-800 dark:text-blue-300">{r.guestName}</p>
-                        <p className="truncate text-[10px] text-blue-600 dark:text-blue-400">
-                          {formatTime12(r.time)} · {r.partySize}p{r.tableName ? ` · ${r.tableName}` : ''}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── ReservationsTab ──────────────────────────────────────────────────────────
-
-interface ReservationsTabProps {
-  reservations: Reservation[];
-  tables: TableOption[];
-  loading: boolean;
-  onStatusChange: (id: string, status: ReservationStatus) => Promise<void>;
-  onRefresh: () => void;
-}
-
-function ReservationsTab({ reservations, tables, loading, onStatusChange, onRefresh }: ReservationsTabProps) {
-  const [viewMode, setViewMode] = useState<'timeline' | 'list'>('list');
-  const [showModal, setShowModal] = useState(false);
-
-  const byDate = reservations.reduce<Record<string, Reservation[]>>((acc, r) => {
-    if (!acc[r.date]) acc[r.date] = [];
-    acc[r.date].push(r);
-    return acc;
-  }, {});
-  const sortedDates = Object.keys(byDate).sort();
-
-  return (
-    <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setViewMode('list')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              viewMode === 'list'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'
-            }`}
-          >
-            <List className="h-4 w-4" />
-            List
-          </button>
-          <button
-            onClick={() => setViewMode('timeline')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              viewMode === 'timeline'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'
-            }`}
-          >
-            <Clock className="h-4 w-4" />
-            Timeline
-          </button>
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Reservations</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Manage table bookings and service appointments
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={onRefresh}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            onClick={load}
+            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            <RefreshCw className="h-4 w-4" />
           </button>
           <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
           >
             <Plus className="h-4 w-4" />
             New Reservation
@@ -806,541 +642,173 @@ function ReservationsTab({ reservations, tables, loading, onStatusChange, onRefr
         </div>
       </div>
 
-      {/* Content */}
-      {loading && reservations.length === 0 ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-        </div>
-      ) : viewMode === 'timeline' ? (
-        <TimelineView reservations={reservations} onStatusChange={onStatusChange} />
-      ) : (
-        <div className="space-y-6">
-          {sortedDates.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-600">
-              <CalendarCheck className="h-12 w-12 mb-3" />
-              <p className="text-sm">No reservations in the next 7 days</p>
-            </div>
-          ) : (
-            sortedDates.map((date) => {
-              const label = new Date(date + 'T00:00:00').toLocaleDateString('en-AU', {
-                weekday: 'long', day: 'numeric', month: 'long',
-              });
-              const dayReservations = byDate[date].sort((a, b) => a.time.localeCompare(b.time));
-              return (
-                <div key={date}>
-                  <h3 className="mb-2 text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">{label}</h3>
-                  <div className="space-y-2">
-                    {dayReservations.map((r) => (
-                      <ReservationCard key={r.id} reservation={r} onStatusChange={onStatusChange} />
-                    ))}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      {showModal && (
-        <NewReservationModal
-          tables={tables}
-          onClose={() => setShowModal(false)}
-          onSaved={() => { setShowModal(false); onRefresh(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-// ─── WaitlistTab ──────────────────────────────────────────────────────────────
-
-interface WaitlistTabProps {
-  waitlist: WaitlistEntry[];
-  tables: TableOption[];
-  loading: boolean;
-  onRefresh: () => void;
-}
-
-function WaitlistTab({ waitlist, tables, loading, onRefresh }: WaitlistTabProps) {
-  const { toast } = useToast();
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [seatEntry, setSeatEntry] = useState<WaitlistEntry | null>(null);
-  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
-  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
-
-  function setBusy(id: string, busy: boolean) {
-    setBusyIds((prev) => {
-      const next = new Set(prev);
-      if (busy) next.add(id); else next.delete(id);
-      return next;
-    });
-  }
-
-  async function handleNotify(entry: WaitlistEntry) {
-    setBusy(entry.id, true);
-    try {
-      await apiFetch(`reservations/waitlist/${entry.id}/notify`, { method: 'POST' });
-      toast({ title: 'SMS sent', description: `"Your table is ready!" sent to ${entry.guestName}`, variant: 'success' });
-    } catch (err) {
-      toast({ title: 'Failed to send SMS', description: getErrorMessage(err), variant: 'destructive' });
-    } finally {
-      setBusy(entry.id, false);
-    }
-  }
-
-  async function handleRemove(id: string) {
-    setBusy(id, true);
-    try {
-      await apiFetch(`reservations/waitlist/${id}`, { method: 'DELETE' });
-      toast({ title: 'Removed from waitlist', variant: 'success' });
-      onRefresh();
-    } catch (err) {
-      toast({ title: 'Failed to remove', description: getErrorMessage(err), variant: 'destructive' });
-    } finally {
-      setBusy(id, false);
-      setConfirmRemoveId(null);
-    }
-  }
-
-  const active = waitlist.filter((w) => w.status !== 'seated' && w.status !== 'cancelled');
-
-  return (
-    <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          {active.length} {active.length === 1 ? 'party' : 'parties'} waiting
-        </p>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            <Plus className="h-4 w-4" />
-            Add to Waitlist
-          </button>
-        </div>
-      </div>
-
-      {/* List */}
-      {loading && waitlist.length === 0 ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-        </div>
-      ) : active.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-600">
-          <Users className="h-12 w-12 mb-3" />
-          <p className="text-sm">Waitlist is empty</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {active.map((entry, idx) => (
-            <div
-              key={entry.id}
-              className="flex items-start gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800"
-            >
-              {/* Position badge */}
-              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                {idx + 1}
-              </div>
-              {/* Info */}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-gray-900 dark:text-white">{entry.guestName}</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                    <Users className="h-3.5 w-3.5" />
-                    {entry.partySize} guests
-                  </span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                    <Clock className="h-3.5 w-3.5" />
-                    {waitMinutes(entry.addedAt)} wait
-                  </span>
-                </div>
-                {entry.phone && (
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                    <Phone className="h-3.5 w-3.5" />
-                    {entry.phone}
-                  </p>
-                )}
-                {entry.notes && (
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 italic">
-                    <MessageSquare className="h-3.5 w-3.5 flex-shrink-0" />
-                    {entry.notes}
-                  </p>
-                )}
-                {/* Actions */}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setSeatEntry(entry)}
-                    disabled={busyIds.has(entry.id)}
-                    className="flex items-center gap-1.5 rounded-lg bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-60"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Seat Now
-                  </button>
-                  {entry.phone && (
-                    <button
-                      onClick={() => handleNotify(entry)}
-                      disabled={busyIds.has(entry.id)}
-                      className="flex items-center gap-1.5 rounded-lg bg-blue-100 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-200 disabled:opacity-60 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
-                    >
-                      {busyIds.has(entry.id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />}
-                      SMS Notify
-                    </button>
-                  )}
-                  {confirmRemoveId === entry.id ? (
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-gray-500">Confirm?</span>
-                      <button
-                        onClick={() => handleRemove(entry.id)}
-                        disabled={busyIds.has(entry.id)}
-                        className="rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-60"
-                      >
-                        Yes
-                      </button>
-                      <button
-                        onClick={() => setConfirmRemoveId(null)}
-                        className="rounded-lg bg-gray-100 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                      >
-                        No
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmRemoveId(entry.id)}
-                      disabled={busyIds.has(entry.id)}
-                      className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-200 disabled:opacity-60 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Remove
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {showAddModal && (
-        <AddWaitlistModal
-          onClose={() => setShowAddModal(false)}
-          onSaved={() => { setShowAddModal(false); onRefresh(); }}
-        />
-      )}
-      {seatEntry && (
-        <SeatWaitlistModal
-          entry={seatEntry}
-          tables={tables}
-          onClose={() => setSeatEntry(null)}
-          onSeated={() => { setSeatEntry(null); onRefresh(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-// ─── SettingsTab ──────────────────────────────────────────────────────────────
-
-const DEFAULT_SETTINGS: ReservationSettings = {
-  bookingWindowDays: 30,
-  slotDurationMins: 60,
-  maxPartySize: 20,
-  autoConfirm: true,
-};
-
-const BOOKING_WINDOW_OPTIONS = [7, 14, 30, 60, 90];
-const SLOT_DURATION_OPTIONS = [
-  { label: '60 min', value: 60 },
-  { label: '90 min', value: 90 },
-  { label: '120 min', value: 120 },
-];
-
-function SettingsTab() {
-  const { toast } = useToast();
-  const [settings, setSettings] = useState<ReservationSettings>(DEFAULT_SETTINGS);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    apiFetch<{ data: ReservationSettings }>('settings/reservations')
-      .then((res) => setSettings(res.data ?? DEFAULT_SETTINGS))
-      .catch(() => setSettings(DEFAULT_SETTINGS))
-      .finally(() => setLoading(false));
-  }, []);
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      await apiFetch('settings/reservations', {
-        method: 'PUT',
-        body: JSON.stringify(settings),
-      });
-      toast({ title: 'Settings saved', variant: 'success' });
-    } catch (err) {
-      toast({ title: 'Failed to save settings', description: getErrorMessage(err), variant: 'destructive' });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-lg space-y-6">
-      {/* Booking window */}
-      <div>
-        <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Booking window (days in advance)
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {BOOKING_WINDOW_OPTIONS.map((days) => (
-            <button
-              key={days}
-              type="button"
-              onClick={() => setSettings((s) => ({ ...s, bookingWindowDays: days }))}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                settings.bookingWindowDays === days
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
-              }`}
-            >
-              {days} days
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Slot duration */}
-      <div>
-        <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Default slot duration
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {SLOT_DURATION_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setSettings((s) => ({ ...s, slotDurationMins: opt.value }))}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                settings.slotDurationMins === opt.value
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Max party size */}
-      <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Max party size
-        </label>
-        <input
-          type="number"
-          min={1}
-          max={100}
-          value={settings.maxPartySize}
-          onChange={(e) => setSettings((s) => ({ ...s, maxPartySize: Number(e.target.value) }))}
-          className="w-32 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-        />
-      </div>
-
-      {/* Auto-confirm */}
-      <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-        <div>
-          <p className="text-sm font-medium text-gray-900 dark:text-white">Auto-confirm reservations</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Automatically confirm new bookings without manual review
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setSettings((s) => ({ ...s, autoConfirm: !s.autoConfirm }))}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            settings.autoConfirm ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-600'
-          }`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-              settings.autoConfirm ? 'translate-x-6' : 'translate-x-1'
-            }`}
-          />
-        </button>
-      </div>
-
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-      >
-        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-        Save Settings
-      </button>
-    </div>
-  );
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-type Tab = 'reservations' | 'waitlist' | 'settings';
-
-export function ReservationsClient() {
-  const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<Tab>('reservations');
-  const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
-  const [tables, setTables] = useState<TableOption[]>([]);
-  const [loadingRes, setLoadingRes] = useState(true);
-  const [loadingWait, setLoadingWait] = useState(true);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fetchReservations = useCallback(async (silent = false) => {
-    if (!silent) setLoadingRes(true);
-    try {
-      const qs = new URLSearchParams({
-        dateFrom: todayIso(),
-        dateTo: plusDaysIso(7),
-      });
-      const res = await apiFetch<{ data: Reservation[] }>(`reservations?${qs}`);
-      setReservations(res.data ?? []);
-    } catch (err) {
-      // Only show error toast on manual/initial fetch, not background polls
-      if (!silent) {
-        toast({ title: 'Failed to load reservations', description: getErrorMessage(err), variant: 'destructive' });
-      }
-    } finally {
-      if (!silent) setLoadingRes(false);
-    }
-  }, [toast]);
-
-  const fetchWaitlist = useCallback(async (silent = false) => {
-    if (!silent) setLoadingWait(true);
-    try {
-      const res = await apiFetch<{ data: WaitlistEntry[] }>('reservations/waitlist');
-      setWaitlist(res.data ?? []);
-    } catch (err) {
-      // Only show error toast on manual/initial fetch, not background polls
-      if (!silent) {
-        toast({ title: 'Failed to load waitlist', description: getErrorMessage(err), variant: 'destructive' });
-      }
-    } finally {
-      if (!silent) setLoadingWait(false);
-    }
-  }, [toast]);
-
-  const fetchTables = useCallback(async () => {
-    try {
-      const res = await apiFetch<{ data: TableOption[] }>('tables');
-      setTables(res.data ?? []);
-    } catch {
-      // Tables are optional for the UI to function
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchReservations();
-    fetchWaitlist();
-    fetchTables();
-
-    intervalRef.current = setInterval(() => {
-      void fetchReservations(true);
-      void fetchWaitlist(true);
-    }, 30_000);
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [fetchReservations, fetchWaitlist, fetchTables]);
-
-  async function handleStatusChange(id: string, status: ReservationStatus) {
-    await apiFetch(`reservations/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    });
-    toast({ title: `Status updated to ${STATUS_LABEL[status]}`, variant: 'success' });
-    await fetchReservations();
-  }
-
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'reservations', label: 'Reservations' },
-    { id: 'waitlist', label: 'Waitlist' },
-    { id: 'settings', label: 'Settings' },
-  ];
-
-  const activeWaitCount = waitlist.filter((w) => w.status !== 'seated' && w.status !== 'cancelled').length;
-
-  return (
-    <div className="p-6 max-w-5xl mx-auto">
-      {/* Page header */}
-      <div className="mb-6 flex items-center gap-3">
-        <CalendarCheck className="h-7 w-7 text-blue-600 dark:text-blue-400" />
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Reservations & Waitlist</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Manage table bookings and walk-in queue</p>
-        </div>
-      </div>
-
       {/* Tabs */}
-      <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="-mb-px flex gap-6">
-          {tabs.map((tab) => (
+          {([
+            { key: 'list',     label: 'Bookings',         Icon: CalendarCheck },
+            { key: 'settings', label: 'Settings & Widget', Icon: Settings },
+          ] as const).map(({ key, label, Icon }) => (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`pb-3 text-sm font-medium transition-colors border-b-2 ${
-                activeTab === tab.id
-                  ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex items-center gap-1.5 border-b-2 pb-3 text-sm font-medium transition-colors ${
+                tab === key
+                  ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400'
+                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
               }`}
             >
-              {tab.label}
-              {tab.id === 'waitlist' && activeWaitCount > 0 && (
-                <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                  {activeWaitCount}
-                </span>
-              )}
+              <Icon className="h-4 w-4" />
+              {label}
             </button>
           ))}
         </nav>
       </div>
 
-      {/* Tab content */}
-      {activeTab === 'reservations' && (
-        <ReservationsTab
-          reservations={reservations}
-          tables={tables}
-          loading={loadingRes}
-          onStatusChange={handleStatusChange}
-          onRefresh={fetchReservations}
+      {/* Settings tab */}
+      {tab === 'settings' && <SettingsTab orgSlug={orgSlug} />}
+
+      {/* Bookings list tab */}
+      {tab === 'list' && (
+        <>
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            />
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as ReservationStatus | 'all')}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            >
+              <option value="all">All Statuses</option>
+              {(Object.keys(STATUS_CONFIG) as ReservationStatus[]).map((s) => (
+                <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
+              ))}
+            </select>
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as BookingType | 'all')}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            >
+              <option value="all">All Types</option>
+              <option value="restaurant">🍽️ Restaurant</option>
+              <option value="service">✂️ Service</option>
+            </select>
+            <span className="ml-auto text-sm text-gray-400 dark:text-gray-500">
+              {filtered.length} {filtered.length === 1 ? 'booking' : 'bookings'}
+            </span>
+          </div>
+
+          {/* List */}
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="rounded-xl border border-gray-200 bg-white py-16 text-center dark:border-gray-700 dark:bg-gray-900">
+              <CalendarCheck className="mx-auto h-10 w-10 text-gray-300 dark:text-gray-600" />
+              <p className="mt-3 text-sm font-medium text-gray-500 dark:text-gray-400">
+                No reservations for {filterDate}
+              </p>
+              <button
+                onClick={() => setShowCreate(true)}
+                className="mt-4 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+              >
+                + Create a reservation
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                    {['Time', 'Customer', 'Type', 'Status', 'Deposit', 'Notes', ''].map((h) => (
+                      <th key={h} className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {filtered.map((r) => (
+                    <tr key={r.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
+                      {/* Time */}
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-gray-900 dark:text-white">{formatTime(r.scheduledAt)}</div>
+                        <div className="text-xs text-gray-400">{formatDate(r.scheduledAt)}</div>
+                      </td>
+                      {/* Customer */}
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-900 dark:text-white">{r.customerName}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {r.customerPhone && (
+                            <span className="flex items-center gap-0.5 text-xs text-gray-400">
+                              <Phone className="h-3 w-3" />{r.customerPhone}
+                            </span>
+                          )}
+                          {r.partySize && (
+                            <span className="flex items-center gap-0.5 text-xs text-gray-400">
+                              <Users className="h-3 w-3" />{r.partySize}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      {/* Type */}
+                      <td className="px-4 py-3 text-sm">
+                        {r.bookingType === 'restaurant' ? '🍽️ Table' : '✂️ Service'}
+                      </td>
+                      {/* Status */}
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CONFIG[r.status].badge}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${STATUS_CONFIG[r.status].dot}`} />
+                          {STATUS_CONFIG[r.status].label}
+                        </span>
+                      </td>
+                      {/* Deposit */}
+                      <td className="px-4 py-3">
+                        {r.depositStatus !== 'none' ? (
+                          <div>
+                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${DEPOSIT_CONFIG[r.depositStatus].badge}`}>
+                              {DEPOSIT_CONFIG[r.depositStatus].label}
+                            </span>
+                            {r.depositAmountCents > 0 && (
+                              <div className="mt-0.5 text-xs text-gray-400">{formatCents(r.depositAmountCents)}</div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
+                        )}
+                      </td>
+                      {/* Notes */}
+                      <td className="max-w-[160px] px-4 py-3">
+                        {r.notes
+                          ? <span className="line-clamp-2 text-xs text-gray-500 dark:text-gray-400">{r.notes}</span>
+                          : <span className="text-xs text-gray-300 dark:text-gray-600">—</span>}
+                      </td>
+                      {/* Actions */}
+                      <td className="px-4 py-3">
+                        <ActionMenu reservation={r} onUpdate={updateStatus} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Create modal */}
+      {showCreate && (
+        <NewReservationModal
+          onClose={() => setShowCreate(false)}
+          onSaved={() => { setShowCreate(false); load(); }}
+          restaurantEnabled={bookingSettings.restaurantEnabled}
+          serviceEnabled={bookingSettings.serviceEnabled}
         />
       )}
-      {activeTab === 'waitlist' && (
-        <WaitlistTab
-          waitlist={waitlist}
-          tables={tables}
-          loading={loadingWait}
-          onRefresh={fetchWaitlist}
-        />
-      )}
-      {activeTab === 'settings' && <SettingsTab />}
     </div>
   );
 }

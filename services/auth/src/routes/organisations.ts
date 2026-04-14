@@ -4,8 +4,9 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db/index.js';
 import { hashPassword } from '../lib/tokens.js';
+import { getFeatureFlagsForIndustry } from '../lib/industryFlags.js';
 
-const industryValues = ['cafe', 'restaurant', 'bar', 'retail', 'fashion', 'grocery', 'salon', 'gym', 'services', 'other'] as const;
+const industryValues = ['cafe', 'restaurant', 'bar', 'retail', 'fashion', 'grocery', 'salon', 'gym', 'services', 'barber', 'quick_service', 'other'] as const;
 const onboardingSteps = ['industry_selected', 'location_setup', 'products_added', 'completed'] as const;
 
 const NOTIFICATIONS_API_URL = process.env['NOTIFICATIONS_API_URL'] ?? 'http://localhost:4009';
@@ -13,6 +14,23 @@ const INTEGRATIONS_API_URL = process.env['INTEGRATIONS_API_URL'] ?? 'http://loca
 const APP_URL = process.env['APP_URL'] ?? 'https://app.elevatedpos.com.au';
 
 export async function organisationRoutes(app: FastifyInstance) {
+  // GET /organisations/me — returns core org info for the authenticated user's org
+  app.get('/me', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const org = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, orgId),
+    });
+    if (!org) return reply.status(404).send({ error: 'Organisation not found' });
+    return reply.send({
+      id: org.id,
+      slug: org.slug,
+      name: org.name,
+      industry: org.industry ?? null,
+      featureFlags: (org.featureFlags as Record<string, boolean> | null) ?? null,
+      billingModel: org.billingModel ?? 'legacy',
+    });
+  });
+
   // GET /organisations/by-slug/:slug — public, no auth required
   app.get('/by-slug/:slug', { config: { skipAuth: true } }, async (request, reply) => {
     const { slug } = request.params as { slug: string };
@@ -242,6 +260,8 @@ export async function organisationRoutes(app: FastifyInstance) {
       step: org.onboardingStep,
       industry: org.industry ?? null,
       completedAt: org.onboardingCompletedAt ?? null,
+      featureFlags: (org.featureFlags as Record<string, boolean> | null) ?? null,
+      billingModel: org.billingModel ?? 'legacy',
     });
   });
 
@@ -282,4 +302,364 @@ export async function organisationRoutes(app: FastifyInstance) {
       completedAt: updated.onboardingCompletedAt ?? null,
     });
   });
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // 7-STEP MANDATORY ONBOARDING  (pre-login, session-token secured)
+  // ══════════════════════════════════════════════════════════════════════════════
+  //
+  // Each step returns an `onboardingToken` (short-lived JWT, 60 min) that gates
+  // the next step.  The final step issues a full auth JWT so the user is logged in.
+  // This entire flow happens BEFORE the user has a password JWT (pre-login).
+
+  function signOnboardingToken(orgId: string, nextStep: string): string {
+    return app.jwt.sign(
+      { sub: orgId, orgId, type: 'onboarding', nextStep },
+      { expiresIn: '60m' },
+    );
+  }
+
+  function verifyOnboardingToken(request: import('fastify').FastifyRequest): { orgId: string; nextStep: string } | null {
+    const auth = request.headers['authorization'];
+    if (!auth?.startsWith('Bearer ')) return null;
+    try {
+      const decoded = app.jwt.verify<{ orgId: string; type: string; nextStep: string }>(auth.slice(7));
+      if (decoded.type !== 'onboarding') return null;
+      return { orgId: decoded.orgId, nextStep: decoded.nextStep };
+    } catch {
+      return null;
+    }
+  }
+
+  // ── STEP 1: Business Info ─────────────────────────────────────────────────
+  // Creates the org skeleton. Returns an onboarding token to gate step 2.
+  app.post('/onboard/start', { config: { skipAuth: true } }, async (request, reply) => {
+    const body = z.object({
+      businessName:    z.string().min(2).max(100),
+      abn:             z.string().min(11).max(11),
+      phone:           z.string().min(8).max(20),
+      businessAddress: z.object({
+        street:   z.string().min(1),
+        suburb:   z.string().min(1),
+        state:    z.string().min(2).max(3),
+        postcode: z.string().min(4).max(4),
+        country:  z.string().default('AU'),
+      }),
+      websiteUrl:      z.string().url().optional().or(z.literal('')),
+      industry:        z.enum(industryValues),
+      billingEmail:    z.string().email(),
+      refCode:         z.string().optional(), // signup link referral code
+    }).safeParse(request.body);
+
+    if (!body.success) return reply.status(400).send({ error: 'Validation failed', issues: body.error.issues });
+    const d = body.data;
+
+    // Validate referral code if provided
+    let refLink: typeof schema.signupLinks.$inferSelect | undefined;
+    if (d.refCode) {
+      refLink = await db.query.signupLinks.findFirst({
+        where: eq(schema.signupLinks.code, d.refCode),
+      });
+      if (!refLink || !refLink.isActive || (refLink.expiresAt && refLink.expiresAt < new Date()) || refLink.usedAt) {
+        return reply.status(400).send({ error: 'Invalid or expired referral code' });
+      }
+    }
+
+    const featureFlags = getFeatureFlagsForIndustry(d.industry);
+    const slug = d.businessName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').slice(0, 50);
+
+    const [org] = await db.insert(schema.organisations).values({
+      name: d.businessName,
+      slug: `${slug}-${Date.now()}`,
+      abn: d.abn,
+      phone: d.phone,
+      businessAddress: d.businessAddress,
+      websiteUrl: d.websiteUrl ?? null,
+      industry: d.industry,
+      billingEmail: d.billingEmail,
+      featureFlags,
+      billingModel: 'per_device',
+      subscriptionStatus: 'incomplete',
+      onboardingStepV2: 'business_info',
+      onboardingStep: 'account_created', // legacy compat
+    }).returning();
+
+    if (!org) throw new Error('Failed to create organisation');
+
+    // Mark referral code if used
+    if (refLink) {
+      await db.update(schema.signupLinks)
+        .set({ usedAt: new Date(), usedByOrgId: org.id })
+        .where(eq(schema.signupLinks.id, refLink.id));
+    }
+
+    const token = signOnboardingToken(org.id, 'owner_account');
+    return reply.status(201).send({ orgId: org.id, onboardingToken: token, nextStep: 'owner_account' });
+  });
+
+  // ── STEP 2: Owner Account ─────────────────────────────────────────────────
+  app.post('/onboard/owner', { config: { skipAuth: true } }, async (request, reply) => {
+    const session = verifyOnboardingToken(request);
+    if (!session) return reply.status(401).send({ error: 'Invalid or expired onboarding session' });
+
+    const body = z.object({
+      firstName:       z.string().min(1).max(50),
+      lastName:        z.string().min(1).max(50),
+      email:           z.string().email(),
+      password:        z.string().min(8),
+      confirmPassword: z.string(),
+    }).safeParse(request.body);
+
+    if (!body.success) return reply.status(400).send({ error: 'Validation failed', issues: body.error.issues });
+    const d = body.data;
+    if (d.password !== d.confirmPassword) return reply.status(400).send({ error: 'Passwords do not match' });
+
+    const passwordHash = await hashPassword(d.password);
+    const verificationToken = randomBytes(32).toString('hex');
+
+    try {
+      const [employee] = await db.insert(schema.employees).values({
+        orgId: session.orgId,
+        firstName: d.firstName,
+        lastName: d.lastName,
+        email: d.email,
+        passwordHash,
+        isActive: true,
+        emailVerificationToken: verificationToken,
+        emailVerificationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      }).returning();
+
+      await db.update(schema.organisations)
+        .set({ billingEmail: d.email, onboardingStepV2: 'owner_account', updatedAt: new Date() })
+        .where(eq(schema.organisations.id, session.orgId));
+
+      // Fire-and-forget: send welcome + verify email
+      const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, session.orgId) });
+      const verifyUrl = `${APP_URL}/verify-email?token=${verificationToken}&emp=${employee!.id}`;
+      const internalToken = app.jwt.sign({ sub: employee!.id, orgId: session.orgId, role: 'system' }, { expiresIn: '5m' });
+      fetch(`${NOTIFICATIONS_API_URL}/api/v1/notifications/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${internalToken}` },
+        body: JSON.stringify({
+          to: d.email,
+          subject: `Welcome to ElevatedPOS — verify your email, ${d.firstName}!`,
+          htmlBody: buildWelcomeEmail(d.firstName, org?.name ?? '', verifyUrl),
+          orgId: session.orgId,
+        }),
+      }).catch(() => {});
+
+      const token = signOnboardingToken(session.orgId, 'location_setup');
+      return reply.send({ onboardingToken: token, nextStep: 'location_setup' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('unique') || msg.includes('duplicate')) return reply.status(409).send({ error: 'Email already in use' });
+      throw err;
+    }
+  });
+
+  // ── STEP 3: Location Setup ────────────────────────────────────────────────
+  app.post('/onboard/location', { config: { skipAuth: true } }, async (request, reply) => {
+    const session = verifyOnboardingToken(request);
+    if (!session) return reply.status(401).send({ error: 'Invalid or expired onboarding session' });
+
+    const body = z.object({
+      name:     z.string().min(1).max(255),
+      address:  z.string().min(1),
+      suburb:   z.string().min(1),
+      state:    z.string().min(2).max(3),
+      postcode: z.string().min(4).max(4),
+      phone:    z.string().optional(),
+      timezone: z.string().default('Australia/Sydney'),
+    }).safeParse(request.body);
+
+    if (!body.success) return reply.status(400).send({ error: 'Validation failed', issues: body.error.issues });
+    const d = body.data;
+
+    await db.insert(schema.locations).values({
+      orgId: session.orgId,
+      name: d.name,
+      address: { street: d.address, suburb: d.suburb, state: d.state, postcode: d.postcode, country: 'AU' },
+      phone: d.phone ?? null,
+      timezone: d.timezone,
+      isActive: true,
+    });
+
+    await db.update(schema.organisations)
+      .set({ onboardingStepV2: 'location_setup', updatedAt: new Date() })
+      .where(eq(schema.organisations.id, session.orgId));
+
+    const token = signOnboardingToken(session.orgId, 'staff_setup');
+    return reply.send({ onboardingToken: token, nextStep: 'staff_setup' });
+  });
+
+  // ── STEP 4: Staff Setup ───────────────────────────────────────────────────
+  app.post('/onboard/staff', { config: { skipAuth: true } }, async (request, reply) => {
+    const session = verifyOnboardingToken(request);
+    if (!session) return reply.status(401).send({ error: 'Invalid or expired onboarding session' });
+
+    const body = z.object({
+      staff: z.array(z.object({
+        firstName: z.string().min(1).max(50),
+        lastName:  z.string().min(1).max(50),
+        email:     z.string().email(),
+        role:      z.enum(['manager', 'cashier', 'staff']).default('staff'),
+        pin:       z.string().regex(/^\d{4}$/, 'PIN must be exactly 4 digits'),
+      })).min(1, 'At least one staff member is required'),
+    }).safeParse(request.body);
+
+    if (!body.success) return reply.status(400).send({ error: 'Validation failed', issues: body.error.issues });
+
+    for (const member of body.data.staff) {
+      await db.insert(schema.employees).values({
+        orgId: session.orgId,
+        firstName: member.firstName,
+        lastName: member.lastName,
+        email: member.email,
+        pin: member.pin,
+        isActive: true,
+      }).onConflictDoNothing(); // skip if owner email re-entered
+    }
+
+    await db.update(schema.organisations)
+      .set({ onboardingStepV2: 'staff_setup', updatedAt: new Date() })
+      .where(eq(schema.organisations.id, session.orgId));
+
+    const token = signOnboardingToken(session.orgId, 'device_selection');
+    return reply.send({ onboardingToken: token, nextStep: 'device_selection' });
+  });
+
+  // ── STEP 5: Device Selection ──────────────────────────────────────────────
+  app.post('/onboard/devices', { config: { skipAuth: true } }, async (request, reply) => {
+    const session = verifyOnboardingToken(request);
+    if (!session) return reply.status(401).send({ error: 'Invalid or expired onboarding session' });
+
+    const body = z.object({
+      pos:               z.number().int().min(0),
+      kds:               z.number().int().min(0),
+      kiosk:             z.number().int().min(0),
+      display:           z.number().int().min(0),
+      websiteAddon:      z.boolean().default(false),
+      customDomainAddon: z.boolean().default(false),
+    }).safeParse(request.body);
+
+    if (!body.success) return reply.status(400).send({ error: 'Validation failed', issues: body.error.issues });
+
+    const { DEVICE_PRICE_CENTS, ADDON_PRICE_CENTS } = await import('./billing.js');
+    const d = body.data;
+    const monthlyTotal =
+      d.pos * (DEVICE_PRICE_CENTS['pos'] ?? 0) +
+      d.kds * (DEVICE_PRICE_CENTS['kds'] ?? 0) +
+      d.kiosk * (DEVICE_PRICE_CENTS['kiosk'] ?? 0) +
+      d.display * (DEVICE_PRICE_CENTS['display'] ?? 0) +
+      (d.websiteAddon ? (ADDON_PRICE_CENTS['website'] ?? 0) : 0) +
+      (d.customDomainAddon ? (ADDON_PRICE_CENTS['customDomain'] ?? 0) : 0);
+
+    await db.update(schema.organisations)
+      .set({
+        pendingDeviceSelection: d,
+        onboardingStepV2: 'device_selection',
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.organisations.id, session.orgId));
+
+    const token = signOnboardingToken(session.orgId, 'stripe_connect');
+    return reply.send({ onboardingToken: token, nextStep: 'stripe_connect', monthlyTotalCents: monthlyTotal });
+  });
+
+  // ── STEP 6: Stripe Connect Callback ──────────────────────────────────────
+  // Called after Stripe Connect onboarding redirects the user back.
+  // Frontend passes the onboarding token (stored in sessionStorage before redirect).
+  app.post('/onboard/connect-complete', { config: { skipAuth: true } }, async (request, reply) => {
+    const session = verifyOnboardingToken(request);
+    if (!session) return reply.status(401).send({ error: 'Invalid or expired onboarding session' });
+
+    await db.update(schema.organisations)
+      .set({ onboardingStepV2: 'stripe_connect', updatedAt: new Date() })
+      .where(eq(schema.organisations.id, session.orgId));
+
+    const token = signOnboardingToken(session.orgId, 'subscription');
+    return reply.send({ onboardingToken: token, nextStep: 'subscription' });
+  });
+
+  // ── STEP 7: Subscription Complete ────────────────────────────────────────
+  // Called after the Stripe subscription PaymentElement confirms successfully.
+  // Marks the org as fully onboarded and issues a full auth JWT.
+  app.post('/onboard/complete', { config: { skipAuth: true } }, async (request, reply) => {
+    const session = verifyOnboardingToken(request);
+    if (!session) return reply.status(401).send({ error: 'Invalid or expired onboarding session' });
+
+    await db.update(schema.organisations)
+      .set({ onboardingStepV2: 'completed', onboardingStep: 'completed', onboardingCompletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.organisations.id, session.orgId));
+
+    // Find the owner employee to issue a full auth JWT
+    const owner = await db.query.employees.findFirst({
+      where: eq(schema.employees.orgId, session.orgId),
+      orderBy: (e, { asc }) => [asc(e.createdAt)],
+    });
+    if (!owner) return reply.status(404).send({ error: 'Owner account not found' });
+
+    const authToken = app.jwt.sign(
+      { sub: owner.id, orgId: session.orgId, role: 'owner', email: owner.email },
+      { expiresIn: '8h' },
+    );
+
+    return reply.send({ token: authToken, orgId: session.orgId, employeeId: owner.id, onboardingComplete: true });
+  });
+
+  // ── GET /onboard/status ───────────────────────────────────────────────────
+  // Lets the frontend check current onboarding step (e.g. after Stripe redirect).
+  app.get('/onboard/status', { config: { skipAuth: true } }, async (request, reply) => {
+    const session = verifyOnboardingToken(request);
+    if (!session) return reply.status(401).send({ error: 'Invalid or expired onboarding session' });
+
+    const org = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, session.orgId),
+    });
+    if (!org) return reply.status(404).send({ error: 'Organisation not found' });
+
+    return reply.send({
+      orgId: org.id,
+      onboardingStep: org.onboardingStepV2,
+      industry: org.industry,
+      featureFlags: org.featureFlags,
+      pendingDeviceSelection: org.pendingDeviceSelection,
+    });
+  });
+}
+
+// ── Email template helper ──────────────────────────────────────────────────────
+
+function buildWelcomeEmail(firstName: string, businessName: string, verifyUrl: string): string {
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#f0f0f2;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .shell{max-width:620px;margin:40px auto 60px;padding:0 16px}
+  .card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+  .header{background:#09090b;padding:32px 40px;text-align:center}
+  .logo-ring{display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;background:#fff;border-radius:14px}
+  .logo-ring span{font-size:30px;font-weight:900;color:#09090b;font-family:Georgia,serif}
+  .brand-name{color:#fff;font-size:16px;font-weight:600;letter-spacing:.6px;margin-top:10px;opacity:.85}
+  .body{padding:40px 40px 32px}
+  h1{color:#09090b;font-size:22px;font-weight:700;line-height:1.3;margin-bottom:12px}
+  p{color:#52525b;font-size:15px;line-height:1.75;margin-bottom:16px}
+  .btn-wrap{text-align:center;margin:28px 0 24px}
+  .btn{display:inline-block;background:#6366f1;color:#fff!important;font-size:15px;font-weight:600;padding:14px 36px;border-radius:10px;text-decoration:none}
+  .footer{padding:20px 40px 28px;text-align:center;background:#fafafa;border-top:1px solid #f4f4f5}
+  .footer p{font-size:12px;color:#a1a1aa;line-height:1.8;margin:0}
+</style></head><body>
+<div class="shell"><div class="card">
+  <div class="header">
+    <div class="logo-ring"><span>E</span></div>
+    <div class="brand-name">ElevatedPOS</div>
+  </div>
+  <div class="body">
+    <h1>Welcome aboard, ${firstName}! 🎉</h1>
+    <p>Your <strong>${businessName}</strong> account has been created. Please verify your email to finish setting up your account.</p>
+    <div class="btn-wrap"><a href="${verifyUrl}" class="btn">Verify My Email →</a></div>
+    <p style="font-size:13px;color:#a1a1aa">This link expires in 24 hours. Didn't create this account? You can safely ignore this email.</p>
+  </div>
+  <div class="footer"><p><strong style="color:#71717a">ElevatedPOS</strong> — Questions? <a href="mailto:support@elevatedpos.com.au" style="color:#71717a">support@elevatedpos.com.au</a></p></div>
+</div></div></body></html>`;
 }

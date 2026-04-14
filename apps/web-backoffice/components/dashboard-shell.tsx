@@ -16,9 +16,10 @@ interface DashboardShellProps {
   firstName: string;
   lastName: string;
   role: string | null;
+  featureFlags?: Record<string, boolean> | null;
 }
 
-export function DashboardShell({ children, firstName, lastName, role }: DashboardShellProps) {
+export function DashboardShell({ children, firstName, lastName, role, featureFlags }: DashboardShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Close sidebar on route change (mobile)
@@ -79,7 +80,7 @@ export function DashboardShell({ children, firstName, lastName, role }: Dashboar
         <LocationPicker />
 
         {/* Nav links */}
-        <SidebarNav onNavigate={() => setSidebarOpen(false)} role={role} />
+        <SidebarNav onNavigate={() => setSidebarOpen(false)} role={role} featureFlags={featureFlags} />
 
         {/* User */}
         <div className="border-t border-gray-200 p-3 dark:border-gray-800">

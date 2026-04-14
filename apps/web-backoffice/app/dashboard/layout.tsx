@@ -12,8 +12,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const lastName = user?.lastName ?? '';
   const role = user?.role ?? null;
 
-  // Lightweight onboarding guard — redirect to /setup if onboarding is incomplete
+  // Fetch onboarding status + feature flags in one call
+  let featureFlags: Record<string, boolean> | null = null;
   const token = cookies().get('elevatedpos_token')?.value;
+
   if (token) {
     try {
       const res = await fetch(`${AUTH_API_URL}/api/v1/organisations/onboarding`, {
@@ -22,9 +24,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
       });
       if (res.ok) {
         const data = await res.json();
+
+        // Redirect incomplete orgs to the right setup flow
         if (data.step && data.step !== 'completed') {
-          redirect('/setup');
+          // Per-device (new) users go back to /signup; legacy users go to /setup
+          redirect(data.billingModel === 'per_device' ? '/signup' : '/setup');
         }
+
+        featureFlags = data.featureFlags ?? null;
       }
     } catch (err: unknown) {
       // Re-throw Next.js redirect errors (redirect() throws internally)
@@ -34,7 +41,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <DashboardShell firstName={firstName} lastName={lastName} role={role}>
+    <DashboardShell
+      firstName={firstName}
+      lastName={lastName}
+      role={role}
+      featureFlags={featureFlags}
+    >
       {children}
     </DashboardShell>
   );

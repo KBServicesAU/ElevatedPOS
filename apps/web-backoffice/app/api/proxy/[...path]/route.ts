@@ -310,9 +310,9 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.INVENTORY_API_URL ?? 'http://localhost:4003',
     prefix: '/api/v1/inventory',
   },
-  // Reservations — routed to orders service
+  // Reservations + settings — integrations service (restaurant & service bookings)
   reservations: {
-    base: process.env.ORDERS_API_URL ?? 'http://localhost:4004',
+    base: process.env.INTEGRATIONS_API_URL ?? 'http://localhost:4010',
     prefix: '/api/v1/reservations',
   },
   // Waitlist — routed to orders service

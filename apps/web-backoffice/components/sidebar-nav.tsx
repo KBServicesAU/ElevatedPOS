@@ -18,11 +18,37 @@ type Role = string | null | undefined;
 const OWNER_ONLY   = ['owner'];
 const ADMIN        = ['owner', 'manager'];
 const OPS          = ['owner', 'manager', 'supervisor'];
-const ALL_STAFF    = ['owner', 'manager', 'supervisor', 'cashier', 'barista', 'kitchen'];
+// const ALL_STAFF    = ['owner', 'manager', 'supervisor', 'cashier', 'barista', 'kitchen'];
 
 function canAccess(allowed: string[], role: Role): boolean {
   if (!role) return true; // no role info → show everything (graceful degradation)
   return allowed.includes(role);
+}
+
+// ─── Feature-flag helpers ─────────────────────────────────────────────────────
+//
+// A `feature` key on a nav item names the flag that gates it.
+// Compound flags (e.g. "reservations") map to multiple underlying keys.
+// If featureFlags is null/undefined the item is always shown (graceful
+// degradation — e.g. legacy orgs without flags stored yet).
+
+type FeatureFlags = Record<string, boolean>;
+
+function hasFeature(flags: FeatureFlags | null | undefined, key: string): boolean {
+  if (!flags) return true; // no flags → show everything
+  switch (key) {
+    // Either restaurant-style OR service-style reservations
+    case 'reservations':
+      return !!(flags['restaurantReservations'] || flags['serviceReservations'] || flags['appointmentBooking']);
+    // Tables = restaurant/food table management
+    case 'tableManagement':
+      return !!flags['tableManagement'];
+    // Web Store = ecommerce (retail) OR online ordering (food)
+    case 'webStore':
+      return !!(flags['ecommerceWebsite'] || flags['onlineOrdering']);
+    default:
+      return !!flags[key];
+  }
 }
 
 // ─── Navigation definition ───────────────────────────────────────────────────
@@ -31,7 +57,8 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  roles?: string[]; // undefined = visible to all authenticated users
+  roles?: string[];    // undefined = visible to all authenticated users
+  feature?: string;   // feature-flag key — item hidden when flag is falsy
 }
 
 const nav: NavItem[] = [
@@ -46,8 +73,8 @@ const nav: NavItem[] = [
   { href: '/dashboard/devices',             icon: Smartphone,      label: 'Devices',          roles: OPS },
   { href: '/dashboard/display',             icon: Tv,              label: 'Display Screens',  roles: OPS },
   { href: '/dashboard/orders',              icon: ClipboardList,   label: 'Orders',            roles: OPS },
-  { href: '/dashboard/tables',              icon: LayoutGrid,      label: 'Tables',            roles: OPS },
-  { href: '/dashboard/reservations',        icon: CalendarCheck,   label: 'Reservations',      roles: OPS },
+  { href: '/dashboard/tables',              icon: LayoutGrid,      label: 'Tables',            roles: OPS,   feature: 'tableManagement' },
+  { href: '/dashboard/reservations',        icon: CalendarCheck,   label: 'Reservations',      roles: OPS,   feature: 'reservations' },
   { href: '/dashboard/quotes',              icon: FileText,        label: 'Quotes',            roles: OPS },
   { href: '/dashboard/fulfillment',         icon: Truck,           label: 'Fulfillment',       roles: OPS },
 
@@ -89,7 +116,7 @@ const nav: NavItem[] = [
   { href: '/dashboard/billing',             icon: Wallet,          label: 'Billing',           roles: OWNER_ONLY },
 
   // ── Marketing ─────────────────────────────────────────────────────────────
-  { href: '/dashboard/store',               icon: Globe,           label: 'Web Store',         roles: ADMIN },
+  { href: '/dashboard/store',               icon: Globe,           label: 'Web Store',         roles: ADMIN,  feature: 'webStore' },
   { href: '/dashboard/campaigns',           icon: Megaphone,       label: 'Campaigns',         roles: ADMIN },
 
   // ── Platform ──────────────────────────────────────────────────────────────
@@ -111,10 +138,15 @@ const nav: NavItem[] = [
 interface SidebarNavProps {
   onNavigate?: () => void;
   role?: Role;
+  featureFlags?: FeatureFlags | null;
 }
 
-export function SidebarNav({ onNavigate, role }: SidebarNavProps) {
-  const visible = nav.filter((item) => !item.roles || canAccess(item.roles, role));
+export function SidebarNav({ onNavigate, role, featureFlags }: SidebarNavProps) {
+  const visible = nav.filter((item) => {
+    if (item.roles && !canAccess(item.roles, role)) return false;
+    if (item.feature && !hasFeature(featureFlags, item.feature)) return false;
+    return true;
+  });
 
   return (
     <nav className="mt-4 flex-1 space-y-0.5 overflow-y-auto px-3 pb-2">

@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, text, varchar, boolean, timestamp, jsonb, integer,
+  pgTable, uuid, text, varchar, boolean, timestamp, jsonb, integer, pgEnum, index,
 } from 'drizzle-orm/pg-core';
 
 // Read-only reference to the shared organisations table (owned by auth service).
@@ -127,6 +127,85 @@ export const stripeInvoices = pgTable('stripe_invoices', {
   invoiceUrl: text('invoice_url'),
   invoicePdf: text('invoice_pdf'),
   metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Reservations ──────────────────────────────────────────────────────────────
+// Shared by restaurant reservations (party + table) and service/appointment
+// bookings (salon, gym, barber).
+
+export const reservationStatusEnum = pgEnum('reservation_status', [
+  'pending', 'confirmed', 'seated', 'in_progress', 'completed', 'cancelled', 'no_show',
+]);
+export const depositStatusEnum = pgEnum('deposit_status', [
+  'none', 'pending', 'paid', 'refunded', 'failed',
+]);
+
+export const reservations = pgTable('reservations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  locationId: uuid('location_id'),
+  // 'restaurant' | 'service' — determines which fields apply
+  bookingType: varchar('booking_type', { length: 20 }).notNull().default('restaurant'),
+  // Restaurant fields
+  partySize: integer('party_size'),
+  tableId: uuid('table_id'),
+  // Service / appointment fields
+  serviceId: uuid('service_id'),        // links to catalog product
+  staffEmployeeId: uuid('staff_employee_id'),
+  durationMinutes: integer('duration_minutes'),
+  // Shared
+  customerName: varchar('customer_name', { length: 255 }).notNull(),
+  customerEmail: varchar('customer_email', { length: 255 }).notNull(),
+  customerPhone: varchar('customer_phone', { length: 50 }),
+  scheduledAt: timestamp('scheduled_at', { withTimezone: true }).notNull(),
+  endsAt: timestamp('ends_at', { withTimezone: true }),
+  status: reservationStatusEnum('status').notNull().default('pending'),
+  notes: text('notes'),
+  internalNotes: text('internal_notes'),
+  // Deposit via Stripe Connect (ElevatedPOS Pay)
+  depositStatus: depositStatusEnum('deposit_status').notNull().default('none'),
+  depositAmountCents: integer('deposit_amount_cents').notNull().default(0),
+  depositStripeAccountId: varchar('deposit_stripe_account_id', { length: 255 }),
+  depositPaymentIntentId: varchar('deposit_payment_intent_id', { length: 255 }),
+  depositPaidAt: timestamp('deposit_paid_at', { withTimezone: true }),
+  depositRefundedAt: timestamp('deposit_refunded_at', { withTimezone: true }),
+  // Source tracking
+  source: varchar('source', { length: 30 }).notNull().default('widget'), // 'widget' | 'dashboard' | 'pos'
+  reminderSentAt: timestamp('reminder_sent_at', { withTimezone: true }),
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  cancellationReason: text('cancellation_reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orgScheduledIdx: index('reservations_org_scheduled_idx').on(t.orgId, t.scheduledAt),
+  orgStatusIdx: index('reservations_org_status_idx').on(t.orgId, t.status),
+}));
+
+export const reservationSettings = pgTable('reservation_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().unique(),
+  // What types are enabled
+  restaurantEnabled: boolean('restaurant_enabled').notNull().default(false),
+  serviceEnabled: boolean('service_enabled').notNull().default(false),
+  // Deposit configuration
+  restaurantDepositRequired: boolean('restaurant_deposit_required').notNull().default(false),
+  restaurantDepositCents: integer('restaurant_deposit_cents').notNull().default(0),
+  serviceDepositRequired: boolean('service_deposit_required').notNull().default(false),
+  serviceDepositCents: integer('service_deposit_cents').notNull().default(0),
+  // Availability
+  advanceBookingDays: integer('advance_booking_days').notNull().default(60),
+  slotIntervalMinutes: integer('slot_interval_minutes').notNull().default(30),
+  openingHours: jsonb('opening_hours').notNull().default({}),
+  // Widget branding
+  widgetPrimaryColor: varchar('widget_primary_color', { length: 7 }).notNull().default('#6366f1'),
+  widgetLogoUrl: text('widget_logo_url'),
+  widgetTitle: varchar('widget_title', { length: 255 }).default('Book a Table'),
+  // Notifications
+  confirmationEmailEnabled: boolean('confirmation_email_enabled').notNull().default(true),
+  reminderEmailEnabled: boolean('reminder_email_enabled').notNull().default(true),
+  reminderHoursBefore: integer('reminder_hours_before').notNull().default(24),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
