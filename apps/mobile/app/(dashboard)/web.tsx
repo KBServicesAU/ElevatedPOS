@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -10,7 +10,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
-import { useDashboardAuthStore } from '../../store/dashboard-auth';
 import { toast } from '../../components/ui';
 
 /* ------------------------------------------------------------------ */
@@ -19,33 +18,37 @@ import { toast } from '../../components/ui';
 
 const DASHBOARD_URL = process.env['EXPO_PUBLIC_APP_URL'] ?? 'https://app.elevatedpos.com.au';
 
-function escapeJsString(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
-}
-
 /* ------------------------------------------------------------------ */
 /* Screen                                                              */
 /* ------------------------------------------------------------------ */
 
 export default function DashboardWebScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ path?: string }>();
+  const params = useLocalSearchParams<{ path?: string; token?: string }>();
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
-  const email = useDashboardAuthStore((s) => s.email);
-  const password = useDashboardAuthStore((s) => s.password);
-  const hydrate = useDashboardAuthStore((s) => s.hydrate);
-  const ready = useDashboardAuthStore((s) => s.ready);
 
-  useEffect(() => {
-    if (!ready) hydrate();
-  }, [ready, hydrate]);
+  // The path the user wants to land on after authentication
+  const startPath = params.path && typeof params.path === 'string' ? params.path : '/dashboard';
+  // Fresh access token passed from the native login/refresh flow
+  const token = params.token && typeof params.token === 'string' ? params.token : null;
+
+  // If we have a token, load through the SSO endpoint which:
+  //   1. Validates the token against the auth service
+  //   2. Sets the elevatedpos_token session cookie
+  //   3. Redirects to startPath — fully authenticated, no login screen
+  // If no token (edge case), load the path directly — the web app's
+  // middleware will redirect to /login if the session has expired.
+  const startUri = token
+    ? `${DASHBOARD_URL}/api/auth/device-sso?token=${encodeURIComponent(token)}&redirect=${encodeURIComponent(startPath)}`
+    : `${DASHBOARD_URL}${startPath.startsWith('/') ? '' : '/'}${startPath}`;
 
   // Hide POS/KDS/Kiosk device-management entries from the sidebar.
   // These are app-device management pages that should not appear inside
   // the embedded WebView — operators should use the native launcher instead.
   const hideSidebarJS = `
+    (function() {
       function applyHides() {
         try {
           var style = document.getElementById('__epos_hide_css__');
@@ -72,65 +75,17 @@ export default function DashboardWebScreen() {
           var labels = ['POS Terminal', 'KDS Display', 'Kiosk', 'POS Devices', 'KDS Devices', 'Kiosk Devices'];
           document.querySelectorAll('a, li, button, [role="menuitem"]').forEach(function(el) {
             var txt = (el.textContent || '').trim();
-            if (labels.indexOf(txt) !== -1) {
-              el.style.display = 'none';
-            }
+            if (labels.indexOf(txt) !== -1) el.style.display = 'none';
           });
         } catch (e) { /* non-critical */ }
       }
-  `;
-
-  // Auto-login helper: when the login page is visible and we have saved
-  // credentials, fill in and submit the form. We guard against running
-  // more than once by setting a window-scoped flag.
-  const autoLoginJS =
-    email && password
-      ? `
-      function tryAutoLogin() {
-        if (window.__epos_auto_login_done__) return;
-        if (!/\\/login/.test(location.pathname)) return;
-        var emailInput = document.querySelector('input[type="email"], input[name="email"], input#email');
-        var pwdInput = document.querySelector('input[type="password"], input[name="password"], input#password');
-        var form = emailInput && emailInput.form;
-        if (emailInput && pwdInput && form) {
-          var nativeEmailSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-          nativeEmailSetter.call(emailInput, '${escapeJsString(email)}');
-          nativeEmailSetter.call(pwdInput, '${escapeJsString(password)}');
-          emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-          pwdInput.dispatchEvent(new Event('input', { bubbles: true }));
-          setTimeout(function() {
-            var submitBtn = form.querySelector('button[type="submit"]')
-              || Array.prototype.find.call(form.querySelectorAll('button'), function(b) { return /sign in|log in|login/i.test(b.textContent || ''); });
-            window.__epos_auto_login_done__ = true;
-            if (submitBtn) submitBtn.click();
-            else form.requestSubmit ? form.requestSubmit() : form.submit();
-          }, 50);
-        }
-      }
-      `
-      : `function tryAutoLogin() { /* no creds */ }`;
-
-  const injectedJS = `
-    (function() {
-      ${hideSidebarJS}
-      ${autoLoginJS}
       applyHides();
-      tryAutoLogin();
-      var obs = new MutationObserver(function() { applyHides(); tryAutoLogin(); });
+      var obs = new MutationObserver(applyHides);
       obs.observe(document.documentElement, { childList: true, subtree: true });
-      var applied = 0;
-      var iv = setInterval(function() {
-        applyHides();
-        tryAutoLogin();
-        if (++applied >= 10) clearInterval(iv);
-      }, 500);
+      var i = 0;
+      var iv = setInterval(function() { applyHides(); if (++i >= 10) clearInterval(iv); }, 500);
     })();
     true;`;
-
-  // Allow navigating to a specific web path passed via navigation
-  // params (e.g. /(dashboard)/web?path=/dashboard/catalog).
-  const startPath = params.path && typeof params.path === 'string' ? params.path : '/dashboard';
-  const startUri = `${DASHBOARD_URL}${startPath.startsWith('/') ? '' : '/'}${startPath}`;
 
   return (
     <SafeAreaView style={s.container} edges={['top']}>
@@ -161,12 +116,12 @@ export default function DashboardWebScreen() {
         ref={webRef}
         source={{ uri: startUri }}
         style={s.webview}
-        injectedJavaScriptBeforeContentLoaded={injectedJS}
-        injectedJavaScript={injectedJS}
+        injectedJavaScriptBeforeContentLoaded={hideSidebarJS}
+        injectedJavaScript={hideSidebarJS}
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => {
           setLoading(false);
-          webRef.current?.injectJavaScript(injectedJS);
+          webRef.current?.injectJavaScript(hideSidebarJS);
         }}
         onNavigationStateChange={(nav) => setCanGoBack(nav.canGoBack)}
         javaScriptEnabled
