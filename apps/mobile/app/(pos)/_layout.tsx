@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Slot, usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, AppState } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CommandPalette, type CommandItem } from '../../components/ui';
 import { useSidebarStore, ALL_SIDEBAR_ITEMS } from '../../store/sidebar';
+import { useAuthStore } from '../../store/auth';
+import { useDeviceSettings } from '../../store/device-settings';
 
 interface NavItem {
   /** File-system route (without (pos) group, since expo-router strips groups from pathname). */
@@ -19,9 +21,23 @@ export default function PosLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   const { enabledIds, hydrate: hydrateSidebar } = useSidebarStore();
+  const employee = useAuthStore((s) => s.employee);
+  const fetchDeviceSettings = useDeviceSettings((s) => s.fetch);
 
   // Hydrate sidebar preferences on mount
   React.useEffect(() => { hydrateSidebar(); }, []);
+
+  // Re-fetch device settings whenever the app comes to the foreground so
+  // any changes made in the dashboard (e.g. switching payment provider from
+  // ANZ Worldline → Tyro) take effect immediately without restarting the app.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        fetchDeviceSettings().catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, [fetchDeviceSettings]);
 
   // Build nav items from enabled IDs in master order
   const navItems = ALL_SIDEBAR_ITEMS.filter(item => enabledIds.includes(item.id));
@@ -203,6 +219,22 @@ export default function PosLayout() {
 
         {/* ── Page content ── */}
         <View style={styles.content}>
+          {/* Staff header — employee name + Switch button (P4) */}
+          {employee && (
+            <View style={styles.staffHeader}>
+              <Text style={styles.staffName} numberOfLines={1}>
+                {employee.firstName} {employee.lastName}
+              </Text>
+              <TouchableOpacity
+                style={styles.switchBtn}
+                onPress={() => router.push('/employee-login' as never)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="swap-horizontal-outline" size={13} color="#94a3b8" />
+                <Text style={styles.switchBtnText}>Switch</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <Slot />
         </View>
       </View>
@@ -266,4 +298,38 @@ const styles = StyleSheet.create({
   navLabelActive: { color: '#fff' },
 
   content: { flex: 1 },
+
+  // Staff header bar (P4) — sits above <Slot /> in the content column
+  staffHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    height: 36,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e1e2e',
+    gap: 10,
+  },
+  staffName: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '600',
+    maxWidth: 180,
+  },
+  switchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#141425',
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+  },
+  switchBtnText: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '700',
+  },
 });
