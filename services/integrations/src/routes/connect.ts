@@ -432,6 +432,60 @@ export async function connectRoutes(app: FastifyInstance) {
     return reply.send({ cancelled: true });
   });
 
+  // ── Update subscription plan (upgrade / downgrade) ───────────────────────────
+  // Swaps the price on the existing subscription item.
+  // Defaults to create_prorations so the customer is charged the difference
+  // immediately; pass prorationBehavior: 'none' to defer to the next cycle.
+  app.patch('/connect/subscriptions/:subscriptionId', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { subscriptionId } = request.params as { subscriptionId: string };
+    const body = request.body as {
+      priceId: string;
+      prorationBehavior?: 'create_prorations' | 'none' | 'always_invoice';
+    };
+
+    if (!body.priceId) return reply.status(400).send({ error: 'priceId is required' });
+
+    const rows = await db.select().from(stripeSubscriptions)
+      .where(eq(stripeSubscriptions.stripeSubscriptionId, subscriptionId)).limit(1);
+    if (rows.length === 0) return reply.status(404).send({ error: 'Subscription not found' });
+
+    const row = rows[0]!;
+
+    // Retrieve the live subscription to get the current item ID
+    let currentSub: Stripe.Subscription;
+    try {
+      currentSub = await stripe.subscriptions.retrieve(subscriptionId, {}, { stripeAccount: row.stripeAccountId });
+    } catch (err) {
+      const e = err as { message?: string };
+      return reply.status(422).send({ error: e.message ?? 'Could not retrieve subscription' });
+    }
+
+    const currentItem = currentSub.items.data[0];
+    if (!currentItem) return reply.status(422).send({ error: 'No subscription items found' });
+
+    // Swap the price — Stripe creates a proration invoice automatically
+    let updated: Stripe.Subscription;
+    try {
+      updated = await stripe.subscriptions.update(
+        subscriptionId,
+        {
+          items: [{ id: currentItem.id, price: body.priceId }],
+          proration_behavior: body.prorationBehavior ?? 'create_prorations',
+        },
+        { stripeAccount: row.stripeAccountId },
+      );
+    } catch (err) {
+      const e = err as { message?: string };
+      return reply.status(422).send({ error: e.message ?? 'Could not update subscription' });
+    }
+
+    await db.update(stripeSubscriptions)
+      .set({ stripePriceId: body.priceId, status: updated.status, updatedAt: new Date() })
+      .where(eq(stripeSubscriptions.stripeSubscriptionId, subscriptionId));
+
+    return reply.send({ subscriptionId: updated.id, status: updated.status, priceId: body.priceId });
+  });
+
   // ── Create invoice for merchant's customer ───────────────────────────────────
   // orgId is always taken from the authenticated JWT — never from the request body.
   app.post('/connect/invoices', { onRequest: [app.authenticate] }, async (request, reply) => {

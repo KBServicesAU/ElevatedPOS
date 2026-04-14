@@ -23,6 +23,20 @@ interface OrgsResponse {
   offset: number;
 }
 
+interface ConnectAccount {
+  orgId: string;
+  stripeAccountId: string;
+  status: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  businessName: string | null;
+}
+
+interface ConnectAccountsResponse {
+  data: ConnectAccount[];
+}
+
 const PLAN_OPTIONS = ['', 'starter', 'growth', 'enterprise'];
 const LIMIT = 20;
 
@@ -32,14 +46,71 @@ function planBadgeColor(plan: string): string {
   return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
 }
 
+function StripeStatusBadge({ account }: { account: ConnectAccount | undefined }) {
+  if (!account) {
+    return (
+      <span className="px-2 py-0.5 rounded border text-xs font-medium bg-gray-500/10 text-gray-600 border-gray-700/30">
+        Not set up
+      </span>
+    );
+  }
+
+  if (account.chargesEnabled && account.payoutsEnabled) {
+    return (
+      <span className="px-2 py-0.5 rounded border text-xs font-medium bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
+        ✓ Active
+      </span>
+    );
+  }
+
+  if (account.detailsSubmitted) {
+    return (
+      <span className="px-2 py-0.5 rounded border text-xs font-medium bg-amber-500/20 text-amber-400 border-amber-500/30">
+        ⚠ Restricted
+      </span>
+    );
+  }
+
+  if (account.stripeAccountId) {
+    return (
+      <span className="px-2 py-0.5 rounded border text-xs font-medium bg-blue-500/20 text-blue-400 border-blue-500/30">
+        ○ Pending
+      </span>
+    );
+  }
+
+  return (
+    <span className="px-2 py-0.5 rounded border text-xs font-medium bg-gray-500/10 text-gray-600 border-gray-700/30">
+      Not set up
+    </span>
+  );
+}
+
 export default function MerchantsPage() {
   const [orgs, setOrgs] = useState<Org[]>([]);
+  const [connectMap, setConnectMap] = useState<Record<string, ConnectAccount>>({});
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [plan, setPlan] = useState('');
   const [page, setPage] = useState(0);
+
+  // Load Stripe Connect statuses once (not paginated — all orgs in one shot)
+  useEffect(() => {
+    platformFetch('integrations/platform/connect-accounts')
+      .then((res) => {
+        const data = res as ConnectAccountsResponse;
+        const map: Record<string, ConnectAccount> = {};
+        for (const acc of data.data) {
+          map[acc.orgId] = acc;
+        }
+        setConnectMap(map);
+      })
+      .catch(() => {
+        // non-fatal — merchants table still renders, just without Stripe column
+      });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,6 +183,7 @@ export default function MerchantsPage() {
             <tr className="border-b border-[#1e1e2e]">
               <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">Business Name</th>
               <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">Plan</th>
+              <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">ElevatedPOS Pay</th>
               <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">Max Locations</th>
               <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">Max Devices</th>
               <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">Onboarding</th>
@@ -122,11 +194,11 @@ export default function MerchantsPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-gray-600">Loading...</td>
+                <td colSpan={8} className="px-6 py-8 text-center text-gray-600">Loading...</td>
               </tr>
             ) : orgs.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-gray-600">No merchants found</td>
+                <td colSpan={8} className="px-6 py-8 text-center text-gray-600">No merchants found</td>
               </tr>
             ) : (
               orgs.map((org) => (
@@ -141,6 +213,14 @@ export default function MerchantsPage() {
                     <span className={`px-2 py-0.5 rounded border text-xs font-medium ${planBadgeColor(org.plan)}`}>
                       {org.plan}
                     </span>
+                  </td>
+                  <td className="px-6 py-3">
+                    <StripeStatusBadge account={connectMap[org.id]} />
+                    {connectMap[org.id]?.stripeAccountId && (
+                      <p className="text-gray-600 text-xs mt-0.5 font-mono">
+                        {connectMap[org.id]!.stripeAccountId}
+                      </p>
+                    )}
                   </td>
                   <td className="px-6 py-3 text-gray-400">{org.maxLocations}</td>
                   <td className="px-6 py-3 text-gray-400">{org.maxDevices}</td>

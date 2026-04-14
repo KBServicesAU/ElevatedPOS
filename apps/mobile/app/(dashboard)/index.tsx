@@ -123,6 +123,22 @@ const DASHBOARD_FEATURES: DashboardFeature[] = [
     color: '#94a3b8',
     route: '/dashboard/settings',
   },
+  {
+    key: 'card-readers',
+    label: 'Card Readers',
+    description: 'Pair readers, order hardware',
+    icon: 'card',
+    color: '#6366f1',
+    route: '/dashboard/payments?tab=hardware',
+  },
+  {
+    key: 'elevatedpay',
+    label: 'ElevatedPOS Pay',
+    description: 'Payouts, balance, compliance',
+    icon: 'wallet',
+    color: '#10b981',
+    route: '/dashboard/payments?tab=elevatedpay',
+  },
 ];
 
 /* ------------------------------------------------------------------ */
