@@ -10,6 +10,79 @@ const stripe = new Stripe(process.env['STRIPE_SECRET_KEY'] ?? '', {
 
 const PLATFORM_FEE_BASIS_POINTS = 100; // 1%
 
+// ── Industry → Stripe MCC mapping ───────────────────────────────────────────
+// Merchant Category Codes required by Stripe for AU accounts.
+const INDUSTRY_MCC: Record<string, string> = {
+  restaurant:     '5812', // Eating Places, Restaurants
+  cafe:           '5812',
+  quick_service:  '5814', // Fast Food Restaurants
+  bar:            '5813', // Bars, Cocktail Lounges
+  retail:         '5999', // Retail Stores, Not Elsewhere Classified
+  fashion:        '5621', // Women's Ready-to-Wear Stores
+  grocery:        '5411', // Grocery Stores, Supermarkets
+  salon:          '7230', // Beauty Shops
+  barber:         '7241', // Barber Shops
+  gym:            '7997', // Membership Clubs (Sports, Recreation)
+  services:       '7389', // Misc Business Services
+  other:          '5999',
+};
+
+// Fields that Stripe accepts upfront when pre-filling a Connect account.
+function buildStripeAccountParams(org: {
+  name: string;
+  websiteUrl?: string | null;
+  phone?: string | null;
+  industry?: string | null;
+  businessAddress?: Record<string, string> | null;
+  abn?: string | null;
+}): Partial<Stripe.AccountCreateParams> {
+  const params: Partial<Stripe.AccountCreateParams> = {};
+  const mcc = org.industry ? (INDUSTRY_MCC[org.industry] ?? '5999') : undefined;
+
+  params.business_profile = {
+    ...(org.name ? { name: org.name } : {}),
+    ...(org.websiteUrl ? { url: org.websiteUrl } : {}),
+    ...(mcc ? { mcc } : {}),
+  };
+
+  if (org.phone || org.businessAddress) {
+    const addr = org.businessAddress ?? {};
+    params.company = {
+      ...(org.phone ? { phone: org.phone } : {}),
+      ...(org.abn ? { tax_id: org.abn } : {}),
+      ...(addr['line1'] ? {
+        address: {
+          line1: addr['line1'],
+          ...(addr['line2'] ? { line2: addr['line2'] } : {}),
+          city: addr['city'] ?? '',
+          state: addr['state'] ?? '',
+          postal_code: addr['postcode'] ?? '',
+          country: 'AU',
+        },
+      } : {}),
+    };
+  }
+
+  return params;
+}
+
+// Fetch org profile fields used for Stripe pre-fill.
+async function getOrgProfile(orgId: string) {
+  const rows = await db
+    .select({
+      name:            organisations.name,
+      websiteUrl:      organisations.websiteUrl,
+      phone:           organisations.phone,
+      industry:        organisations.industry,
+      businessAddress: organisations.businessAddress,
+      abn:             organisations.abn,
+    })
+    .from(organisations)
+    .where(eq(organisations.id, orgId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export async function connectRoutes(app: FastifyInstance) {
 
   // ── POST /connect/platform-account ──────────────────────────────────────────
@@ -45,14 +118,20 @@ export async function connectRoutes(app: FastifyInstance) {
     if (existing.length > 0) {
       accountId = existing[0]!.stripeAccountId;
     } else {
+      const orgProfile = await getOrgProfile(orgId);
+      const profileParams = orgProfile ? buildStripeAccountParams({
+        ...orgProfile,
+        name: businessName ?? orgProfile.name,
+      }) : {};
       const account = await stripe.accounts.create({
         type: 'express',
         country: 'AU',
         ...(email ? { email } : {}),
-        ...(businessName ? { business_profile: { name: businessName } } : {}),
+        ...profileParams,
         capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
+          card_payments:           { requested: true },
+          transfers:               { requested: true },
+          au_becs_debit_payments:  { requested: true },
         },
         metadata: { orgId },
       });
@@ -62,7 +141,7 @@ export async function connectRoutes(app: FastifyInstance) {
         orgId,
         stripeAccountId: accountId,
         status: 'onboarding',
-        businessName: businessName ?? null,
+        businessName: businessName ?? orgProfile?.name ?? null,
         platformFeePercent: PLATFORM_FEE_BASIS_POINTS,
       });
     }
@@ -108,15 +187,20 @@ export async function connectRoutes(app: FastifyInstance) {
     if (existing.length > 0) {
       accountId = existing[0]!.stripeAccountId;
     } else {
+      const orgProfile = await getOrgProfile(orgId);
+      const profileParams = orgProfile ? buildStripeAccountParams({
+        ...orgProfile,
+        name: businessName ?? orgProfile.name,
+      }) : {};
       // Create Express account
       const account = await stripe.accounts.create({
         type: 'express',
         country: 'AU',
-        ...(businessName ? { business_profile: { name: businessName } } : {}),
+        ...profileParams,
         capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-          au_becs_debit_payments: { requested: true },
+          card_payments:           { requested: true },
+          transfers:               { requested: true },
+          au_becs_debit_payments:  { requested: true },
         },
         metadata: { orgId },
       });
@@ -126,7 +210,7 @@ export async function connectRoutes(app: FastifyInstance) {
         orgId,
         stripeAccountId: accountId,
         status: 'onboarding',
-        businessName: businessName ?? null,
+        businessName: businessName ?? orgProfile?.name ?? null,
         platformFeePercent: PLATFORM_FEE_BASIS_POINTS,
       });
     }
@@ -244,6 +328,55 @@ export async function connectRoutes(app: FastifyInstance) {
     });
   });
 
+  // ── POST /connect/sync-account ───────────────────────────────────────────────
+  // Pushes current org profile data (website, MCC, phone, address) to the
+  // existing Stripe Connect account and returns a fresh onboarding link so
+  // the merchant can complete the remaining requirements (representative,
+  // bank account, ToS acceptance).
+  app.post('/connect/sync-account', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+
+    if (!process.env['STRIPE_SECRET_KEY']) {
+      return reply.status(503).send({ error: 'Payment processing not configured' });
+    }
+
+    const rows = await db.select()
+      .from(stripeConnectAccounts)
+      .where(eq(stripeConnectAccounts.orgId, orgId))
+      .limit(1);
+
+    if (rows.length === 0) {
+      return reply.status(404).send({ error: 'No Connect account found for this organisation' });
+    }
+
+    const { stripeAccountId } = rows[0]!;
+    const orgProfile = await getOrgProfile(orgId);
+
+    if (orgProfile) {
+      const profileParams = buildStripeAccountParams(orgProfile);
+      await stripe.accounts.update(stripeAccountId, profileParams as Stripe.AccountUpdateParams);
+    }
+
+    // Generate a fresh onboarding link for the remaining requirements
+    const baseUrl = process.env['APP_URL'] ?? 'https://app.elevatedpos.com.au';
+    const accountLink = await stripe.accountLinks.create({
+      account: stripeAccountId,
+      refresh_url: `${baseUrl}/dashboard/payments?refresh=1`,
+      return_url:  `${baseUrl}/dashboard/payments?connected=1`,
+      type: 'account_onboarding',
+    });
+
+    await db.update(stripeConnectAccounts)
+      .set({
+        onboardingUrl:       accountLink.url,
+        onboardingExpiresAt: new Date(accountLink.expires_at * 1000),
+        updatedAt:           new Date(),
+      })
+      .where(eq(stripeConnectAccounts.orgId, orgId));
+
+    return reply.send({ url: accountLink.url, expiresAt: new Date(accountLink.expires_at * 1000) });
+  });
+
   // ── Create Stripe login link (dashboard access) ──────────────────────────────
   app.post('/connect/login-link/:orgId', async (request, reply) => {
     const { orgId } = request.params as { orgId: string };
@@ -278,17 +411,29 @@ export async function connectRoutes(app: FastifyInstance) {
       .limit(1);
 
     let accountId: string;
+    const orgProfile = await getOrgProfile(orgId);
+    const profileParams = orgProfile ? buildStripeAccountParams(orgProfile) : {};
 
     if (existing.length > 0) {
       accountId = existing[0]!.stripeAccountId;
+      // Sync latest org data to the existing Stripe account so Stripe has
+      // the most up-to-date website, MCC, phone, and address.
+      if (orgProfile && process.env['STRIPE_SECRET_KEY']) {
+        try {
+          await stripe.accounts.update(accountId, profileParams as Stripe.AccountUpdateParams);
+        } catch {
+          // Non-fatal — session still works even if update fails
+        }
+      }
     } else {
       const account = await stripe.accounts.create({
         type: 'express',
         country: 'AU',
+        ...profileParams,
         capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-          au_becs_debit_payments: { requested: true },
+          card_payments:           { requested: true },
+          transfers:               { requested: true },
+          au_becs_debit_payments:  { requested: true },
         },
         metadata: { orgId },
       });
@@ -297,6 +442,7 @@ export async function connectRoutes(app: FastifyInstance) {
         orgId,
         stripeAccountId: accountId,
         status: 'onboarding',
+        businessName: orgProfile?.name ?? null,
         platformFeePercent: PLATFORM_FEE_BASIS_POINTS,
       });
     }

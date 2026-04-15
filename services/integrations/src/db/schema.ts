@@ -3,11 +3,17 @@ import {
 } from 'drizzle-orm/pg-core';
 
 // Read-only reference to the shared organisations table (owned by auth service).
-// Used for slug-based lookups (e.g. storefront checkout) without a cross-service HTTP call.
+// Used for slug-based lookups and Stripe Connect pre-fill without a cross-service HTTP call.
 export const organisations = pgTable('organisations', {
   id: uuid('id').primaryKey(),
   slug: varchar('slug', { length: 100 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
+  // Fields used to pre-fill Stripe Connect accounts (added in migration 0021)
+  websiteUrl:      varchar('website_url', { length: 500 }),
+  phone:           varchar('phone', { length: 50 }),
+  industry:        varchar('industry', { length: 50 }),
+  businessAddress: jsonb('business_address').$type<Record<string, string>>(),
+  abn:             varchar('abn', { length: 11 }),
 });
 
 export const installedApps = pgTable('installed_apps', {

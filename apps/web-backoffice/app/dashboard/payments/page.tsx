@@ -856,10 +856,24 @@ type ElevatedPaySubTab = 'onboarding' | 'transactions' | 'payouts' | 'balance' |
 
 function ElevatedPOSPayTab() {
   const { toast } = useToast();
-  const [account, setAccount]     = useState<ConnectAccount | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [subTab, setSubTab]       = useState<ElevatedPaySubTab>('onboarding');
+  const [account, setAccount]       = useState<ConnectAccount | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [syncing, setSyncing]       = useState(false);
+  const [subTab, setSubTab]         = useState<ElevatedPaySubTab>('onboarding');
   const [instanceReady, setInstanceReady] = useState(false);
+
+  // Push org profile data to Stripe then redirect to the hosted onboarding flow
+  // so the merchant can complete representative details, bank account & ToS.
+  const handleCompleteSetup = async () => {
+    setSyncing(true);
+    try {
+      const data = await apiFetch<{ url: string }>('connect/sync-account', { method: 'POST' });
+      window.location.href = data.url;
+    } catch {
+      toast({ title: 'Could not start setup', description: 'Please try again.', variant: 'destructive' });
+      setSyncing(false);
+    }
+  };
 
   // Refs for Stripe Connect Embedded Component mount points
   const notifBannerRef   = useRef<HTMLDivElement>(null);
@@ -1042,20 +1056,32 @@ function ElevatedPOSPayTab() {
             ))}
           </div>
 
-          {/* Onboarding banner */}
-          {(account.status === 'onboarding' || !account.detailsSubmitted) && (
+          {/* Onboarding / requirements banner */}
+          {(account.status === 'onboarding' || account.status === 'restricted' || !account.detailsSubmitted) && (
             <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-800 dark:bg-yellow-900/20">
               <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-1">
-                ⚠️ Account setup incomplete
+                ⚠️ Action required — account setup incomplete
               </p>
-              <p className="text-sm text-yellow-700 dark:text-yellow-400 mb-3">
-                Complete your account details to enable payments and payouts.
+              <p className="text-sm text-yellow-700 dark:text-yellow-400 mb-2">
+                Stripe needs the following information to enable payments and payouts:
+              </p>
+              <ul className="text-sm text-yellow-700 dark:text-yellow-400 mb-3 space-y-0.5 pl-4 list-disc">
+                <li>Business website</li>
+                <li>Business type (company / individual)</li>
+                <li>Bank account for payouts</li>
+                <li>Business representative details</li>
+                <li>Accept Stripe's terms of service</li>
+                <li>Business industry / category</li>
+              </ul>
+              <p className="text-xs text-yellow-600 dark:text-yellow-500 mb-3">
+                Clicking below will pre-fill your business details and open Stripe's secure form for the remaining steps.
               </p>
               <button
-                onClick={() => setSubTab('onboarding')}
-                className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 underline"
+                onClick={handleCompleteSetup}
+                disabled={syncing}
+                className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-semibold text-white hover:bg-yellow-700 disabled:opacity-60 transition-colors"
               >
-                Continue setup →
+                {syncing ? 'Preparing…' : 'Complete Setup with Stripe →'}
               </button>
             </div>
           )}
