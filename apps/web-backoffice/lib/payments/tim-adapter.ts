@@ -48,14 +48,39 @@ interface TimApiEnumeration {
   readonly [key: string]: TimApiEnumValue;
 }
 
+/** Currency constant — has .code (ISO string) and .exponent (minor unit exponent, e.g. 2 for AUD/cents) */
+interface TimApiCurrencyValue {
+  readonly code:     string;
+  readonly exponent: number;
+}
+
 // ── SDK namespace ─────────────────────────────────────────────────────────────
 
 interface TimApiNamespace {
   TerminalSettings: new () => TimApiTerminalSettings;
   Terminal:         new (settings: TimApiTerminalSettings) => TimApiTerminal;
-  Amount:           new (amountCents: number, currency: string) => TimApiAmount;
+  /**
+   * Amount constructor — value in minor units (e.g. 450 cents = $4.50 AUD).
+   * currency: pass timapi.constants.Currency.AUD (a TimApiCurrencyValue object, NOT a string).
+   * The currency object already carries the exponent (2 for AUD), so no separate exponent arg needed.
+   */
+  Amount: new (valueMinorUnits: number, currency: TimApiCurrencyValue) => TimApiAmount;
+  /** Static factory: create Amount from major units (dollars) — e.g. fromMajorUnits(4.50, Currency.AUD) */
+  'Amount.fromMajorUnits'?: (valueMajorUnits: number, currency: TimApiCurrencyValue) => TimApiAmount;
   EcrInfo:          new () => TimApiEcrInfo;
-  PrintOption:      new () => TimApiPrintOption;
+  /**
+   * PrintOption constructor — all arguments required.
+   * @param recipient   timapi.constants.Recipient (merchant | cardholder | both)
+   * @param printFormat timapi.constants.PrintFormat (normal | noPrint | onDevice | …)
+   * @param printWidth  line width in characters (default 40)
+   * @param printFlags  Array of timapi.constants.PrintFlag values (empty [] for none)
+   */
+  PrintOption: new (
+    recipient:   TimApiEnumValue,
+    printFormat: TimApiEnumValue,
+    printWidth:  number,
+    printFlags:  TimApiEnumValue[],
+  ) => TimApiPrintOption;
   TransactionData:  new () => TimApiTransactionDataObj;
   DefaultTerminalListener: new () => TimApiListener;
 
@@ -66,8 +91,9 @@ interface TimApiNamespace {
       reversal:  TimApiEnumValue;
     };
     Currency: {
-      AUD: string;
-    };
+      /** Australian Dollar — exponent 2 (cents) */
+      AUD: TimApiCurrencyValue;
+    } & { values(): TimApiCurrencyValue[] } & { [code: string]: TimApiCurrencyValue };
     EcrInfoType: {
       os:             TimApiEnumValue;
       ecrApplication: TimApiEnumValue;
@@ -85,7 +111,20 @@ interface TimApiNamespace {
       cardholder: TimApiEnumValue;
       both:       TimApiEnumValue;
     };
-    PrintFormat: TimApiEnumeration;
+    PrintFormat: {
+      /** Receipts generated, formatted, sent to ECR (default) */
+      normal:              TimApiEnumValue;
+      /** Do not generate any receipts */
+      noPrint:             TimApiEnumValue;
+      /** Only raw fields returned — no formatted receipt */
+      fieldsOnly:          TimApiEnumValue;
+      /** Printed on terminal printer, not returned to ECR */
+      onDevice:            TimApiEnumValue;
+      /** Printed on terminal; raw fields also returned to ECR */
+      onDeviceWithFields:  TimApiEnumValue;
+      /** Printed on terminal; formatted receipt also returned to ECR */
+      onDeviceWithReceipt: TimApiEnumValue;
+    } & TimApiEnumeration;
     PrintMode:   TimApiEnumeration;
   };
 }
@@ -162,14 +201,12 @@ interface TimApiEcrInfo {
 }
 
 // ── PrintOption ───────────────────────────────────────────────────────────────
+// Instances are created via the 4-argument constructor — settings are fixed
+// at construction time and cannot be changed via property setters afterwards.
 
 interface TimApiPrintOption {
-  /** Which recipient this option applies to */
-  recipient?:    TimApiEnumValue;
-  /** Whether to print */
-  isEnabled?:    boolean;
-  /** Print format */
-  printFormat?:  TimApiEnumValue;
+  // Opaque instance — all options are specified via the constructor.
+  // See: new timapi.PrintOption(recipient, printFormat, printWidth, printFlags)
 }
 
 // ── TransactionData (request) ─────────────────────────────────────────────────
@@ -518,17 +555,28 @@ export class TimApiAdapter {
     terminal.addEcrData(ecrInfo);
 
     // ── 5. PrintOptions ──────────────────────────────────────────────────────
-    // By default the terminal does not print — POS handles receipts.
-    // PrintOption instances configure per-recipient printing behaviour.
-    const merchantOpt = new timapi.PrintOption();
-    merchantOpt.recipient  = timapi.constants.Recipient.merchant;
-    merchantOpt.isEnabled  = config.printMerchantReceipt;
+    // PrintOption constructor: new PrintOption(recipient, printFormat, width, flags)
+    //   printFormat.normal  → receipts generated and sent to ECR (POS prints them)
+    //   printFormat.noPrint → no receipts generated (suppress for that recipient)
+    // printWidth 40 is the standard character width.
+    // printFlags [] → no receipt formatting flags (no suppress header/footer etc.)
+    const fmtNormal  = timapi.constants.PrintFormat.normal;
+    const fmtNoPrint = timapi.constants.PrintFormat.noPrint;
 
-    const cardholderOpt = new timapi.PrintOption();
-    cardholderOpt.recipient = timapi.constants.Recipient.cardholder;
-    cardholderOpt.isEnabled = config.printCustomerReceipt;
-
-    terminal.setPrintOptions([merchantOpt, cardholderOpt]);
+    terminal.setPrintOptions([
+      new timapi.PrintOption(
+        timapi.constants.Recipient.merchant,
+        config.printMerchantReceipt ? fmtNormal : fmtNoPrint,
+        40,
+        [],
+      ),
+      new timapi.PrintOption(
+        timapi.constants.Recipient.cardholder,
+        config.printCustomerReceipt ? fmtNormal : fmtNoPrint,
+        40,
+        [],
+      ),
+    ]);
 
     // ── 6. Register listener ─────────────────────────────────────────────────
     const listener = this._buildListener();
@@ -748,7 +796,7 @@ export class TimApiAdapter {
   // ── Purchase ────────────────────────────────────────────────────────────────
 
   purchase(
-    amountCents: number,
+    amountCents: number,  // Amount in minor units (cents) — e.g. $4.50 = 450
     _referenceId?: string, // NOTE: referenceId is not passed via transactionAsync in SDK v26-01
     onStatus?: (msg: string) => void,
   ): Promise<AdapterTransactionResult> {
@@ -762,6 +810,7 @@ export class TimApiAdapter {
 
       const timapi = window.timapi!;
       try {
+        // Amount: value in minor units (cents), AUD exponent=2 → default
         // transactionAsync(type, amount) — only 2 arguments in SDK v26-01
         this._terminal!.transactionAsync(
           timapi.constants.TransactionType.purchase,
