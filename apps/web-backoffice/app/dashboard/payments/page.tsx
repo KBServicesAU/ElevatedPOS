@@ -354,6 +354,7 @@ function TyroPanel() {
 function ANZPanel() {
   const { toast } = useToast();
   const [loading, setLoading]           = useState(true);
+  const [credentialId, setCredentialId] = useState<string | null>(null);
   const [terminalIp, setTerminalIp]     = useState('');
   const [terminalPort, setTerminalPort] = useState('80');
   const [terminalLabel, setTerminalLabel] = useState('');
@@ -369,18 +370,28 @@ function ANZPanel() {
   useEffect(() => {
     void (async () => {
       try {
-        const data = await apiFetch<{
+        // GET returns { data: [...] } — find the ANZ credential
+        const res = await apiFetch<{
+          data?: Array<{ id: string; provider: string; terminalIp?: string; terminalPort?: number; label?: string; metadata?: Record<string, unknown> }>;
           terminalIp?: string; terminalPort?: number; terminalLabel?: string;
           autoCommit?: boolean; printMerchantReceipt?: boolean; printCustomerReceipt?: boolean;
         }>('terminal/credentials');
-        if (data.terminalIp) {
-          setTerminalIp(data.terminalIp);
-          const p = data.terminalPort;
+
+        // Normalise: handle both { data: [...] } array response and legacy flat object
+        const anz = res.data
+          ? res.data.find((c) => c.provider === 'anz' && (c as any).isActive !== false)
+          : (res.terminalIp ? res as any : null);
+
+        if (anz?.terminalIp) {
+          setCredentialId(anz.id ?? null);
+          setTerminalIp(anz.terminalIp);
+          const p = anz.terminalPort;
           setTerminalPort(String(p && p !== 8080 && p !== 4100 ? p : 80));
-          setTerminalLabel(data.terminalLabel ?? '');
-          setAutoCommit(data.autoCommit ?? false);
-          setPrintMerchant(data.printMerchantReceipt ?? false);
-          setPrintCustomer(data.printCustomerReceipt ?? false);
+          setTerminalLabel(anz.label ?? anz.terminalLabel ?? '');
+          const meta = anz.metadata ?? {};
+          setAutoCommit((meta.autoCommit as boolean) ?? anz.autoCommit ?? false);
+          setPrintMerchant((meta.printMerchantReceipt as boolean) ?? anz.printMerchantReceipt ?? false);
+          setPrintCustomer((meta.printCustomerReceipt as boolean) ?? anz.printCustomerReceipt ?? false);
           setConnected(true);
         }
       } catch { /* not configured */ }
@@ -393,22 +404,35 @@ function ANZPanel() {
     const port = Number(terminalPort);
     if (!port || port < 1 || port > 65535) { toast({ title: 'Enter a valid port (1–65535)', variant: 'destructive' }); return; }
     setSaving(true);
+    const payload = {
+      // Include id when updating to avoid duplicate-key error (POST is upsert when id present)
+      ...(credentialId ? { id: credentialId } : {}),
+      provider: 'anz' as const,
+      terminalIp: terminalIp.trim(),
+      terminalPort: port,
+      label: terminalLabel.trim() || undefined,
+      metadata: { autoCommit, printMerchantReceipt: printMerchant, printCustomerReceipt: printCustomer },
+    };
     try {
-      await apiFetch('terminal/credentials', {
-        method: 'POST',
-        body: JSON.stringify({
-          terminalIp: terminalIp.trim(),
-          terminalPort: port,
-          terminalLabel: terminalLabel.trim() || undefined,
-          autoCommit,
-          printMerchantReceipt: printMerchant,
-          printCustomerReceipt: printCustomer,
-        }),
-      });
+      // Try the payments microservice first
+      const saved = await apiFetch<{ data?: { id?: string } }>('terminal/credentials', { method: 'POST', body: JSON.stringify(payload) });
+      if (saved?.data?.id) setCredentialId(saved.data.id);
       setConnected(true);
       toast({ title: 'ANZ Worldline settings saved', variant: 'success' });
     } catch {
-      toast({ title: 'Save failed', variant: 'destructive' });
+      // Payments service not available — fall back to local file store (dev / demo mode)
+      try {
+        const res = await fetch('/api/anz/local-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('local save failed');
+        setConnected(true);
+        toast({ title: 'ANZ settings saved (local dev mode)', variant: 'success' });
+      } catch {
+        toast({ title: 'Save failed', variant: 'destructive' });
+      }
     } finally {
       setSaving(false);
     }

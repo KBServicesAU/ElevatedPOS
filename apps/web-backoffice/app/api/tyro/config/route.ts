@@ -1,7 +1,21 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 
 const PAYMENTS_API_URL = process.env['PAYMENTS_API_URL'] ?? process.env['AUTH_API_URL'] ?? 'http://payments:4005';
+
+/** Read ANZ config saved locally (dev / demo fallback when payments service is offline) */
+function readLocalAnzConfig(): { terminalIp?: string; terminalPort?: number } | null {
+  try {
+    const file = join(process.cwd(), '.anz-local-config.json');
+    if (existsSync(file)) {
+      const data = JSON.parse(readFileSync(file, 'utf8'));
+      if (data.terminalIp) return data;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
 const TYRO_TEST_MODE = process.env['TYRO_TEST_MODE'] !== 'false'; // default to test mode
 // API key belongs to ElevatedPOS as integration partner — set via env, never exposed to merchants
 const TYRO_API_KEY = process.env['TYRO_API_KEY'] ?? '';
@@ -66,6 +80,18 @@ export async function GET(request: Request) {
     }
 
     if (!credential) {
+      // Dev / demo fallback: use locally-stored ANZ config if available
+      const local = readLocalAnzConfig();
+      if (local?.terminalIp) {
+        return NextResponse.json({
+          configured: true,
+          provider: 'anz',
+          terminalIp:   local.terminalIp,
+          terminalPort: local.terminalPort ?? 80,
+          integratorId: ANZ_INTEGRATOR_ID,
+          credentialId: 'local',
+        });
+      }
       return NextResponse.json({
         configured: false,
         provider: null,
