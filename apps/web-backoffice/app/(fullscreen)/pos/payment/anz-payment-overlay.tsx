@@ -212,48 +212,51 @@ export function AnzPaymentOverlay({
     providerRef.current = provider;
 
     // ANZ Section 3.1: Pair terminal (Connect → Login → Activate) before first transaction.
-    // This is idempotent — if already paired the SDK handles it gracefully.
-    // pairTerminal() completes in ~5-10s on first call, near-instant on subsequent calls.
-    if (!simulate) {
-      try {
-        await provider.pairTerminal();
-      } catch {
-        // Non-fatal: SDK pre-automatisms will pair implicitly during the transaction
-        // if explicit pairing fails. Log is captured in the adapter.
+    // Wrapped in an async IIFE — useEffect callbacks cannot be async directly.
+    // pairTerminal() is non-fatal: SDK pre-automatisms pair implicitly if this fails.
+    void (async () => {
+      if (!simulate) {
+        try {
+          setCurrentState('awaiting_terminal_ready');
+          await provider.pairTerminal();
+        } catch {
+          // Non-fatal — proceed; SDK pairs implicitly during transactionAsync()
+        }
       }
-    }
 
-    void provider.startPurchase({
-      posOrderId,
-      amount,
-      currency: 'AUD',
-      onStateChange: (intent) => {
-        setCurrentState(intent.state);
-      },
-      onStatusMessage: (msg) => {
-        setStatusMsg(msg);
-      },
-    }).then((result) => {
+      const result = await provider.startPurchase({
+        posOrderId,
+        amount,
+        currency: 'AUD',
+        onStateChange: (intent) => {
+          setCurrentState(intent.state);
+        },
+        onStatusMessage: (msg) => {
+          setStatusMsg(msg);
+        },
+      }).catch((err: Error) => {
+        setStatusMsg(err.message);
+        setCurrentState('failed_retryable');
+        setTimeout(() => onFailed(err.message), 1500);
+        return null;
+      });
+
+      if (!result) return;
+
       setLastResult(result);
       setCurrentState(result.state);
 
       if (result.approved && result.state === 'approved') {
-        // Brief pause so the "Approved" state is visible before dismissing
         setTimeout(() => onApproved(result), 800);
       } else if (result.state === 'cancelled') {
         setTimeout(() => onCancel(), 500);
       } else if (result.state === 'unknown_outcome' || result.state === 'recovery_required') {
-        // Stay on screen — show incident UI, operator must acknowledge
+        // Stay on screen — operator must acknowledge
       } else {
-        // declined / failed_retryable / failed_terminal
         const msg = result.declineReason ?? result.errorMessage ?? 'Transaction failed';
         setTimeout(() => onFailed(msg, result), 1500);
       }
-    }).catch((err: Error) => {
-      setStatusMsg(err.message);
-      setCurrentState('failed_retryable');
-      setTimeout(() => onFailed(err.message), 1500);
-    });
+    })();
 
     return () => {
       void provider.shutdown();
