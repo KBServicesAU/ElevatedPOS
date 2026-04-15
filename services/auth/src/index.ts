@@ -4,9 +4,8 @@ import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { Pool } from 'pg';
 import { getRedisClient } from '@nexus/config';
-import { db } from './db';
 import { isBlacklisted } from './lib/tokens';
 import { authRoutes } from './routes/auth';
 import { employeeRoutes } from './routes/employees';
@@ -45,20 +44,73 @@ const app = Fastify({
   trustProxy: true,
 });
 
-async function start() {
-  // Run database migrations before accepting any requests.
-  // Uses the same journal + SQL files bundled in the Docker image at src/db/migrations.
-  // Drizzle uses an advisory lock internally so concurrent pods don't race.
+/**
+ * Apply any missing schema changes directly via pg before the service starts.
+ * Uses IF NOT EXISTS / DO $$ EXCEPTION guards so it is fully idempotent and
+ * safe to run on every pod restart regardless of DB state.
+ * Bypasses Drizzle's journal/hash machinery entirely — no file-system reads,
+ * no hash mismatches, no silent failures.
+ */
+async function applyMigrations(): Promise<void> {
+  const pool = new Pool({
+    connectionString: process.env['DATABASE_URL'],
+    ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : undefined,
+    max: 1,
+  });
+  const client = await pool.connect();
   try {
-    await migrate(db, {
-      migrationsFolder: 'src/db/migrations',
-      migrationsTable: '__drizzle_migrations',
-    });
-    console.log('[auth] database migrations applied');
+    // ── Migration 0021 ────────────────────────────────────────────────────────
+    // Enums
+    await client.query(`DO $$ BEGIN CREATE TYPE subscription_status AS ENUM ('incomplete','trialing','active','past_due','cancelled','paused'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
+    await client.query(`DO $$ BEGIN CREATE TYPE device_type AS ENUM ('pos','kds','kiosk','display','dashboard'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
+    await client.query(`DO $$ BEGIN CREATE TYPE onboarding_step_v2 AS ENUM ('business_info','owner_account','location_setup','staff_setup','device_selection','stripe_connect','subscription','completed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
+    // Columns on organisations
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS phone varchar(50)`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS business_address jsonb DEFAULT '{}'`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS website_url varchar(500)`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS billing_model varchar(20) NOT NULL DEFAULT 'legacy'`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS subscription_status subscription_status NOT NULL DEFAULT 'incomplete'`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS stripe_subscription_id varchar(255)`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS subscription_current_period_end timestamptz`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS website_addon_enabled boolean NOT NULL DEFAULT false`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS custom_domain_addon_enabled boolean NOT NULL DEFAULT false`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS feature_flags jsonb NOT NULL DEFAULT '{}'`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS onboarding_step_v2 onboarding_step_v2 DEFAULT 'completed'`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS onboarding_token varchar(255)`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS onboarding_token_expires_at timestamptz`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS pending_device_selection jsonb DEFAULT '{}'`);
+    // Back-fill billing model for existing orgs
+    await client.query(`UPDATE organisations SET billing_model = 'legacy', subscription_status = 'active' WHERE billing_model = 'legacy' AND onboarding_step = 'completed'`);
+
+    // ── Migration 0022 ────────────────────────────────────────────────────────
+    await client.query(`CREATE SEQUENCE IF NOT EXISTS org_account_number_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1`);
+    await client.query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS account_number varchar(9) UNIQUE DEFAULT LPAD(nextval('org_account_number_seq')::text, 9, '0')`);
+    // Back-fill existing rows that have no account number yet
+    await client.query(`
+      DO $$
+      DECLARE r RECORD;
+      BEGIN
+        FOR r IN SELECT id FROM organisations WHERE account_number IS NULL ORDER BY created_at ASC
+        LOOP
+          UPDATE organisations SET account_number = LPAD(nextval('org_account_number_seq')::text, 9, '0') WHERE id = r.id;
+        END LOOP;
+      END $$
+    `);
+    await client.query(`ALTER TABLE organisations ALTER COLUMN account_number SET NOT NULL`);
+    await client.query(`CREATE INDEX IF NOT EXISTS organisations_account_number_idx ON organisations (account_number)`);
+
+    console.log('[auth] schema migrations applied successfully');
   } catch (err) {
-    console.error('[auth] migration failed — aborting startup:', err);
+    console.error('[auth] migration error — aborting startup:', err);
     process.exit(1);
+  } finally {
+    client.release();
+    await pool.end();
   }
+}
+
+async function start() {
+  await applyMigrations();
 
   await app.register(helmet);
   await app.register(cors, {
