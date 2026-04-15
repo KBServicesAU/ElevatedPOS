@@ -42,6 +42,7 @@ function isPublicAsset(pathname: string): boolean {
     pathname === '/api/health' ||         // Kubernetes liveness/readiness probes
     pathname.startsWith('/api/kds') ||   // KDS SSE stream — device token validated inside the route handler
     pathname.startsWith('/api/stripe/') || // Stripe Terminal routes called from POS
+    pathname.startsWith('/timapi/') ||   // ANZ TIM API SDK static files (timapi.js, timapi.wasm)
     pathname === '/favicon.ico' ||
     pathname === '/'
   );
@@ -81,8 +82,10 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Run on all routes except static files
+  // Run on all routes except Next.js internals, favicon, and TIM API SDK files.
+  // Excluding /timapi/ is essential — the middleware must not intercept requests
+  // for timapi.js / timapi.wasm or Next.js won't serve them as static assets.
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon.ico|timapi).*)',
   ],
 };
