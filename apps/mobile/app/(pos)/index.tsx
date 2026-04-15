@@ -35,6 +35,7 @@ import {
   type TyroTransactionOutcome,
 } from '../../components/TyroTransactionModal';
 import { useDeviceSettings, getServerAnzConfig } from '../../store/device-settings';
+import { getSelectedAnzConfig } from '../../store/terminal-connection';
 import {
   AnzPaymentModal,
   type AnzPaymentResult,
@@ -491,7 +492,8 @@ export default function PosSellScreen() {
     }
 
     // ANZ Worldline TIM — direct HTTP call to terminal on local network
-    if (getServerAnzConfig()) {
+    const anzCfg = getSelectedAnzConfig() ?? getServerAnzConfig();
+    if (anzCfg) {
       setAnzAmount(total);
       setAnzRefId(`POS-${Date.now()}`);
       setShowAnzModal(true);
@@ -502,7 +504,7 @@ export default function PosSellScreen() {
     // Guard with `enabled` flag — having the publishable key in the build env
     // does NOT mean Terminal is installed or configured on this device.
     const stripeKey = stripeConfig.publishableKey;
-    if (stripeConfig.enabled && stripeKey && !isTyroInitialized() && !getServerAnzConfig()) {
+    if (stripeConfig.enabled && stripeKey && !isTyroInitialized() && !anzCfg) {
       setStripeAmount(Math.round(total * 100));
       setShowStripeModal(true);
       return;
@@ -716,7 +718,8 @@ export default function PosSellScreen() {
     }
 
     // Route card portion through ANZ TIM if configured and Tyro is not available.
-    if (cardAmt > 0 && getServerAnzConfig()) {
+    const anzCfgForSplit = getSelectedAnzConfig() ?? getServerAnzConfig();
+    if (cardAmt > 0 && anzCfgForSplit) {
       setShowPayment(false);
       setSplitMode(false);
       setPendingSplit({ cardAmt, cashAmt, change });
@@ -1765,11 +1768,11 @@ export default function PosSellScreen() {
       />
 
       {/* ═══ ANZ Worldline TIM Payment Modal ═══ */}
-      {showAnzModal && getServerAnzConfig() && (
+      {showAnzModal && (getSelectedAnzConfig() ?? getServerAnzConfig()) && (
         <AnzPaymentModal
           visible={showAnzModal}
           amount={anzAmount}
-          config={getServerAnzConfig()!}
+          config={(getSelectedAnzConfig() ?? getServerAnzConfig())!}
           referenceId={anzRefId}
           title="Card Payment"
           onApproved={handleAnzApproved}

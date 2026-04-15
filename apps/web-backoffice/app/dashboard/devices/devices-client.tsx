@@ -5,7 +5,7 @@ import {
   Smartphone, Plus, Trash2, RefreshCw, Monitor, ChefHat,
   Tablet, Clock, Wifi, WifiOff, Copy, Check, Settings2,
   CreditCard, Banknote, Gift, Users, Package, Wallet,
-  Save, Router, ChevronDown, ChevronUp, AlertCircle,
+  Save, ChevronDown, ChevronUp,
   Monitor as DisplayIcon, Image, Eye, RotateCcw, PowerOff,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
@@ -43,15 +43,6 @@ interface Location {
   name: string;
 }
 
-interface TerminalCredential {
-  id:           string;
-  label:        string | null;
-  terminalIp:   string;
-  terminalPort: number;
-  isActive:     boolean;
-  provider:     string;
-}
-
 interface DevicePaymentConfig {
   enabledMethods:       string[];
   terminalCredentialId: string | null;
@@ -84,16 +75,6 @@ const DEFAULT_METHODS: Record<string, string[]> = {
   dashboard:          [],
   display:            [],
 };
-
-const EFTPOS_PROVIDERS = [
-  { id: 'anz',       label: 'ANZ Worldline' },
-  { id: 'tyro',      label: 'Tyro' },
-  { id: 'westpac',   label: 'Westpac' },
-  { id: 'nab',       label: 'NAB' },
-  { id: 'cba',       label: 'CBA' },
-  { id: 'windcave',  label: 'Windcave' },
-  { id: 'stripe',    label: 'Stripe Terminal' },
-] as const;
 
 // ─── Health indicator ─────────────────────────────────────────────────────────
 
@@ -178,20 +159,11 @@ export default function DevicesClient() {
   const [latestCode,    setLatestCode]    = useState<PairingCode | null>(null);
 
   // — payment config state —
-  const [terminals,        setTerminals]       = useState<TerminalCredential[]>([]);
   const [deviceConfigs,    setDeviceConfigs]   = useState<Record<string, DevicePaymentConfig>>({});
   const [configuringId,    setConfiguringId]   = useState<string | null>(null);
   const [draftConfig,      setDraftConfig]     = useState<DevicePaymentConfig | null>(null);
   const [savingConfig,     setSavingConfig]    = useState(false);
   const [configError,      setConfigError]     = useState<string | null>(null);
-
-  // — add-terminal inline form —
-  const [newTermLabel,    setNewTermLabel]    = useState('');
-  const [newTermIp,       setNewTermIp]       = useState('');
-  const [newTermPort,     setNewTermPort]     = useState(8080);
-  const [newTermProvider, setNewTermProvider] = useState<string>('anz');
-  const [addingTerm,      setAddingTerm]      = useState(false);
-  const [termError,       setTermError]       = useState<string | null>(null);
 
   // — customer display config state —
   const [displayConfiguringId, setDisplayConfiguringId] = useState<string | null>(null);
@@ -212,13 +184,6 @@ export default function DevicesClient() {
   const loadCodes     = useCallback(async () => { try { const r = await apiFetch<{ data: PairingCode[] }>('devices/pairing-codes'); setCodes(r.data ?? []); } catch { /**/ } }, []);
   const loadLocations = useCallback(async () => { try { const r = await apiFetch<{ data?: Location[] } | Location[]>('locations'); setLocations(Array.isArray(r) ? r : (r.data ?? [])); } catch { /**/ } }, []);
 
-  const loadTerminals = useCallback(async () => {
-    try {
-      const r = await apiFetch<{ data: TerminalCredential[] }>('terminal/credentials');
-      setTerminals((r.data ?? []).filter((t) => t.isActive));
-    } catch { /**/ }
-  }, []);
-
   const loadDeviceConfigs = useCallback(async () => {
     try {
       const r = await apiFetch<{ data: Array<{ deviceId: string; enabledMethods: string[]; terminalCredentialId: string | null }> }>('terminal/device-config');
@@ -232,7 +197,7 @@ export default function DevicesClient() {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([loadDevices(), loadCodes(), loadLocations(), loadTerminals(), loadDeviceConfigs()])
+    Promise.all([loadDevices(), loadCodes(), loadLocations(), loadDeviceConfigs()])
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -292,8 +257,6 @@ export default function DevicesClient() {
     setDraftConfig(existing ?? { enabledMethods: DEFAULT_METHODS[device.role] ?? [], terminalCredentialId: null });
     setConfiguringId(device.id);
     setConfigError(null);
-    // reset add-terminal form
-    setNewTermLabel(''); setNewTermIp(''); setNewTermPort(8080); setNewTermProvider('anz'); setTermError(null);
     // close display panel if open
     setDisplayConfiguringId(null);
   }
@@ -330,31 +293,6 @@ export default function DevicesClient() {
     } catch (err) {
       setConfigError(err instanceof Error ? err.message : 'Failed to save configuration');
     } finally { setSavingConfig(false); }
-  }
-
-  async function handleAddTerminal(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newTermIp) return;
-    setAddingTerm(true); setTermError(null);
-    try {
-      const res = await apiFetch<{ data: TerminalCredential }>('terminal/credentials', {
-        method: 'POST',
-        body: JSON.stringify({
-          provider:     newTermProvider,
-          label:        newTermLabel || undefined,
-          terminalIp:   newTermIp,
-          terminalPort: newTermPort,
-        }),
-      });
-      const newTerm = res.data;
-      setTerminals((prev) => [...prev, newTerm]);
-      if (draftConfig) {
-        setDraftConfig({ ...draftConfig, terminalCredentialId: newTerm.id });
-      }
-      setNewTermLabel(''); setNewTermIp(''); setNewTermPort(8080); setNewTermProvider('anz');
-    } catch (err) {
-      setTermError(err instanceof Error ? err.message : 'Failed to add terminal');
-    } finally { setAddingTerm(false); }
   }
 
   // ── Customer Display config ───────────────────────────────────────────────
@@ -406,7 +344,7 @@ export default function DevicesClient() {
           </div>
         </div>
         <button
-          onClick={() => { void loadDevices(); void loadCodes(); void loadTerminals(); void loadDeviceConfigs(); }}
+          onClick={() => { void loadDevices(); void loadCodes(); void loadDeviceConfigs(); }}
           className="flex items-center gap-1.5 rounded-xl bg-gray-100 dark:bg-[#2a2a3a] px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
         >
           <RefreshCw className="h-3.5 w-3.5" />Refresh
@@ -737,102 +675,6 @@ export default function DevicesClient() {
                             );
                           })}
                         </div>
-
-                        {/* EFTPOS terminal section — shown when card is enabled */}
-                        {draftConfig.enabledMethods.includes('card') && (
-                          <div className="mb-5 rounded-xl bg-gray-100 dark:bg-[#2a2a3a] p-4">
-                            <div className="flex items-center gap-2 mb-3">
-                              <Router className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
-                              <p className="text-sm font-semibold text-gray-900 dark:text-white">EFTPOS Terminal</p>
-                            </div>
-
-                            {terminals.length > 0 ? (
-                              <div>
-                                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1.5 block">Select terminal for this device</label>
-                                <select
-                                  value={draftConfig.terminalCredentialId ?? ''}
-                                  onChange={(e) => setDraftConfig({ ...draftConfig, terminalCredentialId: e.target.value || null })}
-                                  className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2.5 text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
-                                >
-                                  <option value="">Use organisation default</option>
-                                  {terminals.map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                      {t.label ? `${t.label} — ` : ''}{t.terminalIp}:{t.terminalPort}
-                                      {t.provider ? ` (${EFTPOS_PROVIDERS.find((p) => p.id === t.provider)?.label ?? t.provider})` : ''}
-                                    </option>
-                                  ))}
-                                </select>
-                                <p className="text-xs text-gray-500 dark:text-gray-600 mt-1.5">Each POS device can use a different physical terminal.</p>
-                              </div>
-                            ) : (
-                              <div>
-                                <div className="flex items-center gap-2 mb-3 text-xs text-yellow-700 dark:text-yellow-300">
-                                  <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                                  No EFTPOS terminals configured. Add your terminal below.
-                                </div>
-                                <form onSubmit={(e) => void handleAddTerminal(e)} className="space-y-3">
-                                  {/* Provider dropdown */}
-                                  <div>
-                                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Provider</label>
-                                    <select
-                                      value={newTermProvider}
-                                      onChange={(e) => setNewTermProvider(e.target.value)}
-                                      className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2 text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
-                                    >
-                                      {EFTPOS_PROVIDERS.map((p) => (
-                                        <option key={p.id} value={p.id}>{p.label}</option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Terminal Label <span className="text-gray-400 dark:text-gray-600">(optional)</span></label>
-                                    <input
-                                      type="text"
-                                      value={newTermLabel}
-                                      onChange={(e) => setNewTermLabel(e.target.value)}
-                                      placeholder="e.g. Counter 1 Terminal"
-                                      className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
-                                    />
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <div className="flex-1">
-                                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Terminal IP Address</label>
-                                      <input
-                                        type="text"
-                                        value={newTermIp}
-                                        onChange={(e) => setNewTermIp(e.target.value)}
-                                        placeholder="192.168.1.100"
-                                        required
-                                        className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
-                                      />
-                                    </div>
-                                    <div className="w-24">
-                                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Port</label>
-                                      <input
-                                        type="number"
-                                        value={newTermPort}
-                                        onChange={(e) => setNewTermPort(Number(e.target.value))}
-                                        min={1} max={65535}
-                                        className="w-full rounded-xl bg-white dark:bg-[#1e1e2e] px-3 py-2 text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
-                                      />
-                                    </div>
-                                  </div>
-                                  {termError && (
-                                    <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 rounded-lg px-3 py-2">{termError}</p>
-                                  )}
-                                  <button
-                                    type="submit"
-                                    disabled={!newTermIp || addingTerm}
-                                    className="flex items-center gap-1.5 rounded-xl bg-gray-200 dark:bg-[#3a3a4a] px-4 py-2 text-xs font-bold text-gray-800 dark:text-white hover:bg-gray-300 dark:hover:bg-[#4a4a5a] transition-colors disabled:opacity-40"
-                                  >
-                                    <Router className="h-3.5 w-3.5" />
-                                    {addingTerm ? 'Adding…' : 'Add Terminal'}
-                                  </button>
-                                </form>
-                              </div>
-                            )}
-                          </div>
-                        )}
 
                         {/* Error */}
                         {configError && (

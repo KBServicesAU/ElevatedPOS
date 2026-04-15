@@ -20,6 +20,7 @@
     { type: 'refund',    terminalIp, terminalPort, integratorId, amountCents }
     { type: 'reversal',  terminalIp, terminalPort, integratorId, amountCents }
     { type: 'cancel' }
+    { type: 'pair',      terminalIp, terminalPort, integratorId }
 
   Bridge → React Native (JSON):
     { type: 'sdk_ready' }
@@ -27,6 +28,7 @@
     { type: 'approved', transactionRef, authCode, cardLast4, cardScheme, merchantReceipt, customerReceipt }
     { type: 'declined', declineCode, message }
     { type: 'error',    message }
+    { type: 'paired' }
 -->
 <html>
 <head>
@@ -51,7 +53,8 @@
     }
 
     // ── Active terminal instance ──────────────────────────────────────────────
-    var _terminal = null;
+    var _terminal    = null;
+    var _pairingMode = false;
 
     // ── Extract receipts from SDK v26-01 printData ────────────────────────────
     function extractReceipts(printData) {
@@ -82,6 +85,7 @@
         case 'purchase': return startTransaction('purchase', msg);
         case 'refund':   return startTransaction('refund',   msg);
         case 'reversal': return startTransaction('reversal', msg);
+        case 'pair':     return startPair(msg);
         case 'cancel':
           if (_terminal) {
             try {
@@ -233,6 +237,96 @@
         );
 
       } catch (e) {
+        rn({ type: 'error', message: e && e.message ? e.message : String(e) });
+        _terminal = null;
+      }
+    }
+
+    // ── Pairing flow (connect + login + activate, no real transaction) ────────
+    // Starts a 1-cent purchase purely to trigger pre-automatisms (connect →
+    // login → activate). On activateCompleted it cancels immediately and reports
+    // 'paired'. The subsequent transactionCompleted (cancelled) is swallowed.
+    function startPair(msg) {
+      if (!window.timapi) {
+        rn({ type: 'error', message: 'TIM API SDK not loaded. Ensure timapi.js is in assets/timapi/.' });
+        return;
+      }
+
+      _pairingMode = true;
+
+      try {
+        // ── 1. TerminalSettings ──────────────────────────────────────────────
+        var settings = new timapi.TerminalSettings();
+        settings.connectionIPString = msg.terminalIp;
+        settings.connectionIPPort   = msg.terminalPort || 80;
+        settings.integratorId       = msg.integratorId || 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
+        settings.autoCommit         = true;
+        settings.fetchBrands        = true;
+        settings.dcc                = false;
+        settings.partialApproval    = false;
+        settings.tipAllowed         = false;
+        settings.enableKeepAlive    = true;
+
+        // ── 2. Terminal ──────────────────────────────────────────────────────
+        _terminal = new timapi.Terminal(settings);
+
+        // ── 3. POS ID ────────────────────────────────────────────────────────
+        _terminal.setPosId('1');
+        _terminal.setUserId(1);
+
+        // ── 4. EcrInfo ───────────────────────────────────────────────────────
+        var ecrInfo = new timapi.EcrInfo();
+        ecrInfo.type             = timapi.constants.EcrInfoType.ecrApplication;
+        ecrInfo.name             = 'ElevatedPOS';
+        ecrInfo.manufacturerName = 'ElevatedPOS Pty Ltd';
+        ecrInfo.version          = '1.0';
+        ecrInfo.integratorSolution = 'ElevatedPOS-ANZ-v26-01';
+        _terminal.addEcrData(ecrInfo);
+
+        // ── 5. PrintOptions ──────────────────────────────────────────────────
+        var merchantOpt = new timapi.PrintOption();
+        merchantOpt.recipient = timapi.constants.Recipient.merchant;
+        merchantOpt.isEnabled = false;
+
+        var cardholderOpt = new timapi.PrintOption();
+        cardholderOpt.recipient = timapi.constants.Recipient.cardholder;
+        cardholderOpt.isEnabled = false;
+
+        _terminal.setPrintOptions([merchantOpt, cardholderOpt]);
+
+        // ── 6. Listener ──────────────────────────────────────────────────────
+        _terminal.addListener({
+          activateCompleted: function (event) {
+            if (event.exception === undefined) {
+              // Pre-automatisms finished — terminal is connected, logged in,
+              // and activated. Cancel the dummy transaction and report success.
+              try { _terminal.cancel(); } catch (e) { /* best-effort */ }
+              rn({ type: 'paired' });
+              _pairingMode = false;
+            }
+            // If activation itself failed the exception will surface through
+            // transactionCompleted below, which will send an error.
+          },
+
+          transactionCompleted: function (event) {
+            // In pairing mode the paired/error notification was already sent
+            // from activateCompleted (or the catch below). Swallow the result.
+            if (_pairingMode) {
+              _pairingMode = false;
+            }
+            _terminal = null;
+          },
+        });
+
+        // ── 7. Trigger pre-automatisms with a 1-cent dummy purchase ─────────
+        rn({ type: 'status', message: 'Connecting to terminal\u2026' });
+        _terminal.transactionAsync(
+          timapi.constants.TransactionType.purchase,
+          new timapi.Amount(1, timapi.constants.Currency.AUD)
+        );
+
+      } catch (e) {
+        _pairingMode = false;
         rn({ type: 'error', message: e && e.message ? e.message : String(e) });
         _terminal = null;
       }
