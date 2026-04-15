@@ -529,10 +529,16 @@ export class TimApiAdapter {
     // enableKeepAlive: true (default, keep alive)
     settings.enableKeepAlive    = true;
 
-    // guides: retail is the default guide (added by SDK constructor automatically).
-    // Do not add others unless required — login will fail if the terminal
-    // does not support all requested guides.
-    // settings.guides already contains Guides.retail from the constructor.
+    // guides: must be an explicit Set — SDK does NOT default guides internally.
+    // Retail is the only guide required for standard POS. SDK throws invalidArgument
+    // if guides is undefined/empty.
+    settings.guides = new Set([timapi.constants.Guides.retail]);
+
+    // integratorId: only set if non-empty — an empty string causes invalidArgument.
+    // The value is the ANZ Worldline-issued vendor ID for ElevatedPOS.
+    if (config.integratorId) {
+      settings.integratorId = config.integratorId;
+    }
 
     // ── 2. Terminal ──────────────────────────────────────────────────────────
     const terminal = new timapi.Terminal(settings);
