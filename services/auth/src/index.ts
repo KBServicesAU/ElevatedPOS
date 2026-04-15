@@ -4,7 +4,9 @@ import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { getRedisClient } from '@nexus/config';
+import { db } from './db';
 import { isBlacklisted } from './lib/tokens';
 import { authRoutes } from './routes/auth';
 import { employeeRoutes } from './routes/employees';
@@ -44,6 +46,20 @@ const app = Fastify({
 });
 
 async function start() {
+  // Run database migrations before accepting any requests.
+  // Uses the same journal + SQL files bundled in the Docker image at src/db/migrations.
+  // Drizzle uses an advisory lock internally so concurrent pods don't race.
+  try {
+    await migrate(db, {
+      migrationsFolder: 'src/db/migrations',
+      migrationsTable: '__drizzle_migrations',
+    });
+    console.log('[auth] database migrations applied');
+  } catch (err) {
+    console.error('[auth] migration failed — aborting startup:', err);
+    process.exit(1);
+  }
+
   await app.register(helmet);
   await app.register(cors, {
     origin: process.env['ALLOWED_ORIGINS']?.split(',') ?? ['http://localhost:3000'],
