@@ -480,6 +480,32 @@ export class TimApiAdapter {
     reject:  (e: Error) => void;
   } | null = null;
 
+  // Pending resolvers for explicit lifecycle calls
+  private _pendingLogin: {
+    resolve: () => void;
+    reject:  (e: Error) => void;
+  } | null = null;
+
+  private _pendingActivate: {
+    resolve: () => void;
+    reject:  (e: Error) => void;
+  } | null = null;
+
+  private _pendingDeactivate: {
+    resolve: (data: unknown) => void;
+    reject:  (e: Error) => void;
+  } | null = null;
+
+  private _pendingLogout: {
+    resolve: () => void;
+    reject:  (e: Error) => void;
+  } | null = null;
+
+  private _pendingDisconnect: {
+    resolve: () => void;
+    reject:  (e: Error) => void;
+  } | null = null;
+
   constructor(logger: PaymentLogger) {
     this._logger = logger;
   }
@@ -705,13 +731,38 @@ export class TimApiAdapter {
             } catch { /* non-fatal */ }
           }
         }
+        // Resolve explicit login() call if pending
+        const pendingLogin = this._pendingLogin;
+        if (pendingLogin) {
+          this._pendingLogin = null;
+          if (ok) {
+            pendingLogin.resolve();
+          } else {
+            pendingLogin.reject(new Error(
+              event.exception!.message ?? `login failed (${this._resultCodeString(event.exception!.resultCode)})`
+            ));
+          }
+        }
       },
 
       // ── Activate completed ─────────────────────────────────────────────────
       activateCompleted: (event: TimTransactionEvent, _data: unknown) => {
-        this._logger.info('activate_completed', { success: event.exception === undefined });
-        if (event.exception === undefined) {
+        const ok = event.exception === undefined;
+        this._logger.info('activate_completed', { success: ok });
+        if (ok) {
           this._pendingTransaction?.onStatus?.('Terminal ready');
+        }
+        // Resolve explicit activate() call if pending
+        const pendingActivate = this._pendingActivate;
+        if (pendingActivate) {
+          this._pendingActivate = null;
+          if (ok) {
+            pendingActivate.resolve();
+          } else {
+            pendingActivate.reject(new Error(
+              event.exception!.message ?? `activate failed (${this._resultCodeString(event.exception!.resultCode)})`
+            ));
+          }
         }
       },
 
@@ -782,6 +833,47 @@ export class TimApiAdapter {
             event.exception.message ?? `balance failed (${this._resultCodeString(event.exception.resultCode)})`
           ));
         }
+      },
+
+      // ── Deactivate completed ───────────────────────────────────────────────
+      deactivateCompleted: (event: TimTransactionEvent, data: unknown) => {
+        const ok = event.exception === undefined;
+        this._logger.info('deactivate_completed', { success: ok });
+        const pending = this._pendingDeactivate;
+        if (!pending) return;
+        this._pendingDeactivate = null;
+        if (ok) {
+          pending.resolve(data);
+        } else {
+          pending.reject(new Error(
+            event.exception!.message ?? `deactivate failed (${this._resultCodeString(event.exception!.resultCode)})`
+          ));
+        }
+      },
+
+      // ── Logout completed ───────────────────────────────────────────────────
+      logoutCompleted: (event: TimTransactionEvent) => {
+        const ok = event.exception === undefined;
+        this._logger.info('logout_completed', { success: ok });
+        const pending = this._pendingLogout;
+        if (!pending) return;
+        this._pendingLogout = null;
+        if (ok) {
+          pending.resolve();
+        } else {
+          pending.reject(new Error(
+            event.exception!.message ?? `logout failed (${this._resultCodeString(event.exception!.resultCode)})`
+          ));
+        }
+      },
+
+      // ── Disconnected ───────────────────────────────────────────────────────
+      disconnected: (_terminal: TimApiTerminal, _exception?: unknown) => {
+        this._logger.info('disconnected', {});
+        const pending = this._pendingDisconnect;
+        if (!pending) return;
+        this._pendingDisconnect = null;
+        pending.resolve(); // disconnected is always a "success" — we wanted to disconnect
       },
 
       // ── Rollback completed ─────────────────────────────────────────────────
@@ -916,6 +1008,161 @@ export class TimApiAdapter {
     } catch (err) {
       this._logger.warn('cancel_failed', { error: String(err) });
     }
+  }
+
+  // ── Explicit lifecycle: Login ───────────────────────────────────────────────
+  // Section 1.2: Login() — activates a communication session between ECR and terminal.
+  // Sets print options, POS identifier and manufacturer flags in the terminal object.
+  // After completing: updates features, brands and terminal identifier in terminal instance.
+
+  login(timeoutMs = 30_000): Promise<void> {
+    if (!this._terminal) throw new Error('Adapter not initialized — call initialize() first');
+
+    this._logger.info('login_start', {});
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._pendingLogin = null;
+        reject(new Error('login timed out'));
+      }, timeoutMs);
+
+      this._pendingLogin = {
+        resolve: () => { clearTimeout(timer); resolve(); },
+        reject:  (err) => { clearTimeout(timer); reject(err); },
+      };
+
+      try {
+        this._terminal!.loginAsync?.();
+      } catch (err) {
+        clearTimeout(timer);
+        this._pendingLogin = null;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  // ── Explicit lifecycle: Activate ────────────────────────────────────────────
+  // Section 1.2: Activate — opens a user shift.
+  // Multiple transactions can be performed until deactivate() is called.
+
+  activate(timeoutMs = 30_000): Promise<void> {
+    if (!this._terminal) throw new Error('Adapter not initialized');
+
+    this._logger.info('activate_start', {});
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._pendingActivate = null;
+        reject(new Error('activate timed out'));
+      }, timeoutMs);
+
+      this._pendingActivate = {
+        resolve: () => { clearTimeout(timer); resolve(); },
+        reject:  (err) => { clearTimeout(timer); reject(err); },
+      };
+
+      try {
+        this._terminal!.activateAsync?.();
+      } catch (err) {
+        clearTimeout(timer);
+        this._pendingActivate = null;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  // ── Explicit lifecycle: Deactivate ──────────────────────────────────────────
+  // Section 1.2: Deactivate — closes the user shift and delivers transaction counters.
+  // MUST be called before balance() (end of day).
+  // Section 3.10: "Before calling the balance function, POS/ECR should be in deactivate state."
+
+  deactivate(timeoutMs = 30_000): Promise<unknown> {
+    if (!this._terminal) throw new Error('Adapter not initialized');
+
+    this._logger.info('deactivate_start', {});
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._pendingDeactivate = null;
+        reject(new Error('deactivate timed out'));
+      }, timeoutMs);
+
+      this._pendingDeactivate = {
+        resolve: (data) => { clearTimeout(timer); resolve(data); },
+        reject:  (err)  => { clearTimeout(timer); reject(err); },
+      };
+
+      try {
+        this._terminal!.deactivateAsync?.();
+      } catch (err) {
+        clearTimeout(timer);
+        this._pendingDeactivate = null;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  // ── Explicit lifecycle: Logout ──────────────────────────────────────────────
+  // Section 1.2: Logout — terminates the active communication session between ECR and terminal.
+
+  logout(timeoutMs = 30_000): Promise<void> {
+    if (!this._terminal) throw new Error('Adapter not initialized');
+
+    this._logger.info('logout_start', {});
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._pendingLogout = null;
+        reject(new Error('logout timed out'));
+      }, timeoutMs);
+
+      this._pendingLogout = {
+        resolve: () => { clearTimeout(timer); resolve(); },
+        reject:  (err) => { clearTimeout(timer); reject(err); },
+      };
+
+      try {
+        this._terminal!.logoutAsync?.();
+      } catch (err) {
+        clearTimeout(timer);
+        this._pendingLogout = null;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  // ── Explicit lifecycle: Disconnect ──────────────────────────────────────────
+  // Section 1.2: Disconnect — closes the connection to the EFT/Terminal.
+  // Terminal will display "Disconnected / Connect ECR" after this.
+
+  disconnect(timeoutMs = 15_000): Promise<void> {
+    if (!this._terminal) return Promise.resolve();
+
+    this._logger.info('disconnect_start', {});
+
+    return new Promise((resolve, reject) => {
+      // Timeout resolves rather than rejects — we always want to proceed with dispose
+      const timer = setTimeout(() => {
+        this._pendingDisconnect = null;
+        this._logger.warn('disconnect_timeout', {});
+        resolve(); // Best-effort — still resolve so dispose() can proceed
+      }, timeoutMs);
+
+      this._pendingDisconnect = {
+        resolve: () => { clearTimeout(timer); resolve(); },
+        reject:  (err) => { clearTimeout(timer); reject(err); },
+      };
+
+      try {
+        this._terminal!.disconnectAsync?.();
+      } catch (err) {
+        clearTimeout(timer);
+        this._pendingDisconnect = null;
+        // Disconnect failures are non-fatal — resolve anyway
+        this._logger.warn('disconnect_error', { error: String(err) });
+        resolve();
+      }
+    });
   }
 
   // ── Application information ─────────────────────────────────────────────────

@@ -211,6 +211,18 @@ export function AnzPaymentOverlay({
 
     providerRef.current = provider;
 
+    // ANZ Section 3.1: Pair terminal (Connect → Login → Activate) before first transaction.
+    // This is idempotent — if already paired the SDK handles it gracefully.
+    // pairTerminal() completes in ~5-10s on first call, near-instant on subsequent calls.
+    if (!simulate) {
+      try {
+        await provider.pairTerminal();
+      } catch {
+        // Non-fatal: SDK pre-automatisms will pair implicitly during the transaction
+        // if explicit pairing fails. Log is captured in the adapter.
+      }
+    }
+
     void provider.startPurchase({
       posOrderId,
       amount,

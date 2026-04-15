@@ -21,8 +21,8 @@ const TYRO_TEST_MODE = process.env['TYRO_TEST_MODE'] !== 'false'; // default to 
 const TYRO_API_KEY = process.env['TYRO_API_KEY'] ?? '';
 // ANZ Worldline integrator ID — issued by ANZ Worldline to ElevatedPOS as a POS vendor.
 // Not a secret — it's a vendor-level identifier, not a per-merchant key.
-// Override via ANZ_INTEGRATOR_ID env var in production; fallback used for dev/demo.
-const ANZ_INTEGRATOR_ID = process.env['ANZ_INTEGRATOR_ID'] ?? 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
+// Use || (not ??) so an explicitly-empty env var also falls back to the known ID.
+const ANZ_INTEGRATOR_ID = process.env['ANZ_INTEGRATOR_ID'] || 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
 
 /**
  * GET /api/tyro/config?deviceId=xxx

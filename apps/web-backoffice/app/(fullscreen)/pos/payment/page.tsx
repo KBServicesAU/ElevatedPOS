@@ -415,6 +415,8 @@ function AddTenderDialog({
   const [tyroConfig, setTyroConfig] = useState<TyroConfig | null>(null);
   const [anzConfig, setAnzConfig] = useState<TimConfig | null>(null);
   const [eftposProvider, setEftposProvider] = useState<'stripe' | 'tyro' | 'anz'>('stripe');
+  // true while the terminal config fetch is in flight — disables the card charge button
+  const [terminalConfigLoading, setTerminalConfigLoading] = useState(true);
 
   // Fetch device's terminal config on mount to determine EFTPOS provider
   useEffect(() => {
@@ -423,37 +425,43 @@ function AddTenderDialog({
     const deviceId = deviceInfoRaw ? (() => { try { return (JSON.parse(deviceInfoRaw) as { deviceId?: string }).deviceId ?? null; } catch { return null; } })() : null;
     const url = deviceId ? `/api/tyro/config?deviceId=${deviceId}` : '/api/tyro/config';
     fetch(url)
-      .then(r => r.ok ? r.json() : null)
-      .then((data: { configured?: boolean; provider?: string; apiKey?: string; merchantId?: string; terminalId?: string; testMode?: boolean; tyroHandlesSurcharge?: boolean; terminalIp?: string; terminalPort?: number; integratorId?: string } | null) => {
-        if (!data?.configured) return;
-        if (data.provider === 'tyro' && data.apiKey) {
-          setEftposProvider('tyro');
-          setTyroConfig({
-            apiKey: data.apiKey,
-            merchantId: data.merchantId ?? '',
-            terminalId: data.terminalId ?? '',
-            testMode: data.testMode ?? true,
-            tyroHandlesSurcharge: data.tyroHandlesSurcharge ?? false,
-          });
-        } else if (data.provider === 'anz' && data.terminalIp) {
-          setEftposProvider('anz');
-          setAnzConfig({
-            terminalIp:           data.terminalIp,
-            terminalPort:         data.terminalPort ?? 80,
-            integratorId:         data.integratorId ?? '',
-            // ANZ Worldline validation requirements:
-            autoCommit:           true,   // required for ANZ certification
-            fetchBrands:          true,   // retrieve brands after login
-            dcc:                  false,  // no DCC in AU
-            partialApproval:      false,  // no partial approvals
-            tipAllowed:           false,  // no tips (retail guide, not gastro)
-            printMerchantReceipt: false,  // POS handles printing
-            printCustomerReceipt: false,
-          });
+      .then(r => {
+        // Non-2xx or HTML response means unauthenticated / no config
+        if (!r.ok || !r.headers.get('content-type')?.includes('application/json')) return null;
+        return r.json() as Promise<{ configured?: boolean; provider?: string; apiKey?: string; merchantId?: string; terminalId?: string; testMode?: boolean; tyroHandlesSurcharge?: boolean; terminalIp?: string; terminalPort?: number; integratorId?: string } | null>;
+      })
+      .then((data) => {
+        if (data?.configured) {
+          if (data.provider === 'tyro' && data.apiKey) {
+            setEftposProvider('tyro');
+            setTyroConfig({
+              apiKey: data.apiKey,
+              merchantId: data.merchantId ?? '',
+              terminalId: data.terminalId ?? '',
+              testMode: data.testMode ?? true,
+              tyroHandlesSurcharge: data.tyroHandlesSurcharge ?? false,
+            });
+          } else if (data.provider === 'anz' && data.terminalIp) {
+            setEftposProvider('anz');
+            setAnzConfig({
+              terminalIp:           data.terminalIp,
+              terminalPort:         data.terminalPort ?? 80,
+              integratorId:         data.integratorId ?? '',
+              // ANZ Worldline validation requirements (Section 2.4):
+              autoCommit:           true,   // required for ANZ certification
+              fetchBrands:          true,   // retrieve brands after login
+              dcc:                  false,  // no DCC in AU
+              partialApproval:      false,  // no partial approvals
+              tipAllowed:           false,  // no tips (retail guide, not gastro)
+              printMerchantReceipt: false,  // POS handles printing
+              printCustomerReceipt: false,
+            });
+          }
         }
         // If no terminal configured, eftposProvider stays 'stripe' (Stripe Terminal)
       })
-      .catch(() => {});
+      .catch(() => {/* non-fatal — POS continues with stripe fallback */})
+      .finally(() => setTerminalConfigLoading(false));
   }, []);
 
   useEffect(() => {
@@ -491,6 +499,8 @@ function AddTenderDialog({
   const canApply = (() => {
     if (amount <= 0) return false;
     if (method === 'cash') return cashTendered >= roundedCashTotal;
+    // Block card charges while terminal config is still loading
+    if (method === 'card' && terminalConfigLoading) return false;
     return true;
   })();
 
@@ -755,7 +765,9 @@ function AddTenderDialog({
           className="mt-1 w-full rounded-xl bg-green-400 py-4 text-base font-bold text-green-950 disabled:opacity-40 hover:bg-green-300"
         >
           {method === 'card'
-            ? `💳 Charge $${cardChargeTotal.toFixed(2)} on Terminal`
+            ? terminalConfigLoading
+              ? '⏳ Loading terminal…'
+              : `💳 Charge $${cardChargeTotal.toFixed(2)} on Terminal`
             : `Apply ${METHOD_META[method].emoji} $${amount.toFixed(2)}`}
         </button>
       </div>

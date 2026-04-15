@@ -45,6 +45,24 @@ export interface PaymentProvider {
   initialize(config: TimConfig): Promise<void>;
 
   /**
+   * Pair terminal: Connect → Login → Activate
+   * Per ANZ Validation Section 3.1 — do this before the first transaction.
+   * The pairing establishes the communication session and opens a user shift.
+   * Pre-automatisms handle this implicitly during startPurchase() if not called,
+   * but explicit pairing up-front avoids the 10-second delay on first transaction.
+   */
+  pairTerminal(): Promise<void>;
+
+  /**
+   * End of Day (Daily Closing): Deactivate → Balance
+   * Per ANZ Validation Section 3.10 — call once daily before close of business.
+   * Transmits all transactions to the host system for settlement.
+   * Resets counters for the next business day.
+   * Returns the balance/settlement summary from the terminal.
+   */
+  endOfDay(): Promise<Record<string, unknown>>;
+
+  /**
    * Check whether the terminal is reachable and the SDK is loaded.
    * Does NOT perform a financial operation.
    */
@@ -88,7 +106,8 @@ export interface PaymentProvider {
   refund(request: RefundRequest): Promise<PaymentResult>;
 
   /**
-   * Gracefully disconnect the terminal and clean up resources.
+   * Gracefully shutdown: Deactivate → Logout → Disconnect → Dispose
+   * Per ANZ Validation Section 3.13.
    */
   shutdown(): Promise<void>;
 }

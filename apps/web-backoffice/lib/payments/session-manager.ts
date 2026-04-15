@@ -218,6 +218,123 @@ export class TerminalSessionManager {
     this._onStateChange?.(this.getStatus());
   }
 
+  // ── Terminal lifecycle (ANZ Validation Section 3) ──────────────────────────
+
+  /**
+   * Pairing — Connect → Login → Activate
+   * Per ANZ Validation Section 3.1: "Ideally the terminal should pair with the
+   * terminal prior to performing any transactions as the pairing can take up to
+   * 10 seconds, and only needs to be done once after a terminal restarts."
+   *
+   * The SDK pre-automatisms cover this automatically during transactionAsync(),
+   * but explicit pairing up-front avoids any delay on the first transaction.
+   */
+  async pairTerminal(): Promise<void> {
+    if (!this._config) throw new Error('Terminal not configured — call initialize() first');
+
+    if (!this._adapter?.isInitialized) {
+      await this.initialize(this._config);
+    }
+
+    const adapter = this._adapter!;
+    this._setConnectionState('logging_in');
+    this._logger.info('pair_terminal_start', {});
+
+    try {
+      // Login: activates the communication session, fetches brands
+      await adapter.login();
+      this._logger.info('pair_terminal_logged_in', {});
+
+      // Activate: opens the user shift
+      await adapter.activate();
+      this._setConnectionState('activated');
+      this._lastConnectedAt = new Date();
+      this._logger.info('pair_terminal_activated', {});
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._lastErrorMessage = msg;
+      this._setConnectionState('error');
+      this._logger.error('pair_terminal_failed', { error: msg });
+      throw err;
+    }
+  }
+
+  /**
+   * Deactivate — closes the user shift and delivers transaction counters.
+   * Per Section 3.10: "Before calling the balance function, POS/ECR should
+   * be in the deactivate state."
+   */
+  async deactivate(): Promise<unknown> {
+    if (!this._adapter?.isInitialized) return undefined;
+
+    this._logger.info('session_deactivate_start', {});
+    try {
+      const result = await this._adapter.deactivate();
+      this._setConnectionState('connected');
+      this._logger.info('session_deactivated', {});
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._logger.warn('session_deactivate_failed', { error: msg });
+      // Non-fatal — proceed with balance even if deactivate failed
+      return undefined;
+    }
+  }
+
+  /**
+   * End of Day (Daily Closing) — Deactivate → Balance
+   * Per Section 3.10: Balance transmits all transactions to the host for
+   * settlement and resets counters. Settlement cutover is 21:30 each day.
+   * Balance may be called multiple times during the day.
+   */
+  async endOfDay(): Promise<Record<string, unknown>> {
+    if (!this._adapter?.isInitialized) {
+      throw new Error('Terminal not connected — connect first before running end of day');
+    }
+
+    this._logger.info('end_of_day_start', {});
+
+    // Step 1: Deactivate (closes shift, required before balance)
+    await this.deactivate();
+
+    // Step 2: Balance (daily closing — sends all transactions to host)
+    const result = await this._adapter.balance();
+    this._logger.info('end_of_day_complete', {});
+    return result;
+  }
+
+  /**
+   * Graceful shutdown — Deactivate → Logout → Disconnect → Dispose
+   * Per Section 3.13: "In order to close the POS/ECR, ensure the TIM API
+   * instance is disposed of correctly and memory is released to the OS."
+   */
+  async gracefulShutdown(): Promise<void> {
+    if (!this._adapter) {
+      this._setConnectionState('disconnected');
+      return;
+    }
+
+    this._logger.info('graceful_shutdown_start', {});
+    const adapter = this._adapter;
+
+    try {
+      // Step 1: Deactivate (close user shift)
+      try { await adapter.deactivate(15_000); } catch { /* non-fatal */ }
+
+      // Step 2: Logout (terminate ECR-terminal session)
+      try { await adapter.logout(15_000); } catch { /* non-fatal */ }
+
+      // Step 3: Disconnect (close TCP/WebSocket connection)
+      try { await adapter.disconnect(10_000); } catch { /* non-fatal */ }
+    } finally {
+      // Step 4: Dispose (release WASM memory)
+      adapter.dispose();
+      this._adapter = null;
+      this._setConnectionState('disconnected');
+      this._logger.info('graceful_shutdown_complete', {});
+    }
+  }
+
   // ── Teardown ────────────────────────────────────────────────────────────────
 
   dispose() {

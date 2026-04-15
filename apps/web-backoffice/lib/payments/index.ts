@@ -132,6 +132,14 @@ export function createAnzPaymentProvider(opts: AnzProviderOptions): PaymentProvi
       await sessionManager.initialize(config);
     },
 
+    async pairTerminal() {
+      await sessionManager.pairTerminal();
+    },
+
+    async endOfDay() {
+      return sessionManager.endOfDay();
+    },
+
     async healthCheck() {
       return sessionManager.healthCheck();
     },
@@ -172,7 +180,7 @@ export function createAnzPaymentProvider(opts: AnzProviderOptions): PaymentProvi
     },
 
     async shutdown() {
-      sessionManager.dispose();
+      await sessionManager.gracefulShutdown();
     },
   };
 }
@@ -194,6 +202,8 @@ export function createSimulatorProvider(opts: SimulatorOptions = {}): PaymentPro
 
   return {
     initialize: noop,
+    pairTerminal: noop,
+    endOfDay: async () => ({ simulated: true, currency: 'AUD' }),
     async healthCheck() {
       return { reachable: true, terminalIp: '127.0.0.1', terminalPort: 80, checkedAt: new Date() };
     },

@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug, Monitor, CreditCard } from 'lucide-react';
+import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug, Monitor, CreditCard, Wifi, BookOpen } from 'lucide-react';
 import { usePrinter } from './printer-context';
 import type { DeviceInfo } from '@/lib/device-auth';
+import { createAnzPaymentProvider } from '@/lib/payments';
+import type { TimConfig } from '@/lib/payments';
 
 type ConnectionMethod = 'serial' | 'usb' | 'bluetooth';
 
@@ -24,20 +26,78 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
   const [terminalProvider, setTerminalProvider] = useState<string | null>(null);
   const [terminalIp, setTerminalIp] = useState<string | null>(null);
 
+  const [anzFullConfig, setAnzFullConfig] = useState<TimConfig | null>(null);
+  const [anzOpStatus, setAnzOpStatus] = useState<string | null>(null);
+  const [anzOpLoading, setAnzOpLoading] = useState(false);
+
   // Fetch terminal config once on mount
   useEffect(() => {
     const deviceId = deviceInfo?.deviceId ?? null;
     const url = deviceId ? `/api/tyro/config?deviceId=${deviceId}` : '/api/tyro/config';
     fetch(url)
-      .then((r) => r.ok ? r.json() : null)
-      .then((data: { configured?: boolean; provider?: string; terminalIp?: string } | null) => {
+      .then((r) => {
+        if (!r.ok || !r.headers.get('content-type')?.includes('application/json')) return null;
+        return r.json() as Promise<{ configured?: boolean; provider?: string; terminalIp?: string; terminalPort?: number; integratorId?: string } | null>;
+      })
+      .then((data) => {
         if (data?.configured && data.provider) {
           setTerminalProvider(data.provider);
           setTerminalIp(data.terminalIp ?? null);
+          if (data.provider === 'anz' && data.terminalIp) {
+            setAnzFullConfig({
+              terminalIp:           data.terminalIp,
+              terminalPort:         data.terminalPort ?? 80,
+              integratorId:         data.integratorId ?? '',
+              autoCommit:           true,
+              fetchBrands:          true,
+              dcc:                  false,
+              partialApproval:      false,
+              tipAllowed:           false,
+              printMerchantReceipt: false,
+              printCustomerReceipt: false,
+            });
+          }
         }
       })
       .catch(() => {});
   }, [deviceInfo?.deviceId]);
+
+  // ANZ: Pair Terminal — Connect → Login → Activate (Section 3.1)
+  const handleAnzPair = async () => {
+    if (!anzFullConfig) return;
+    setAnzOpLoading(true);
+    setAnzOpStatus('Pairing terminal…');
+    try {
+      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      await provider.initialize(anzFullConfig);
+      await provider.pairTerminal();
+      setAnzOpStatus('✅ Terminal paired — Connect → Login → Activate complete');
+    } catch (err) {
+      setAnzOpStatus(`❌ Pair failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAnzOpLoading(false);
+    }
+  };
+
+  // ANZ: End of Day — Deactivate → Balance (Section 3.10)
+  const handleAnzEndOfDay = async () => {
+    if (!anzFullConfig) return;
+    setAnzOpLoading(true);
+    setAnzOpStatus('Running end of day…');
+    try {
+      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      await provider.initialize(anzFullConfig);
+      const result = await provider.endOfDay();
+      const summary = result && typeof result === 'object'
+        ? Object.entries(result).map(([k, v]) => `${k}: ${v}`).join(', ')
+        : String(result);
+      setAnzOpStatus(`✅ Daily closing complete. ${summary || 'Settlement submitted.'}`);
+    } catch (err) {
+      setAnzOpStatus(`❌ End of day failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAnzOpLoading(false);
+    }
+  };
 
   const hasSerial = typeof navigator !== 'undefined' && 'serial' in navigator;
   const hasUsb = typeof navigator !== 'undefined' && 'usb' in navigator;
@@ -125,6 +185,46 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
               </button>
             )}
           </div>
+
+          {/* ANZ Terminal Management (Section 3.1 + 3.10 + 3.13) */}
+          {terminalProvider === 'anz' && anzFullConfig && (
+            <div className="bg-[#0f0f0f] rounded-xl p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-2 mb-1">
+                <CreditCard size={15} className="text-blue-400" />
+                <span className="text-white text-sm font-medium">ANZ Worldline Terminal</span>
+              </div>
+              <p className="text-[11px] text-gray-500">
+                {terminalIp} — ANZ TIM API lifecycle management
+              </p>
+
+              {/* Pair Terminal — Connect → Login → Activate */}
+              <button
+                onClick={handleAnzPair}
+                disabled={anzOpLoading}
+                className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold bg-blue-900/40 text-blue-300 hover:bg-blue-900/60 border border-blue-700/40 disabled:opacity-50 transition-colors"
+              >
+                <Wifi size={14} />
+                {anzOpLoading ? 'Working…' : 'Pair Terminal (Connect → Login → Activate)'}
+              </button>
+
+              {/* End of Day — Deactivate → Balance */}
+              <button
+                onClick={handleAnzEndOfDay}
+                disabled={anzOpLoading}
+                className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold bg-orange-900/40 text-orange-300 hover:bg-orange-900/60 border border-orange-700/40 disabled:opacity-50 transition-colors"
+              >
+                <BookOpen size={14} />
+                {anzOpLoading ? 'Working…' : 'End of Day (Deactivate → Balance)'}
+              </button>
+
+              {/* Status message */}
+              {anzOpStatus && (
+                <p className="text-xs rounded-lg bg-[#1a1a2e] px-3 py-2 text-gray-300 break-words">
+                  {anzOpStatus}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="pt-1">
             <button
