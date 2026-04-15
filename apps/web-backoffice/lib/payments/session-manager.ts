@@ -98,6 +98,17 @@ export class TerminalSessionManager {
     });
 
     const adapter = new TimApiAdapter(this._logger);
+
+    // Section 1.3: Handle unexpected terminal disconnects (nightly PCI reboot 2AM-5AM).
+    // Mark state as disconnected so the POS UI reflects the real status.
+    // The SDK pre-automatisms will auto-reconnect on the next transactionAsync() call.
+    adapter.onDisconnect = () => {
+      this._setConnectionState('disconnected');
+      this._logger.warn('session_terminal_disconnected', {
+        note: 'Terminal may be rebooting for PCI maintenance. Will auto-reconnect on next transaction via SDK pre-automatisms.',
+      });
+    };
+
     await adapter.initialize(config);
     this._adapter = adapter;
 

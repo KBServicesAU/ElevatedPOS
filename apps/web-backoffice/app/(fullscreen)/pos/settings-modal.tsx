@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug, Monitor, CreditCard, Wifi, BookOpen } from 'lucide-react';
+import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug, Monitor, CreditCard, Wifi, BookOpen, RotateCcw, RefreshCw, Download } from 'lucide-react';
 import { usePrinter } from './printer-context';
 import type { DeviceInfo } from '@/lib/device-auth';
-import { createAnzPaymentProvider } from '@/lib/payments';
+import { createAnzPaymentProvider, downloadPaymentLogs } from '@/lib/payments';
 import type { TimConfig } from '@/lib/payments';
 
 type ConnectionMethod = 'serial' | 'usb' | 'bluetooth';
@@ -29,6 +29,8 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
   const [anzFullConfig, setAnzFullConfig] = useState<TimConfig | null>(null);
   const [anzOpStatus, setAnzOpStatus] = useState<string | null>(null);
   const [anzOpLoading, setAnzOpLoading] = useState(false);
+  const [anzVoidAmount, setAnzVoidAmount] = useState('');
+  const [anzRefundAmount, setAnzRefundAmount] = useState('');
 
   // Fetch terminal config once on mount
   useEffect(() => {
@@ -74,6 +76,64 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
       setAnzOpStatus('✅ Terminal paired — Connect → Login → Activate complete');
     } catch (err) {
       setAnzOpStatus(`❌ Pair failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAnzOpLoading(false);
+    }
+  };
+
+  // ANZ: Reversal/VOID — voids last terminal transaction (Section 3.9)
+  // Section 1.4: "A Reversal/Void does not require a Commit"
+  const handleAnzVoid = async () => {
+    if (!anzFullConfig) return;
+    const amount = parseFloat(anzVoidAmount);
+    if (!amount || amount <= 0) { setAnzOpStatus('❌ Enter a valid amount to void'); return; }
+    setAnzOpLoading(true);
+    setAnzOpStatus(`Voiding $${amount.toFixed(2)}…`);
+    try {
+      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      await provider.initialize(anzFullConfig);
+      const result = await provider.reversal({
+        posOrderId: `void-${Date.now()}`,
+        amount,
+        onStatusMessage: (msg) => setAnzOpStatus(msg),
+      });
+      if (result.approved) {
+        setAnzOpStatus(`✅ Void approved — Ref: ${result.transactionRef ?? 'N/A'}`);
+        setAnzVoidAmount('');
+      } else {
+        setAnzOpStatus(`❌ Void declined: ${result.declineReason ?? result.errorMessage ?? 'Unknown'}`);
+      }
+    } catch (err) {
+      setAnzOpStatus(`❌ Void failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAnzOpLoading(false);
+    }
+  };
+
+  // ANZ: Credit/Refund transaction (Section 3.6)
+  // Section 1.4: "A Credit/Refund needs a Commit" — handled automatically with autoCommit=true
+  const handleAnzRefund = async () => {
+    if (!anzFullConfig) return;
+    const amount = parseFloat(anzRefundAmount);
+    if (!amount || amount <= 0) { setAnzOpStatus('❌ Enter a valid refund amount'); return; }
+    setAnzOpLoading(true);
+    setAnzOpStatus(`Processing refund of $${amount.toFixed(2)}…`);
+    try {
+      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      await provider.initialize(anzFullConfig);
+      const result = await provider.refund({
+        posOrderId: `refund-${Date.now()}`,
+        amount,
+        onStatusMessage: (msg) => setAnzOpStatus(msg),
+      });
+      if (result.approved) {
+        setAnzOpStatus(`✅ Refund approved — Auth: ${result.authCode ?? 'N/A'} | Ref: ${result.transactionRef ?? 'N/A'}`);
+        setAnzRefundAmount('');
+      } else {
+        setAnzOpStatus(`❌ Refund declined: ${result.declineReason ?? result.errorMessage ?? 'Unknown'}`);
+      }
+    } catch (err) {
+      setAnzOpStatus(`❌ Refund failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setAnzOpLoading(false);
     }
@@ -215,6 +275,57 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
               >
                 <BookOpen size={14} />
                 {anzOpLoading ? 'Working…' : 'End of Day (Deactivate → Balance)'}
+              </button>
+
+              {/* Void / Reversal — Section 3.9 */}
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Amount $"
+                  value={anzVoidAmount}
+                  onChange={(e) => setAnzVoidAmount(e.target.value)}
+                  className="flex-1 rounded-lg bg-[#1a1a2e] border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-red-600/50"
+                />
+                <button
+                  onClick={handleAnzVoid}
+                  disabled={anzOpLoading || !anzVoidAmount}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold bg-red-900/40 text-red-300 hover:bg-red-900/60 border border-red-700/40 disabled:opacity-50 transition-colors whitespace-nowrap"
+                >
+                  <RotateCcw size={13} />
+                  Void Last
+                </button>
+              </div>
+
+              {/* Credit / Refund — Section 3.6 */}
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Amount $"
+                  value={anzRefundAmount}
+                  onChange={(e) => setAnzRefundAmount(e.target.value)}
+                  className="flex-1 rounded-lg bg-[#1a1a2e] border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-green-600/50"
+                />
+                <button
+                  onClick={handleAnzRefund}
+                  disabled={anzOpLoading || !anzRefundAmount}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold bg-green-900/40 text-green-300 hover:bg-green-900/60 border border-green-700/40 disabled:opacity-50 transition-colors whitespace-nowrap"
+                >
+                  <RefreshCw size={13} />
+                  Refund
+                </button>
+              </div>
+
+              {/* Download Logs — Section 4 submission checklist */}
+              <button
+                onClick={() => downloadPaymentLogs()}
+                className="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold bg-[#1a1a2e] text-gray-500 hover:text-gray-300 border border-white/5 hover:border-white/10 transition-colors"
+              >
+                <Download size={12} />
+                Download Payment Logs (ANZ Validation)
               </button>
 
               {/* Status message */}

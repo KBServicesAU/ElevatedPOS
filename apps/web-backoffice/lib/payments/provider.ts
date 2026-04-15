@@ -28,11 +28,25 @@ export interface StartPurchaseRequest {
 }
 
 export interface RefundRequest {
-  intentId: string;
+  intentId?: string;
   posOrderId: string;
   amount: number;
-  originalTransactionRef: string;
+  originalTransactionRef?: string;
   reason?: string;
+  onStateChange?: (state: import('./domain').PaymentIntent) => void;
+  onStatusMessage?: (msg: string) => void;
+}
+
+/**
+ * Section 3.9: Reversal/VOID request.
+ * Voids the last transaction on the terminal.
+ * Note (Section 1.4): No Commit required for reversal.
+ */
+export interface ReversalRequest {
+  posOrderId: string;
+  amount: number;
+  onStateChange?: (state: import('./domain').PaymentIntent) => void;
+  onStatusMessage?: (msg: string) => void;
 }
 
 // ─── Provider interface ───────────────────────────────────────────────────────
@@ -100,10 +114,19 @@ export interface PaymentProvider {
   balance(): Promise<Record<string, unknown>>;
 
   /**
-   * Process a refund (behind feature flag — only if enabled in config).
-   * Placeholder implementation until merchant facility is confirmed.
+   * Process a refund (credit transaction).
+   * Section 3.6: Credit/Refund — requires card presentation.
+   * Section 1.4: "A Credit/Refund needs a Commit" (auto-handled when autoCommit=true).
    */
   refund(request: RefundRequest): Promise<PaymentResult>;
+
+  /**
+   * Perform a reversal (void) of the last terminal transaction.
+   * Section 3.9: Reversal/VOID.
+   * Section 1.4: "A Reversal/Void does not require a Commit".
+   * Advantage over refund: merchant does not incur processing fees.
+   */
+  reversal(request: ReversalRequest): Promise<PaymentResult>;
 
   /**
    * Gracefully shutdown: Deactivate → Logout → Disconnect → Dispose

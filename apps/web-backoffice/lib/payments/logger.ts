@@ -40,8 +40,11 @@ export class PaymentLogger {
     // Forward to caller (e.g. state machine for server-side persistence)
     this._onEntry?.(entry);
 
-    // Also write to console in dev — redact any sensitive fields
-    if (process.env.NODE_ENV !== 'production') {
+    // Always write info/warn/error to console — ANZ Worldline validation requires
+    // complete logs.  Debug only in development.
+    // No sensitive data is logged (PAN is masked, auth codes are non-sensitive).
+    const shouldLog = level !== 'debug' || process.env.NODE_ENV !== 'production';
+    if (shouldLog) {
       const fn = level === 'error' ? console.error
                : level === 'warn'  ? console.warn
                : level === 'info'  ? console.info
@@ -67,5 +70,36 @@ export class PaymentLogger {
 
   clear() {
     this._entries = [];
+  }
+
+  /**
+   * Format entries as a plain-text log file matching the ANZ TIM API log format.
+   * Used for submission to ANZ Worldline as part of the validation process.
+   * (Section 4 checklist: "TIM API log files")
+   */
+  exportText(): string {
+    return this._entries
+      .map((e) => {
+        const details = e.details ? ' ' + JSON.stringify(e.details) : '';
+        return `[${e.at}] [${e.level.toUpperCase().padEnd(5)}] ${e.event}${details}`;
+      })
+      .join('\n');
+  }
+
+  /**
+   * Trigger a browser download of the log file.
+   * Filename format: ANZ-PAY-LOG-YYYYMMDD.txt
+   */
+  downloadLog(): void {
+    if (typeof window === 'undefined') return;
+    const text = this.exportText();
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    a.href     = url;
+    a.download = `ANZ-PAY-LOG-${date}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 }

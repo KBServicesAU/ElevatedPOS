@@ -65,6 +65,33 @@ export interface StartPurchaseOptions {
   onStatusMessage?: (msg: string) => void;
 }
 
+/**
+ * Section 3.6: Credit/Refund transaction.
+ * Note (Section 1.4): "A Credit/Refund needs a Commit"
+ * With autoCommit=true the terminal commits automatically; with false the ECR
+ * must call commitAsync() — same logic as startPurchase().
+ */
+export interface StartCreditOptions {
+  posOrderId:   string;
+  amount:       number;
+  currency?:    string;
+  onStateChange?: (intent: PaymentIntent) => void;
+  onStatusMessage?: (msg: string) => void;
+}
+
+/**
+ * Section 3.9: Reversal/VOID transaction.
+ * Note (Section 1.4): "A Reversal/Void does not require a Commit"
+ * No commit step is needed regardless of the autoCommit setting.
+ */
+export interface StartReversalOptions {
+  posOrderId:   string;
+  amount:       number;
+  currency?:    string;
+  onStateChange?: (intent: PaymentIntent) => void;
+  onStatusMessage?: (msg: string) => void;
+}
+
 // ─── Machine ──────────────────────────────────────────────────────────────────
 
 export class PaymentStateMachine {
@@ -251,6 +278,208 @@ export class PaymentStateMachine {
       this._opts.sessionManager.getAdapter().cancel();
     } catch {
       // Adapter might not be initialized yet
+    }
+  }
+
+  // ── Start credit (refund) ───────────────────────────────────────────────────
+  // Section 3.6: Credit/Refund.
+  // Section 1.4: "A Credit/Refund needs a Commit" — same commit logic as purchase.
+
+  async startCredit(opts: StartCreditOptions): Promise<PaymentResult> {
+    if (!this.isIdle) {
+      throw new PaymentProviderError('INVALID_STATE', 'A transaction is already in progress');
+    }
+
+    const { sessionManager, logger, config } = this._opts;
+    this._cancelRequested = false;
+
+    await this._transition(opts.posOrderId, opts.amount, opts.currency ?? 'AUD', opts.onStateChange);
+    opts.onStatusMessage?.('Loading terminal SDK…');
+    await this._setState('initializing_terminal', 'Loading TIM API SDK', opts.onStateChange);
+
+    if (!sessionManager.hasAdapter()) {
+      await sessionManager.initialize(config);
+    }
+    const adapter = sessionManager.getAdapter();
+    await this._setState('awaiting_terminal_ready', 'Connecting to terminal…', opts.onStateChange);
+
+    const releaseLock = await sessionManager.acquireLock();
+    sessionManager.markBusy();
+
+    try {
+      await this._setState('sent_to_terminal', 'Presenting refund…', opts.onStateChange);
+      opts.onStatusMessage?.('Presenting refund…');
+
+      const amountCents = Math.round(opts.amount * 100);
+      let txResult: AdapterTransactionResult;
+
+      const txPromise = adapter.refund(amountCents, (msg) => {
+        opts.onStatusMessage?.(msg);
+        if (msg.toLowerCase().includes('card')) {
+          void this._setState('awaiting_cardholder', msg, opts.onStateChange);
+        } else if (msg.toLowerCase().includes('process') || msg.toLowerCase().includes('authoriz')) {
+          void this._setState('authorizing', msg, opts.onStateChange);
+        }
+      });
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Refund timed out — no response from terminal')), this._opts.transactionTimeoutMs)
+      );
+
+      try {
+        txResult = await Promise.race([txPromise, timeoutPromise]);
+      } catch (err) {
+        if (this._cancelRequested) {
+          await this._setState('cancelled', 'Refund cancelled', opts.onStateChange);
+          return this._buildResult(false, { state: 'cancelled' });
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error('refund_error', { error: msg });
+        await this._setState('failed_retryable', msg, opts.onStateChange);
+        return this._buildResult(false, { state: 'failed_retryable', errorMessage: msg });
+      }
+
+      if (!txResult.approved) {
+        await this._setState('declined', txResult.declineReason ?? 'Refund declined', opts.onStateChange);
+        return this._buildResult(false, {
+          state: 'declined',
+          resultCode: txResult.resultCode,
+          declineReason: txResult.declineReason,
+        });
+      }
+
+      if (config.autoCommit) {
+        // Terminal auto-committed
+        await this._setState('approved', 'Refund approved', opts.onStateChange);
+        await this._recordResult(txResult);
+        return this._buildResult(true, { state: 'approved', txResult });
+      }
+
+      // Manual commit required
+      await this._setState('approved_pending_commit', 'Finalizing refund…', opts.onStateChange);
+      opts.onStatusMessage?.('Finalizing refund…');
+
+      if (this._intent) {
+        this._intent = { ...this._intent, timCorrelationId: txResult.transactionRef };
+      }
+
+      let commitResult: Awaited<ReturnType<typeof adapter.commit>>;
+      try {
+        commitResult = await Promise.race([
+          adapter.commit(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Refund commit timed out')), this._opts.commitTimeoutMs)
+          ),
+        ]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error('refund_commit_error', { error: msg });
+        await this._setState('failed_terminal', msg, opts.onStateChange);
+        return this._buildResult(false, {
+          state: 'failed_terminal',
+          errorMessage: `Refund commit failed: ${msg}. Operator review required.`,
+          txResult,
+        });
+      }
+
+      if (!commitResult.success) {
+        await this._setState('failed_terminal', commitResult.errorMessage ?? 'Refund commit failed', opts.onStateChange);
+        return this._buildResult(false, {
+          state: 'failed_terminal',
+          errorMessage: `Refund commit failed (${commitResult.resultCode}). Operator review required.`,
+          txResult,
+        });
+      }
+
+      await this._setState('approved', 'Refund complete', opts.onStateChange);
+      await this._recordResult(txResult);
+      return this._buildResult(true, { state: 'approved', txResult });
+
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('unexpected_refund_error', { error: msg, state: this._intent?.state });
+      const currentState = this._intent?.state ?? 'created';
+      const postAuthStates: PaymentState[] = ['authorizing', 'approved_pending_commit'];
+      const finalState: PaymentState = postAuthStates.includes(currentState) ? 'unknown_outcome' : 'failed_retryable';
+      await this._setState(finalState, msg, opts.onStateChange);
+      return this._buildResult(false, { state: finalState, errorMessage: msg });
+    } finally {
+      releaseLock();
+      sessionManager.markActivated();
+    }
+  }
+
+  // ── Start reversal (void) ───────────────────────────────────────────────────
+  // Section 3.9: Reversal/VOID.
+  // Section 1.4: "A Reversal/Void does not require a Commit" — no commit step.
+
+  async startReversal(opts: StartReversalOptions): Promise<PaymentResult> {
+    if (!this.isIdle) {
+      throw new PaymentProviderError('INVALID_STATE', 'A transaction is already in progress');
+    }
+
+    const { sessionManager, logger, config } = this._opts;
+    this._cancelRequested = false;
+
+    await this._transition(opts.posOrderId, opts.amount, opts.currency ?? 'AUD', opts.onStateChange);
+    opts.onStatusMessage?.('Loading terminal SDK…');
+    await this._setState('initializing_terminal', 'Loading TIM API SDK', opts.onStateChange);
+
+    if (!sessionManager.hasAdapter()) {
+      await sessionManager.initialize(config);
+    }
+    const adapter = sessionManager.getAdapter();
+    await this._setState('awaiting_terminal_ready', 'Connecting to terminal…', opts.onStateChange);
+
+    const releaseLock = await sessionManager.acquireLock();
+    sessionManager.markBusy();
+
+    try {
+      await this._setState('sent_to_terminal', 'Voiding last transaction…', opts.onStateChange);
+      opts.onStatusMessage?.('Voiding last transaction…');
+
+      const amountCents = Math.round(opts.amount * 100);
+
+      const txPromise = adapter.reversal(amountCents, (msg) => {
+        opts.onStatusMessage?.(msg);
+      });
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Reversal timed out — no response from terminal')), this._opts.transactionTimeoutMs)
+      );
+
+      let txResult: AdapterTransactionResult;
+      try {
+        txResult = await Promise.race([txPromise, timeoutPromise]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error('reversal_error', { error: msg });
+        await this._setState('failed_retryable', msg, opts.onStateChange);
+        return this._buildResult(false, { state: 'failed_retryable', errorMessage: msg });
+      }
+
+      if (!txResult.approved) {
+        await this._setState('declined', txResult.declineReason ?? 'Reversal declined', opts.onStateChange);
+        return this._buildResult(false, {
+          state: 'declined',
+          resultCode: txResult.resultCode,
+          declineReason: txResult.declineReason,
+        });
+      }
+
+      // Section 1.4: No commit required for reversal regardless of autoCommit setting
+      await this._setState('approved', 'Transaction voided', opts.onStateChange);
+      await this._recordResult(txResult);
+      return this._buildResult(true, { state: 'approved', txResult });
+
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('unexpected_reversal_error', { error: msg });
+      await this._setState('failed_retryable', msg, opts.onStateChange);
+      return this._buildResult(false, { state: 'failed_retryable', errorMessage: msg });
+    } finally {
+      releaseLock();
+      sessionManager.markActivated();
     }
   }
 

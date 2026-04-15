@@ -458,6 +458,14 @@ export class TimApiAdapter {
   private _listener: TimApiListener | null = null;
   private _logger: PaymentLogger;
 
+  /**
+   * Section 1.3: Reconnection callback.
+   * Fired when the terminal disconnects (e.g. nightly 2AM-5AM PCI reboot).
+   * The session manager sets this to update its connection state and trigger
+   * re-pairing before the next transaction.
+   */
+  onDisconnect?: () => void;
+
   // Pending promise resolvers for async SDK callbacks
   private _pendingTransaction: {
     resolve:  (r: AdapterTransactionResult) => void;
@@ -868,12 +876,23 @@ export class TimApiAdapter {
       },
 
       // ── Disconnected ───────────────────────────────────────────────────────
+      // Section 1.3: Terminal may disconnect unexpectedly (nightly PCI reboot
+      // 2AM-5AM). Notify session manager so it can mark state as disconnected
+      // and re-pair before the next transaction.
       disconnected: (_terminal: TimApiTerminal, _exception?: unknown) => {
         this._logger.info('disconnected', {});
         const pending = this._pendingDisconnect;
-        if (!pending) return;
-        this._pendingDisconnect = null;
-        pending.resolve(); // disconnected is always a "success" — we wanted to disconnect
+        if (pending) {
+          // Expected disconnect (we called disconnectAsync)
+          this._pendingDisconnect = null;
+          pending.resolve();
+        } else {
+          // Unexpected disconnect — likely nightly PCI terminal reboot
+          this._logger.warn('unexpected_disconnect', {
+            note: 'Terminal may be rebooting (PCI maintenance 2AM–5AM). Will auto-reconnect on next transaction.',
+          });
+          this.onDisconnect?.();
+        }
       },
 
       // ── Rollback completed ─────────────────────────────────────────────────

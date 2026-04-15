@@ -12,7 +12,7 @@
  * crashed transactions to the operator.
  */
 
-export { type PaymentProvider, PaymentProviderError } from './provider';
+export { type PaymentProvider, PaymentProviderError, type RefundRequest, type ReversalRequest } from './provider';
 export type {
   TimConfig,
   PaymentIntent,
@@ -26,7 +26,7 @@ export type {
 export { TERMINAL_STATES, RETRYABLE_STATES, CANCELLABLE_STATES, CANCEL_BLOCKED_STATES } from './domain';
 
 import type { TimConfig, PaymentIntent, PaymentResult, PaymentState, TerminalHealth, TerminalApplicationInfo } from './domain';
-import type { StartPurchaseRequest, PaymentProvider } from './provider';
+import type { StartPurchaseRequest, RefundRequest, ReversalRequest, PaymentProvider } from './provider';
 import { PaymentProviderError } from './provider';
 import { TerminalSessionManager } from './session-manager';
 import { PaymentLogger } from './logger';
@@ -99,6 +99,28 @@ function createSimulatorPersistence(): PaymentPersistence {
   };
 }
 
+// ─── Module-level persistent log store ────────────────────────────────────────
+// Survives individual provider instances so logs can be downloaded at any time
+// via the Settings modal (Section 4 submission checklist: "TIM API log files").
+
+const _persistentLogger = new PaymentLogger();
+
+/**
+ * Download all payment logs captured in this browser session as a plain-text file.
+ * Filename: ANZ-PAY-LOG-YYYYMMDD.txt
+ * Section 4: "TIM API log files (TimApiYYYYMMDD.log) — Ensure logging is set to ALL"
+ */
+export function downloadPaymentLogs(): void {
+  _persistentLogger.downloadLog();
+}
+
+/**
+ * Return all log entries captured in this session (for diagnostics / server upload).
+ */
+export function getPaymentLogEntries() {
+  return _persistentLogger.getEntries();
+}
+
 // ─── Provider factory ─────────────────────────────────────────────────────────
 
 export interface AnzProviderOptions {
@@ -109,7 +131,8 @@ export interface AnzProviderOptions {
 }
 
 export function createAnzPaymentProvider(opts: AnzProviderOptions): PaymentProvider {
-  const logger = new PaymentLogger();
+  // Use the module-level logger so log entries persist across provider instances
+  const logger = _persistentLogger;
 
   const sessionManager = new TerminalSessionManager(logger);
   if (opts.onTerminalStatusChange) {
@@ -175,8 +198,38 @@ export function createAnzPaymentProvider(opts: AnzProviderOptions): PaymentProvi
       return adapter.balance();
     },
 
-    async refund() {
-      throw new PaymentProviderError('REFUND_DISABLED', 'Refunds are not enabled in v1. Contact ANZ Worldline for facility configuration.');
+    /**
+     * Section 3.6: Credit / Refund transaction.
+     * Section 1.4: "A Credit/Refund needs a Commit" — handled by state machine.
+     */
+    async refund(request: RefundRequest) {
+      if (!sessionManager.hasAdapter()) {
+        await sessionManager.initialize(opts.config);
+      }
+      return stateMachine.startCredit({
+        posOrderId:      request.posOrderId,
+        amount:          request.amount,
+        currency:        'AUD',
+        onStateChange:   request.onStateChange,
+        onStatusMessage: request.onStatusMessage,
+      });
+    },
+
+    /**
+     * Section 3.9: Reversal / VOID — voids last terminal transaction.
+     * Section 1.4: "A Reversal/Void does not require a Commit".
+     */
+    async reversal(request: ReversalRequest) {
+      if (!sessionManager.hasAdapter()) {
+        await sessionManager.initialize(opts.config);
+      }
+      return stateMachine.startReversal({
+        posOrderId:      request.posOrderId,
+        amount:          request.amount,
+        currency:        'AUD',
+        onStateChange:   request.onStateChange,
+        onStatusMessage: request.onStatusMessage,
+      });
     },
 
     async shutdown() {
@@ -255,7 +308,30 @@ export function createSimulatorProvider(opts: SimulatorOptions = {}): PaymentPro
       currentCancel?.();
     },
     async balance() { return { balance: 0, currency: 'AUD' }; },
-    async refund()  { throw new PaymentProviderError('REFUND_DISABLED', 'Not in scope'); },
+    /** Simulated refund (credit) — always approved in simulator */
+    async refund(request: RefundRequest) {
+      await new Promise((r) => setTimeout(r, 1500));
+      request.onStatusMessage?.('Tap, Insert or Swipe card for refund…');
+      await new Promise((r) => setTimeout(r, 500));
+      request.onStatusMessage?.('Authorizing refund…');
+      await new Promise((r) => setTimeout(r, 800));
+      return {
+        intentId: 'sim', posOrderId: request.posOrderId,
+        approved: true, state: 'approved' as const,
+        authCode: 'SIMRFND', transactionRef: `SIM-REFUND-${Date.now()}`,
+      };
+    },
+    /** Simulated reversal (void) — always approved in simulator */
+    async reversal(request: ReversalRequest) {
+      await new Promise((r) => setTimeout(r, 1200));
+      request.onStatusMessage?.('Voiding last transaction…');
+      await new Promise((r) => setTimeout(r, 600));
+      return {
+        intentId: 'sim', posOrderId: request.posOrderId,
+        approved: true, state: 'approved' as const,
+        authCode: 'SIMVOID', transactionRef: `SIM-VOID-${Date.now()}`,
+      };
+    },
     shutdown: noop,
   };
 }
