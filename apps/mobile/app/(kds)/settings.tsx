@@ -20,6 +20,7 @@ import { confirm, toast } from '../../components/ui';
 import { useDeviceStore } from '../../store/device';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
 import {
+  printText,
   printTestPage,
   discoverPrinters,
   type DiscoveredPrinter,
@@ -207,6 +208,21 @@ export default function KDSSettingsScreen() {
     try {
       await printTestPage();
       toast.success('Test Print Sent', 'Check the printer for a test page.');
+    } catch (err) {
+      toast.error('Print Failed', err instanceof Error ? err.message : 'Could not print');
+    }
+  }
+
+  async function handleTestLabel() {
+    if (!printerConfig.type) {
+      toast.warning('No Printer', 'Please configure a label printer first.');
+      return;
+    }
+    try {
+      const timestamp = new Date().toLocaleString('en-AU');
+      const label = `TEST LABEL — Sample Item x1 — ${timestamp}\n\n`;
+      await printText(label);
+      toast.success('Test Label Sent', 'Check the printer for a test label.');
     } catch (err) {
       toast.error('Print Failed', err instanceof Error ? err.message : 'Could not print');
     }
@@ -524,22 +540,33 @@ export default function KDSSettingsScreen() {
         )}
 
         {printerConfig.type ? (
-          <View style={s.btnRow}>
-            <TouchableOpacity
-              style={[s.actionBtn, { flex: 1, backgroundColor: '#22c55e22', borderColor: '#22c55e55' }]}
-              onPress={handleTestPrinter}
-              activeOpacity={0.85}
-            >
-              <Text style={[s.actionBtnText, { color: '#22c55e' }]}>Test Print</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.actionBtn, { flex: 1, backgroundColor: '#ef444422', borderColor: '#ef444455' }]}
-              onPress={handleClearPrinter}
-              activeOpacity={0.85}
-            >
-              <Text style={[s.actionBtnText, { color: '#ef4444' }]}>Clear Printer</Text>
-            </TouchableOpacity>
-          </View>
+          <>
+            <View style={s.btnRow}>
+              <TouchableOpacity
+                style={[s.actionBtn, { flex: 1, backgroundColor: '#22c55e22', borderColor: '#22c55e55' }]}
+                onPress={handleTestPrinter}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.actionBtnText, { color: '#22c55e' }]}>Test Print</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.actionBtn, { flex: 1, backgroundColor: '#06b6d422', borderColor: '#06b6d455' }]}
+                onPress={handleTestLabel}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.actionBtnText, { color: '#06b6d4' }]}>Test Label</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={[s.btnRow, { marginTop: 0 }]}>
+              <TouchableOpacity
+                style={[s.actionBtn, { flex: 1, backgroundColor: '#ef444422', borderColor: '#ef444455' }]}
+                onPress={handleClearPrinter}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.actionBtnText, { color: '#ef4444' }]}>Clear Printer</Text>
+              </TouchableOpacity>
+            </View>
+          </>
         ) : null}
 
         {/* ── Device & Updates ── */}

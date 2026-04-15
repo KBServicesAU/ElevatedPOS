@@ -1416,17 +1416,22 @@ export default function KDSScreen() {
       </Modal>
 
       <View style={{ flex: 1, flexDirection: 'row' }}>
-        {/* Left: Order Summary Sidebar */}
+        {/* Left: Order Summary Sidebar (K4) */}
         {visibleTickets.length > 0 && (
           <View style={{ width: 180, backgroundColor: '#111', borderRightWidth: 1, borderRightColor: '#222', paddingTop: 12 }}>
             <Text style={{ color: '#888', fontSize: 11, fontWeight: '700', paddingHorizontal: 12, marginBottom: 8, letterSpacing: 1 }}>TO MAKE</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
-              {orderSummary.map((item, i) => (
+              {orderSummary.slice(0, 10).map((item, i) => (
                 <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6 }}>
                   <Text style={{ fontSize: 16, fontWeight: '900', color: '#f59e0b', minWidth: 30 }}>{item.qty}x</Text>
                   <Text style={{ fontSize: 13, color: '#ccc', fontWeight: '600', flex: 1 }} numberOfLines={1}>{item.name}</Text>
                 </View>
               ))}
+              {orderSummary.length > 10 && (
+                <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
+                  <Text style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>...and {orderSummary.length - 10} more</Text>
+                </View>
+              )}
             </ScrollView>
             <View style={{ padding: 12, borderTopWidth: 1, borderTopColor: '#222' }}>
               <Text style={{ color: '#555', fontSize: 11 }}>{visibleTickets.length} orders · {orderSummary.reduce((s, i) => s + i.qty, 0)} items</Text>

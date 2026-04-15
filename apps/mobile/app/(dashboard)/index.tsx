@@ -594,7 +594,15 @@ export default function DashboardHomeScreen() {
             </View>
           </View>
         </TouchableOpacity>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {dashboardAuth.email ? (
+            <View style={s.userBadge}>
+              <Ionicons name="person-circle-outline" size={14} color="#a5b4fc" />
+              <Text style={s.userBadgeText} numberOfLines={1}>
+                {dashboardAuth.email.split('@')[0]}
+              </Text>
+            </View>
+          ) : null}
           <TouchableOpacity style={s.headerBtn} onPress={() => openWebDashboard()} activeOpacity={0.85}>
             <Ionicons name="globe-outline" size={16} color="#ccc" />
             <Text style={s.headerBtnText}>Open Web</Text>
@@ -1085,6 +1093,19 @@ const s = StyleSheet.create({
     borderColor: '#2a2a3a',
   },
   headerBtnText: { color: '#ccc', fontSize: 12, fontWeight: '700' },
+  userBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(99,102,241,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.25)',
+    maxWidth: 130,
+  },
+  userBadgeText: { color: '#a5b4fc', fontSize: 12, fontWeight: '700', flexShrink: 1 },
 
   // Scroll content
   scrollContent: { padding: 20, paddingBottom: 40 },
