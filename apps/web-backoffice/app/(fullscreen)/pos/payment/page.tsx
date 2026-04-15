@@ -438,11 +438,16 @@ function AddTenderDialog({
         } else if (data.provider === 'anz' && data.terminalIp) {
           setEftposProvider('anz');
           setAnzConfig({
-            terminalIp:          data.terminalIp,
-            terminalPort:        data.terminalPort ?? 80,
-            integratorId:        data.integratorId ?? '',
-            autoCommit:          false,
-            printMerchantReceipt: false,
+            terminalIp:           data.terminalIp,
+            terminalPort:         data.terminalPort ?? 80,
+            integratorId:         data.integratorId ?? '',
+            // ANZ Worldline validation requirements:
+            autoCommit:           true,   // required for ANZ certification
+            fetchBrands:          true,   // retrieve brands after login
+            dcc:                  false,  // no DCC in AU
+            partialApproval:      false,  // no partial approvals
+            tipAllowed:           false,  // no tips (retail guide, not gastro)
+            printMerchantReceipt: false,  // POS handles printing
             printCustomerReceipt: false,
           });
         }

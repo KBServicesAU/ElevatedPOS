@@ -1,87 +1,134 @@
 /**
- * ANZ Worldline TIM API – Browser POS client
+ * ANZ Worldline TIM API – Browser POS client (legacy wrapper)
  *
- * The TIM (Terminal Integration Module) API JS SDK communicates with the
- * physical EFTPOS terminal via WebSocket on port 80 using the SIXml protocol.
- * This file wraps the event-based SDK in a promise-based API.
+ * Wraps the SDK v26-01 event-based API in a simple promise-based interface.
+ * For new code, prefer the full state-machine provider in lib/payments/index.ts.
  *
  * ─── Setup ───────────────────────────────────────────────────────────────────
- * 1. Obtain `timapi.js` and `timapi.wasm` from:
- *    https://start.portal.anzworldline-solutions.com.au/
- *    (requires ANZ Worldline ISV/integrator registration)
+ * 1. Place `timapi.js` and `timapi.wasm` (v26-01) in:
+ *    apps/web-backoffice/public/timapi/
  *
- * 2. Place both files in:
- *    apps/web-backoffice/public/timapi/timapi.js
- *    apps/web-backoffice/public/timapi/timapi.wasm
+ * 2. Set ANZ_INTEGRATOR_ID env var: d23f66c0-546b-482f-b8b6-cb351f94fd31
  *
- * 3. Set ANZ_INTEGRATOR_ID in your environment (provided by ANZ Worldline).
+ * 3. Terminal must be in ECR/Integrated mode.
+ *    WebSocket port default: 80.
  *
- * 4. In the dashboard → Integrations → ANZ Worldline:
- *    - Enter the terminal IP address
- *    - Leave port at 80 (WebSocket default)
- *    - Switch terminal to ECR/Integrated mode (section 2.16 of the TIM API guide)
+ * SDK reference: https://six-tim.github.io/timapi/doc/js/guide.html
  */
 
-// ─── Module-local TIM API type declarations ───────────────────────────────────
-// Note: Global Window augmentation and canonical TIM types live in
-// lib/payments/tim-adapter.ts — do not duplicate them here.
+// ─── TIM API v26-01 type declarations (scoped to this module) ─────────────────
 
-interface _LegacyTimApiNamespace {
-  TerminalSettings: new () => _LegacyTimApiSettings;
-  Terminal: new (settings: _LegacyTimApiSettings) => _LegacyTimApiTerminal;
-  Amount: new (amountCents: number, currency: string) => object;
+interface _TimApiEnumValue {
+  readonly name: string;
+  readonly _value: number;
+}
+
+interface _TimApiNamespace {
+  TerminalSettings: new () => _TimApiSettings;
+  Terminal:         new (settings: _TimApiSettings) => _TimApiTerminal;
+  Amount:           new (amountCents: number, currency: string) => object;
+  EcrInfo:          new () => _TimApiEcrInfo;
+  PrintOption:      new () => _TimApiPrintOption;
   constants: {
-    TransactionType: { purchase: string; refund: string; reversal: string };
-    Currency: { AUD: string };
+    TransactionType: {
+      purchase:  _TimApiEnumValue;
+      credit:    _TimApiEnumValue;  // refund — NOT "refund"
+      reversal:  _TimApiEnumValue;
+    };
+    Currency:    { AUD: string };
+    EcrInfoType: { ecrApplication: _TimApiEnumValue };
+    Recipient:   { merchant: _TimApiEnumValue; cardholder: _TimApiEnumValue };
+    Guides:      { retail: _TimApiEnumValue };
   };
 }
 
-interface _LegacyTimApiSettings {
+interface _TimApiSettings {
   connectionIPString: string;
-  connectionIPPort: number;
-  autoCommit: boolean;
-  integratorId: string;
+  connectionIPPort:   number;
+  integratorId:       string;
+  autoCommit:         boolean;
+  fetchBrands:        boolean;
+  dcc:                boolean;
+  partialApproval:    boolean;
+  tipAllowed:         boolean;
+  enableKeepAlive:    boolean;
 }
 
-interface _LegacyTimApiTerminal {
+interface _TimApiEcrInfo {
+  type?:              _TimApiEnumValue;
+  name?:              string;
+  manufacturerName?:  string;
+  version?:           string;
+  integratorSolution?: string;
+}
+
+interface _TimApiPrintOption {
+  recipient?: _TimApiEnumValue;
+  isEnabled?: boolean;
+}
+
+interface _TimApiTerminal {
   setPosId(id: string): void;
-  addListener(listener: _LegacyTimApiListener): void;
-  removeListener(listener: _LegacyTimApiListener): void;
-  transactionAsync(type: string, amount: object): void;
+  setUserId(id: number): void;
+  addEcrData(ecrInfo: _TimApiEcrInfo): void;
+  setPrintOptions(options: _TimApiPrintOption[]): void;
+  addListener(listener: _TimApiListener): void;
+  /** cancel() is NOT async in SDK v26-01 */
+  cancel(): void;
+  transactionAsync(type: _TimApiEnumValue, amount: object): void;
   commitAsync(): void;
-  cancelAsync(): void;
+  getBrands(): Array<{ name?: string }>;
+  getTerminalId(): string;
+  dispose(): void;
 }
 
-interface _LegacyTimApiTransactionEvent {
-  exception?: { resultCode: string; message?: string };
+interface _TimApiTransactionEvent {
+  exception?: {
+    resultCode: string | _TimApiEnumValue;
+    message?:   string;
+    printData?: _TimApiPrintData;
+  };
 }
 
-interface _LegacyTimApiTransactionData {
-  transactionReference?: string;
-  authorisationCode?: string;
-  maskedPan?: string;
-  cardType?: string;
-  receiptText?: string;
-  merchantReceiptText?: string;
-  customerReceiptText?: string;
-  rrn?: string;
-  stan?: string;
-  amount?: number;
+interface _TimApiTransactionInformation {
+  authCode?:     string;
+  trmTransRef?:  string;
+  acqTransRef?:  string;
 }
 
-interface _LegacyTimApiConnectionEvent {
-  data?: { state?: string };
+interface _TimApiCardData {
+  brandName?:                  string;
+  cardNumberPrintable?:        string;
+  cardNumberPrintableCardholder?: string;
 }
 
-interface _LegacyTimApiDisplayEvent {
-  data?: { text?: string };
+interface _TimApiReceipt {
+  recipient: _TimApiEnumValue;
+  value?:    string;
 }
 
-interface _LegacyTimApiListener {
-  transactionCompleted(event: _LegacyTimApiTransactionEvent, data: _LegacyTimApiTransactionData): void;
-  connectionStateChanged?(event: _LegacyTimApiConnectionEvent, data: unknown): void;
-  displayTextChanged?(event: _LegacyTimApiDisplayEvent, data: unknown): void;
-  receiptGenerated?(event: unknown, data: unknown): void;
+interface _TimApiPrintData {
+  receipts?: _TimApiReceipt[];
+}
+
+interface _TimApiTransactionResponse {
+  transactionInformation?: _TimApiTransactionInformation;
+  cardData?:               _TimApiCardData;
+  printData?:              _TimApiPrintData;
+}
+
+interface _TimApiListener {
+  transactionCompleted(event: _TimApiTransactionEvent, data: _TimApiTransactionResponse): void;
+  connectCompleted?(event: _TimApiTransactionEvent): void;
+  loginCompleted?(event: _TimApiTransactionEvent): void;
+  terminalStatusChanged?(terminal: _TimApiTerminal): void;
+}
+
+// Global window types for timapi are declared in lib/payments/tim-adapter.ts.
+// Use a typed local accessor to avoid duplicate-declaration conflicts.
+function _getTimapi(): _TimApiNamespace {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (window as any).timapi as _TimApiNamespace;
 }
 
 // ─── SDK loader ───────────────────────────────────────────────────────────────
@@ -89,30 +136,24 @@ interface _LegacyTimApiListener {
 let _sdkLoadPromise: Promise<void> | null = null;
 let _sdkReady = false;
 
-/**
- * Dynamically load timapi.js from /timapi/timapi.js.
- * Resolves when the SDK fires `window.onTimApiReady`.
- * Rejects if the file is not found (404).
- */
 export function loadTimApi(): Promise<void> {
-  if (_sdkReady && typeof window !== 'undefined' && window.timapi) return Promise.resolve();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (_sdkReady && typeof window !== 'undefined' && (window as any).timapi) return Promise.resolve();
   if (_sdkLoadPromise) return _sdkLoadPromise;
 
   _sdkLoadPromise = new Promise((resolve, reject) => {
-    // Must set onTimApiReady BEFORE inserting the script tag
-    window.onTimApiReady = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).onTimApiReady = () => {
       _sdkReady = true;
       resolve();
     };
-
     const script = document.createElement('script');
     script.src = '/timapi/timapi.js';
     script.onerror = () => {
       _sdkLoadPromise = null;
       reject(new Error(
-        'ANZ TIM API SDK not found.\n\n' +
-        'Place timapi.js and timapi.wasm in /public/timapi/ and redeploy.\n' +
-        'Download from: https://start.portal.anzworldline-solutions.com.au/'
+        'ANZ TIM API SDK not found at /timapi/timapi.js.\n' +
+        'Place timapi.js (v26-01) and timapi.wasm in /public/timapi/ and redeploy.'
       ));
     };
     document.head.appendChild(script);
@@ -124,42 +165,53 @@ export function loadTimApi(): Promise<void> {
 // ─── Result types ─────────────────────────────────────────────────────────────
 
 export interface AnzTIMResult {
-  approved: boolean;
-  transactionRef?: string;
-  authCode?: string;
-  cardLast4?: string;
-  cardType?: string;
-  rrn?: string;
+  approved:        boolean;
+  transactionRef?: string;  // trmTransRef
+  authCode?:       string;
+  cardLast4?:      string;
+  cardScheme?:     string;  // brandName
   merchantReceipt?: string;
   customerReceipt?: string;
-  declineCode?: string;
-  declineReason?: string;
+  declineCode?:    string;
+  declineReason?:  string;
 }
 
 export interface AnzTIMConfig {
-  terminalIp: string;
-  /** WebSocket port — ANZ TIM API default is 80 */
+  terminalIp:    string;
   terminalPort?: number;
-  integratorId: string;
-  posId?: string;
+  integratorId:  string;
+  posId?:        string;
+}
+
+// ─── Helper — extract receipts from v26-01 printData ─────────────────────────
+
+function extractReceipts(printData: _TimApiPrintData | undefined): {
+  merchant?: string;
+  cardholder?: string;
+} {
+  if (!printData?.receipts?.length) return {};
+  let merchant: string | undefined;
+  let cardholder: string | undefined;
+  for (const r of printData.receipts) {
+    if (r.recipient?.name === 'merchant')   merchant   = r.value;
+    if (r.recipient?.name === 'cardholder') cardholder = r.value;
+  }
+  return { merchant, cardholder };
+}
+
+function resultCodeStr(code: string | _TimApiEnumValue | undefined): string {
+  if (!code) return '';
+  if (typeof code === 'string') return code;
+  return code.name ?? String(code);
 }
 
 // ─── Terminal session ─────────────────────────────────────────────────────────
 
-/**
- * Represents a single ANZ terminal session.
- * Create one per payment attempt; discard after completion.
- *
- * ```typescript
- * const session = new AnzTerminalSession();
- * const result = await session.purchase(config, amountCents, onStatus);
- * ```
- */
 export class AnzTerminalSession {
-  private _terminal: _LegacyTimApiTerminal | null = null;
+  private _terminal: _TimApiTerminal | null = null;
   private _cancelled = false;
   private _resolve: ((r: AnzTIMResult) => void) | null = null;
-  private _reject: ((e: Error) => void) | null = null;
+  private _reject:  ((e: Error) => void) | null = null;
 
   get cancelled() { return this._cancelled; }
 
@@ -170,7 +222,7 @@ export class AnzTerminalSession {
   ): Promise<AnzTIMResult> {
     return new Promise(async (resolve, reject) => {
       this._resolve = resolve;
-      this._reject = reject;
+      this._reject  = reject;
 
       try {
         onStatus?.('Loading ANZ SDK…');
@@ -181,60 +233,86 @@ export class AnzTerminalSession {
           return;
         }
 
-        const timapi = window.timapi!;
-
+        const timapi = _getTimapi();
         onStatus?.('Connecting to terminal…');
 
         const settings = new timapi.TerminalSettings();
         settings.connectionIPString = config.terminalIp.trim();
         settings.connectionIPPort   = config.terminalPort ?? 80;
-        settings.autoCommit         = false;
         settings.integratorId       = config.integratorId;
+        settings.autoCommit         = true;   // ANZ validation requirement
+        settings.fetchBrands        = true;
+        settings.dcc                = false;
+        settings.partialApproval    = false;
+        settings.tipAllowed         = false;
+        settings.enableKeepAlive    = true;
 
         const terminal = new timapi.Terminal(settings);
         this._terminal = terminal;
-        terminal.setPosId(config.posId ?? 'ECR-01');
+
+        // POS ID — max 6 digits
+        terminal.setPosId((config.posId ?? '1').substring(0, 6));
+        terminal.setUserId(1);
+
+        // EcrInfo — software identification
+        const ecrInfo = new timapi.EcrInfo();
+        ecrInfo.type            = timapi.constants.EcrInfoType.ecrApplication;
+        ecrInfo.name            = 'ElevatedPOS';
+        ecrInfo.manufacturerName = 'ElevatedPOS Pty Ltd';
+        ecrInfo.version         = '1.0';
+        terminal.addEcrData(ecrInfo);
+
+        // PrintOptions — POS handles printing, disable terminal printing
+        const merchantOpt = new timapi.PrintOption();
+        merchantOpt.recipient = timapi.constants.Recipient.merchant;
+        merchantOpt.isEnabled = false;
+
+        const cardholderOpt = new timapi.PrintOption();
+        cardholderOpt.recipient = timapi.constants.Recipient.cardholder;
+        cardholderOpt.isEnabled = false;
+
+        terminal.setPrintOptions([merchantOpt, cardholderOpt]);
 
         terminal.addListener({
-          transactionCompleted: (event: _LegacyTimApiTransactionEvent, data: _LegacyTimApiTransactionData) => {
+          transactionCompleted: (event: _TimApiTransactionEvent, data: _TimApiTransactionResponse) => {
             if (event.exception === undefined) {
-              // Approved — commit to finalise the transaction
-              try { terminal.commitAsync(); } catch { /* non-fatal */ }
-
+              // Approved — autoCommit=true so no manual commit needed
+              const { merchant, cardholder } = extractReceipts(data.printData);
               resolve({
-                approved:       true,
-                transactionRef: data.transactionReference,
-                authCode:       data.authorisationCode,
-                cardLast4:      data.maskedPan?.slice(-4),
-                cardType:       data.cardType,
-                rrn:            data.rrn,
-                merchantReceipt: data.merchantReceiptText ?? data.receiptText,
-                customerReceipt: data.customerReceiptText,
+                approved:        true,
+                transactionRef:  data.transactionInformation?.trmTransRef,
+                authCode:        data.transactionInformation?.authCode,
+                cardLast4:       data.cardData?.cardNumberPrintable?.slice(-4)
+                              ?? data.cardData?.cardNumberPrintableCardholder?.slice(-4),
+                cardScheme:      data.cardData?.brandName,
+                merchantReceipt: merchant,
+                customerReceipt: cardholder,
               });
             } else {
+              const { merchant, cardholder } = extractReceipts(event.exception.printData);
               resolve({
-                approved:      false,
-                declineCode:   event.exception.resultCode,
-                declineReason: event.exception.message ?? `Declined (${event.exception.resultCode})`,
+                approved:        false,
+                declineCode:     resultCodeStr(event.exception.resultCode),
+                declineReason:   event.exception.message ?? `Declined (${resultCodeStr(event.exception.resultCode)})`,
+                merchantReceipt: merchant,
+                customerReceipt: cardholder,
               });
             }
             this._resolve = null;
             this._reject  = null;
           },
 
-          connectionStateChanged: (_event: _LegacyTimApiConnectionEvent, _data: unknown) => {
+          connectCompleted: (_event: _TimApiTransactionEvent) => {
             onStatus?.('Terminal connected');
           },
 
-          displayTextChanged: (_event: _LegacyTimApiDisplayEvent, data: unknown) => {
-            const text = (data as Record<string, unknown>)?.['text'];
-            if (typeof text === 'string' && text.trim()) {
-              onStatus?.(text.trim());
-            }
+          loginCompleted: (_event: _TimApiTransactionEvent) => {
+            onStatus?.('Terminal ready');
           },
         });
 
         onStatus?.('Presenting transaction…');
+        // SDK v26-01: transactionAsync takes only type and amount (no referenceId)
         terminal.transactionAsync(
           timapi.constants.TransactionType.purchase,
           new timapi.Amount(amountCents, timapi.constants.Currency.AUD),
@@ -248,11 +326,14 @@ export class AnzTerminalSession {
     });
   }
 
-  /** Cancel any in-progress transaction. Safe to call multiple times. */
+  /** Cancel in-progress transaction (best-effort). */
   cancel() {
     this._cancelled = true;
-    try { this._terminal?.cancelAsync(); } catch { /* ignore */ }
-    // If we're still waiting for a resolve (e.g. sdk loading), resolve now
+    try {
+      // SDK v26-01: cancel() is NOT async
+      this._terminal?.cancel();
+    } catch { /* ignore */ }
+
     if (this._resolve) {
       this._resolve({ approved: false, declineReason: 'Cancelled by operator' });
       this._resolve = null;

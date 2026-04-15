@@ -15,20 +15,41 @@ export interface TimConfig {
   terminalPort: number;
   /** Integrator ID issued by ANZ Worldline to ElevatedPOS */
   integratorId: string;
-  /** POS identifier sent to terminal (e.g. "POS-01") */
+  /** POS identifier sent to terminal — max 6 digits per EP2 standard (e.g. "1") */
   posId?: string;
-  /** Operator identifier (optional, sent via EcrInfo) */
+  /** Operator/user identifier */
   operatorId?: string;
   /** Human-readable terminal label for UI and logs */
   terminalLabel?: string;
   /**
-   * When false (recommended), POS must call commitAsync() after approval.
-   * Prevents duplicate charges if POS crashes between auth and commit.
+   * When true, the terminal commits automatically after a successful transaction.
+   * Required for ANZ Worldline validation certification.
+   * Set false in production for safer crash recovery (requires manual commitAsync() call).
    */
   autoCommit: boolean;
-  /** Print merchant receipt on terminal — default false (POS prints) */
+  /**
+   * Automatically retrieve brand/application information during login.
+   * Required: true (ANZ validation requirement — fetchBrands must be enabled).
+   */
+  fetchBrands?: boolean;
+  /**
+   * DCC (Dynamic Currency Conversion) support.
+   * Must be set to false for ANZ Australia validation.
+   */
+  dcc?: boolean;
+  /**
+   * Partial approval support.
+   * Must be false for ANZ Australia validation.
+   */
+  partialApproval?: boolean;
+  /**
+   * Tip allowed — only relevant for gastro guide, not retail.
+   * Set false for ANZ Australia retail validation.
+   */
+  tipAllowed?: boolean;
+  /** Print merchant receipt on terminal — default false (POS handles printing) */
   printMerchantReceipt: boolean;
-  /** Print customer receipt on terminal — default false (POS prints) */
+  /** Print customer receipt on terminal — default false (POS handles printing) */
   printCustomerReceipt: boolean;
 }
 
