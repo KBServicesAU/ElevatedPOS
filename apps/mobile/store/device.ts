@@ -138,6 +138,34 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
     if (!identity) return;
     const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? '';
     try {
+      // Primary check: GET /api/v1/devices/me/status returns { status: 'active' | 'revoked' }
+      const statusRes = await fetch(`${API_BASE}/api/v1/devices/me/status`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${identity.deviceToken}`,
+        },
+      });
+      if (statusRes.status === 401 || statusRes.status === 403) {
+        await useDeviceStore.getState().clearIdentity();
+        return;
+      }
+      if (statusRes.ok) {
+        const data = await statusRes.json().catch(() => ({})) as { status?: string };
+        if (data.status === 'revoked') {
+          await useDeviceStore.getState().clearIdentity();
+          return;
+        }
+        // Active — no further action needed
+        return;
+      }
+      // Endpoint not available (404 / 5xx) — fall through to legacy heartbeat
+    } catch {
+      // Network error or endpoint missing — fall through to legacy heartbeat
+    }
+
+    // Fallback: POST /api/v1/devices/heartbeat (legacy endpoint)
+    try {
       const res = await fetch(`${API_BASE}/api/v1/devices/heartbeat`, {
         method: 'POST',
         headers: {
@@ -146,7 +174,6 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
         },
       });
       if (res.status === 401 || res.status === 403) {
-        // Device has been revoked — clear identity to force re-pair
         await useDeviceStore.getState().clearIdentity();
       }
     } catch {

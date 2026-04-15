@@ -36,13 +36,21 @@ export default function DashboardWebScreen() {
 
   // If we have a token, load through the SSO endpoint which:
   //   1. Validates the token against the auth service
-  //   2. Sets the elevatedpos_token session cookie
+  //   2. Sets the elevatedpos_token httpOnly cookie
   //   3. Redirects to startPath — fully authenticated, no login screen
   // If no token (edge case), load the path directly — the web app's
   // middleware will redirect to /login if the session has expired.
   const startUri = token
     ? `${DASHBOARD_URL}/api/auth/device-sso?token=${encodeURIComponent(token)}&redirect=${encodeURIComponent(startPath)}`
     : `${DASHBOARD_URL}${startPath.startsWith('/') ? '' : '/'}${startPath}`;
+
+  // Belt-and-braces: also inject the token into localStorage so the web
+  // app's client-side code can pick it up even if the httpOnly cookie
+  // was not yet set (e.g. first load before the SSO redirect completes).
+  // The web session key is 'elevatedpos_token' (see web-backoffice/lib/session.ts).
+  const injectAuthToken = token
+    ? `(function(){try{localStorage.setItem('elevatedpos_token','${token.replace(/'/g, "\\'")}');}catch(e){}})();true;`
+    : 'true;';
 
   // Hide POS/KDS/Kiosk device-management entries from the sidebar.
   // These are app-device management pages that should not appear inside
@@ -116,7 +124,7 @@ export default function DashboardWebScreen() {
         ref={webRef}
         source={{ uri: startUri }}
         style={s.webview}
-        injectedJavaScriptBeforeContentLoaded={hideSidebarJS}
+        injectedJavaScriptBeforeContentLoaded={injectAuthToken}
         injectedJavaScript={hideSidebarJS}
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => {

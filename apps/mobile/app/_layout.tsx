@@ -31,7 +31,7 @@ const stripePublishableKey = process.env['EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?
 SplashScreen.preventAutoHideAsync();
 
 /** How often to ping the server to check that this device is still authorised. */
-const HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 export default function RootLayout() {
   const { ready, _hydrate, identity, checkHeartbeat } = useDeviceStore();
