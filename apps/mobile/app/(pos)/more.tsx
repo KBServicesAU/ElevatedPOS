@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Linking,
   Modal,
@@ -429,18 +430,42 @@ export default function MoreScreen() {
   }
 
   async function handleDiscoverPrinters(type: PrinterConnectionType) {
-    setDiscovering(true);
-    try {
-      const devices = await discoverPrinters(type);
-      setDiscoveredPrinters(devices);
-      if (devices.length === 0) {
-        toast.warning('No Printers Found', `No ${type.toUpperCase()} printers detected. Check the connection.`);
-      }
-    } catch (err) {
-      toast.error('Discovery Failed', err instanceof Error ? err.message : 'Could not scan for printers');
-    } finally {
-      setDiscovering(false);
-    }
+    // Show confirmation before USB/BT discovery to prevent permission crashes
+    await new Promise<void>((resolve) => {
+      Alert.alert(
+        'Scan for Printers',
+        type === 'usb'
+          ? 'This will search for nearby USB and network printers. Make sure your printer is plugged in.'
+          : 'This will search for Bluetooth printers. Make sure the printer is powered on and in range.',
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve() },
+          {
+            text: 'Scan',
+            onPress: async () => {
+              setDiscovering(true);
+              try {
+                const devices = await discoverPrinters(type);
+                setDiscoveredPrinters(devices);
+                if (devices.length === 0) {
+                  toast.warning(
+                    'No Printers Found',
+                    `No ${type.toUpperCase()} printers detected. Check the connection.`,
+                  );
+                }
+              } catch (err) {
+                toast.error(
+                  'Discovery Failed',
+                  err instanceof Error ? err.message : 'Could not scan for printers',
+                );
+              } finally {
+                setDiscovering(false);
+              }
+              resolve();
+            },
+          },
+        ],
+      );
+    });
   }
 
   async function handleSelectPrinter(printer: DiscoveredPrinter) {
@@ -485,24 +510,42 @@ export default function MoreScreen() {
   const [discoveredOrderPrinters, setDiscoveredOrderPrinters] = useState<DiscoveredPrinter[]>([]);
 
   async function handleDiscoverOrderPrinters(type: PrinterConnectionType) {
-    setDiscoveringOrder(true);
-    try {
-      const devices = await discoverPrinters(type);
-      setDiscoveredOrderPrinters(devices);
-      if (devices.length === 0) {
-        toast.warning(
-          'No Printers Found',
-          `No ${type.toUpperCase()} printers detected. Check the connection.`,
-        );
-      }
-    } catch (err) {
-      toast.error(
-        'Discovery Failed',
-        err instanceof Error ? err.message : 'Could not scan for printers',
+    // Show confirmation before USB/BT discovery to prevent permission crashes
+    await new Promise<void>((resolve) => {
+      Alert.alert(
+        'Scan for Printers',
+        type === 'usb'
+          ? 'This will search for nearby USB and network printers. Make sure your order printer is plugged in.'
+          : 'This will search for Bluetooth printers. Make sure the printer is powered on and in range.',
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve() },
+          {
+            text: 'Scan',
+            onPress: async () => {
+              setDiscoveringOrder(true);
+              try {
+                const devices = await discoverPrinters(type);
+                setDiscoveredOrderPrinters(devices);
+                if (devices.length === 0) {
+                  toast.warning(
+                    'No Printers Found',
+                    `No ${type.toUpperCase()} printers detected. Check the connection.`,
+                  );
+                }
+              } catch (err) {
+                toast.error(
+                  'Discovery Failed',
+                  err instanceof Error ? err.message : 'Could not scan for printers',
+                );
+              } finally {
+                setDiscoveringOrder(false);
+              }
+              resolve();
+            },
+          },
+        ],
       );
-    } finally {
-      setDiscoveringOrder(false);
-    }
+    });
   }
 
   async function handleSelectOrderPrinter(printer: DiscoveredPrinter) {
