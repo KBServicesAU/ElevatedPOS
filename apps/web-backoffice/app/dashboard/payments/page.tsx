@@ -1070,11 +1070,11 @@ function ElevatedPOSPayTab() {
                 <li>Business type (company / individual)</li>
                 <li>Bank account for payouts</li>
                 <li>Business representative details</li>
-                <li>Accept Stripe's terms of service</li>
+                <li>Accept Stripe&apos;s terms of service</li>
                 <li>Business industry / category</li>
               </ul>
               <p className="text-xs text-yellow-600 dark:text-yellow-500 mb-3">
-                Clicking below will pre-fill your business details and open Stripe's secure form for the remaining steps.
+                Clicking below will pre-fill your business details and open Stripe&apos;s secure form for the remaining steps.
               </p>
               <button
                 onClick={handleCompleteSetup}
