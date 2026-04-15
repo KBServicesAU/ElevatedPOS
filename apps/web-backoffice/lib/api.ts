@@ -16,10 +16,14 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  // Only set Content-Type: application/json when there is a body to send.
+  // Fastify (and other servers) reject requests with Content-Type: application/json
+  // but an empty body (FST_ERR_CTP_EMPTY_JSON_BODY).
+  const hasBody = init?.body != null;
   const res = await fetch(`/api/proxy/${path}`, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...(init?.headers ?? {}),
     },
   });
