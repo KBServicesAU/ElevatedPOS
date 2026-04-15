@@ -441,8 +441,50 @@ function ANZPanel() {
   async function handleTest() {
     setTesting(true);
     try {
-      await apiFetch('terminal/anz/test', { method: 'POST' });
-      toast({ title: 'Connection successful', description: 'Terminal is reachable', variant: 'success' });
+      const ip   = terminalIp.trim();
+      const port = Number(terminalPort) || 80;
+
+      if (!ip) {
+        toast({ title: 'Enter a terminal IP address first', variant: 'destructive' });
+        setTesting(false);
+        return;
+      }
+
+      // Client-side WebSocket reachability check.
+      // The ANZ TIM API uses WebSocket. Browsers allow ws://127.0.0.1 from HTTPS
+      // pages (localhost exception). For real LAN terminals the terminal must be
+      // reachable from the user's browser — the server cannot reach LAN devices.
+      await new Promise<void>((resolve, reject) => {
+        const isLocalhost = ip === '127.0.0.1' || ip === 'localhost' || ip === '::1';
+        // Use wss:// from HTTPS pages unless targeting localhost (which allows ws://)
+        const scheme = (window.location.protocol === 'https:' && !isLocalhost) ? 'wss' : 'ws';
+        let ws: WebSocket;
+        try {
+          ws = new WebSocket(`${scheme}://${ip}:${port}`);
+        } catch {
+          reject(new Error(`Invalid address: ${ip}:${port}`));
+          return;
+        }
+        const timer = setTimeout(() => {
+          ws.close();
+          reject(new Error(`Connection timed out — no response from ${ip}:${port} after 10s`));
+        }, 10_000);
+        ws.onopen = () => {
+          clearTimeout(timer);
+          ws.close();
+          resolve();
+        };
+        ws.onerror = () => {
+          clearTimeout(timer);
+          reject(new Error(
+            isLocalhost
+              ? `Could not connect to ${ip}:${port} — is the TIM API simulator running?`
+              : `Could not connect to ${ip}:${port} — ensure the terminal is on and this device is on the same network`
+          ));
+        };
+      });
+
+      toast({ title: 'Terminal reachable ✓', description: `Successfully connected to ${terminalIp}:${terminalPort}`, variant: 'success' });
     } catch (err) {
       toast({ title: 'Connection failed', description: err instanceof Error ? err.message : 'Check IP and port', variant: 'destructive' });
     } finally {
