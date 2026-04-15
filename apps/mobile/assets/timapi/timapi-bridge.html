@@ -309,10 +309,18 @@
           },
 
           transactionCompleted: function (event) {
-            // In pairing mode the paired/error notification was already sent
-            // from activateCompleted (or the catch below). Swallow the result.
             if (_pairingMode) {
               _pairingMode = false;
+              // activateCompleted never fired — connect/login/activate failed.
+              // Surface the error so the pairing modal doesn't spin forever.
+              if (event.exception !== undefined) {
+                var errMsg = (event.exception && event.exception.message)
+                  ? event.exception.message
+                  : ('Terminal unreachable (' + codeStr(event.exception && event.exception.resultCode) + ')');
+                rn({ type: 'error', message: errMsg });
+              }
+              // If no exception here: activateCompleted already sent 'paired'
+              // and cleared the flag — this branch won't be reached.
             }
             _terminal = null;
           },

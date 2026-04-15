@@ -494,6 +494,53 @@ export async function deviceRoutes(app: FastifyInstance) {
   });
 
   /**
+   * GET /api/v1/devices/terminals
+   *
+   * Returns all active terminal credentials configured for this org.
+   * Used by the POS More/Settings screen to populate the "Payment Terminal"
+   * dropdown so the operator can select which terminal to pair with.
+   *
+   * Auth: device token (Bearer) — same opaque-hash pattern as /config.
+   * Proxies to the payments service using a short-lived service JWT.
+   */
+  app.get('/terminals', async (request, reply) => {
+    const header = request.headers['authorization'];
+    if (!header?.startsWith('Bearer ')) return reply.status(401).send({ title: 'Unauthorized', status: 401 });
+    const token = header.slice(7);
+    const tokenHash = hashToken(token);
+
+    const device = await db.query.devices.findFirst({
+      where: and(eq(schema.devices.tokenHash, tokenHash), eq(schema.devices.status, 'active')),
+    });
+    if (!device) return reply.status(401).send({ title: 'Device not found or revoked', status: 401 });
+
+    const PAYMENTS_URL = process.env['PAYMENTS_API_URL'] ?? 'http://payments:4005';
+
+    try {
+      const serviceToken = app.jwt.sign(
+        { sub: 'service:auth', orgId: device.orgId, iss: 'elevatedpos-auth' },
+        { expiresIn: '60s' },
+      );
+
+      const credsRes = await fetch(`${PAYMENTS_URL}/api/v1/terminal/credentials`, {
+        headers: { Authorization: `Bearer ${serviceToken}` },
+      });
+
+      if (!credsRes.ok) {
+        return reply.status(502).send({ title: 'Could not fetch terminals', status: 502 });
+      }
+
+      const credsData = await credsRes.json() as { data?: unknown[] };
+      const credentials = credsData.data ?? [];
+
+      return reply.send({ data: credentials });
+    } catch (err) {
+      console.warn('[devices/terminals] Could not fetch from payments service:', err);
+      return reply.status(502).send({ title: 'Terminal service unavailable', status: 502 });
+    }
+  });
+
+  /**
    * PUT /api/v1/devices/:id/settings
    *
    * Saves per-device settings (customer display, etc.) from the dashboard.

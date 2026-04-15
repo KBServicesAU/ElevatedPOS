@@ -65,7 +65,10 @@ export const useTerminalConnectionStore = create<TerminalConnectionState>((set, 
 
   fetchCredentials: async () => {
     try {
-      const res = await deviceApiFetch<{ data: TerminalCredential[] }>('/api/v1/terminal/credentials');
+      // /api/v1/devices/terminals proxies through the auth service using a
+      // service JWT — device tokens (opaque hashes) cannot call the payments
+      // service's /api/v1/terminal/credentials endpoint directly.
+      const res = await deviceApiFetch<{ data: TerminalCredential[] }>('/api/v1/devices/terminals');
       set({ credentials: res.data ?? [], loaded: true });
     } catch {
       // Non-fatal — operator may still have a server-assigned terminal config
