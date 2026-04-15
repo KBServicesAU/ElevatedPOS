@@ -36,6 +36,125 @@
       "when": 1711238400000,
       "tag": "0005_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1711324800000,
+      "tag": "0006_org_plan_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1711411200000,
+      "tag": "0007_platform_staff",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1711497600000,
+      "tag": "0008_email_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1711584000000,
+      "tag": "0009_password_reset",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1711670400000,
+      "tag": "0010_printers",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1711756800000,
+      "tag": "0011_onboarding_industry",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1711843200000,
+      "tag": "0012_roster_shifts",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1711929600000,
+      "tag": "0013_device_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1712016000000,
+      "tag": "0014_device_role_dashboard",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1712102400000,
+      "tag": "0015_device_role_display",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1712188800000,
+      "tag": "0016_display_content",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1712275200000,
+      "tag": "0017_owner_unlimited_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1712361600000,
+      "tag": "0018_support_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1712448000000,
+      "tag": "0019_org_stripe_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1712534400000,
+      "tag": "0020_per_role_device_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1712620800000,
+      "tag": "0021_per_device_billing_and_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1712707200000,
+      "tag": "0022_account_numbers",
+      "breakpoints": true
     }
   ]
 }
