@@ -23,6 +23,10 @@ interface PosStore {
   customerName: string | null;
   /** Total seats / covers at the table for split-by-seat. */
   seatCount: number;
+  /** Order-level discount amount in dollars (computed from type + raw value). */
+  orderDiscount: number;
+  /** Whether the order discount is a percentage or flat dollar amount. */
+  orderDiscountType: 'percent' | 'dollar';
 
   addItem: (item: Omit<PosCartItem, 'qty' | 'cartKey'>) => void;
   removeItem: (cartKey: string) => void;
@@ -36,6 +40,12 @@ interface PosStore {
   setSeatCount: (n: number) => void;
   /** Move a single line to a particular seat (or undefined for shared). */
   assignSeat: (cartKey: string, seat: number | undefined) => void;
+  /**
+   * Set the order-level discount.
+   * @param amount - Dollar amount of the discount (already computed from type + input).
+   * @param type - 'percent' | 'dollar' — stored for display/reporting purposes.
+   */
+  setOrderDiscount: (amount: number, type: 'percent' | 'dollar') => void;
 }
 
 export const usePosStore = create<PosStore>((set) => ({
@@ -43,6 +53,8 @@ export const usePosStore = create<PosStore>((set) => ({
   customerId: null,
   customerName: null,
   seatCount: 1,
+  orderDiscount: 0,
+  orderDiscountType: 'percent',
 
   addItem: (item) =>
     set((state) => {
@@ -88,7 +100,10 @@ export const usePosStore = create<PosStore>((set) => ({
       };
     }),
 
-  clearCart: () => set({ cart: [], customerId: null, customerName: null, seatCount: 1 }),
+  clearCart: () => set({ cart: [], customerId: null, customerName: null, seatCount: 1, orderDiscount: 0, orderDiscountType: 'percent' }),
+
+  setOrderDiscount: (amount, type) =>
+    set({ orderDiscount: Math.max(0, amount), orderDiscountType: type }),
 
   setCustomer: (id, name) => set({ customerId: id, customerName: name }),
 

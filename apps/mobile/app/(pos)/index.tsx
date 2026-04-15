@@ -67,7 +67,7 @@ function parsePrice(v: string | number): number {
 /* ------------------------------------------------------------------ */
 
 export default function PosSellScreen() {
-  const { cart, addItem, removeItem, updateItem, clearCart, customerName, customerId, setCustomer } =
+  const { cart, addItem, removeItem, updateItem, clearCart, customerName, customerId, setCustomer, orderDiscount, orderDiscountType: storeDiscountType, setOrderDiscount } =
     usePosStore();
   const { products, categories, loading, error, fetchAll } = useCatalogStore();
   const unavailable = useCatalogStore((s) => s.unavailable);
@@ -113,8 +113,7 @@ export default function PosSellScreen() {
   // Order discount modal
   const [showOrderDiscount, setShowOrderDiscount] = useState(false);
   const [orderDiscountStr, setOrderDiscountStr] = useState('');
-  const [orderDiscountType, setOrderDiscountType] = useState<'%' | '$'>('%');
-  const [orderDiscountAmount, setOrderDiscountAmount] = useState(0);
+  const [orderDiscountUiType, setOrderDiscountUiType] = useState<'%' | '$'>('%');
 
   // Product detail modal (long-press)
   const [detailProduct, setDetailProduct] = useState<CatalogProduct | null>(null);
@@ -233,7 +232,7 @@ export default function PosSellScreen() {
       : 0;
     return s + (i.price - Math.min(itemDisc, i.price)) * i.qty;
   }, 0);
-  const discountedTotal = orderDiscountAmount > 0 ? Math.max(0, subtotal - orderDiscountAmount) : subtotal;
+  const discountedTotal = orderDiscount > 0 ? Math.max(0, subtotal - orderDiscount) : subtotal;
   const total = discountedTotal;
   const gst = total / 11; // GST portion of the tax-inclusive total
   const itemCount = cart.reduce((s, i) => s + i.qty, 0);
@@ -325,6 +324,7 @@ export default function PosSellScreen() {
           orderType: 'retail',
           lines: orderItems,
           ...(customerId ? { customerId } : {}),
+          ...(orderDiscount > 0 ? { discountAmount: +orderDiscount.toFixed(2) } : {}),
         }),
         signal: AbortSignal.timeout(15000),
       });
@@ -748,8 +748,8 @@ export default function PosSellScreen() {
   function applyOrderDiscount() {
     const val = parseFloat(orderDiscountStr) || 0;
     if (val <= 0) return;
-    const amt = orderDiscountType === '%' ? (subtotal * val / 100) : val;
-    setOrderDiscountAmount(Math.min(amt, subtotal));
+    const amt = orderDiscountUiType === '%' ? (subtotal * val / 100) : val;
+    setOrderDiscount(Math.min(amt, subtotal), orderDiscountUiType === '%' ? 'percent' : 'dollar');
     setShowOrderDiscount(false);
     setOrderDiscountStr('');
   }
@@ -843,7 +843,7 @@ export default function PosSellScreen() {
       setLaybyCustomerName('');
       setLaybyCustomerPhone('');
       clearCart();
-      setOrderDiscountAmount(0);
+      setOrderDiscount(0, 'percent');
       setLoyaltyAccount(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1176,10 +1176,10 @@ export default function PosSellScreen() {
 
           {cart.length > 0 && (
             <View style={styles.totalsWrap}>
-              {orderDiscountAmount > 0 && (
+              {orderDiscount > 0 && (
                 <View style={styles.totalLine}>
                   <Text style={[styles.totalLabel, { color: '#ef4444' }]}>Discount</Text>
-                  <Text style={[styles.totalValue, { color: '#ef4444' }]}>-${orderDiscountAmount.toFixed(2)}</Text>
+                  <Text style={[styles.totalValue, { color: '#ef4444' }]}>-${orderDiscount.toFixed(2)}</Text>
                 </View>
               )}
               <View style={styles.totalLine}>
@@ -1218,7 +1218,7 @@ export default function PosSellScreen() {
                 >
                   <Text style={[styles.clearText, { color: '#22c55e' }]}>Layby</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.clearBtn, { flex: 1 }]} onPress={() => { clearCart(); setOrderDiscountAmount(0); setLoyaltyAccount(null); }}>
+                <TouchableOpacity style={[styles.clearBtn, { flex: 1 }]} onPress={() => { clearCart(); setLoyaltyAccount(null); }}>
                   <Text style={styles.clearText}>Clear</Text>
                 </TouchableOpacity>
               </View>
@@ -1441,16 +1441,16 @@ export default function PosSellScreen() {
             <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 16 }}>Order Discount</Text>
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
               <TouchableOpacity
-                style={{ flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: orderDiscountType === '%' ? '#6366f1' : '#141425', borderWidth: 1, borderColor: '#2a2a3a', alignItems: 'center' }}
-                onPress={() => setOrderDiscountType('%')}
+                style={{ flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: orderDiscountUiType === '%' ? '#6366f1' : '#141425', borderWidth: 1, borderColor: '#2a2a3a', alignItems: 'center' }}
+                onPress={() => setOrderDiscountUiType('%')}
               >
-                <Text style={{ color: orderDiscountType === '%' ? '#fff' : '#888', fontWeight: '700' }}>Percentage %</Text>
+                <Text style={{ color: orderDiscountUiType === '%' ? '#fff' : '#888', fontWeight: '700' }}>Percentage %</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={{ flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: orderDiscountType === '$' ? '#6366f1' : '#141425', borderWidth: 1, borderColor: '#2a2a3a', alignItems: 'center' }}
-                onPress={() => setOrderDiscountType('$')}
+                style={{ flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: orderDiscountUiType === '$' ? '#6366f1' : '#141425', borderWidth: 1, borderColor: '#2a2a3a', alignItems: 'center' }}
+                onPress={() => setOrderDiscountUiType('$')}
               >
-                <Text style={{ color: orderDiscountType === '$' ? '#fff' : '#888', fontWeight: '700' }}>Dollar $</Text>
+                <Text style={{ color: orderDiscountUiType === '$' ? '#fff' : '#888', fontWeight: '700' }}>Dollar $</Text>
               </TouchableOpacity>
             </View>
             <TextInput
@@ -1458,7 +1458,7 @@ export default function PosSellScreen() {
               value={orderDiscountStr}
               onChangeText={setOrderDiscountStr}
               keyboardType="decimal-pad"
-              placeholder={orderDiscountType === '%' ? '10' : '5.00'}
+              placeholder={orderDiscountUiType === '%' ? '10' : '5.00'}
               placeholderTextColor="#444"
             />
             <TouchableOpacity
@@ -1730,7 +1730,7 @@ export default function PosSellScreen() {
                       return;
                     }
                     const discount = +(pts / loyaltyAccount.earnRate).toFixed(2);
-                    setOrderDiscountAmount((prev) => Math.min(prev + discount, subtotal));
+                    setOrderDiscount(Math.min(orderDiscount + discount, subtotal), 'dollar');
                     setLoyaltyAccount({ ...loyaltyAccount, points: loyaltyAccount.points - pts });
                     setShowLoyaltyRedeem(false);
                     toast.success('Points Redeemed', `${pts} pts = $${discount.toFixed(2)} discount applied`);
