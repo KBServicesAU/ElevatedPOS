@@ -67,8 +67,13 @@ spec:
   selector:
     app: pay
   ports:
-    - port: 80
+    # Match the Helm-managed live resource so kubectl apply doesn't try to
+    # strategic-merge in an extra unnamed port (which fails validation with
+    # "spec.ports[*].name: Required value"). Named for defensive reasons.
+    - name: http
+      port: 3005
       targetPort: 3005
+      protocol: TCP
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
