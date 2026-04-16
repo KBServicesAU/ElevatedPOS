@@ -15,7 +15,10 @@ import { Ionicons } from '@expo/vector-icons';
  *
  * Uses a hidden WebView to run timapi.js (WebSocket/SIXml protocol).
  * The WebView communicates with the physical EFTPOS terminal on the
- * local network (ws://<ip>:80) via the ANZ TIM API JS SDK.
+ * local network (ws://<ip>:7784) via the ANZ TIM API JS SDK.
+ *
+ * Port 7784 is the SIXml default per the ANZWL TIM API Integration
+ * Validation Template (04-JAN-2026).
  *
  * ─── Required files ──────────────────────────────────────────────────────────
  * Place these two files in apps/mobile/assets/timapi/ :
@@ -117,7 +120,7 @@ export function AnzPaymentModal({
     const msg = JSON.stringify({
       type:        'purchase',
       terminalIp:  config.terminalIp.trim(),
-      terminalPort: config.terminalPort ?? 80,
+      terminalPort: config.terminalPort ?? 7784,
       integratorId: config.integratorId ?? '',
       amountCents,
       referenceId:  referenceId ?? `POS-${Date.now()}`,

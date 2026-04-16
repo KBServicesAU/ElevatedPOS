@@ -111,9 +111,11 @@ export function getSelectedTerminalCredential(): TerminalCredential | null {
 export function getSelectedAnzConfig(): { terminalIp: string; terminalPort: number; integratorId: string } | null {
   const cred = getSelectedTerminalCredential();
   if (!cred || cred.provider !== 'anz' || !cred.terminalIp) return null;
+  // 7784 is the SIXml default per the ANZWL TIM API Integration
+  // Validation Template (04-JAN-2026).
   return {
     terminalIp:   cred.terminalIp,
-    terminalPort: cred.terminalPort ?? 80,
+    terminalPort: cred.terminalPort ?? 7784,
     integratorId: cred.integratorId ?? '',
   };
 }

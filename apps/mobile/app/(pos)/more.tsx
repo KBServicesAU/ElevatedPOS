@@ -1195,7 +1195,7 @@ export default function MoreScreen() {
                     {cred.label ?? cred.provider.toUpperCase()}
                   </Text>
                   <Text style={s.manageSub}>
-                    {cred.provider.toUpperCase()} · {cred.terminalIp ?? '—'}:{cred.terminalPort ?? 80}
+                    {cred.provider.toUpperCase()} · {cred.terminalIp ?? '—'}:{cred.terminalPort ?? 7784}
                   </Text>
                 </View>
                 {selectedTerminalId === cred.id && (

@@ -54,7 +54,7 @@ export function AnzPairingModal({
     const msg = JSON.stringify({
       type:         'pair',
       terminalIp:   config.terminalIp.trim(),
-      terminalPort: config.terminalPort ?? 80,
+      terminalPort: config.terminalPort ?? 7784,
       integratorId: config.integratorId ?? '',
     });
     webviewRef.current.postMessage(msg);
@@ -114,7 +114,7 @@ export function AnzPairingModal({
               <Ionicons name="alert-circle" size={48} color={phaseColor} />
             )}
             <Text style={[styles.status, { color: phaseColor }]}>{statusText}</Text>
-            <Text style={styles.terminalIp}>{config.terminalIp}:{config.terminalPort ?? 80}</Text>
+            <Text style={styles.terminalIp}>{config.terminalIp}:{config.terminalPort ?? 7784}</Text>
           </View>
 
           {/* Steps */}

@@ -351,12 +351,72 @@ function TyroPanel() {
 
 // ─── ANZ Worldline ───────────────────────────────────────────────────────────
 
+/**
+ * SIXml default port per the ANZ Worldline TIM API Integration Validation
+ * Template (04-JAN-2026), section 3 — the log extract shows
+ * connectionIPPort: 7784 and protocolType: sixml. Both real Castles
+ * terminals and the EftSimulator listen on this port.
+ */
+const DEFAULT_ANZ_PORT = 7784;
+
+/** Integrator ID fallback when the environment variable is not set. */
+const ANZ_DEFAULT_INTEGRATOR_ID = 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
+
+/**
+ * Lazily loads /timapi/timapi.js into the page. Returns a promise that
+ * resolves once `window.timapi.Terminal` is available. Subsequent callers
+ * reuse the same in-flight promise so the SDK is only loaded once.
+ */
+function loadTimApiScript(): Promise<void> {
+  const w = window as unknown as {
+    timapi?: { Terminal?: unknown };
+    onTimApiReady?: () => void;
+    __timapiLoading?: Promise<void>;
+  };
+  if (w.timapi && typeof w.timapi.Terminal === 'function') {
+    return Promise.resolve();
+  }
+  if (w.__timapiLoading) return w.__timapiLoading;
+
+  w.__timapiLoading = new Promise<void>((resolve, reject) => {
+    const safetyTimer = setTimeout(() => {
+      if (w.timapi && typeof w.timapi.Terminal === 'function') {
+        resolve();
+      } else {
+        delete w.__timapiLoading;
+        reject(new Error('TIM API SDK took too long to initialize (20s)'));
+      }
+    }, 20_000);
+
+    w.onTimApiReady = () => {
+      clearTimeout(safetyTimer);
+      if (w.timapi && typeof w.timapi.Terminal === 'function') {
+        resolve();
+      } else {
+        delete w.__timapiLoading;
+        reject(new Error('timapi.js loaded but window.timapi.Terminal is missing'));
+      }
+    };
+
+    const script = document.createElement('script');
+    script.src = '/timapi/timapi.js';
+    script.async = true;
+    script.onerror = () => {
+      clearTimeout(safetyTimer);
+      delete w.__timapiLoading;
+      reject(new Error('Failed to load /timapi/timapi.js — ensure the file is in public/timapi/'));
+    };
+    document.head.appendChild(script);
+  });
+  return w.__timapiLoading;
+}
+
 function ANZPanel() {
   const { toast } = useToast();
   const [loading, setLoading]           = useState(true);
   const [credentialId, setCredentialId] = useState<string | null>(null);
   const [terminalIp, setTerminalIp]     = useState('');
-  const [terminalPort, setTerminalPort] = useState('80');
+  const [terminalPort, setTerminalPort] = useState(String(DEFAULT_ANZ_PORT));
   const [terminalLabel, setTerminalLabel] = useState('');
   const [autoCommit, setAutoCommit]     = useState(false);
   const [printMerchant, setPrintMerchant] = useState(false);
@@ -385,8 +445,11 @@ function ANZPanel() {
         if (anz?.terminalIp) {
           setCredentialId(anz.id ?? null);
           setTerminalIp(anz.terminalIp);
+          // Migrate known-bad legacy ports (80 / 8080 / 4100) to the real
+          // SIXml default (7784). Any other persisted value is preserved.
           const p = anz.terminalPort;
-          setTerminalPort(String(p && p !== 8080 && p !== 4100 ? p : 80));
+          const migrated = p && p !== 80 && p !== 8080 && p !== 4100 ? p : DEFAULT_ANZ_PORT;
+          setTerminalPort(String(migrated));
           setTerminalLabel(anz.label ?? anz.terminalLabel ?? '');
           const meta = anz.metadata ?? {};
           setAutoCommit((meta.autoCommit as boolean) ?? anz.autoCommit ?? false);
@@ -438,55 +501,153 @@ function ANZPanel() {
     }
   }
 
+  /**
+   * Runs a real TIM API pair lifecycle against the configured terminal.
+   *
+   * Loads the ANZ Worldline JavaScript SDK (/timapi/timapi.js) into the
+   * current page, constructs a Terminal with the same settings used on the
+   * mobile app, and starts a 1-cent dummy purchase purely to trigger the
+   * pre-automatisms (connect → login → activate). As soon as
+   * `activateCompleted` fires successfully we cancel the transaction and
+   * report the terminal as reachable.
+   *
+   * Mixed content caveat: browsers block ws:// connections from an https://
+   * origin unless the target is loopback (127.0.0.1 / localhost / ::1). For
+   * LAN IPs we therefore detect this up front and tell the operator to test
+   * from the POS device instead, which loads timapi.js inside a WebView
+   * with a file:// origin and is not subject to the restriction.
+   */
   async function handleTest() {
-    setTesting(true);
-    try {
-      const ip   = terminalIp.trim();
-      const port = Number(terminalPort) || 80;
+    const ip = terminalIp.trim();
+    const port = Number(terminalPort) || DEFAULT_ANZ_PORT;
 
-      if (!ip) {
-        toast({ title: 'Enter a terminal IP address first', variant: 'destructive' });
-        setTesting(false);
-        return;
+    if (!ip) {
+      toast({ title: 'Enter a terminal IP address first', variant: 'destructive' });
+      return;
+    }
+
+    const isLoopback = ip === '127.0.0.1' || ip === 'localhost' || ip === '::1';
+    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    if (isHttps && !isLoopback) {
+      toast({
+        title: 'Test blocked by the browser',
+        description:
+          `Browsers don't allow https:// pages to open ws:// connections to LAN IPs. ` +
+          `Save these settings, then run Test Connection from the POS device ` +
+          `(Settings → ANZ Worldline → Test Connection), which is not subject to this restriction.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setTesting(true);
+    // Declare outer so the catch/finally can cancel if we're still holding it.
+    // Typed as `any` because the SDK shape is not statically declared.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let terminalRef: any = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await loadTimApiScript();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tim = (window as any).timapi;
+      if (!tim || typeof tim.Terminal !== 'function') {
+        throw new Error('TIM API SDK loaded but window.timapi.Terminal is missing');
       }
 
-      // Client-side WebSocket reachability check.
-      // The ANZ TIM API uses WebSocket. Browsers allow ws://127.0.0.1 from HTTPS
-      // pages (localhost exception). For real LAN terminals the terminal must be
-      // reachable from the user's browser — the server cannot reach LAN devices.
       await new Promise<void>((resolve, reject) => {
-        const isLocalhost = ip === '127.0.0.1' || ip === 'localhost' || ip === '::1';
-        // Use wss:// from HTTPS pages unless targeting localhost (which allows ws://)
-        const scheme = (window.location.protocol === 'https:' && !isLocalhost) ? 'wss' : 'ws';
-        let ws: WebSocket;
         try {
-          ws = new WebSocket(`${scheme}://${ip}:${port}`);
-        } catch {
-          reject(new Error(`Invalid address: ${ip}:${port}`));
-          return;
+          // ── 1. TerminalSettings per ANZWL validation ─────────────────
+          const settings = new tim.TerminalSettings();
+          settings.connectionIPString = ip;
+          settings.connectionIPPort   = port;
+          settings.integratorId       = ANZ_DEFAULT_INTEGRATOR_ID;
+          settings.autoCommit         = true;
+          settings.fetchBrands        = true;
+          settings.dcc                = false;
+          settings.partialApproval    = false;
+          settings.tipAllowed         = false;
+          settings.enableKeepAlive    = true;
+
+          // ── 2. Terminal ──────────────────────────────────────────────
+          terminalRef = new tim.Terminal(settings);
+          const t = terminalRef;
+          t.setPosId('1');
+          t.setUserId(1);
+
+          // ── 3. EcrInfo ───────────────────────────────────────────────
+          const ecrInfo = new tim.EcrInfo();
+          ecrInfo.type               = tim.constants.EcrInfoType.ecrApplication;
+          ecrInfo.name               = 'ElevatedPOS Dashboard';
+          ecrInfo.manufacturerName   = 'ElevatedPOS Pty Ltd';
+          ecrInfo.version            = '1.0';
+          ecrInfo.integratorSolution = 'ElevatedPOS-ANZ-v26-01';
+          t.addEcrData(ecrInfo);
+
+          // ── 4. Disable terminal printing — POS handles receipts ──────
+          const merchantOpt = new tim.PrintOption();
+          merchantOpt.recipient = tim.constants.Recipient.merchant;
+          merchantOpt.isEnabled = false;
+          const cardholderOpt = new tim.PrintOption();
+          cardholderOpt.recipient = tim.constants.Recipient.cardholder;
+          cardholderOpt.isEnabled = false;
+          t.setPrintOptions([merchantOpt, cardholderOpt]);
+
+          // ── 5. Pair lifecycle ────────────────────────────────────────
+          let paired = false;
+          timeoutId = setTimeout(() => {
+            if (paired) return;
+            try { t.cancel(); } catch { /* ignore */ }
+            reject(new Error(`Connection timed out — no response from ${ip}:${port} after 30s`));
+          }, 30_000);
+
+          t.addListener({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            activateCompleted: (event: any) => {
+              if (event?.exception === undefined && !paired) {
+                paired = true;
+                if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+                try { t.cancel(); } catch { /* ignore */ }
+                resolve();
+              }
+            },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            transactionCompleted: (event: any) => {
+              if (paired) return; // activate already resolved us
+              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+              const exc = event?.exception;
+              const code = exc?.resultCode;
+              const codeStr = typeof code === 'string' ? code : (code?.name ?? '');
+              const msg = exc?.message
+                ?? (codeStr ? `Terminal unreachable (${codeStr})` : 'Terminal unreachable');
+              reject(new Error(msg));
+            },
+          });
+
+          // ── 6. Trigger pre-automatisms with a 1-cent dummy purchase ──
+          t.transactionAsync(
+            tim.constants.TransactionType.purchase,
+            new tim.Amount(1, tim.constants.Currency.AUD),
+          );
+        } catch (innerErr) {
+          reject(innerErr instanceof Error ? innerErr : new Error(String(innerErr)));
         }
-        const timer = setTimeout(() => {
-          ws.close();
-          reject(new Error(`Connection timed out — no response from ${ip}:${port} after 10s`));
-        }, 10_000);
-        ws.onopen = () => {
-          clearTimeout(timer);
-          ws.close();
-          resolve();
-        };
-        ws.onerror = () => {
-          clearTimeout(timer);
-          reject(new Error(
-            isLocalhost
-              ? `Could not connect to ${ip}:${port} — is the TIM API simulator running?`
-              : `Could not connect to ${ip}:${port} — ensure the terminal is on and this device is on the same network`
-          ));
-        };
       });
 
-      toast({ title: 'Terminal reachable ✓', description: `Successfully connected to ${terminalIp}:${terminalPort}`, variant: 'success' });
+      toast({
+        title: 'Terminal reachable ✓',
+        description: `Pair flow completed (connect → login → activate) against ${ip}:${port}`,
+        variant: 'success',
+      });
     } catch (err) {
-      toast({ title: 'Connection failed', description: err instanceof Error ? err.message : 'Check IP and port', variant: 'destructive' });
+      if (timeoutId) clearTimeout(timeoutId);
+      if (terminalRef && typeof terminalRef.cancel === 'function') {
+        try { terminalRef.cancel(); } catch { /* ignore */ }
+      }
+      toast({
+        title: 'Connection failed',
+        description: err instanceof Error ? err.message : 'Check IP and port',
+        variant: 'destructive',
+      });
     } finally {
       setTesting(false);
     }
@@ -497,7 +658,10 @@ function ANZPanel() {
     setConfirmDisconnect(false);
     try {
       await apiFetch('terminal/credentials', { method: 'DELETE' });
-      setTerminalIp(''); setTerminalPort('80'); setTerminalLabel(''); setConnected(false);
+      setTerminalIp('');
+      setTerminalPort(String(DEFAULT_ANZ_PORT));
+      setTerminalLabel('');
+      setConnected(false);
       toast({ title: 'ANZ Worldline disconnected' });
     } catch {
       toast({ title: 'Failed to disconnect', variant: 'destructive' });
@@ -526,7 +690,9 @@ function ANZPanel() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-semibold text-white">ANZ Worldline</h3>
-          <p className="text-xs text-gray-400">TIM API WebSocket — port 80. Set terminal to ECR / Integrated mode.</p>
+          <p className="text-xs text-gray-400">
+            TIM API (SIXml over WebSocket) — default port {DEFAULT_ANZ_PORT}. Set the terminal to ECR / Integrated mode.
+          </p>
         </div>
         {connected && (
           <span className="rounded-full bg-green-900/30 px-2.5 py-1 text-xs font-medium text-green-400">
@@ -541,8 +707,14 @@ function ANZPanel() {
           <input value={terminalIp} onChange={(e) => setTerminalIp(e.target.value)} placeholder="192.168.1.100" className={darkInputCls} />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-gray-400">Port</label>
-          <input value={terminalPort} onChange={(e) => setTerminalPort(e.target.value)} placeholder="80" type="number" className={darkInputCls} />
+          <label className="mb-1 block text-xs text-gray-400">SIXml Port</label>
+          <input
+            value={terminalPort}
+            onChange={(e) => setTerminalPort(e.target.value)}
+            placeholder={String(DEFAULT_ANZ_PORT)}
+            type="number"
+            className={darkInputCls}
+          />
         </div>
       </div>
 
@@ -583,16 +755,14 @@ function ANZPanel() {
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           Save
         </button>
-        {connected && (
-          <button
-            onClick={handleTest}
-            disabled={testing}
-            className="flex items-center gap-1.5 rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-gray-300 hover:border-white/30 hover:text-white disabled:opacity-50"
-          >
-            {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-            Test Connection
-          </button>
-        )}
+        <button
+          onClick={handleTest}
+          disabled={testing || !terminalIp.trim()}
+          className="flex items-center gap-1.5 rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-gray-300 hover:border-white/30 hover:text-white disabled:opacity-50"
+        >
+          {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+          Test Connection
+        </button>
         {connected && (
           <button
             onClick={() => setConfirmDisconnect(true)}

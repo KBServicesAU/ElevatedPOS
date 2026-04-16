@@ -111,9 +111,15 @@
       try {
         // ── 1. TerminalSettings ────────────────────────────────────────────
         // All settings must be configured before Terminal construction.
+        // Per ANZWL TIM API Integration Validation (04-JAN-2026), section 3:
+        //   - protocolType: sixml
+        //   - connectionIPPort: 7784 (SIXml standard)
+        //   - guides: RETAIL
+        //   - autoCommit / fetchBrands / enableKeepAlive: YES
+        //   - partialApproval / dcc / tipAllowed: NO
         var settings = new timapi.TerminalSettings();
         settings.connectionIPString = msg.terminalIp;
-        settings.connectionIPPort   = msg.terminalPort || 80;
+        settings.connectionIPPort   = msg.terminalPort || 7784;
         settings.integratorId       = msg.integratorId || 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
         // ANZ Worldline validation requirements:
         settings.autoCommit         = true;   // auto-commit after approval
@@ -256,9 +262,10 @@
 
       try {
         // ── 1. TerminalSettings ──────────────────────────────────────────────
+        // Per ANZWL TIM API Validation: protocolType=sixml, default port 7784.
         var settings = new timapi.TerminalSettings();
         settings.connectionIPString = msg.terminalIp;
-        settings.connectionIPPort   = msg.terminalPort || 80;
+        settings.connectionIPPort   = msg.terminalPort || 7784;
         settings.integratorId       = msg.integratorId || 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
         settings.autoCommit         = true;
         settings.fetchBrands        = true;

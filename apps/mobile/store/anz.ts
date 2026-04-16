@@ -4,12 +4,20 @@ import { create } from 'zustand';
 /**
  * Persistent ANZ Worldline TIM configuration.
  *
- * The TIM (Terminal Integration Module) is a local HTTP server on the
- * EFTPOS terminal. The POS calls it directly over the local network —
- * no cloud credentials required, just the terminal's IP address.
+ * The TIM API uses the SIXml (XML-based) protocol over WebSocket. The
+ * JavaScript SDK (timapi.js) connects to ws://<ip>:<port>/SIXml. The
+ * standard SIXml port per ANZ Worldline validation is 7784 for both
+ * real Castles terminals and the EftSimulator.
+ *
+ * Reference: ANZWL - TIM API - Integration (RETAIL) Validation Template
+ *            (04-JAN-2026), section 3 — log extract shows
+ *            connectionIPPort: 7784 and protocolType: sixml.
  */
 
 const STORAGE_KEY = 'elevatedpos_anz_config';
+
+/** SIXml default port per ANZ Worldline validation. */
+export const DEFAULT_ANZ_PORT = 7784;
 
 export interface AnzConfig {
   merchantId: string;
@@ -20,7 +28,7 @@ export interface AnzConfig {
   enableTipping: boolean;
   /** IPv4 address of the EFTPOS terminal on the local network */
   terminalIp: string;
-  /** HTTP port the TIM listens on — default 8080 */
+  /** SIXml WebSocket port (default 7784) */
   terminalPort: number;
 }
 
@@ -40,8 +48,19 @@ const DEFAULTS: AnzConfig = {
   enableSurcharge: false,
   enableTipping: false,
   terminalIp: '',
-  terminalPort: 8080,
+  terminalPort: DEFAULT_ANZ_PORT,
 };
+
+/**
+ * Legacy ports that were never correct for the TIM API. Any persisted
+ * config using these ports is migrated to the real SIXml default (7784)
+ * on hydrate so upgraded installs start working immediately.
+ *
+ * - 8080 = old "HTTP fetch" placeholder (never worked — TIM API is not HTTP)
+ * - 80   = previous incorrect default used while diagnosing mixed content
+ * - 4100 = legacy Linkly/PC-EFTPOS default (unrelated to ANZ Worldline)
+ */
+const LEGACY_BAD_PORTS: ReadonlySet<number> = new Set([80, 8080, 4100]);
 
 export const useAnzStore = create<AnzStore>((set, get) => ({
   config: { ...DEFAULTS },
@@ -52,7 +71,15 @@ export const useAnzStore = create<AnzStore>((set, get) => ({
       const raw = await SecureStore.getItemAsync(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<AnzConfig>;
-        set({ config: { ...DEFAULTS, ...parsed }, ready: true });
+        const next: AnzConfig = { ...DEFAULTS, ...parsed };
+        // Migrate known-bad legacy ports to the real SIXml default.
+        if (!next.terminalPort || LEGACY_BAD_PORTS.has(next.terminalPort)) {
+          next.terminalPort = DEFAULT_ANZ_PORT;
+          try {
+            await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(next));
+          } catch { /* non-fatal — in-memory still correct */ }
+        }
+        set({ config: next, ready: true });
       } else {
         set({ ready: true });
       }

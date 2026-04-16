@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Switch,
@@ -12,7 +11,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
-import { useAnzStore, type AnzConfig } from '../../store/anz';
+import { DEFAULT_ANZ_PORT, useAnzStore, type AnzConfig } from '../../store/anz';
+import { AnzPairingModal } from '../../components/AnzPairingModal';
 import { confirm, toast } from '../../components/ui';
 
 /* ------------------------------------------------------------------ */
@@ -23,7 +23,7 @@ export default function ANZSettingsScreen() {
   const { config, ready, hydrate, setConfig, clearConfig } = useAnzStore();
   const [local, setLocal] = useState<AnzConfig>(config);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [showPairing, setShowPairing] = useState(false);
 
   useEffect(() => {
     hydrate();
@@ -54,37 +54,31 @@ export default function ANZSettingsScreen() {
     }
   }
 
+  /**
+   * Runs a real TIM API pair flow against the configured terminal.
+   *
+   * The TIM API is NOT a plain HTTP service. It uses the SIXml (XML)
+   * protocol over WebSocket, driven by the timapi.js SDK loaded inside
+   * a hidden WebView (AnzPairingModal). The pairing modal triggers a
+   * 1-cent dummy purchase to exercise the connect → login → activate
+   * pre-automatisms and cancels the transaction on `activateCompleted`.
+   *
+   * Before opening the modal we persist the current form values so the
+   * modal reads the freshest IP/port without needing a separate Save.
+   */
   async function handleTestConnection() {
-    if (!local.terminalIp.trim()) {
+    const ip = local.terminalIp.trim();
+    if (!ip) {
       toast.warning('Required', 'Enter the terminal IP address first.');
       return;
     }
-    setTesting(true);
+    const port = local.terminalPort || DEFAULT_ANZ_PORT;
     try {
-      const port = local.terminalPort || 8080;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(`http://${local.terminalIp.trim()}:${port}/v1/status`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (res.ok) {
-        const data = await res.json().catch(() => ({})) as { status?: string; terminalId?: string };
-        const detail = data.status ? `Status: ${data.status}` : 'Terminal responded.';
-        toast.success('Connected', detail);
-      } else {
-        toast.warning('Unreachable', `Terminal returned HTTP ${res.status}.`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('abort') || msg.includes('timeout')) {
-        toast.error('Timeout', 'No response from terminal. Check the IP and that the device is on the same network.');
-      } else {
-        toast.error('Connection Failed', msg);
-      }
-    } finally {
-      setTesting(false);
-    }
+      // Persist so the pairing modal (and any other caller) sees the
+      // current form state. Errors are non-fatal — still open the modal.
+      await setConfig({ ...local, terminalPort: port });
+    } catch { /* ignore */ }
+    setShowPairing(true);
   }
 
   async function handleClear() {
@@ -97,7 +91,16 @@ export default function ANZSettingsScreen() {
     });
     if (!ok) return;
     await clearConfig();
-    setLocal({ merchantId: '', terminalId: '', merchantName: '', environment: 'production', enableSurcharge: false, enableTipping: false, terminalIp: '', terminalPort: 8080 });
+    setLocal({
+      merchantId: '',
+      terminalId: '',
+      merchantName: '',
+      environment: 'production',
+      enableSurcharge: false,
+      enableTipping: false,
+      terminalIp: '',
+      terminalPort: DEFAULT_ANZ_PORT,
+    });
     toast.success('Cleared', 'ANZ Worldline settings removed.');
   }
 
@@ -142,7 +145,9 @@ export default function ANZSettingsScreen() {
               <View style={styles.divider} />
               <View style={styles.row}>
                 <Text style={styles.label}>Terminal IP</Text>
-                <Text style={styles.value}>{config.terminalIp}:{config.terminalPort || 8080}</Text>
+                <Text style={styles.value}>
+                  {config.terminalIp}:{config.terminalPort || DEFAULT_ANZ_PORT}
+                </Text>
               </View>
             </>
           )}
@@ -163,35 +168,29 @@ export default function ANZSettingsScreen() {
             keyboardType="decimal-pad"
           />
 
-          <Text style={[styles.inputLabel, { marginTop: 14 }]}>Terminal Port</Text>
+          <Text style={[styles.inputLabel, { marginTop: 14 }]}>SIXml Port</Text>
           <TextInput
             style={styles.input}
-            value={String(local.terminalPort || 8080)}
-            onChangeText={(v) => update({ terminalPort: parseInt(v) || 8080 })}
-            placeholder="8080"
+            value={String(local.terminalPort || DEFAULT_ANZ_PORT)}
+            onChangeText={(v) => update({ terminalPort: parseInt(v) || DEFAULT_ANZ_PORT })}
+            placeholder={String(DEFAULT_ANZ_PORT)}
             placeholderTextColor="#555"
             keyboardType="number-pad"
           />
 
           <Text style={styles.hint}>
-            The ANZ terminal's local IP address and HTTP port. The device must be on the same
-            Wi-Fi network as the terminal.
+            The ANZ terminal's local IP address and SIXml WebSocket port (default{' '}
+            {DEFAULT_ANZ_PORT}). The device must be on the same Wi-Fi network as the
+            terminal.
           </Text>
 
           <TouchableOpacity
-            style={[styles.testBtn, testing && { opacity: 0.6 }]}
+            style={styles.testBtn}
             onPress={handleTestConnection}
-            disabled={testing}
             activeOpacity={0.8}
           >
-            {testing ? (
-              <ActivityIndicator size="small" color="#6366f1" />
-            ) : (
-              <Ionicons name="wifi-outline" size={15} color="#6366f1" />
-            )}
-            <Text style={styles.testBtnText}>
-              {testing ? 'Testing…' : 'Test Connection'}
-            </Text>
+            <Ionicons name="wifi-outline" size={15} color="#6366f1" />
+            <Text style={styles.testBtnText}>Test Connection</Text>
           </TouchableOpacity>
         </View>
 
@@ -336,6 +335,30 @@ export default function ANZSettingsScreen() {
           <Text style={styles.dangerBtnText}>Clear ANZ Settings</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/*
+        Pair flow modal: runs a real Connect → Login → Activate lifecycle
+        through the timapi.js SDK (loaded in a hidden WebView) against the
+        terminal at the configured IP. We run it from the current form values
+        (not just the saved config) so the user can verify before committing.
+      */}
+      <AnzPairingModal
+        visible={showPairing}
+        config={{
+          terminalIp:   local.terminalIp.trim(),
+          terminalPort: local.terminalPort || DEFAULT_ANZ_PORT,
+          integratorId: undefined, // falls back to SDK integratorId in the bridge
+        }}
+        onPaired={() => {
+          setShowPairing(false);
+          toast.success('Connected', 'Terminal paired successfully.');
+        }}
+        onError={(msg) => {
+          setShowPairing(false);
+          toast.error('Connection Failed', msg);
+        }}
+        onDismiss={() => setShowPairing(false)}
+      />
     </SafeAreaView>
   );
 }
