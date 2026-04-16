@@ -258,7 +258,8 @@ export function createSimulatorProvider(opts: SimulatorOptions = {}): PaymentPro
     pairTerminal: noop,
     endOfDay: async () => ({ simulated: true, currency: 'AUD' }),
     async healthCheck() {
-      return { reachable: true, terminalIp: '127.0.0.1', terminalPort: 80, checkedAt: new Date() };
+      // 7784 is the ANZ SIXml WebSocket port (validation doc v26-01).
+      return { reachable: true, terminalIp: '127.0.0.1', terminalPort: 7784, checkedAt: new Date() };
     },
     async getApplicationInformation() {
       return { terminalModel: 'Worldline Edge (Simulated)', softwareVersion: '1.0.0-sim', supportedBrands: ['VISA','MC','AMEX','EFTPOS'] };

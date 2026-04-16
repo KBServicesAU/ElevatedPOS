@@ -48,7 +48,8 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
           if (data.provider === 'anz' && data.terminalIp) {
             setAnzFullConfig({
               terminalIp:           data.terminalIp,
-              terminalPort:         data.terminalPort ?? 80,
+              // 7784 is the real ANZ SIXml WebSocket port (validation doc v26-01)
+              terminalPort:         data.terminalPort ?? 7784,
               integratorId:         data.integratorId ?? '',
               autoCommit:           true,
               fetchBrands:          true,

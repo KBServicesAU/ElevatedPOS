@@ -89,7 +89,8 @@ export async function GET(request: Request) {
           configured: true,
           provider: 'anz',
           terminalIp:   local.terminalIp,
-          terminalPort: local.terminalPort ?? 80,
+          // 7784 is the real ANZ SIXml WebSocket port (validation doc v26-01)
+          terminalPort: local.terminalPort ?? 7784,
           integratorId: ANZ_INTEGRATOR_ID,
           credentialId: 'local',
         });
@@ -122,7 +123,8 @@ export async function GET(request: Request) {
         configured: true,
         provider: 'anz',
         terminalIp:   credential.terminalIp,
-        terminalPort: credential.terminalPort ?? 80,
+        // 7784 is the real ANZ SIXml WebSocket port (validation doc v26-01)
+        terminalPort: credential.terminalPort ?? 7784,
         integratorId: ANZ_INTEGRATOR_ID,
         credentialId: credential.id,
       });

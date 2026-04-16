@@ -153,7 +153,9 @@ export class TerminalSessionManager {
 
   async healthCheck(): Promise<TerminalHealth> {
     if (!this._config) {
-      return { reachable: false, terminalIp: '', terminalPort: 80, checkedAt: new Date(), error: 'Not configured' };
+      // 7784 is the ANZ SIXml WebSocket port (validation doc v26-01).
+      // Only used as a placeholder when no config is present.
+      return { reachable: false, terminalIp: '', terminalPort: 7784, checkedAt: new Date(), error: 'Not configured' };
     }
 
     const start = Date.now();

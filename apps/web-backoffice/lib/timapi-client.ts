@@ -238,7 +238,10 @@ export class AnzTerminalSession {
 
         const settings = new timapi.TerminalSettings();
         settings.connectionIPString = config.terminalIp.trim();
-        settings.connectionIPPort   = config.terminalPort ?? 80;
+        // Default to 7784 — the real SIXml WebSocket port per ANZ TIM API
+        // Validation Template v26-01. Legacy configs may still carry 80 /
+        // 8080 / 4100 from older defaults; client callers should migrate.
+        settings.connectionIPPort   = config.terminalPort ?? 7784;
         settings.integratorId       = config.integratorId;
         settings.autoCommit         = true;   // ANZ validation requirement
         settings.fetchBrands        = true;

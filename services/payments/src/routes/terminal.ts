@@ -54,7 +54,8 @@ async function getTIMClient(orgId: string): Promise<AnzWorldlineTIMClient | null
 
   return new AnzWorldlineTIMClient({
     terminalIp:   creds.terminalIp,
-    terminalPort: creds.terminalPort ?? 8080,
+    // 7784 is the real ANZ SIXml WebSocket port (validation doc v26-01)
+    terminalPort: creds.terminalPort ?? 7784,
   });
 }
 
