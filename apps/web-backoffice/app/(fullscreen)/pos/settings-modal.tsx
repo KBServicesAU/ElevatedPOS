@@ -193,6 +193,12 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
   };
 
   // ANZ: Pair Terminal — Connect → Login → Activate (Section 3.1)
+  //
+  // Uses the shared runTimPairLifecycle from lib/payments/anz-pair-lifecycle
+  // which is the SAME implementation the dashboard Payments page uses (proven
+  // to connect+login+activate against the real ANZ simulator). Previously POS
+  // went through tim-adapter.ts which had a separate, buggy code path — that
+  // divergence is why POS pairing silently failed while dashboard worked.
   const handleAnzPair = async () => {
     if (!anzFullConfig) {
       if (anzTerminals.length === 0) {
@@ -205,21 +211,28 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
       return;
     }
     setAnzOpLoading(true);
-    const target = `ws://${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort}/SIXml`;
-    setAnzOpStatus(`Pairing… opening ${target} (check DevTools console for [ANZ-PAY] logs)`);
+    setAnzOpStatus(`Pairing… opening ws://${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort}/SIXml`);
     try {
-      const provider = createAnzPaymentProvider({ config: anzFullConfig });
-      await provider.initialize(anzFullConfig);
-      await provider.pairTerminal();
-      setAnzOpStatus(`✅ Terminal paired — Connect → Login → Activate complete (${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort})`);
+      const { runTimPairLifecycle } = await import('@/lib/payments/anz-pair-lifecycle');
+      const { viaBridge } = await runTimPairLifecycle(
+        anzFullConfig.terminalIp,
+        anzFullConfig.terminalPort,
+        {
+          ecrName: 'ElevatedPOS POS',
+          integratorId: anzFullConfig.integratorId,
+        },
+      );
+      const route = viaBridge ? ' via Hardware Bridge' : '';
+      setAnzOpStatus(`✅ Terminal paired — Connect → Login → Activate complete${route} (${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort})`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Common WebSocket/SIXml failure modes — surface actionable hints.
-      const hint = /timed out|timeout/i.test(msg)
-        ? ` — Is the simulator running on ${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort} and accepting WebSocket at /SIXml?`
-        : /refused|failed to fetch|network/i.test(msg)
-          ? ` — Cannot reach ${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort}. Check the simulator/terminal port is open.`
-          : '';
+      const hint = /hardware bridge required/i.test(msg)
+        ? ''  // message already actionable
+        : /timed out|timeout/i.test(msg)
+          ? ` — Is the simulator running on ${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort}?`
+          : /refused|failed to fetch|network|unreachable/i.test(msg)
+            ? ` — Cannot reach ${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort}. Check the simulator/terminal port is open.`
+            : '';
       setAnzOpStatus(`❌ Pair failed: ${msg}${hint}`);
     } finally {
       setAnzOpLoading(false);

@@ -577,15 +577,16 @@ export class TimApiAdapter {
     const effectiveWsUrl = `ws://${settings.connectionIPString}:${settings.connectionIPPort}/SIXml`;
     this._logger.info('adapter_ws_target', { url: effectiveWsUrl });
 
-    // Fail fast on misconfiguration — empty integratorId causes the SDK to
-    // throw `invalidArgument` with no actionable message, which has surfaced
-    // for operators as a silently-failing Pair button.
+    // Substitute the known ElevatedPOS vendor integrator ID if the config did
+    // not carry one (e.g. picker-driven flow where the device is not yet
+    // assigned a saved credential). Throwing here previously caused the POS
+    // Pair button to fail silently when the config fallback hadn't propagated.
+    const ANZ_DEFAULT_INTEGRATOR_ID = 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
+    const resolvedIntegratorId = config.integratorId?.trim() || ANZ_DEFAULT_INTEGRATOR_ID;
     if (!config.integratorId?.trim()) {
-      throw new Error(
-        'ANZ integrator ID missing. This is the ElevatedPOS vendor ID issued by ANZ Worldline. ' +
-        'Reload POS Settings or contact support — the /api/tyro/config endpoint should provide it.',
-      );
+      this._logger.warn('integrator_id_fallback', { using: ANZ_DEFAULT_INTEGRATOR_ID });
     }
+    settings.integratorId       = resolvedIntegratorId;
     settings.autoCommit         = config.autoCommit;
 
     // fetchBrands: automatically retrieve brands during login
@@ -609,11 +610,7 @@ export class TimApiAdapter {
     // if guides is undefined/empty.
     settings.guides = new Set([timapi.constants.Guides.retail]);
 
-    // integratorId: only set if non-empty — an empty string causes invalidArgument.
-    // The value is the ANZ Worldline-issued vendor ID for ElevatedPOS.
-    if (config.integratorId) {
-      settings.integratorId = config.integratorId;
-    }
+    // integratorId is set earlier (line ~589) with the vendor-ID fallback.
 
     // ── 2. Terminal ──────────────────────────────────────────────────────────
     const terminal = new timapi.Terminal(settings);
@@ -755,6 +752,15 @@ export class TimApiAdapter {
       },
 
       // ── Connect completed ──────────────────────────────────────────────────
+      // NOTE: we deliberately do NOT reject pending login/activate/transaction
+      // here, even on exception. The TIM SDK fires `connectCompleted` for
+      // transient events (keepalive-triggered reconnects, mid-session
+      // disconnect/reconnect cycles) that it recovers from automatically. If
+      // an in-flight operation truly cannot complete, the SDK will fire the
+      // corresponding *Completed callback with an exception — that's where we
+      // reject. (Previously we rejected aggressively here and it regressed
+      // previously-working flows.) The 30 s timeout in login()/activate()
+      // remains the fall-back for genuinely unreachable terminals.
       connectCompleted: (event: TimConnectionEvent) => {
         const ok = event.exception === undefined;
         this._logger.info('connect_completed', {
@@ -764,29 +770,6 @@ export class TimApiAdapter {
         });
         if (ok) {
           this._pendingTransaction?.onStatus?.('Terminal connected');
-          return;
-        }
-        // WebSocket / TCP connect failure — fail pending login/activate
-        // immediately so the operator sees the error in seconds instead of
-        // waiting 30 s for the login() timeout. Common causes: wrong IP/port,
-        // simulator not running, firewall blocking the port.
-        const errMsg = event.exception!.message
-          ?? `connect failed (${this._resultCodeString(event.exception!.resultCode)})`;
-        const err = new Error(errMsg);
-        const pendingLogin = this._pendingLogin;
-        if (pendingLogin) {
-          this._pendingLogin = null;
-          pendingLogin.reject(err);
-        }
-        const pendingActivate = this._pendingActivate;
-        if (pendingActivate) {
-          this._pendingActivate = null;
-          pendingActivate.reject(err);
-        }
-        const pendingTx = this._pendingTransaction;
-        if (pendingTx) {
-          this._pendingTransaction = null;
-          pendingTx.reject(err);
         }
       },
 
