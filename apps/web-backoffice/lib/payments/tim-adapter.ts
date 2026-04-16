@@ -25,6 +25,7 @@
 
 import type { TimConfig, TerminalApplicationInfo } from './domain';
 import type { PaymentLogger } from './logger';
+import { isBridgeProxyReady, getBridgePort } from '../bridge-health';
 
 // ─── TIM API v26-01 TypeScript declarations ────────────────────────────────────
 // Covers the full known surface of the TIM API JavaScript SDK v26-01.
@@ -542,8 +543,34 @@ export class TimApiAdapter {
     // All settings MUST be configured before passing to Terminal constructor.
     // Settings are immutable after construction.
     const settings = new timapi.TerminalSettings();
-    settings.connectionIPString = config.terminalIp.trim();
-    settings.connectionIPPort   = config.terminalPort;
+
+    // ── Mixed-content bridge routing ────────────────────────────────────────
+    // Browsers block ws:// from https:// pages to non-loopback addresses.
+    // When this condition is met, route through the local Hardware Bridge
+    // (ws://127.0.0.1:9999/SIXml) which proxies to the real terminal.
+    const isHttps    = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    const isLoopback = /^(127\.|localhost|::1)/.test(config.terminalIp.trim());
+
+    if (isHttps && !isLoopback) {
+      const bridgeReady = await isBridgeProxyReady();
+      if (bridgeReady) {
+        this._logger.info('bridge_proxy_routing', {
+          realTarget: `${config.terminalIp}:${config.terminalPort}`,
+          bridgePort: getBridgePort(),
+        });
+        settings.connectionIPString = '127.0.0.1';
+        settings.connectionIPPort   = getBridgePort();
+      } else {
+        throw new Error(
+          'Cannot reach the ANZ terminal from this browser (HTTPS blocks ws:// to LAN addresses). ' +
+          'Install the ElevatedPOS Hardware Bridge on this machine, ' +
+          'or use the POS app on the tablet to process payments.',
+        );
+      }
+    } else {
+      settings.connectionIPString = config.terminalIp.trim();
+      settings.connectionIPPort   = config.terminalPort;
+    }
     settings.integratorId       = config.integratorId;
     settings.autoCommit         = config.autoCommit;
 

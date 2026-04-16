@@ -11,10 +11,12 @@
  * 2. Set ANZ_INTEGRATOR_ID env var: d23f66c0-546b-482f-b8b6-cb351f94fd31
  *
  * 3. Terminal must be in ECR/Integrated mode.
- *    WebSocket port default: 80.
+ *    WebSocket port default: 7784 (SIXml per ANZ validation doc v26-01).
  *
  * SDK reference: https://six-tim.github.io/timapi/doc/js/guide.html
  */
+
+import { isBridgeProxyReady, getBridgePort } from './bridge-health';
 
 // ─── TIM API v26-01 type declarations (scoped to this module) ─────────────────
 
@@ -237,11 +239,29 @@ export class AnzTerminalSession {
         onStatus?.('Connecting to terminal…');
 
         const settings = new timapi.TerminalSettings();
-        settings.connectionIPString = config.terminalIp.trim();
-        // Default to 7784 — the real SIXml WebSocket port per ANZ TIM API
-        // Validation Template v26-01. Legacy configs may still carry 80 /
-        // 8080 / 4100 from older defaults; client callers should migrate.
-        settings.connectionIPPort   = config.terminalPort ?? 7784;
+
+        // ── Mixed-content bridge routing ──────────────────────────
+        // HTTPS pages can't open ws:// to LAN IPs. Route through the
+        // local Hardware Bridge proxy if available.
+        const isHttps    = typeof window !== 'undefined' && window.location.protocol === 'https:';
+        const isLoopback = /^(127\.|localhost|::1)/.test(config.terminalIp.trim());
+
+        if (isHttps && !isLoopback) {
+          const bridgeReady = await isBridgeProxyReady();
+          if (bridgeReady) {
+            settings.connectionIPString = '127.0.0.1';
+            settings.connectionIPPort   = getBridgePort();
+          } else {
+            reject(new Error(
+              'Cannot reach the ANZ terminal from this browser (HTTPS blocks ws:// to LAN). ' +
+              'Install the ElevatedPOS Hardware Bridge on this machine, or use the POS tablet.',
+            ));
+            return;
+          }
+        } else {
+          settings.connectionIPString = config.terminalIp.trim();
+          settings.connectionIPPort   = config.terminalPort ?? 7784;
+        }
         settings.integratorId       = config.integratorId;
         settings.autoCommit         = true;   // ANZ validation requirement
         settings.fetchBrands        = true;

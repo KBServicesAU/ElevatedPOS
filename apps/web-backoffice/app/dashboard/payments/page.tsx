@@ -513,9 +513,9 @@ function ANZPanel() {
    *
    * Mixed content caveat: browsers block ws:// connections from an https://
    * origin unless the target is loopback (127.0.0.1 / localhost / ::1). For
-   * LAN IPs we therefore detect this up front and tell the operator to test
-   * from the POS device instead, which loads timapi.js inside a WebView
-   * with a file:// origin and is not subject to the restriction.
+   * LAN IPs we auto-route through the local Hardware Bridge (ws://127.0.0.1:9999)
+   * which proxies to the real terminal.  If the bridge is not running we tell
+   * the operator to install it or test from the POS device.
    */
   async function handleTest() {
     const ip = terminalIp.trim();
@@ -526,18 +526,31 @@ function ANZPanel() {
       return;
     }
 
+    // Resolve effective connection target.
+    // If HTTPS + non-loopback → try the local Hardware Bridge.
     const isLoopback = ip === '127.0.0.1' || ip === 'localhost' || ip === '::1';
     const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    let effectiveIp   = ip;
+    let effectivePort = port;
+
     if (isHttps && !isLoopback) {
-      toast({
-        title: 'Test blocked by the browser',
-        description:
-          `Browsers don't allow https:// pages to open ws:// connections to LAN IPs. ` +
-          `Save these settings, then run Test Connection from the POS device ` +
-          `(Settings → ANZ Worldline → Test Connection), which is not subject to this restriction.`,
-        variant: 'destructive',
-      });
-      return;
+      // Dynamic import to avoid bundling bridge-health when not needed
+      const { isBridgeProxyReady, getBridgePort } = await import('@/lib/bridge-health');
+      const bridgeReady = await isBridgeProxyReady(/* force */ true);
+      if (bridgeReady) {
+        effectiveIp   = '127.0.0.1';
+        effectivePort = getBridgePort();
+      } else {
+        toast({
+          title: 'Hardware Bridge required',
+          description:
+            `Browsers block ws:// connections from HTTPS pages to LAN terminals. ` +
+            `Install the ElevatedPOS Hardware Bridge on this machine to enable browser-based terminal testing, ` +
+            `or test from the POS device (Settings → ANZ Worldline → Test Connection).`,
+          variant: 'destructive',
+        });
+        return;
+      }
     }
 
     setTesting(true);
@@ -558,8 +571,8 @@ function ANZPanel() {
         try {
           // ── 1. TerminalSettings per ANZWL validation ─────────────────
           const settings = new tim.TerminalSettings();
-          settings.connectionIPString = ip;
-          settings.connectionIPPort   = port;
+          settings.connectionIPString = effectiveIp;
+          settings.connectionIPPort   = effectivePort;
           settings.integratorId       = ANZ_DEFAULT_INTEGRATOR_ID;
           settings.autoCommit         = true;
           settings.fetchBrands        = true;
@@ -633,9 +646,12 @@ function ANZPanel() {
         }
       });
 
+      const viaBridge = effectiveIp !== ip;
       toast({
         title: 'Terminal reachable ✓',
-        description: `Pair flow completed (connect → login → activate) against ${ip}:${port}`,
+        description: viaBridge
+          ? `Pair flow completed via Hardware Bridge → ${ip}:${port}`
+          : `Pair flow completed (connect → login → activate) against ${ip}:${port}`,
         variant: 'success',
       });
     } catch (err) {

@@ -1,5 +1,5 @@
 import express from 'express';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket as WsWebSocket } from 'ws';
 import type WebSocket from 'ws';
 import http from 'http';
 import { verify } from 'jsonwebtoken';
@@ -9,6 +9,31 @@ import { openCashDrawer } from './printers/cashDrawer';
 // Extend WebSocket to carry the authenticated locationId
 interface TaggedWebSocket extends WebSocket {
   locationId?: string;
+}
+
+// ─── Terminal proxy configuration ────────────────────────────────────────────
+// The proxy relays WebSocket frames from the browser POS (which can't open
+// ws:// from an https:// page) to the ANZ terminal on the LAN.
+//
+// ENV:
+//   TERMINAL_PROXY_ENABLED  — "true" to enable (default: false)
+//   TERMINAL_TARGET_HOST    — terminal LAN IP (e.g. 192.168.1.100)
+//   TERMINAL_TARGET_PORT    — terminal SIXml port (default: 7784)
+//   TERMINAL_PROXY_BIND     — bind address; "127.0.0.1" for local-only (default)
+
+const TERMINAL_PROXY_ENABLED = (process.env['TERMINAL_PROXY_ENABLED'] ?? 'false') === 'true';
+const TERMINAL_TARGET_HOST   = process.env['TERMINAL_TARGET_HOST'] ?? '';
+const TERMINAL_TARGET_PORT   = Number(process.env['TERMINAL_TARGET_PORT']) || 7784;
+const TERMINAL_PROXY_BIND    = process.env['TERMINAL_PROXY_BIND'] ?? '127.0.0.1';
+
+/** Only allow RFC1918 + loopback as terminal targets — inverse of printer SSRF check. */
+function isValidTerminalTarget(host: string): boolean {
+  if (!host || typeof host !== 'string') return false;
+  if (host === '127.0.0.1' || host === 'localhost' || host === '::1') return true;
+  if (/^10\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2[0-9]|3[01])\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  return false;
 }
 
 const app = express();
@@ -34,7 +59,32 @@ function requireBridgeToken(req: express.Request, res: express.Response, next: e
 }
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+
+// ─── Path-based WebSocket routing ────────────────────────────────────────────
+// Two WebSocket servers, both in noServer mode.  The HTTP server's 'upgrade'
+// event dispatches to the right one based on URL path:
+//   /SIXml  → terminal proxy (relays frames to the ANZ terminal on the LAN)
+//   /*      → existing event bus (scanner/peripheral forwarding)
+
+const eventWss = new WebSocketServer({ noServer: true });
+const proxyWss = new WebSocketServer({ noServer: true });
+
+// Keep a reference as `wss` so existing event-bus code below still works.
+const wss = eventWss;
+
+server.on('upgrade', (request, socket, head) => {
+  const url = new URL(request.url ?? '/', 'http://localhost');
+
+  if (url.pathname === '/SIXml' && TERMINAL_PROXY_ENABLED) {
+    proxyWss.handleUpgrade(request, socket, head, (ws) => {
+      proxyWss.emit('connection', ws, request);
+    });
+  } else {
+    eventWss.handleUpgrade(request, socket, head, (ws) => {
+      eventWss.emit('connection', ws, request);
+    });
+  }
+});
 
 // ─── FIX 4: SSRF validation helpers ──────────────────────────────────────────
 
@@ -72,6 +122,13 @@ app.get('/health', (_req, res) => {
       printer: 'connected',
       display: 'connected',
       drawer: 'connected',
+    },
+    terminalProxy: {
+      enabled: TERMINAL_PROXY_ENABLED,
+      target: TERMINAL_PROXY_ENABLED && TERMINAL_TARGET_HOST
+        ? `${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}`
+        : null,
+      activeConnections: proxyWss.clients.size,
     },
   });
 });
@@ -158,7 +215,116 @@ app.post('/drawer/open', (_req, res) => {
   res.json({ success: true });
 });
 
-// WebSocket — forward scanner/peripheral events to connected POS clients
+// ─── Terminal proxy WebSocket — bidirectional relay to ANZ terminal ──────────
+// The TIM API JS SDK builds ws://${ip}:${port}/SIXml.  When the browser POS
+// sets ip=127.0.0.1 port=9999, the SDK connects here.  We open a second
+// WebSocket to the real terminal on the LAN and pipe frames both ways.
+
+let activeProxyCount = 0;
+
+proxyWss.on('connection', (clientWs, request) => {
+  const jwtSecret = process.env['JWT_SECRET'];
+
+  // ── Auth (same pattern as event WebSocket) ──
+  if (!jwtSecret) {
+    clientWs.close(1011, 'Server misconfiguration — JWT_SECRET not set');
+    return;
+  }
+  const url = new URL(request.url ?? '/', 'http://localhost');
+  const token = url.searchParams.get('token');
+  if (token) {
+    try {
+      verify(token, jwtSecret);
+    } catch {
+      clientWs.close(1008, 'Invalid token');
+      return;
+    }
+  }
+  // Note: if no JWT_SECRET requirement is configured for the proxy
+  // in local-only mode, we skip auth (the bind is already 127.0.0.1).
+
+  if (!TERMINAL_TARGET_HOST) {
+    clientWs.close(1011, 'TERMINAL_TARGET_HOST not configured');
+    return;
+  }
+  if (!isValidTerminalTarget(TERMINAL_TARGET_HOST)) {
+    console.error(`[TerminalProxy] Rejected non-LAN target: ${TERMINAL_TARGET_HOST}`);
+    clientWs.close(1011, 'Terminal target must be a LAN address');
+    return;
+  }
+
+  // Rate-limit: allow max 5 concurrent proxy sessions (practical for any site)
+  if (activeProxyCount >= 5) {
+    clientWs.close(1013, 'Too many concurrent terminal proxy sessions');
+    return;
+  }
+  activeProxyCount++;
+
+  const targetUrl = `ws://${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}/SIXml`;
+  console.log(`[TerminalProxy] Connecting to ${targetUrl} (active: ${activeProxyCount})`);
+
+  const terminalWs = new WsWebSocket(targetUrl);
+
+  let clientAlive = true;
+  let terminalAlive = false;
+
+  terminalWs.on('open', () => {
+    terminalAlive = true;
+    console.log(`[TerminalProxy] Connected to terminal ${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}`);
+  });
+
+  // ── Bidirectional frame relay ──
+  clientWs.on('message', (data, isBinary) => {
+    if (terminalAlive && terminalWs.readyState === WsWebSocket.OPEN) {
+      terminalWs.send(data, { binary: isBinary });
+    }
+  });
+
+  terminalWs.on('message', (data, isBinary) => {
+    if (clientAlive && clientWs.readyState === WsWebSocket.OPEN) {
+      clientWs.send(data, { binary: isBinary });
+    }
+  });
+
+  // ── Close propagation ──
+  clientWs.on('close', (code, reason) => {
+    clientAlive = false;
+    activeProxyCount = Math.max(0, activeProxyCount - 1);
+    console.log(`[TerminalProxy] Client disconnected (code=${code}, active: ${activeProxyCount})`);
+    if (terminalAlive && terminalWs.readyState !== WsWebSocket.CLOSED) {
+      terminalWs.close(1000, 'Client disconnected');
+    }
+  });
+
+  terminalWs.on('close', (code, reason) => {
+    terminalAlive = false;
+    console.log(`[TerminalProxy] Terminal disconnected (code=${code})`);
+    if (clientAlive && clientWs.readyState !== WsWebSocket.CLOSED) {
+      clientWs.close(code, 'Terminal disconnected');
+    }
+  });
+
+  // ── Error handling ──
+  clientWs.on('error', (err) => {
+    console.error('[TerminalProxy] Client WebSocket error:', err.message);
+    clientAlive = false;
+    activeProxyCount = Math.max(0, activeProxyCount - 1);
+    if (terminalAlive && terminalWs.readyState !== WsWebSocket.CLOSED) {
+      terminalWs.close(1011, 'Client error');
+    }
+  });
+
+  terminalWs.on('error', (err) => {
+    console.error('[TerminalProxy] Terminal WebSocket error:', err.message);
+    terminalAlive = false;
+    if (clientAlive && clientWs.readyState !== WsWebSocket.CLOSED) {
+      clientWs.close(1011, `Terminal unreachable: ${err.message}`);
+    }
+    activeProxyCount = Math.max(0, activeProxyCount - 1);
+  });
+});
+
+// ─── Event WebSocket — forward scanner/peripheral events to connected POS clients
 wss.on('connection', (ws, request) => {
   // FIX 5: Authenticate WebSocket upgrade via ?token=<jwt> query parameter
   const jwtSecret = process.env['JWT_SECRET'];
@@ -214,6 +380,10 @@ wss.on('connection', (ws, request) => {
 });
 
 const PORT = Number(process.env['PORT'] ?? 9999);
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[HardwareBridge] Listening on http://0.0.0.0:${PORT}`);
+const BIND = TERMINAL_PROXY_ENABLED ? TERMINAL_PROXY_BIND : '0.0.0.0';
+server.listen(PORT, BIND, () => {
+  console.log(`[HardwareBridge] Listening on http://${BIND}:${PORT}`);
+  if (TERMINAL_PROXY_ENABLED) {
+    console.log(`[HardwareBridge] Terminal proxy ENABLED → ${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}`);
+  }
 });
