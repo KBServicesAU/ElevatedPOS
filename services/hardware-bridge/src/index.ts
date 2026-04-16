@@ -44,6 +44,29 @@ function isValidTerminalTarget(host: string): boolean {
 const app = express();
 app.use(express.json());
 
+// ─── CORS — the bridge runs on localhost but must be reachable from the tenant's
+// HTTPS origin (e.g. https://app.elevatedpos.com.au).  Browsers enforce CORS on
+// fetch() to the bridge; the WebSocket upgrade on /SIXml uses its own check so
+// this block only affects the HTTP endpoints.  Allowing `*` is safe here:
+//   • /health exposes nothing sensitive (just the configured target + status)
+//   • all action endpoints (/print, /cash-drawer, /display/…) require a
+//     bridge token (HIGH-3) or JWT (for the proxy upgrade)
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 // ─── HIGH-3: Pre-shared token authentication ──────────────────────────────────
 
 const BRIDGE_TOKEN = process.env['BRIDGE_TOKEN'];
