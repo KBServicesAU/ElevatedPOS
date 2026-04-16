@@ -2,6 +2,7 @@ import express from 'express';
 import { WebSocketServer, WebSocket as WsWebSocket } from 'ws';
 import type WebSocket from 'ws';
 import http from 'http';
+import net from 'node:net';
 import { verify } from 'jsonwebtoken';
 import { printReceipt, ReceiptData } from './printers/escpos';
 import { openCashDrawer } from './printers/cashDrawer';
@@ -19,11 +20,15 @@ interface TaggedWebSocket extends WebSocket {
 //   TERMINAL_PROXY_ENABLED  — "true" to enable (default: false)
 //   TERMINAL_TARGET_HOST    — terminal LAN IP (e.g. 192.168.1.100)
 //   TERMINAL_TARGET_PORT    — terminal SIXml port (default: 7784)
+//   TERMINAL_TRANSPORT      — "ws" (default, real Castles S1F2) or "tcp"
+//                             (raw-TCP SIXml — used by the EftSimulator and some
+//                             older terminals without a WebSocket listener).
 //   TERMINAL_PROXY_BIND     — bind address; "127.0.0.1" for local-only (default)
 
 const TERMINAL_PROXY_ENABLED = (process.env['TERMINAL_PROXY_ENABLED'] ?? 'false') === 'true';
 const TERMINAL_TARGET_HOST   = process.env['TERMINAL_TARGET_HOST'] ?? '';
 const TERMINAL_TARGET_PORT   = Number(process.env['TERMINAL_TARGET_PORT']) || 7784;
+const TERMINAL_TRANSPORT     = (process.env['TERMINAL_TRANSPORT'] ?? 'ws').toLowerCase() === 'tcp' ? 'tcp' : 'ws';
 const TERMINAL_PROXY_BIND    = process.env['TERMINAL_PROXY_BIND'] ?? '127.0.0.1';
 
 /** Only allow RFC1918 + loopback as terminal targets — inverse of printer SSRF check. */
@@ -67,7 +72,13 @@ const server = http.createServer(app);
 //   /*      → existing event bus (scanner/peripheral forwarding)
 
 const eventWss = new WebSocketServer({ noServer: true });
-const proxyWss = new WebSocketServer({ noServer: true });
+// The TIM API SDK opens ws://<host>:<port>/SIXml with the "SIXml" subprotocol.
+// We must echo that subprotocol back or the SDK considers the handshake
+// failed and retries (or aborts).
+const proxyWss = new WebSocketServer({
+  noServer: true,
+  handleProtocols: (protocols: Set<string>) => (protocols.has('SIXml') ? 'SIXml' : false),
+});
 
 // Keep a reference as `wss` so existing event-bus code below still works.
 const wss = eventWss;
@@ -128,6 +139,7 @@ app.get('/health', (_req, res) => {
       target: TERMINAL_PROXY_ENABLED && TERMINAL_TARGET_HOST
         ? `${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}`
         : null,
+      transport: TERMINAL_PROXY_ENABLED ? TERMINAL_TRANSPORT : null,
       activeConnections: proxyWss.clients.size,
     },
   });
@@ -260,20 +272,33 @@ proxyWss.on('connection', (clientWs, request) => {
   }
   activeProxyCount++;
 
-  const targetUrl = `ws://${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}/SIXml`;
-  console.log(`[TerminalProxy] Connecting to ${targetUrl} (active: ${activeProxyCount})`);
+  const release = (): void => {
+    activeProxyCount = Math.max(0, activeProxyCount - 1);
+  };
 
-  const terminalWs = new WsWebSocket(targetUrl);
+  if (TERMINAL_TRANSPORT === 'tcp') {
+    relayClientToRawTcp(clientWs, release);
+  } else {
+    relayClientToWebSocket(clientWs, release);
+  }
+});
+
+// ── Transport: WebSocket → WebSocket (real Castles S1F2 terminals) ──
+function relayClientToWebSocket(clientWs: WsWebSocket, release: () => void): void {
+  const targetUrl = `ws://${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}/SIXml`;
+  console.log(`[TerminalProxy] [ws] Connecting to ${targetUrl} (active: ${activeProxyCount})`);
+
+  // Echo the "SIXml" subprotocol upstream — real terminals expect it.
+  const terminalWs = new WsWebSocket(targetUrl, 'SIXml');
 
   let clientAlive = true;
   let terminalAlive = false;
 
   terminalWs.on('open', () => {
     terminalAlive = true;
-    console.log(`[TerminalProxy] Connected to terminal ${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}`);
+    console.log(`[TerminalProxy] [ws] Connected to terminal ${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}`);
   });
 
-  // ── Bidirectional frame relay ──
   clientWs.on('message', (data, isBinary) => {
     if (terminalAlive && terminalWs.readyState === WsWebSocket.OPEN) {
       terminalWs.send(data, { binary: isBinary });
@@ -286,43 +311,113 @@ proxyWss.on('connection', (clientWs, request) => {
     }
   });
 
-  // ── Close propagation ──
-  clientWs.on('close', (code, reason) => {
+  clientWs.on('close', (code) => {
     clientAlive = false;
-    activeProxyCount = Math.max(0, activeProxyCount - 1);
-    console.log(`[TerminalProxy] Client disconnected (code=${code}, active: ${activeProxyCount})`);
+    release();
+    console.log(`[TerminalProxy] [ws] Client disconnected (code=${code}, active: ${activeProxyCount})`);
     if (terminalAlive && terminalWs.readyState !== WsWebSocket.CLOSED) {
       terminalWs.close(1000, 'Client disconnected');
     }
   });
 
-  terminalWs.on('close', (code, reason) => {
+  terminalWs.on('close', (code) => {
     terminalAlive = false;
-    console.log(`[TerminalProxy] Terminal disconnected (code=${code})`);
+    console.log(`[TerminalProxy] [ws] Terminal disconnected (code=${code})`);
     if (clientAlive && clientWs.readyState !== WsWebSocket.CLOSED) {
       clientWs.close(code, 'Terminal disconnected');
     }
   });
 
-  // ── Error handling ──
   clientWs.on('error', (err) => {
-    console.error('[TerminalProxy] Client WebSocket error:', err.message);
+    console.error('[TerminalProxy] [ws] Client error:', err.message);
     clientAlive = false;
-    activeProxyCount = Math.max(0, activeProxyCount - 1);
+    release();
     if (terminalAlive && terminalWs.readyState !== WsWebSocket.CLOSED) {
       terminalWs.close(1011, 'Client error');
     }
   });
 
   terminalWs.on('error', (err) => {
-    console.error('[TerminalProxy] Terminal WebSocket error:', err.message);
+    console.error('[TerminalProxy] [ws] Terminal error:', err.message);
     terminalAlive = false;
     if (clientAlive && clientWs.readyState !== WsWebSocket.CLOSED) {
       clientWs.close(1011, `Terminal unreachable: ${err.message}`);
     }
-    activeProxyCount = Math.max(0, activeProxyCount - 1);
+    release();
   });
-});
+}
+
+// ── Transport: WebSocket → raw TCP (EftSimulator, TCP-only firmware) ──
+// Browser's TIM SDK sends each SIXml message as a WebSocket frame whose
+// payload is the raw SIXml bytes (already length-prefixed per the SIXml wire
+// format).  We pipe those bytes straight into a TCP socket; the terminal's
+// response bytes are wrapped back into WebSocket binary frames.  No SIXml
+// parsing happens here — the bridge is a pure byte relay, so it's
+// provider-agnostic.
+function relayClientToRawTcp(clientWs: WsWebSocket, release: () => void): void {
+  const targetHost = TERMINAL_TARGET_HOST;
+  const targetPort = TERMINAL_TARGET_PORT;
+  console.log(`[TerminalProxy] [tcp] Connecting to ${targetHost}:${targetPort} (active: ${activeProxyCount})`);
+
+  const sock = net.createConnection({ host: targetHost, port: targetPort });
+  sock.setNoDelay(true);
+
+  let clientAlive = true;
+  let sockAlive = false;
+
+  sock.on('connect', () => {
+    sockAlive = true;
+    console.log(`[TerminalProxy] [tcp] Connected to terminal ${targetHost}:${targetPort}`);
+  });
+
+  clientWs.on('message', (data, _isBinary) => {
+    if (!sockAlive || sock.destroyed) return;
+    // ws gives us Buffer | ArrayBuffer | Buffer[] — normalise to Buffer.
+    const buf = Array.isArray(data)
+      ? Buffer.concat(data)
+      : data instanceof ArrayBuffer
+        ? Buffer.from(data)
+        : (data as Buffer);
+    sock.write(buf);
+  });
+
+  sock.on('data', (chunk: Buffer) => {
+    if (clientAlive && clientWs.readyState === WsWebSocket.OPEN) {
+      clientWs.send(chunk, { binary: true });
+    }
+  });
+
+  clientWs.on('close', (code) => {
+    clientAlive = false;
+    release();
+    console.log(`[TerminalProxy] [tcp] Client disconnected (code=${code}, active: ${activeProxyCount})`);
+    if (sockAlive && !sock.destroyed) sock.end();
+  });
+
+  sock.on('close', (hadError) => {
+    sockAlive = false;
+    console.log(`[TerminalProxy] [tcp] Terminal socket closed (hadError=${hadError})`);
+    if (clientAlive && clientWs.readyState !== WsWebSocket.CLOSED) {
+      clientWs.close(hadError ? 1011 : 1000, 'Terminal disconnected');
+    }
+  });
+
+  clientWs.on('error', (err) => {
+    console.error('[TerminalProxy] [tcp] Client error:', err.message);
+    clientAlive = false;
+    release();
+    if (sockAlive && !sock.destroyed) sock.destroy();
+  });
+
+  sock.on('error', (err) => {
+    console.error('[TerminalProxy] [tcp] Terminal socket error:', err.message);
+    sockAlive = false;
+    if (clientAlive && clientWs.readyState !== WsWebSocket.CLOSED) {
+      clientWs.close(1011, `Terminal unreachable: ${err.message}`);
+    }
+    release();
+  });
+}
 
 // ─── Event WebSocket — forward scanner/peripheral events to connected POS clients
 wss.on('connection', (ws, request) => {
@@ -384,6 +479,9 @@ const BIND = TERMINAL_PROXY_ENABLED ? TERMINAL_PROXY_BIND : '0.0.0.0';
 server.listen(PORT, BIND, () => {
   console.log(`[HardwareBridge] Listening on http://${BIND}:${PORT}`);
   if (TERMINAL_PROXY_ENABLED) {
-    console.log(`[HardwareBridge] Terminal proxy ENABLED → ${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}`);
+    console.log(
+      `[HardwareBridge] Terminal proxy ENABLED (transport=${TERMINAL_TRANSPORT}) → ` +
+      `${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}`,
+    );
   }
 });
