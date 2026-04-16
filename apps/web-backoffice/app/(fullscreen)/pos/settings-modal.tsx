@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug, Monitor, CreditCard, Wifi, BookOpen, RotateCcw, RefreshCw, Download } from 'lucide-react';
+import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug, Monitor, CreditCard, Wifi, BookOpen, RotateCcw, RefreshCw, Download, ShoppingCart, Power } from 'lucide-react';
 import { usePrinter } from './printer-context';
 import type { DeviceInfo } from '@/lib/device-auth';
 import { createAnzPaymentProvider, downloadPaymentLogs } from '@/lib/payments';
@@ -31,6 +31,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
   const [anzOpLoading, setAnzOpLoading] = useState(false);
   const [anzVoidAmount, setAnzVoidAmount] = useState('');
   const [anzRefundAmount, setAnzRefundAmount] = useState('');
+  const [anzPurchaseAmount, setAnzPurchaseAmount] = useState('');
 
   // Fetch terminal config once on mount
   useEffect(() => {
@@ -135,6 +136,54 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
       }
     } catch (err) {
       setAnzOpStatus(`❌ Refund failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAnzOpLoading(false);
+    }
+  };
+
+  // ANZ: Test Purchase (Section 3.2) — drives §3.2 validation test amounts
+  // without needing a full cart/checkout flow. Covers PIN / Contactless / Signature
+  // depending on how the cardholder presents the card at the terminal.
+  const handleAnzPurchase = async () => {
+    if (!anzFullConfig) return;
+    const amount = parseFloat(anzPurchaseAmount);
+    if (!amount || amount <= 0) { setAnzOpStatus('❌ Enter a valid purchase amount'); return; }
+    setAnzOpLoading(true);
+    setAnzOpStatus(`Processing purchase of $${amount.toFixed(2)}…`);
+    try {
+      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      await provider.initialize(anzFullConfig);
+      const result = await provider.startPurchase({
+        posOrderId: `anzval-${Date.now()}`,
+        amount,
+        currency: 'AUD',
+        onStatusMessage: (msg) => setAnzOpStatus(msg),
+      });
+      if (result.approved) {
+        setAnzOpStatus(`✅ Purchase approved — Auth: ${result.authCode ?? 'N/A'} | Ref: ${result.transactionRef ?? 'N/A'} | ${result.cardScheme ?? ''} ${result.cardLast4 ? '••' + result.cardLast4 : ''}`.trim());
+        setAnzPurchaseAmount('');
+      } else {
+        setAnzOpStatus(`❌ Purchase declined: ${result.declineReason ?? result.errorMessage ?? 'Unknown'}`);
+      }
+    } catch (err) {
+      setAnzOpStatus(`❌ Purchase failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAnzOpLoading(false);
+    }
+  };
+
+  // ANZ: Shutdown (Section 3.13) — Deactivate → Logout → Disconnect → Dispose
+  const handleAnzShutdown = async () => {
+    if (!anzFullConfig) return;
+    setAnzOpLoading(true);
+    setAnzOpStatus('Shutting down terminal session…');
+    try {
+      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      await provider.initialize(anzFullConfig);
+      await provider.shutdown();
+      setAnzOpStatus('✅ Shutdown complete — Deactivate → Logout → Disconnect → Dispose');
+    } catch (err) {
+      setAnzOpStatus(`❌ Shutdown failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setAnzOpLoading(false);
     }
@@ -268,6 +317,29 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
                 {anzOpLoading ? 'Working…' : 'Pair Terminal (Connect → Login → Activate)'}
               </button>
 
+              {/* Test Purchase — Section 3.2 (validation helper: drives a raw
+                  purchase without going through the cart flow so validation
+                  amounts like $1.50, $2.50, $3.50, $7.50 can be run rapidly) */}
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Purchase $"
+                  value={anzPurchaseAmount}
+                  onChange={(e) => setAnzPurchaseAmount(e.target.value)}
+                  className="flex-1 rounded-lg bg-[#1a1a2e] border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-600/50"
+                />
+                <button
+                  onClick={handleAnzPurchase}
+                  disabled={anzOpLoading || !anzPurchaseAmount}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold bg-blue-900/40 text-blue-300 hover:bg-blue-900/60 border border-blue-700/40 disabled:opacity-50 transition-colors whitespace-nowrap"
+                >
+                  <ShoppingCart size={13} />
+                  Test Purchase
+                </button>
+              </div>
+
               {/* End of Day — Deactivate → Balance */}
               <button
                 onClick={handleAnzEndOfDay}
@@ -276,6 +348,16 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
               >
                 <BookOpen size={14} />
                 {anzOpLoading ? 'Working…' : 'End of Day (Deactivate → Balance)'}
+              </button>
+
+              {/* Shutdown — Section 3.13: Deactivate → Logout → Disconnect → Dispose */}
+              <button
+                onClick={handleAnzShutdown}
+                disabled={anzOpLoading}
+                className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold bg-gray-800/60 text-gray-300 hover:bg-gray-800 border border-gray-700 disabled:opacity-50 transition-colors"
+              >
+                <Power size={14} />
+                {anzOpLoading ? 'Working…' : 'Shutdown (Deactivate → Logout → Disconnect → Dispose)'}
               </button>
 
               {/* Void / Reversal — Section 3.9 */}
