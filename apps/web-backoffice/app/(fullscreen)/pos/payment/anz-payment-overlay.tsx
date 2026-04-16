@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckCircle, AlertCircle, Clock, XCircle, ShieldAlert } from 'lucide-react';
 import {
   createAnzPaymentProvider,
+  getOrCreateAnzPaymentProvider,
   createSimulatorProvider,
   type AnzProviderOptions,
   type SimulatorOptions,
@@ -199,7 +200,9 @@ export function AnzPaymentOverlay({
 
     const provider = simulate
       ? createSimulatorProvider(simulate)
-      : createAnzPaymentProvider({
+      // GAP-09/10: share the module-level singleton for this terminal so the
+      // settings modal and the payment overlay operate under ONE mutex.
+      : getOrCreateAnzPaymentProvider({
           config,
           onTerminalStatusChange: (status) => {
             // Map terminal connection state to payment state for early feedback
@@ -259,7 +262,13 @@ export function AnzPaymentOverlay({
     })();
 
     return () => {
-      void provider.shutdown();
+      // GAP-09/10: the real provider is a module-level singleton shared with
+      // the settings modal and the next transaction. Calling shutdown() here
+      // would tear down the terminal session for every other consumer. Only
+      // shut the simulator provider down (it is per-instance by design).
+      if (simulate) {
+        void provider.shutdown();
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

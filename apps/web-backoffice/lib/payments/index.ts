@@ -130,6 +130,106 @@ export interface AnzProviderOptions {
   onTerminalStatusChange?: (status: import('./domain').TerminalStatus) => void;
 }
 
+// ─── Module-level provider cache (GAP-09/10) ──────────────────────────────────
+// The POS settings modal and dashboard both instantiate providers per action
+// handler (Pair / Purchase / Refund / Void / Shutdown / Balance). Each fresh
+// provider previously got its own TerminalSessionManager + AsyncMutex, which
+// meant concurrent handlers could bypass the single-transaction-at-a-time
+// invariant the state machine relies on.
+//
+// We key the cache by `${terminalIp}:${terminalPort}|${simulate}` so every
+// handler targeting the same terminal gets the SAME provider (and therefore
+// the SAME mutex + the SAME adapter + the SAME listener wiring). The cache
+// is invalidated when config.integratorId, terminalLabel, or any other
+// fingerprinted config field changes, so operator edits in the settings
+// modal cleanly rebuild the provider.
+//
+// Exposed via getOrCreateAnzPaymentProvider(). createAnzPaymentProvider()
+// is preserved as a bare factory (no cache) for tests and one-off flows.
+
+interface CachedProvider {
+  provider:   PaymentProvider;
+  fingerprint: string;
+  configKey:   string;
+}
+
+const _providerCache = new Map<string, CachedProvider>();
+
+function providerCacheKey(cfg: TimConfig, simulate?: boolean): string {
+  const ip   = (cfg.terminalIp   ?? '').trim();
+  const port = cfg.terminalPort ?? 0;
+  return `${ip}:${port}|sim=${simulate ? '1' : '0'}`;
+}
+
+function providerFingerprint(cfg: TimConfig): string {
+  // Fields whose change should force a fresh provider instance.
+  return JSON.stringify({
+    ip:  cfg.terminalIp,
+    p:   cfg.terminalPort,
+    id:  cfg.integratorId,
+    lb:  cfg.terminalLabel ?? '',
+    pos: cfg.posId ?? '',
+    ac:  cfg.autoCommit,
+    fb:  cfg.fetchBrands ?? true,
+    dcc: cfg.dcc ?? false,
+    pa:  cfg.partialApproval ?? false,
+    tp:  cfg.tipAllowed ?? false,
+    pmr: cfg.printMerchantReceipt,
+    pcr: cfg.printCustomerReceipt,
+  });
+}
+
+/**
+ * Return a singleton PaymentProvider for the given terminal config. Two calls
+ * with the same terminal IP/port reuse the same provider (and therefore the
+ * same session mutex). If the config fingerprint changes (e.g. integratorId
+ * edit), the stale provider is disposed and a fresh one is returned.
+ *
+ * Use this EVERYWHERE in the POS + dashboard handlers instead of calling
+ * createAnzPaymentProvider() directly — otherwise you re-introduce the
+ * mutex-bypass bug (GAP-09/10) where concurrent handlers can each hold their
+ * own adapter.
+ */
+export function getOrCreateAnzPaymentProvider(opts: AnzProviderOptions): PaymentProvider {
+  const key  = providerCacheKey(opts.config, opts.simulate);
+  const fp   = providerFingerprint(opts.config);
+  const cached = _providerCache.get(key);
+
+  if (cached && cached.fingerprint === fp) {
+    return cached.provider;
+  }
+
+  if (cached) {
+    // Fingerprint changed — dispose the stale provider cleanly.
+    void cached.provider.shutdown().catch(() => { /* non-fatal */ });
+  }
+
+  const provider = createAnzPaymentProvider(opts);
+  _providerCache.set(key, { provider, fingerprint: fp, configKey: key });
+  return provider;
+}
+
+/**
+ * Invalidate a cached provider (e.g. after a hard error or when the
+ * operator removes a saved terminal). Calls shutdown() best-effort.
+ */
+export function disposeAnzPaymentProvider(cfg: TimConfig, simulate?: boolean): void {
+  const key  = providerCacheKey(cfg, simulate);
+  const cached = _providerCache.get(key);
+  if (!cached) return;
+  _providerCache.delete(key);
+  void cached.provider.shutdown().catch(() => { /* non-fatal */ });
+}
+
+/** Clear every cached provider. Useful on logout / terminal-list replace. */
+export function disposeAllAnzPaymentProviders(): void {
+  const providers = Array.from(_providerCache.values());
+  _providerCache.clear();
+  for (const c of providers) {
+    void c.provider.shutdown().catch(() => { /* non-fatal */ });
+  }
+}
+
 export function createAnzPaymentProvider(opts: AnzProviderOptions): PaymentProvider {
   // Use the module-level logger so log entries persist across provider instances
   const logger = _persistentLogger;
@@ -201,15 +301,24 @@ export function createAnzPaymentProvider(opts: AnzProviderOptions): PaymentProvi
     /**
      * Section 3.6: Credit / Refund transaction.
      * Section 1.4: "A Credit/Refund needs a Commit" — handled by state machine.
+     * Section 3.6 row 2: supply `reference` to perform a referenced credit
+     * against the original purchase (no card re-presentation on supported
+     * acquirers). Legacy callers can pass `originalTransactionRef` which is
+     * mapped to `reference.originalTrmTransRef`.
      */
     async refund(request: RefundRequest) {
       if (!sessionManager.hasAdapter()) {
         await sessionManager.initialize(opts.config);
       }
+      const reference = request.reference
+        ?? (request.originalTransactionRef
+          ? { originalTrmTransRef: request.originalTransactionRef }
+          : undefined);
       return stateMachine.startCredit({
         posOrderId:      request.posOrderId,
         amount:          request.amount,
         currency:        'AUD',
+        reference,
         onStateChange:   request.onStateChange,
         onStatusMessage: request.onStatusMessage,
       });
@@ -230,6 +339,15 @@ export function createAnzPaymentProvider(opts: AnzProviderOptions): PaymentProvi
         onStateChange:   request.onStateChange,
         onStatusMessage: request.onStatusMessage,
       });
+    },
+
+    /**
+     * §3.11 exception recovery.
+     * Not supported by the simulator (returns undefined there).
+     */
+    async getLastTransactionInformation() {
+      const adapter = sessionManager.getAdapter();
+      return adapter.getLastTransactionInformation();
     },
 
     async shutdown() {

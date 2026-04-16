@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug, Monitor, CreditCard, Wifi, BookOpen, RotateCcw, RefreshCw, Download, ShoppingCart, Power, Save, ChevronDown } from 'lucide-react';
 import { usePrinter } from './printer-context';
 import type { DeviceInfo } from '@/lib/device-auth';
-import { createAnzPaymentProvider, downloadPaymentLogs } from '@/lib/payments';
+import { getOrCreateAnzPaymentProvider, downloadPaymentLogs } from '@/lib/payments';
+import { downloadTimApiLog } from '@/lib/payments/anz-log-sink';
 import type { TimConfig } from '@/lib/payments';
 
 type ConnectionMethod = 'serial' | 'usb' | 'bluetooth';
@@ -248,7 +249,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
     setAnzOpLoading(true);
     setAnzOpStatus(`Voiding $${amount.toFixed(2)}…`);
     try {
-      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      const provider = getOrCreateAnzPaymentProvider({ config: anzFullConfig });
       await provider.initialize(anzFullConfig);
       const result = await provider.reversal({
         posOrderId: `void-${Date.now()}`,
@@ -277,7 +278,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
     setAnzOpLoading(true);
     setAnzOpStatus(`Processing refund of $${amount.toFixed(2)}…`);
     try {
-      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      const provider = getOrCreateAnzPaymentProvider({ config: anzFullConfig });
       await provider.initialize(anzFullConfig);
       const result = await provider.refund({
         posOrderId: `refund-${Date.now()}`,
@@ -307,7 +308,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
     setAnzOpLoading(true);
     setAnzOpStatus(`Processing purchase of $${amount.toFixed(2)}…`);
     try {
-      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      const provider = getOrCreateAnzPaymentProvider({ config: anzFullConfig });
       await provider.initialize(anzFullConfig);
       const result = await provider.startPurchase({
         posOrderId: `anzval-${Date.now()}`,
@@ -334,7 +335,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
     setAnzOpLoading(true);
     setAnzOpStatus('Shutting down terminal session…');
     try {
-      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      const provider = getOrCreateAnzPaymentProvider({ config: anzFullConfig });
       await provider.initialize(anzFullConfig);
       await provider.shutdown();
       setAnzOpStatus('✅ Shutdown complete — Deactivate → Logout → Disconnect → Dispose');
@@ -351,7 +352,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
     setAnzOpLoading(true);
     setAnzOpStatus('Running end of day…');
     try {
-      const provider = createAnzPaymentProvider({ config: anzFullConfig });
+      const provider = getOrCreateAnzPaymentProvider({ config: anzFullConfig });
       await provider.initialize(anzFullConfig);
       const result = await provider.endOfDay();
       const summary = result && typeof result === 'object'
@@ -601,14 +602,26 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
                 </button>
               </div>
 
-              {/* Download Logs — Section 4 submission checklist */}
-              <button
-                onClick={() => downloadPaymentLogs()}
-                className="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold bg-[#1a1a2e] text-gray-500 hover:text-gray-300 border border-white/5 hover:border-white/10 transition-colors"
-              >
-                <Download size={12} />
-                Download Payment Logs (ANZ Validation)
-              </button>
+              {/* Download Logs — §4 submission checklist.
+                  Two files per the validation template:
+                    • ANZ-PAY-LOG-YYYYMMDD.txt — ElevatedPOS structured events
+                    • TimApiYYYYMMDD.log       — raw FINEST SDK records (IDB)  */}
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => downloadPaymentLogs()}
+                  className="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold bg-[#1a1a2e] text-gray-500 hover:text-gray-300 border border-white/5 hover:border-white/10 transition-colors"
+                >
+                  <Download size={12} />
+                  Download Payment Logs (ANZ-PAY-LOG)
+                </button>
+                <button
+                  onClick={() => { void downloadTimApiLog({ persisted: true }); }}
+                  className="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold bg-[#1a1a2e] text-gray-500 hover:text-gray-300 border border-white/5 hover:border-white/10 transition-colors"
+                >
+                  <Download size={12} />
+                  Download TIM API Log (TimApiYYYYMMDD.log)
+                </button>
+              </div>
               </>
               )}
 

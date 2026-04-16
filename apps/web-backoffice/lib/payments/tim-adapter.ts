@@ -26,6 +26,7 @@
 import type { TimConfig, TerminalApplicationInfo } from './domain';
 import type { PaymentLogger } from './logger';
 import { isBridgeProxyReady, getBridgePort } from '../bridge-health';
+import { getAnzLogSink } from './anz-log-sink';
 
 // ─── TIM API v26-01 TypeScript declarations ────────────────────────────────────
 // Covers the full known surface of the TIM API JavaScript SDK v26-01.
@@ -211,6 +212,10 @@ interface TimApiPrintOption {
 }
 
 // ── TransactionData (request) ─────────────────────────────────────────────────
+// Used for:
+//  - Reversal / VOID (§3.9) — identifies the transaction to void by trmTransRef
+//  - Credit / Reference Refund (§3.6 row 2) — identifies the original purchase
+//    by originalTrmTransRef + originalAcqTransRef + originalAcqId + originalTrxDate
 
 interface TimApiTransactionDataObj {
   /** ECR transaction reference (optional) */
@@ -225,6 +230,29 @@ interface TimApiTransactionDataObj {
   dccAllowed?:    boolean;
   /** Partial approval per transaction */
   partialApprovalAllowed?: boolean;
+
+  // ── Reference-refund fields (§3.6 row 2) ─────────────────────────────────
+  /** Original terminal transaction reference of the purchase being refunded */
+  originalTrmTransRef?: string;
+  /** Original acquirer transaction reference */
+  originalAcqTransRef?: string;
+  /** Original acquirer ID */
+  originalAcqId?: number;
+  /** Original transaction date (YYYY-MM-DD or ISO) */
+  originalTrxDate?: string;
+}
+
+/**
+ * Inputs accepted by TimApiAdapter.refund() for a reference refund.
+ * Typically read out of a prior approved purchase's AdapterTransactionResult
+ * (transactionRef → originalTrmTransRef, acqTransRef → originalAcqTransRef).
+ */
+export interface ReferenceRefundData {
+  originalTrmTransRef?: string;
+  originalAcqTransRef?: string;
+  originalAcqId?:       number;
+  /** ISO date string of the original purchase */
+  originalTrxDate?:     string;
 }
 
 // ── TransactionResponse (returned in transactionCompleted callback) ────────────
@@ -317,6 +345,12 @@ interface TimApiListener {
   /** Terminal state changed — use terminal.getTerminalStatus() for details */
   terminalStatusChanged?(terminal: TimApiTerminal): void;
   applicationInformationCompleted?(event: TimTransactionEvent): void;
+  /**
+   * §3.11: fires after transactionInformationAsync(). `data` carries the
+   * last transaction's transactionInformation (auth code, trmTransRef, ...)
+   * plus any printData receipts the terminal has on file.
+   */
+  transactionInformationCompleted?(event: TimTransactionEvent, data: TimTransactionResponse): void;
   hardwareInformationCompleted?(event: TimTransactionEvent, data: unknown): void;
   balanceCompleted?(event: TimTransactionEvent, data: unknown): void;
   /** Receipts ready for printing — called automatically by DefaultTerminalListener */
@@ -344,8 +378,14 @@ export interface TimApiTerminal {
   removeListener(listener: TimApiListener): void;
 
   // ── Financial transactions ─────────────────────────────────────────────────
-  /** Standard transaction (purchase, credit, reversal) */
-  transactionAsync(type: TimApiEnumValue, amount: TimApiAmount): void;
+  /**
+   * Standard transaction (purchase, credit, reversal).
+   * Optional `data` is a `timapi.TransactionData()` instance — required for:
+   *  - reversal by reference (populate trmTransRef / acqTransRef)
+   *  - credit against original purchase, §3.6 row 2 (populate
+   *    originalTrmTransRef / originalAcqTransRef / originalAcqId / originalTrxDate)
+   */
+  transactionAsync(type: TimApiEnumValue, amount: TimApiAmount, data?: TimApiTransactionDataObj): void;
   /** Commit an approved transaction (required when autoCommit=false) */
   commitAsync(): void;
   /** Rollback (prevent commit, generate technical reversal) */
@@ -369,6 +409,13 @@ export interface TimApiTerminal {
   applicationInformationAsync(): void;
   hardwareInformationAsync?(): void;
   balanceAsync?(): void;
+  /**
+   * §3.11 exception recovery: fetch information about the last transaction
+   * the terminal has on file. Useful when the ECR crashed after the terminal
+   * authorised but before commit (unknown_outcome) — the operator can see
+   * whether the terminal actually committed.
+   */
+  transactionInformationAsync?(): void;
   /** Returns list of brands (populated after login or applicationInformation) */
   getBrands(): Array<{ name?: string; brandId?: string; acqId?: number }>;
   /** Returns terminal ID (populated after login) */
@@ -394,6 +441,20 @@ export function loadTimApiSdk(): Promise<void> {
   if (_sdkLoadPromise) return _sdkLoadPromise;
 
   _sdkLoadPromise = new Promise((resolve, reject) => {
+    // GAP-3 / §4: wire FINEST log capture BEFORE the script loads so every
+    // SDK log record (including startup records) is persisted for §4
+    // submission as TimApiYYYYMMDD.log. Installed only once per page.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const w = window as any;
+      if (typeof w.onTimApiPublishLogRecord !== 'function') {
+        const sink = getAnzLogSink();
+        w.onTimApiPublishLogRecord = (record: unknown) => {
+          try { sink.append(record); } catch { /* non-fatal */ }
+        };
+      }
+    } catch { /* non-fatal — log sink is best-effort */ }
+
     // MUST set onTimApiReady BEFORE the script tag is inserted —
     // the callback fires as soon as the WASM module finishes compiling.
     window.onTimApiReady = () => {
@@ -451,6 +512,24 @@ export interface AdapterCommitResult {
   errorMessage?: string;
 }
 
+/**
+ * §3.11: the information returned by transactionInformationAsync() — the
+ * terminal's view of the last transaction on file. Use this during
+ * unknown_outcome recovery to decide whether to treat the pending intent
+ * as committed.
+ */
+export interface LastTransactionInformation {
+  transactionRef?: string;
+  acqTransRef?:    string;
+  authCode?:       string;
+  sixTrxRefNum?:   string;
+  cardScheme?:     string;
+  cardLast4?:      string;
+  merchantReceipt?: string;
+  customerReceipt?: string;
+  transactionType?: string;
+}
+
 // ─── TimApiAdapter ────────────────────────────────────────────────────────────
 
 export class TimApiAdapter {
@@ -486,6 +565,11 @@ export class TimApiAdapter {
 
   private _pendingBalance: {
     resolve: (data: Record<string, unknown>) => void;
+    reject:  (e: Error) => void;
+  } | null = null;
+
+  private _pendingTransactionInfo: {
+    resolve: (data: LastTransactionInformation) => void;
     reject:  (e: Error) => void;
   } | null = null;
 
@@ -886,12 +970,56 @@ export class TimApiAdapter {
         if (!pending) return;
         this._pendingBalance = null;
         if (event.exception === undefined) {
-          pending.resolve(data as Record<string, unknown>);
+          // GAP-04: surface the balance receipts so the operator can submit
+          // them with §3.10 day-closure evidence. Attach under the standard
+          // `_receipts` key so the provider/UI can pull them out.
+          const asObj = (data ?? {}) as Record<string, unknown>;
+          try {
+            const { merchant, cardholder } = this._extractReceipts(
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (asObj as any).printData,
+            );
+            if (merchant || cardholder) {
+              asObj['_receipts'] = { merchant, cardholder };
+            }
+          } catch { /* non-fatal */ }
+          pending.resolve(asObj);
         } else {
           pending.reject(new Error(
             event.exception.message ?? `balance failed (${this._resultCodeString(event.exception.resultCode)})`
           ));
         }
+      },
+
+      // ── Transaction information completed (§3.11 recovery) ─────────────────
+      transactionInformationCompleted: (event: TimTransactionEvent, data: TimTransactionResponse) => {
+        this._logger.info('transaction_information_completed', {
+          success:     event.exception === undefined,
+          resultCode:  this._resultCodeString(event.exception?.resultCode),
+          trmTransRef: data?.transactionInformation?.trmTransRef,
+        });
+        const pending = this._pendingTransactionInfo;
+        if (!pending) return;
+        this._pendingTransactionInfo = null;
+        if (event.exception !== undefined) {
+          pending.reject(new Error(
+            event.exception.message ?? `transactionInformation failed (${this._resultCodeString(event.exception.resultCode)})`
+          ));
+          return;
+        }
+        const { merchant, cardholder } = this._extractReceipts(data?.printData);
+        pending.resolve({
+          transactionRef: data?.transactionInformation?.trmTransRef,
+          acqTransRef:    data?.transactionInformation?.acqTransRef,
+          authCode:       data?.transactionInformation?.authCode,
+          sixTrxRefNum:   data?.transactionInformation?.sixTrxRefNum,
+          cardScheme:     data?.cardData?.brandName,
+          cardLast4:      data?.cardData?.cardNumberPrintable?.slice(-4)
+                       ?? data?.cardData?.cardNumberPrintableCardholder?.slice(-4),
+          merchantReceipt: merchant,
+          customerReceipt: cardholder,
+          transactionType: data?.transactionType?.name,
+        });
       },
 
       // ── Deactivate completed ───────────────────────────────────────────────
@@ -993,24 +1121,56 @@ export class TimApiAdapter {
 
   // ── Credit (Refund) ──────────────────────────────────────────────────────────
   // NOTE: In TIM API v26-01 the refund transaction type is "credit", not "refund"
+  //
+  // TWO variants per ANZ Validation §3.6:
+  //   Row 1 — standalone credit (no reference): customer presents card
+  //   Row 2 — reference credit (refund against a prior purchase): identifies
+  //           the original purchase via originalTrmTransRef / originalAcqTransRef
+  //           / originalAcqId / originalTrxDate on the TransactionData object.
+  //
+  // The optional `reference` argument drives the §3.6 row 2 flow. When omitted
+  // the terminal performs the standalone credit per row 1.
 
   refund(
     amountCents: number,
     onStatus?: (msg: string) => void,
+    reference?: ReferenceRefundData,
   ): Promise<AdapterTransactionResult> {
     if (!this._terminal) throw new Error('Adapter not initialized');
     if (this._pendingTransaction) throw new Error('A transaction is already in progress');
 
-    this._logger.info('refund_start', { amountCents });
+    this._logger.info('refund_start', {
+      amountCents,
+      reference: reference
+        ? { hasTrmRef: !!reference.originalTrmTransRef, hasAcqRef: !!reference.originalAcqTransRef }
+        : undefined,
+    });
 
     return new Promise((resolve, reject) => {
       this._pendingTransaction = { resolve, reject, onStatus };
 
       const timapi = window.timapi!;
       try {
+        // Build TransactionData only when reference fields are supplied — the
+        // terminal interprets presence-of-object as "attempt referenced refund".
+        let txData: TimApiTransactionDataObj | undefined;
+        if (reference && (
+          reference.originalTrmTransRef ||
+          reference.originalAcqTransRef ||
+          reference.originalAcqId !== undefined ||
+          reference.originalTrxDate
+        )) {
+          txData = new timapi.TransactionData();
+          if (reference.originalTrmTransRef) txData.originalTrmTransRef = reference.originalTrmTransRef;
+          if (reference.originalAcqTransRef) txData.originalAcqTransRef = reference.originalAcqTransRef;
+          if (reference.originalAcqId !== undefined) txData.originalAcqId = reference.originalAcqId;
+          if (reference.originalTrxDate) txData.originalTrxDate = reference.originalTrxDate;
+        }
+
         this._terminal!.transactionAsync(
           timapi.constants.TransactionType.credit,
           new timapi.Amount(amountCents, timapi.constants.Currency.AUD),
+          txData,
         );
       } catch (err) {
         this._pendingTransaction = null;
@@ -1261,6 +1421,41 @@ export class TimApiAdapter {
     });
   }
 
+  // ── Last transaction information (§3.11 exception recovery) ────────────────
+
+  /**
+   * Ask the terminal for its view of the last transaction. Used when the ECR
+   * crashed between authorisation and commit (state=unknown_outcome) — the
+   * returned auth code / trmTransRef lets the operator confirm whether the
+   * terminal actually captured the sale.
+   */
+  getLastTransactionInformation(timeoutMs = 15_000): Promise<LastTransactionInformation> {
+    if (!this._terminal) throw new Error('Adapter not initialized');
+    if (!this._terminal.transactionInformationAsync) {
+      return Promise.reject(new Error('transactionInformationAsync not supported by this SDK build'));
+    }
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._pendingTransactionInfo = null;
+        reject(new Error('transactionInformation timed out'));
+      }, timeoutMs);
+
+      this._pendingTransactionInfo = {
+        resolve: (data) => { clearTimeout(timer); resolve(data); },
+        reject:  (err)  => { clearTimeout(timer); reject(err); },
+      };
+
+      try {
+        this._terminal!.transactionInformationAsync!();
+      } catch (err) {
+        clearTimeout(timer);
+        this._pendingTransactionInfo = null;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
   // ── Balance ─────────────────────────────────────────────────────────────────
 
   balance(timeoutMs = 60_000): Promise<Record<string, unknown>> {
@@ -1303,6 +1498,7 @@ export class TimApiAdapter {
     this._pendingCommit      = null;
     this._pendingApplicationInfo = null;
     this._pendingBalance     = null;
+    this._pendingTransactionInfo = null;
     this._logger.info('adapter_disposed', {});
   }
 

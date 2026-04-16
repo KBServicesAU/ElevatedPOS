@@ -31,7 +31,23 @@ export interface RefundRequest {
   intentId?: string;
   posOrderId: string;
   amount: number;
+  /**
+   * Legacy field — kept for backward compat. When present, copied into
+   * `reference.originalTrmTransRef` so existing callers continue to work.
+   */
   originalTransactionRef?: string;
+  /**
+   * Reference-refund data per ANZ Validation §3.6 row 2. When any field is
+   * provided the terminal performs a referenced credit against the original
+   * purchase instead of a standalone credit.
+   */
+  reference?: {
+    originalTrmTransRef?: string;
+    originalAcqTransRef?: string;
+    originalAcqId?:       number;
+    /** ISO date of the original purchase (YYYY-MM-DD) */
+    originalTrxDate?:     string;
+  };
   reason?: string;
   onStateChange?: (state: import('./domain').PaymentIntent) => void;
   onStatusMessage?: (msg: string) => void;
@@ -129,10 +145,31 @@ export interface PaymentProvider {
   reversal(request: ReversalRequest): Promise<PaymentResult>;
 
   /**
+   * Section 3.11 exception recovery: ask the terminal for its view of the
+   * last transaction. Returns transactionRef / authCode / receipts so the
+   * operator can decide how to reconcile an `unknown_outcome` intent.
+   * May throw `UNSUPPORTED_OPERATION` on older SDK builds.
+   */
+  getLastTransactionInformation?(): Promise<LastTransactionInformationResult>;
+
+  /**
    * Gracefully shutdown: Deactivate → Logout → Disconnect → Dispose
    * Per ANZ Validation Section 3.13.
    */
   shutdown(): Promise<void>;
+}
+
+/** §3.11 result shape exposed through the provider surface. */
+export interface LastTransactionInformationResult {
+  transactionRef?: string;
+  acqTransRef?:    string;
+  authCode?:       string;
+  sixTrxRefNum?:   string;
+  cardScheme?:     string;
+  cardLast4?:      string;
+  merchantReceipt?: string;
+  customerReceipt?: string;
+  transactionType?: string;
 }
 
 // ─── Errors ───────────────────────────────────────────────────────────────────

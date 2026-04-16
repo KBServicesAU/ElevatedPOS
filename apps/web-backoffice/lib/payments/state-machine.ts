@@ -75,6 +75,18 @@ export interface StartCreditOptions {
   posOrderId:   string;
   amount:       number;
   currency?:    string;
+  /**
+   * Reference-refund data per §3.6 row 2. When present, the credit is
+   * referenced to the original purchase — no card re-presentation is
+   * required on some acquirers. When omitted, the terminal performs a
+   * standalone credit (§3.6 row 1, card must be presented).
+   */
+  reference?: {
+    originalTrmTransRef?: string;
+    originalAcqTransRef?: string;
+    originalAcqId?:       number;
+    originalTrxDate?:     string;
+  };
   onStateChange?: (intent: PaymentIntent) => void;
   onStatusMessage?: (msg: string) => void;
 }
@@ -313,14 +325,19 @@ export class PaymentStateMachine {
       const amountCents = Math.round(opts.amount * 100);
       let txResult: AdapterTransactionResult;
 
-      const txPromise = adapter.refund(amountCents, (msg) => {
-        opts.onStatusMessage?.(msg);
-        if (msg.toLowerCase().includes('card')) {
-          void this._setState('awaiting_cardholder', msg, opts.onStateChange);
-        } else if (msg.toLowerCase().includes('process') || msg.toLowerCase().includes('authoriz')) {
-          void this._setState('authorizing', msg, opts.onStateChange);
-        }
-      });
+      const txPromise = adapter.refund(
+        amountCents,
+        (msg) => {
+          opts.onStatusMessage?.(msg);
+          if (msg.toLowerCase().includes('card')) {
+            void this._setState('awaiting_cardholder', msg, opts.onStateChange);
+          } else if (msg.toLowerCase().includes('process') || msg.toLowerCase().includes('authoriz')) {
+            void this._setState('authorizing', msg, opts.onStateChange);
+          }
+        },
+        // §3.6 row 2: reference-refund passthrough
+        opts.reference,
+      );
 
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Refund timed out — no response from terminal')), this._opts.transactionTimeoutMs)
