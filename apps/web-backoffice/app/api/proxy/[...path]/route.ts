@@ -441,6 +441,14 @@ async function proxyRequest(request: NextRequest, segments: string[]): Promise<N
       return await ordersStoreFallback(request);
     }
 
+    // Null-body statuses (204/205/304) — the Web Fetch spec forbids passing a
+    // body with these codes. `new Response(text, { status: 204 })` throws
+    // "Invalid response status code 204" which bubbles up as a 503 Service
+    // Unavailable and breaks DELETE flows upstream (e.g. terminal credentials).
+    if (upstream.status === 204 || upstream.status === 205 || upstream.status === 304) {
+      return new NextResponse(null, { status: upstream.status });
+    }
+
     const contentType = upstream.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
       const json = await upstream.json();

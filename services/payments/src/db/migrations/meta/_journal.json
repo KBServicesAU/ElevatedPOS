@@ -50,6 +50,13 @@
       "when": 1776211200000,
       "tag": "0007_eftpos_payment_intents",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776556800000,
+      "tag": "0008_drop_terminal_credentials_unique",
+      "breakpoints": true
     }
   ]
 }

@@ -88,8 +88,12 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
         return (j.data ?? [])
           .filter((c) => c.provider === 'anz' && c.isActive !== false && c.terminalIp)
           .map((c): AnzTerminalOption => {
-            const p    = c.terminalPort;
-            const port = p && p !== 80 && p !== 8080 && p !== 4100 ? p : 7784;
+            // Trust the stored port. SIXml-over-WebSocket defaults to 7784 for
+            // real Castles terminals but the ANZ EftSimulator can be configured
+            // to listen on any port (commonly 80 for its WebSocket mode). The
+            // admin picks the port when they register the terminal — don't
+            // silently rewrite their choice.
+            const port = c.terminalPort && c.terminalPort > 0 ? c.terminalPort : 7784;
             const meta = (c.metadata ?? {}) as AnzTerminalOption['metadata'];
             return {
               id:           c.id,
