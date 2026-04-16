@@ -527,13 +527,17 @@ function ANZPanel() {
     }
 
     // Resolve effective connection target.
-    // If HTTPS + non-loopback → try the local Hardware Bridge.
-    const isLoopback = ip === '127.0.0.1' || ip === 'localhost' || ip === '::1';
+    // If HTTPS → always try the local Hardware Bridge.  Loopback is NOT
+    // a shortcut: our ANZ EftSimulator on 127.0.0.1:7784 speaks raw TCP
+    // not WebSocket, so a direct browser WebSocket handshake against it
+    // fails.  The bridge terminates WebSocket and forwards bytes to the
+    // configured terminal (WebSocket for real Castles, TCP for simulator),
+    // so the page is transport-agnostic.
     const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
     let effectiveIp   = ip;
     let effectivePort = port;
 
-    if (isHttps && !isLoopback) {
+    if (isHttps) {
       // Dynamic import to avoid bundling bridge-health when not needed
       const { isBridgeProxyReady, getBridgePort } = await import('@/lib/bridge-health');
       const bridgeReady = await isBridgeProxyReady(/* force */ true);
@@ -544,7 +548,7 @@ function ANZPanel() {
         toast({
           title: 'Hardware Bridge required',
           description:
-            `Browsers block ws:// connections from HTTPS pages to LAN terminals. ` +
+            `Browsers block ws:// connections from HTTPS pages. ` +
             `Install the ElevatedPOS Hardware Bridge on this machine to enable browser-based terminal testing, ` +
             `or test from the POS device (Settings → ANZ Worldline → Test Connection).`,
           variant: 'destructive',

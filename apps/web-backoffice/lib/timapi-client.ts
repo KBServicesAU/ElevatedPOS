@@ -251,12 +251,20 @@ export class AnzTerminalSession {
         const settings = new timapi.TerminalSettings();
 
         // ── Mixed-content bridge routing ──────────────────────────
-        // HTTPS pages can't open ws:// to LAN IPs. Route through the
-        // local Hardware Bridge proxy if available.
+        // HTTPS pages can't open ws:// to LAN IPs.  Also, our ANZ
+        // EftSimulator on 127.0.0.1:7784 speaks raw TCP not WebSocket —
+        // the browser's WebSocket handshake against it fails
+        // (ta_c_rc_api_connection_lost_terminal).  When a local Hardware
+        // Bridge is running we ALWAYS route through it regardless of
+        // loopback vs LAN, because the bridge:
+        //   • terminates WebSocket from the browser
+        //   • forwards bytes to the configured terminal (LAN Castles
+        //     via WebSocket, or simulator via raw TCP)
+        // so the page doesn't need to know which transport the terminal
+        // actually speaks.
         const isHttps    = typeof window !== 'undefined' && window.location.protocol === 'https:';
-        const isLoopback = /^(127\.|localhost|::1)/.test(config.terminalIp.trim());
 
-        if (isHttps && !isLoopback) {
+        if (isHttps) {
           const bridgeReady = await isBridgeProxyReady();
           if (bridgeReady) {
             settings.connectionIPString = '127.0.0.1';
