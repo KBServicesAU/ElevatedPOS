@@ -571,7 +571,21 @@ export class TimApiAdapter {
       settings.connectionIPString = config.terminalIp.trim();
       settings.connectionIPPort   = config.terminalPort;
     }
-    settings.integratorId       = config.integratorId;
+    // Surface the effective WebSocket target so operators and support can see
+    // exactly what the SDK is about to open (ANZ validation §3.1 requires the
+    // URL to match the simulator / terminal configuration).
+    const effectiveWsUrl = `ws://${settings.connectionIPString}:${settings.connectionIPPort}/SIXml`;
+    this._logger.info('adapter_ws_target', { url: effectiveWsUrl });
+
+    // Fail fast on misconfiguration — empty integratorId causes the SDK to
+    // throw `invalidArgument` with no actionable message, which has surfaced
+    // for operators as a silently-failing Pair button.
+    if (!config.integratorId?.trim()) {
+      throw new Error(
+        'ANZ integrator ID missing. This is the ElevatedPOS vendor ID issued by ANZ Worldline. ' +
+        'Reload POS Settings or contact support — the /api/tyro/config endpoint should provide it.',
+      );
+    }
     settings.autoCommit         = config.autoCommit;
 
     // fetchBrands: automatically retrieve brands during login
@@ -743,9 +757,36 @@ export class TimApiAdapter {
       // ── Connect completed ──────────────────────────────────────────────────
       connectCompleted: (event: TimConnectionEvent) => {
         const ok = event.exception === undefined;
-        this._logger.info('connect_completed', { success: ok });
+        this._logger.info('connect_completed', {
+          success:    ok,
+          resultCode: ok ? undefined : this._resultCodeString(event.exception!.resultCode),
+          message:    ok ? undefined : event.exception!.message,
+        });
         if (ok) {
           this._pendingTransaction?.onStatus?.('Terminal connected');
+          return;
+        }
+        // WebSocket / TCP connect failure — fail pending login/activate
+        // immediately so the operator sees the error in seconds instead of
+        // waiting 30 s for the login() timeout. Common causes: wrong IP/port,
+        // simulator not running, firewall blocking the port.
+        const errMsg = event.exception!.message
+          ?? `connect failed (${this._resultCodeString(event.exception!.resultCode)})`;
+        const err = new Error(errMsg);
+        const pendingLogin = this._pendingLogin;
+        if (pendingLogin) {
+          this._pendingLogin = null;
+          pendingLogin.reject(err);
+        }
+        const pendingActivate = this._pendingActivate;
+        if (pendingActivate) {
+          this._pendingActivate = null;
+          pendingActivate.reject(err);
+        }
+        const pendingTx = this._pendingTransaction;
+        if (pendingTx) {
+          this._pendingTransaction = null;
+          pendingTx.reject(err);
         }
       },
 

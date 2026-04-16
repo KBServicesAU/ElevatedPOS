@@ -95,10 +95,16 @@ export async function GET(request: Request) {
           credentialId: 'local',
         });
       }
+      // No credential assigned to this device and no local fallback.
+      // Still return the vendor integrator ID so that a picker-driven Pair
+      // flow (operator picks an org terminal from the dropdown without ever
+      // saving a device assignment) can still initialise the TIM SDK —
+      // the SDK rejects an empty integratorId with `invalidArgument`.
       return NextResponse.json({
         configured: false,
         provider: null,
         testMode: TYRO_TEST_MODE,
+        integratorId: ANZ_INTEGRATOR_ID,
       });
     }
 
@@ -143,6 +149,7 @@ export async function GET(request: Request) {
       configured: false,
       provider: null,
       testMode: TYRO_TEST_MODE,
+      integratorId: ANZ_INTEGRATOR_ID,
       error: 'Failed to fetch terminal configuration',
     });
   }

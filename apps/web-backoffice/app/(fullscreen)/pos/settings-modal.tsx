@@ -194,16 +194,33 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
 
   // ANZ: Pair Terminal — Connect → Login → Activate (Section 3.1)
   const handleAnzPair = async () => {
-    if (!anzFullConfig) return;
+    if (!anzFullConfig) {
+      if (anzTerminals.length === 0) {
+        setAnzOpStatus('❌ No ANZ terminals registered. Add one in Dashboard → Payments → Terminals first.');
+      } else if (!selectedCredentialId) {
+        setAnzOpStatus('❌ Pick a terminal from the dropdown above, then click Save Selection, before pairing.');
+      } else {
+        setAnzOpStatus('❌ Terminal selection not loaded. Click Save Selection and try again.');
+      }
+      return;
+    }
     setAnzOpLoading(true);
-    setAnzOpStatus('Pairing terminal…');
+    const target = `ws://${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort}/SIXml`;
+    setAnzOpStatus(`Pairing… opening ${target} (check DevTools console for [ANZ-PAY] logs)`);
     try {
       const provider = createAnzPaymentProvider({ config: anzFullConfig });
       await provider.initialize(anzFullConfig);
       await provider.pairTerminal();
-      setAnzOpStatus('✅ Terminal paired — Connect → Login → Activate complete');
+      setAnzOpStatus(`✅ Terminal paired — Connect → Login → Activate complete (${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort})`);
     } catch (err) {
-      setAnzOpStatus(`❌ Pair failed: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      // Common WebSocket/SIXml failure modes — surface actionable hints.
+      const hint = /timed out|timeout/i.test(msg)
+        ? ` — Is the simulator running on ${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort} and accepting WebSocket at /SIXml?`
+        : /refused|failed to fetch|network/i.test(msg)
+          ? ` — Cannot reach ${anzFullConfig.terminalIp}:${anzFullConfig.terminalPort}. Check the simulator/terminal port is open.`
+          : '';
+      setAnzOpStatus(`❌ Pair failed: ${msg}${hint}`);
     } finally {
       setAnzOpLoading(false);
     }
@@ -212,7 +229,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
   // ANZ: Reversal/VOID — voids last terminal transaction (Section 3.9)
   // Section 1.4: "A Reversal/Void does not require a Commit"
   const handleAnzVoid = async () => {
-    if (!anzFullConfig) return;
+    if (!anzFullConfig) { setAnzOpStatus('❌ No terminal selected — pair one first.'); return; }
     const amount = parseFloat(anzVoidAmount);
     if (!amount || amount <= 0) { setAnzOpStatus('❌ Enter a valid amount to void'); return; }
     setAnzOpLoading(true);
@@ -241,7 +258,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
   // ANZ: Credit/Refund transaction (Section 3.6)
   // Section 1.4: "A Credit/Refund needs a Commit" — handled automatically with autoCommit=true
   const handleAnzRefund = async () => {
-    if (!anzFullConfig) return;
+    if (!anzFullConfig) { setAnzOpStatus('❌ No terminal selected — pair one first.'); return; }
     const amount = parseFloat(anzRefundAmount);
     if (!amount || amount <= 0) { setAnzOpStatus('❌ Enter a valid refund amount'); return; }
     setAnzOpLoading(true);
@@ -271,7 +288,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
   // without needing a full cart/checkout flow. Covers PIN / Contactless / Signature
   // depending on how the cardholder presents the card at the terminal.
   const handleAnzPurchase = async () => {
-    if (!anzFullConfig) return;
+    if (!anzFullConfig) { setAnzOpStatus('❌ No terminal selected — pair one first.'); return; }
     const amount = parseFloat(anzPurchaseAmount);
     if (!amount || amount <= 0) { setAnzOpStatus('❌ Enter a valid purchase amount'); return; }
     setAnzOpLoading(true);
@@ -300,7 +317,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
 
   // ANZ: Shutdown (Section 3.13) — Deactivate → Logout → Disconnect → Dispose
   const handleAnzShutdown = async () => {
-    if (!anzFullConfig) return;
+    if (!anzFullConfig) { setAnzOpStatus('❌ No terminal selected — pair one first.'); return; }
     setAnzOpLoading(true);
     setAnzOpStatus('Shutting down terminal session…');
     try {
@@ -317,7 +334,7 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
 
   // ANZ: End of Day — Deactivate → Balance (Section 3.10)
   const handleAnzEndOfDay = async () => {
-    if (!anzFullConfig) return;
+    if (!anzFullConfig) { setAnzOpStatus('❌ No terminal selected — pair one first.'); return; }
     setAnzOpLoading(true);
     setAnzOpStatus('Running end of day…');
     try {
