@@ -596,14 +596,26 @@ function ANZPanel() {
           ecrInfo.integratorSolution = 'ElevatedPOS-ANZ-v26-01';
           t.addEcrData(ecrInfo);
 
-          // ── 4. Disable terminal printing — POS handles receipts ──────
-          const merchantOpt = new tim.PrintOption();
-          merchantOpt.recipient = tim.constants.Recipient.merchant;
-          merchantOpt.isEnabled = false;
-          const cardholderOpt = new tim.PrintOption();
-          cardholderOpt.recipient = tim.constants.Recipient.cardholder;
-          cardholderOpt.isEnabled = false;
-          t.setPrintOptions([merchantOpt, cardholderOpt]);
+          // ── 4. Terminal sends receipt data to ECR, POS handles the actual
+          //      printing.  PrintOption is frozen after construction (it calls
+          //      Object.freeze(this) in its constructor), so ALL options must
+          //      be passed to the constructor — field assignment after the
+          //      fact throws "Cannot assign to read only property 'recipient'".
+          //      Signature: new PrintOption(recipient, printFormat, width, flags)
+          t.setPrintOptions([
+            new tim.PrintOption(
+              tim.constants.Recipient.merchant,
+              tim.constants.PrintFormat.normal,
+              40,
+              [],
+            ),
+            new tim.PrintOption(
+              tim.constants.Recipient.cardholder,
+              tim.constants.PrintFormat.normal,
+              40,
+              [],
+            ),
+          ]);
 
           // ── 5. Pair lifecycle ────────────────────────────────────────
           let paired = false;

@@ -30,7 +30,13 @@ interface _TimApiNamespace {
   Terminal:         new (settings: _TimApiSettings) => _TimApiTerminal;
   Amount:           new (amountCents: number, currency: string) => object;
   EcrInfo:          new () => _TimApiEcrInfo;
-  PrintOption:      new () => _TimApiPrintOption;
+  PrintOption: new (
+    recipient: _TimApiEnumValue,
+    printFormat: _TimApiEnumValue,
+    printWidth: number,
+    printFlags: _TimApiEnumValue[],
+    receiptSuppressionFlag?: _TimApiEnumValue,
+  ) => _TimApiPrintOption;
   constants: {
     TransactionType: {
       purchase:  _TimApiEnumValue;
@@ -40,6 +46,11 @@ interface _TimApiNamespace {
     Currency:    { AUD: string };
     EcrInfoType: { ecrApplication: _TimApiEnumValue };
     Recipient:   { merchant: _TimApiEnumValue; cardholder: _TimApiEnumValue };
+    PrintFormat: {
+      normal:    _TimApiEnumValue;
+      noPrint:   _TimApiEnumValue;
+      onDevice?: _TimApiEnumValue;
+    };
     Guides:      { retail: _TimApiEnumValue };
   };
 }
@@ -64,10 +75,9 @@ interface _TimApiEcrInfo {
   integratorSolution?: string;
 }
 
-interface _TimApiPrintOption {
-  recipient?: _TimApiEnumValue;
-  isEnabled?: boolean;
-}
+// PrintOption is frozen after construction by the SDK. Treat it as opaque —
+// all options must be passed to the constructor (see _TimApiNamespace.PrintOption).
+type _TimApiPrintOption = Readonly<object>;
 
 interface _TimApiTerminal {
   setPosId(id: string): void;
@@ -285,16 +295,26 @@ export class AnzTerminalSession {
         ecrInfo.version         = '1.0';
         terminal.addEcrData(ecrInfo);
 
-        // PrintOptions — POS handles printing, disable terminal printing
-        const merchantOpt = new timapi.PrintOption();
-        merchantOpt.recipient = timapi.constants.Recipient.merchant;
-        merchantOpt.isEnabled = false;
-
-        const cardholderOpt = new timapi.PrintOption();
-        cardholderOpt.recipient = timapi.constants.Recipient.cardholder;
-        cardholderOpt.isEnabled = false;
-
-        terminal.setPrintOptions([merchantOpt, cardholderOpt]);
+        // PrintOptions — terminal sends receipt data to ECR, POS handles the
+        // printing.  PrintOption is frozen after construction (it calls
+        // Object.freeze(this) in its constructor), so ALL options must be
+        // passed to the constructor — field assignment after the fact throws
+        // "Cannot assign to read only property 'recipient'".
+        // Signature: new PrintOption(recipient, printFormat, width, flags)
+        terminal.setPrintOptions([
+          new timapi.PrintOption(
+            timapi.constants.Recipient.merchant,
+            timapi.constants.PrintFormat.normal,
+            40,
+            [],
+          ),
+          new timapi.PrintOption(
+            timapi.constants.Recipient.cardholder,
+            timapi.constants.PrintFormat.normal,
+            40,
+            [],
+          ),
+        ]);
 
         terminal.addListener({
           transactionCompleted: (event: _TimApiTransactionEvent, data: _TimApiTransactionResponse) => {
