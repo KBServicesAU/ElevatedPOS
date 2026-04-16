@@ -1,13 +1,26 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug, Monitor, CreditCard, Wifi, BookOpen, RotateCcw, RefreshCw, Download, ShoppingCart, Power } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { X, Printer, Bluetooth, Usb, Cable, CheckCircle, AlertCircle, Settings, Unplug, Monitor, CreditCard, Wifi, BookOpen, RotateCcw, RefreshCw, Download, ShoppingCart, Power, Save, ChevronDown } from 'lucide-react';
 import { usePrinter } from './printer-context';
 import type { DeviceInfo } from '@/lib/device-auth';
 import { createAnzPaymentProvider, downloadPaymentLogs } from '@/lib/payments';
 import type { TimConfig } from '@/lib/payments';
 
 type ConnectionMethod = 'serial' | 'usb' | 'bluetooth';
+
+// Shape returned by /api/proxy/terminal/credentials for ANZ rows
+interface AnzTerminalOption {
+  id:           string;
+  label:        string | null;
+  terminalIp:   string;
+  terminalPort: number;
+  metadata: {
+    autoCommit?:           boolean;
+    printMerchantReceipt?: boolean;
+    printCustomerReceipt?: boolean;
+  };
+}
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -25,6 +38,14 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
 
   const [terminalProvider, setTerminalProvider] = useState<string | null>(null);
   const [terminalIp, setTerminalIp] = useState<string | null>(null);
+  const [integratorId, setIntegratorId] = useState<string>('');
+
+  // Multi-terminal selector state
+  const [anzTerminals, setAnzTerminals]             = useState<AnzTerminalOption[]>([]);
+  const [selectedCredentialId, setSelectedCredentialId] = useState<string | null>(null);
+  const [savingSelection, setSavingSelection]       = useState(false);
+  const [selectionDirty, setSelectionDirty]         = useState(false);
+  const [selectorLoading, setSelectorLoading]       = useState(true);
 
   const [anzFullConfig, setAnzFullConfig] = useState<TimConfig | null>(null);
   const [anzOpStatus, setAnzOpStatus] = useState<string | null>(null);
@@ -33,25 +54,77 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
   const [anzRefundAmount, setAnzRefundAmount] = useState('');
   const [anzPurchaseAmount, setAnzPurchaseAmount] = useState('');
 
-  // Fetch terminal config once on mount
+  // Build a TimConfig from a selected ANZ row, using the org-level integrator ID
+  const buildAnzConfig = useCallback((row: AnzTerminalOption, integrator: string): TimConfig => ({
+    terminalIp:           row.terminalIp,
+    // 7784 is the real ANZ SIXml WebSocket port (validation doc v26-01)
+    terminalPort:         row.terminalPort || 7784,
+    integratorId:         integrator,
+    autoCommit:           row.metadata.autoCommit ?? true,
+    fetchBrands:          true,
+    dcc:                  false,
+    partialApproval:      false,
+    tipAllowed:           false,
+    printMerchantReceipt: row.metadata.printMerchantReceipt ?? false,
+    printCustomerReceipt: row.metadata.printCustomerReceipt ?? false,
+  }), []);
+
+  // Fetch terminal config + available org ANZ terminals on mount
   useEffect(() => {
     const deviceId = deviceInfo?.deviceId ?? null;
-    const url = deviceId ? `/api/tyro/config?deviceId=${deviceId}` : '/api/tyro/config';
-    fetch(url)
+
+    // ── 1. Resolve the currently assigned terminal (for the Payment row + default selection)
+    const configUrl = deviceId ? `/api/tyro/config?deviceId=${deviceId}` : '/api/tyro/config';
+    const configP = fetch(configUrl)
       .then((r) => {
         if (!r.ok || !r.headers.get('content-type')?.includes('application/json')) return null;
-        return r.json() as Promise<{ configured?: boolean; provider?: string; terminalIp?: string; terminalPort?: number; integratorId?: string } | null>;
+        return r.json() as Promise<{ configured?: boolean; provider?: string; terminalIp?: string; terminalPort?: number; integratorId?: string; credentialId?: string } | null>;
+      });
+
+    // ── 2. List all ANZ terminals registered for the org so the operator can switch
+    const terminalsP = fetch('/api/proxy/terminal/credentials')
+      .then((r) => r.ok ? r.json() : Promise.resolve({ data: [] }))
+      .then((j: { data?: Array<{ id: string; provider: string; terminalIp?: string; terminalPort?: number; label?: string; isActive?: boolean; metadata?: Record<string, unknown> }> }) => {
+        return (j.data ?? [])
+          .filter((c) => c.provider === 'anz' && c.isActive !== false && c.terminalIp)
+          .map((c): AnzTerminalOption => {
+            const p    = c.terminalPort;
+            const port = p && p !== 80 && p !== 8080 && p !== 4100 ? p : 7784;
+            const meta = (c.metadata ?? {}) as AnzTerminalOption['metadata'];
+            return {
+              id:           c.id,
+              label:        c.label ?? null,
+              terminalIp:   c.terminalIp!,
+              terminalPort: port,
+              metadata:     meta,
+            };
+          });
       })
-      .then((data) => {
-        if (data?.configured && data.provider) {
-          setTerminalProvider(data.provider);
-          setTerminalIp(data.terminalIp ?? null);
-          if (data.provider === 'anz' && data.terminalIp) {
+      .catch(() => [] as AnzTerminalOption[]);
+
+    Promise.all([configP, terminalsP]).then(([data, terminals]) => {
+      setAnzTerminals(terminals);
+      setSelectorLoading(false);
+
+      const integrator = data?.integratorId ?? '';
+      setIntegratorId(integrator);
+
+      if (data?.configured && data.provider) {
+        setTerminalProvider(data.provider);
+        setTerminalIp(data.terminalIp ?? null);
+        if (data.provider === 'anz' && data.terminalIp) {
+          const credId = data.credentialId ?? null;
+          setSelectedCredentialId(credId);
+
+          // Prefer the row from the credentials list so we pick up its metadata
+          const row = terminals.find((t) => t.id === credId) ?? null;
+          if (row) {
+            setAnzFullConfig(buildAnzConfig(row, integrator));
+          } else {
             setAnzFullConfig({
               terminalIp:           data.terminalIp,
-              // 7784 is the real ANZ SIXml WebSocket port (validation doc v26-01)
               terminalPort:         data.terminalPort ?? 7784,
-              integratorId:         data.integratorId ?? '',
+              integratorId:         integrator,
               autoCommit:           true,
               fetchBrands:          true,
               dcc:                  false,
@@ -62,9 +135,58 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
             });
           }
         }
-      })
-      .catch(() => {});
-  }, [deviceInfo?.deviceId]);
+      } else if (terminals.length > 0) {
+        // Device has nothing assigned yet — surface the picker so the operator can choose
+        setTerminalProvider('anz');
+      }
+    }).catch(() => {
+      setSelectorLoading(false);
+    });
+  }, [deviceInfo?.deviceId, buildAnzConfig]);
+
+  // Operator picked a different ANZ terminal from the dropdown — update preview config
+  const handleSelectTerminal = (id: string) => {
+    setSelectedCredentialId(id || null);
+    setSelectionDirty(true);
+    const row = anzTerminals.find((t) => t.id === id);
+    if (row) {
+      setTerminalIp(row.terminalIp);
+      setTerminalProvider('anz');
+      setAnzFullConfig(buildAnzConfig(row, integratorId));
+    }
+  };
+
+  // Persist the selection to the device-payment-config row
+  const handleSaveSelection = async () => {
+    if (!deviceInfo?.deviceId) {
+      setAnzOpStatus('❌ No device ID — re-pair this POS before saving a terminal.');
+      return;
+    }
+    setSavingSelection(true);
+    setAnzOpStatus('Saving terminal selection…');
+    try {
+      // Preserve any existing enabledMethods by fetching current config first
+      const currentRes = await fetch(`/api/proxy/terminal/device-config/${deviceInfo.deviceId}`);
+      const currentJson: { data?: { enabledMethods?: string[] } | null } = currentRes.ok ? await currentRes.json() : {};
+      const enabledMethods = currentJson.data?.enabledMethods ?? ['cash', 'card'];
+
+      const res = await fetch(`/api/proxy/terminal/device-config/${deviceInfo.deviceId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabledMethods,
+          terminalCredentialId: selectedCredentialId,
+        }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      setSelectionDirty(false);
+      setAnzOpStatus('✅ Terminal saved for this register — Pair Terminal to activate');
+    } catch (err) {
+      setAnzOpStatus(`❌ Save failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSavingSelection(false);
+    }
+  };
 
   // ANZ: Pair Terminal — Connect → Login → Activate (Section 3.1)
   const handleAnzPair = async () => {
@@ -297,14 +419,57 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
           </div>
 
           {/* ANZ Terminal Management (Section 3.1 + 3.10 + 3.13) */}
-          {terminalProvider === 'anz' && anzFullConfig && (
+          {(terminalProvider === 'anz' || anzTerminals.length > 0) && (
             <div className="bg-[#0f0f0f] rounded-xl p-4 flex flex-col gap-3">
               <div className="flex items-center gap-2 mb-1">
                 <CreditCard size={15} className="text-blue-400" />
                 <span className="text-white text-sm font-medium">ANZ Worldline Terminal</span>
               </div>
-              <p className="text-[11px] text-gray-500">
-                {terminalIp} — ANZ TIM API lifecycle management
+
+              {/* Terminal picker — lists all org-registered ANZ terminals so the operator
+                  can point this register at a specific device and save the assignment.
+                  Terminals are added in Dashboard → Payments → Terminals. */}
+              {selectorLoading ? (
+                <p className="text-[11px] text-gray-500">Loading terminals…</p>
+              ) : anzTerminals.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-white/10 bg-white/[0.02] px-3 py-2.5 text-xs text-gray-400">
+                  No ANZ terminals registered for this organisation. An admin must add one in{' '}
+                  <span className="font-medium text-blue-300">Dashboard → Payments → Terminals</span> first.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <label className="text-[11px] text-gray-500 uppercase tracking-wide">Terminal for this register</label>
+                  <div className="relative">
+                    <select
+                      value={selectedCredentialId ?? ''}
+                      onChange={(e) => handleSelectTerminal(e.target.value)}
+                      disabled={savingSelection}
+                      className="appearance-none w-full rounded-lg bg-[#1a1a2e] border border-white/10 pl-3 pr-9 py-2.5 text-sm text-white focus:outline-none focus:border-blue-600/50 disabled:opacity-50"
+                    >
+                      <option value="" disabled>— Select a terminal —</option>
+                      {anzTerminals.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {(t.label ?? 'Terminal')} · {t.terminalIp}:{t.terminalPort}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                  </div>
+                  <button
+                    onClick={handleSaveSelection}
+                    disabled={savingSelection || !selectedCredentialId || !selectionDirty}
+                    className="flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Save size={13} />
+                    {savingSelection ? 'Saving…' : selectionDirty ? 'Save Selection' : 'Saved'}
+                  </button>
+                </div>
+              )}
+
+              {anzFullConfig && (
+              <>
+              <p className="text-[11px] text-gray-500 pt-1 border-t border-white/5">
+                Active: {anzFullConfig.terminalIp}:{anzFullConfig.terminalPort} — ANZ TIM API lifecycle management
               </p>
 
               {/* Pair Terminal — Connect → Login → Activate */}
@@ -410,8 +575,11 @@ export function SettingsModal({ onClose, onConnect, deviceInfo, onUnpair }: Sett
                 <Download size={12} />
                 Download Payment Logs (ANZ Validation)
               </button>
+              </>
+              )}
 
-              {/* Status message */}
+              {/* Status message — rendered outside the config gate so Save Selection
+                  feedback is visible before the operator has paired a terminal. */}
               {anzOpStatus && (
                 <p className="text-xs rounded-lg bg-[#1a1a2e] px-3 py-2 text-gray-300 break-words">
                   {anzOpStatus}

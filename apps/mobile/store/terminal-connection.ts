@@ -42,8 +42,14 @@ interface TerminalConnectionState {
 
   /** Fetch available credentials from server */
   fetchCredentials: () => Promise<void>;
-  /** Select a credential (persists to AsyncStorage) */
+  /** Select a credential locally (persists to AsyncStorage but does NOT hit the server) */
   setSelectedId: (id: string | null) => Promise<void>;
+  /**
+   * Persist the current selection to the server (device_payment_configs) so
+   * that any other process looking up the device's assigned terminal sees the
+   * same value. Also updates AsyncStorage.
+   */
+  persistSelection: (id: string | null) => Promise<void>;
   /** Load saved selection from AsyncStorage */
   hydrateSelection: () => Promise<void>;
   /** Mark pairing as in progress */
@@ -85,6 +91,27 @@ export const useTerminalConnectionStore = create<TerminalConnectionState>((set, 
         await AsyncStorage.removeItem(STORAGE_KEY);
       }
     } catch { /* ignore storage errors */ }
+  },
+
+  persistSelection: async (id) => {
+    // 1. Update local state + AsyncStorage first so the UI reflects the
+    //    selection even if the network is flaky.
+    set({ selectedId: id, pairingStatus: 'idle', errorMessage: null });
+    try {
+      if (id) {
+        await AsyncStorage.setItem(STORAGE_KEY, id);
+      } else {
+        await AsyncStorage.removeItem(STORAGE_KEY);
+      }
+    } catch { /* ignore storage errors */ }
+
+    // 2. Sync to the server so this register's config in device_payment_configs
+    //    points at the right terminal credential. Errors bubble up so the UI
+    //    can surface a toast.
+    await deviceApiFetch('/api/v1/devices/terminal-selection', {
+      method: 'PUT',
+      body:   JSON.stringify({ terminalCredentialId: id }),
+    });
   },
 
   hydrateSelection: async () => {

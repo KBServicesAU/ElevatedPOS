@@ -541,6 +541,79 @@ export async function deviceRoutes(app: FastifyInstance) {
   });
 
   /**
+   * PUT /api/v1/devices/terminal-selection
+   *
+   * Saves which terminal credential this device (POS register) should use for
+   * EFTPOS transactions. The POS app calls this from its settings screen after
+   * the operator picks a terminal from the dropdown populated by
+   * `GET /api/v1/devices/terminals`.
+   *
+   * Body: { terminalCredentialId: string | null, enabledMethods?: string[] }
+   *
+   * Auth: device token (Bearer) — the selection is scoped to the calling
+   * device, so no deviceId is taken from the URL.
+   *
+   * Proxies to PUT /api/v1/terminal/device-config/:deviceId using a short-lived
+   * service JWT so that user/staff auth isn't required from the device side.
+   */
+  app.put('/terminal-selection', async (request, reply) => {
+    const header = request.headers['authorization'];
+    if (!header?.startsWith('Bearer ')) return reply.status(401).send({ title: 'Unauthorized', status: 401 });
+    const token = header.slice(7);
+    const tokenHash = hashToken(token);
+
+    const device = await db.query.devices.findFirst({
+      where: and(eq(schema.devices.tokenHash, tokenHash), eq(schema.devices.status, 'active')),
+    });
+    if (!device) return reply.status(401).send({ title: 'Device not found or revoked', status: 401 });
+
+    const body = (request.body ?? {}) as {
+      terminalCredentialId?: string | null;
+      enabledMethods?: string[];
+    };
+
+    // enabledMethods is required by the payments-service schema. When the POS
+    // doesn't care (it's just saving the terminal pick) default to the sensible
+    // set of methods we enabled by default before this field existed.
+    const enabledMethods = Array.isArray(body.enabledMethods) && body.enabledMethods.length > 0
+      ? body.enabledMethods
+      : ['cash', 'card'];
+
+    const PAYMENTS_URL = process.env['PAYMENTS_API_URL'] ?? 'http://payments:4005';
+
+    try {
+      const serviceToken = app.jwt.sign(
+        { sub: 'service:auth', orgId: device.orgId, iss: 'elevatedpos-auth' },
+        { expiresIn: '60s' },
+      );
+
+      const res = await fetch(`${PAYMENTS_URL}/api/v1/terminal/device-config/${device.id}`, {
+        method:  'PUT',
+        headers: { Authorization: `Bearer ${serviceToken}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          enabledMethods,
+          terminalCredentialId: body.terminalCredentialId ?? null,
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        return reply.status(502).send({
+          title:  'Could not save terminal selection',
+          status: 502,
+          detail: text || `Upstream responded ${res.status}`,
+        });
+      }
+
+      const json = await res.json();
+      return reply.send(json);
+    } catch (err) {
+      console.warn('[devices/terminal-selection] Could not save via payments service:', err);
+      return reply.status(502).send({ title: 'Terminal service unavailable', status: 502 });
+    }
+  });
+
+  /**
    * PUT /api/v1/devices/:id/settings
    *
    * Saves per-device settings (customer display, etc.) from the dashboard.

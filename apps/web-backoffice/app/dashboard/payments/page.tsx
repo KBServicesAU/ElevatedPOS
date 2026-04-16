@@ -411,294 +411,292 @@ function loadTimApiScript(): Promise<void> {
   return w.__timapiLoading;
 }
 
-function ANZPanel() {
-  const { toast } = useToast();
-  const [loading, setLoading]           = useState(true);
-  const [credentialId, setCredentialId] = useState<string | null>(null);
-  const [terminalIp, setTerminalIp]     = useState('');
-  const [terminalPort, setTerminalPort] = useState(String(DEFAULT_ANZ_PORT));
-  const [terminalLabel, setTerminalLabel] = useState('');
-  const [autoCommit, setAutoCommit]     = useState(false);
-  const [printMerchant, setPrintMerchant] = useState(false);
-  const [printCustomer, setPrintCustomer] = useState(false);
-  const [connected, setConnected]       = useState(false);
-  const [saving, setSaving]             = useState(false);
-  const [testing, setTesting]           = useState(false);
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
+// ─── Shared: ANZ terminal row shape ───────────────────────────────────────────
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        // GET returns { data: [...] } — find the ANZ credential
-        const res = await apiFetch<{
-          data?: Array<{ id: string; provider: string; terminalIp?: string; terminalPort?: number; label?: string; metadata?: Record<string, unknown> }>;
-          terminalIp?: string; terminalPort?: number; terminalLabel?: string;
-          autoCommit?: boolean; printMerchantReceipt?: boolean; printCustomerReceipt?: boolean;
-        }>('terminal/credentials');
+interface AnzTerminalRow {
+  id:           string;
+  label:        string | null;
+  terminalIp:   string;
+  terminalPort: number;
+  isActive:     boolean;
+  metadata: {
+    autoCommit?:            boolean;
+    printMerchantReceipt?:  boolean;
+    printCustomerReceipt?:  boolean;
+  };
+}
 
-        // Normalise: handle both { data: [...] } array response and legacy flat object
-        const anz = res.data
-          ? res.data.find((c) => c.provider === 'anz' && (c as any).isActive !== false)
-          : (res.terminalIp ? res as any : null);
+// ─── Shared: TIM pair-lifecycle test (parameterised by IP/port) ───────────────
 
-        if (anz?.terminalIp) {
-          setCredentialId(anz.id ?? null);
-          setTerminalIp(anz.terminalIp);
-          // Migrate known-bad legacy ports (80 / 8080 / 4100) to the real
-          // SIXml default (7784). Any other persisted value is preserved.
-          const p = anz.terminalPort;
-          const migrated = p && p !== 80 && p !== 8080 && p !== 4100 ? p : DEFAULT_ANZ_PORT;
-          setTerminalPort(String(migrated));
-          setTerminalLabel(anz.label ?? anz.terminalLabel ?? '');
-          const meta = anz.metadata ?? {};
-          setAutoCommit((meta.autoCommit as boolean) ?? anz.autoCommit ?? false);
-          setPrintMerchant((meta.printMerchantReceipt as boolean) ?? anz.printMerchantReceipt ?? false);
-          setPrintCustomer((meta.printCustomerReceipt as boolean) ?? anz.printCustomerReceipt ?? false);
-          setConnected(true);
-        }
-      } catch { /* not configured */ }
-      finally { setLoading(false); }
-    })();
-  }, []);
+/**
+ * Runs a real TIM API pair lifecycle against a specific terminal. Returns
+ * on success or rejects with a descriptive error. Loads the ANZ Worldline
+ * JavaScript SDK, wires up the Terminal, and starts a 1-cent dummy purchase
+ * purely to trigger the pre-automatisms (connect → login → activate) — as
+ * soon as `activateCompleted` fires we cancel the transaction.
+ *
+ * Mixed content caveat: browsers block ws:// from an https:// origin unless
+ * the target is loopback. For LAN IPs we auto-route through the local
+ * Hardware Bridge (ws://127.0.0.1:9999) which proxies to the real terminal.
+ * Even loopback goes through the bridge because our ANZ EftSimulator speaks
+ * raw TCP (not WebSocket) — the bridge transparently bridges transports.
+ */
+async function runTimPairLifecycle(
+  ip: string,
+  port: number,
+): Promise<{ viaBridge: boolean }> {
+  const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  let effectiveIp   = ip;
+  let effectivePort = port;
+  let viaBridge     = false;
 
-  async function handleSave() {
-    if (!terminalIp.trim()) { toast({ title: 'Terminal IP is required', variant: 'destructive' }); return; }
-    const port = Number(terminalPort);
-    if (!port || port < 1 || port > 65535) { toast({ title: 'Enter a valid port (1–65535)', variant: 'destructive' }); return; }
-    setSaving(true);
-    const payload = {
-      // Include id when updating to avoid duplicate-key error (POST is upsert when id present)
-      ...(credentialId ? { id: credentialId } : {}),
-      provider: 'anz' as const,
-      terminalIp: terminalIp.trim(),
-      terminalPort: port,
-      label: terminalLabel.trim() || undefined,
-      metadata: { autoCommit, printMerchantReceipt: printMerchant, printCustomerReceipt: printCustomer },
-    };
-    try {
-      // Try the payments microservice first
-      const saved = await apiFetch<{ data?: { id?: string } }>('terminal/credentials', { method: 'POST', body: JSON.stringify(payload) });
-      if (saved?.data?.id) setCredentialId(saved.data.id);
-      setConnected(true);
-      toast({ title: 'ANZ Worldline settings saved', variant: 'success' });
-    } catch {
-      // Payments service not available — fall back to local file store (dev / demo mode)
-      try {
-        const res = await fetch('/api/anz/local-config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) throw new Error('local save failed');
-        setConnected(true);
-        toast({ title: 'ANZ settings saved (local dev mode)', variant: 'success' });
-      } catch {
-        toast({ title: 'Save failed', variant: 'destructive' });
-      }
-    } finally {
-      setSaving(false);
+  if (isHttps) {
+    const { isBridgeProxyReady, getBridgePort } = await import('@/lib/bridge-health');
+    const bridgeReady = await isBridgeProxyReady(/* force */ true);
+    if (bridgeReady) {
+      effectiveIp   = '127.0.0.1';
+      effectivePort = getBridgePort();
+      viaBridge     = true;
+    } else {
+      throw new Error(
+        'Hardware Bridge required — browsers block ws:// from HTTPS pages. ' +
+        'Install the ElevatedPOS Hardware Bridge, or test from the POS device.',
+      );
     }
   }
 
-  /**
-   * Runs a real TIM API pair lifecycle against the configured terminal.
-   *
-   * Loads the ANZ Worldline JavaScript SDK (/timapi/timapi.js) into the
-   * current page, constructs a Terminal with the same settings used on the
-   * mobile app, and starts a 1-cent dummy purchase purely to trigger the
-   * pre-automatisms (connect → login → activate). As soon as
-   * `activateCompleted` fires successfully we cancel the transaction and
-   * report the terminal as reachable.
-   *
-   * Mixed content caveat: browsers block ws:// connections from an https://
-   * origin unless the target is loopback (127.0.0.1 / localhost / ::1). For
-   * LAN IPs we auto-route through the local Hardware Bridge (ws://127.0.0.1:9999)
-   * which proxies to the real terminal.  If the bridge is not running we tell
-   * the operator to install it or test from the POS device.
-   */
-  async function handleTest() {
-    const ip = terminalIp.trim();
-    const port = Number(terminalPort) || DEFAULT_ANZ_PORT;
+  await loadTimApiScript();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tim = (window as any).timapi;
+  if (!tim || typeof tim.Terminal !== 'function') {
+    throw new Error('TIM API SDK loaded but window.timapi.Terminal is missing');
+  }
 
-    if (!ip) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let terminalRef: any = null;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      try {
+        const settings = new tim.TerminalSettings();
+        settings.connectionIPString = effectiveIp;
+        settings.connectionIPPort   = effectivePort;
+        settings.integratorId       = ANZ_DEFAULT_INTEGRATOR_ID;
+        settings.autoCommit         = true;
+        settings.fetchBrands        = true;
+        settings.dcc                = false;
+        settings.partialApproval    = false;
+        settings.tipAllowed         = false;
+        settings.enableKeepAlive    = true;
+
+        terminalRef = new tim.Terminal(settings);
+        const t = terminalRef;
+        t.setPosId('1');
+        t.setUserId(1);
+
+        const ecrInfo = new tim.EcrInfo();
+        ecrInfo.type               = tim.constants.EcrInfoType.ecrApplication;
+        ecrInfo.name               = 'ElevatedPOS Dashboard';
+        ecrInfo.manufacturerName   = 'ElevatedPOS Pty Ltd';
+        ecrInfo.version            = '1.0';
+        ecrInfo.integratorSolution = 'ElevatedPOS-ANZ-v26-01';
+        t.addEcrData(ecrInfo);
+
+        // PrintOption is frozen after construction — all options must pass
+        // via the constructor. Signature: (recipient, format, width, flags)
+        t.setPrintOptions([
+          new tim.PrintOption(tim.constants.Recipient.merchant,   tim.constants.PrintFormat.normal, 40, []),
+          new tim.PrintOption(tim.constants.Recipient.cardholder, tim.constants.PrintFormat.normal, 40, []),
+        ]);
+
+        let paired = false;
+        timeoutId = setTimeout(() => {
+          if (paired) return;
+          try { t.cancel(); } catch { /* ignore */ }
+          reject(new Error(`Connection timed out — no response from ${ip}:${port} after 30s`));
+        }, 30_000);
+
+        // SDK WASM layer calls every listener callback unconditionally via
+        // forEach(each => each.xxxCompleted(...)). Missing methods throw
+        // TypeError which spams [SEVERE] in ANZ validation logs.
+        /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-function */
+        const noop = (_e?: any) => {};
+        t.addListener({
+          activateCompleted: (event: any) => {
+            if (event?.exception === undefined && !paired) {
+              paired = true;
+              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+              try { t.cancel(); } catch { /* ignore */ }
+              resolve();
+            }
+          },
+          transactionCompleted: (event: any) => {
+            if (paired) return;
+            if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+            const exc = event?.exception;
+            const code = exc?.resultCode;
+            const codeStr = typeof code === 'string' ? code : (code?.name ?? '');
+            const msg = exc?.message
+              ?? (codeStr ? `Terminal unreachable (${codeStr})` : 'Terminal unreachable');
+            reject(new Error(msg));
+          },
+          connectCompleted:                noop,
+          disconnectCompleted:             noop,
+          loginCompleted:                  noop,
+          logoutCompleted:                 noop,
+          terminalStatusChanged:           noop,
+          applicationInformationCompleted: noop,
+          applicationInformation:          noop,
+          systemInformationCompleted:      noop,
+          balanceCompleted:                noop,
+          reconciliationCompleted:         noop,
+          reservationCompleted:            noop,
+          reconfigCompleted:               noop,
+          counterRequestCompleted:         noop,
+          deactivateCompleted:             noop,
+          hardwareInformationCompleted:    noop,
+          softwareUpdateCompleted:         noop,
+          commitCompleted:                 noop,
+          rollbackCompleted:               noop,
+          cancelCompleted:                 noop,
+          printReceipts:                   noop,
+          referenceNumberRequest:          noop,
+        } as any);
+        /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-function */
+
+        t.transactionAsync(
+          tim.constants.TransactionType.purchase,
+          new tim.Amount(1, tim.constants.Currency.AUD),
+        );
+      } catch (innerErr) {
+        reject(innerErr instanceof Error ? innerErr : new Error(String(innerErr)));
+      }
+    });
+
+    return { viaBridge };
+  } catch (err) {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (terminalRef && typeof terminalRef.cancel === 'function') {
+      try { terminalRef.cancel(); } catch { /* ignore */ }
+    }
+    throw err;
+  }
+}
+
+// ─── ANZ multi-terminal panel ─────────────────────────────────────────────────
+
+function ANZPanel() {
+  const { toast } = useToast();
+  const [loading, setLoading]   = useState(true);
+  const [terminals, setTerminals] = useState<AnzTerminalRow[]>([]);
+  const [editing, setEditing]   = useState<AnzTerminalRow | 'new' | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const loadTerminals = useCallback(async () => {
+    try {
+      const res = await apiFetch<{
+        data?: Array<{ id: string; provider: string; terminalIp?: string; terminalPort?: number; label?: string; isActive?: boolean; metadata?: Record<string, unknown> }>;
+      }>('terminal/credentials');
+
+      const anz = (res.data ?? [])
+        .filter((c) => c.provider === 'anz' && c.isActive !== false && c.terminalIp)
+        .map((c): AnzTerminalRow => {
+          // Migrate legacy bad ports (80/8080/4100) to SIXml default
+          const p = c.terminalPort;
+          const port = p && p !== 80 && p !== 8080 && p !== 4100 ? p : DEFAULT_ANZ_PORT;
+          const meta = (c.metadata ?? {}) as AnzTerminalRow['metadata'];
+          return {
+            id:           c.id,
+            label:        c.label ?? null,
+            terminalIp:   c.terminalIp!,
+            terminalPort: port,
+            isActive:     c.isActive !== false,
+            metadata: {
+              autoCommit:           Boolean(meta.autoCommit),
+              printMerchantReceipt: Boolean(meta.printMerchantReceipt),
+              printCustomerReceipt: Boolean(meta.printCustomerReceipt),
+            },
+          };
+        });
+      setTerminals(anz);
+    } catch {
+      setTerminals([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadTerminals(); }, [loadTerminals]);
+
+  async function handleSave(draft: {
+    id?: string;
+    label: string;
+    terminalIp: string;
+    terminalPort: number;
+    metadata: AnzTerminalRow['metadata'];
+  }) {
+    const payload = {
+      ...(draft.id ? { id: draft.id } : {}),
+      provider:     'anz' as const,
+      terminalIp:   draft.terminalIp.trim(),
+      terminalPort: draft.terminalPort,
+      label:        draft.label.trim() || undefined,
+      metadata:     draft.metadata,
+    };
+    try {
+      await apiFetch('terminal/credentials', {
+        method: 'POST',
+        body:   JSON.stringify(payload),
+      });
+      toast({ title: draft.id ? 'Terminal updated' : 'Terminal added', variant: 'success' });
+      setEditing(null);
+      await loadTerminals();
+    } catch {
+      toast({ title: 'Save failed', variant: 'destructive' });
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setDeletingId(id);
+    setConfirmDeleteId(null);
+    try {
+      await apiFetch(`terminal/credentials/${id}`, { method: 'DELETE' });
+      toast({ title: 'Terminal removed' });
+      await loadTerminals();
+    } catch {
+      toast({ title: 'Remove failed', variant: 'destructive' });
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function handleTest(row: AnzTerminalRow) {
+    if (!row.terminalIp.trim()) {
       toast({ title: 'Enter a terminal IP address first', variant: 'destructive' });
       return;
     }
 
-    // Resolve effective connection target.
-    // If HTTPS → always try the local Hardware Bridge.  Loopback is NOT
-    // a shortcut: our ANZ EftSimulator on 127.0.0.1:7784 speaks raw TCP
-    // not WebSocket, so a direct browser WebSocket handshake against it
-    // fails.  The bridge terminates WebSocket and forwards bytes to the
-    // configured terminal (WebSocket for real Castles, TCP for simulator),
-    // so the page is transport-agnostic.
-    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
-    let effectiveIp   = ip;
-    let effectivePort = port;
-
-    if (isHttps) {
-      // Dynamic import to avoid bundling bridge-health when not needed
-      const { isBridgeProxyReady, getBridgePort } = await import('@/lib/bridge-health');
-      const bridgeReady = await isBridgeProxyReady(/* force */ true);
-      if (bridgeReady) {
-        effectiveIp   = '127.0.0.1';
-        effectivePort = getBridgePort();
-      } else {
-        toast({
-          title: 'Hardware Bridge required',
-          description:
-            `Browsers block ws:// connections from HTTPS pages. ` +
-            `Install the ElevatedPOS Hardware Bridge on this machine to enable browser-based terminal testing, ` +
-            `or test from the POS device (Settings → ANZ Worldline → Test Connection).`,
-          variant: 'destructive',
-        });
-        return;
-      }
-    }
-
-    setTesting(true);
-    // Declare outer so the catch/finally can cancel if we're still holding it.
-    // Typed as `any` because the SDK shape is not statically declared.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let terminalRef: any = null;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    setTestingId(row.id);
     try {
-      await loadTimApiScript();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tim = (window as any).timapi;
-      if (!tim || typeof tim.Terminal !== 'function') {
-        throw new Error('TIM API SDK loaded but window.timapi.Terminal is missing');
-      }
-
-      await new Promise<void>((resolve, reject) => {
-        try {
-          // ── 1. TerminalSettings per ANZWL validation ─────────────────
-          const settings = new tim.TerminalSettings();
-          settings.connectionIPString = effectiveIp;
-          settings.connectionIPPort   = effectivePort;
-          settings.integratorId       = ANZ_DEFAULT_INTEGRATOR_ID;
-          settings.autoCommit         = true;
-          settings.fetchBrands        = true;
-          settings.dcc                = false;
-          settings.partialApproval    = false;
-          settings.tipAllowed         = false;
-          settings.enableKeepAlive    = true;
-
-          // ── 2. Terminal ──────────────────────────────────────────────
-          terminalRef = new tim.Terminal(settings);
-          const t = terminalRef;
-          t.setPosId('1');
-          t.setUserId(1);
-
-          // ── 3. EcrInfo ───────────────────────────────────────────────
-          const ecrInfo = new tim.EcrInfo();
-          ecrInfo.type               = tim.constants.EcrInfoType.ecrApplication;
-          ecrInfo.name               = 'ElevatedPOS Dashboard';
-          ecrInfo.manufacturerName   = 'ElevatedPOS Pty Ltd';
-          ecrInfo.version            = '1.0';
-          ecrInfo.integratorSolution = 'ElevatedPOS-ANZ-v26-01';
-          t.addEcrData(ecrInfo);
-
-          // ── 4. Terminal sends receipt data to ECR, POS handles the actual
-          //      printing.  PrintOption is frozen after construction (it calls
-          //      Object.freeze(this) in its constructor), so ALL options must
-          //      be passed to the constructor — field assignment after the
-          //      fact throws "Cannot assign to read only property 'recipient'".
-          //      Signature: new PrintOption(recipient, printFormat, width, flags)
-          t.setPrintOptions([
-            new tim.PrintOption(
-              tim.constants.Recipient.merchant,
-              tim.constants.PrintFormat.normal,
-              40,
-              [],
-            ),
-            new tim.PrintOption(
-              tim.constants.Recipient.cardholder,
-              tim.constants.PrintFormat.normal,
-              40,
-              [],
-            ),
-          ]);
-
-          // ── 5. Pair lifecycle ────────────────────────────────────────
-          let paired = false;
-          timeoutId = setTimeout(() => {
-            if (paired) return;
-            try { t.cancel(); } catch { /* ignore */ }
-            reject(new Error(`Connection timed out — no response from ${ip}:${port} after 30s`));
-          }, 30_000);
-
-          t.addListener({
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            activateCompleted: (event: any) => {
-              if (event?.exception === undefined && !paired) {
-                paired = true;
-                if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-                try { t.cancel(); } catch { /* ignore */ }
-                resolve();
-              }
-            },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            transactionCompleted: (event: any) => {
-              if (paired) return; // activate already resolved us
-              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-              const exc = event?.exception;
-              const code = exc?.resultCode;
-              const codeStr = typeof code === 'string' ? code : (code?.name ?? '');
-              const msg = exc?.message
-                ?? (codeStr ? `Terminal unreachable (${codeStr})` : 'Terminal unreachable');
-              reject(new Error(msg));
-            },
-          });
-
-          // ── 6. Trigger pre-automatisms with a 1-cent dummy purchase ──
-          t.transactionAsync(
-            tim.constants.TransactionType.purchase,
-            new tim.Amount(1, tim.constants.Currency.AUD),
-          );
-        } catch (innerErr) {
-          reject(innerErr instanceof Error ? innerErr : new Error(String(innerErr)));
-        }
-      });
-
-      const viaBridge = effectiveIp !== ip;
+      const { viaBridge } = await runTimPairLifecycle(row.terminalIp.trim(), row.terminalPort || DEFAULT_ANZ_PORT);
       toast({
         title: 'Terminal reachable ✓',
         description: viaBridge
-          ? `Pair flow completed via Hardware Bridge → ${ip}:${port}`
-          : `Pair flow completed (connect → login → activate) against ${ip}:${port}`,
+          ? `Pair flow completed via Hardware Bridge → ${row.terminalIp}:${row.terminalPort}`
+          : `Pair flow completed (connect → login → activate) against ${row.terminalIp}:${row.terminalPort}`,
         variant: 'success',
       });
     } catch (err) {
-      if (timeoutId) clearTimeout(timeoutId);
-      if (terminalRef && typeof terminalRef.cancel === 'function') {
-        try { terminalRef.cancel(); } catch { /* ignore */ }
-      }
       toast({
         title: 'Connection failed',
         description: err instanceof Error ? err.message : 'Check IP and port',
         variant: 'destructive',
       });
     } finally {
-      setTesting(false);
-    }
-  }
-
-  async function handleDisconnect() {
-    setDisconnecting(true);
-    setConfirmDisconnect(false);
-    try {
-      await apiFetch('terminal/credentials', { method: 'DELETE' });
-      setTerminalIp('');
-      setTerminalPort(String(DEFAULT_ANZ_PORT));
-      setTerminalLabel('');
-      setConnected(false);
-      toast({ title: 'ANZ Worldline disconnected' });
-    } catch {
-      toast({ title: 'Failed to disconnect', variant: 'destructive' });
-    } finally {
-      setDisconnecting(false);
+      setTestingId(null);
     }
   }
 
@@ -706,119 +704,279 @@ function ANZPanel() {
 
   return (
     <div className="space-y-4 rounded-xl border border-[#1e2a40] bg-[#0f172a] p-5">
-      {confirmDisconnect && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="rounded-2xl bg-[#0f172a] border border-[#1e2a40] p-6 max-w-sm w-full mx-4">
-            <h3 className="font-bold text-white mb-2">Disconnect ANZ Worldline?</h3>
-            <p className="text-sm text-gray-400 mb-4">The saved terminal credentials will be removed. You can reconfigure at any time.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setConfirmDisconnect(false)} className="flex-1 rounded-lg border border-gray-700 py-2 text-sm text-gray-300 hover:bg-white/5">Cancel</button>
-              <button onClick={handleDisconnect} className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700">Disconnect</button>
+      {confirmDeleteId && (() => {
+        const row = terminals.find((t) => t.id === confirmDeleteId);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="rounded-2xl bg-[#0f172a] border border-[#1e2a40] p-6 max-w-sm w-full mx-4">
+              <h3 className="font-bold text-white mb-2">Remove ANZ terminal?</h3>
+              <p className="text-sm text-gray-400 mb-4">
+                {row?.label
+                  ? `"${row.label}" (${row.terminalIp}:${row.terminalPort}) will be removed.`
+                  : `${row?.terminalIp}:${row?.terminalPort} will be removed.`}
+                {' '}Registers currently using this terminal will fall back to the org default until reassigned.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={() => setConfirmDeleteId(null)} className="flex-1 rounded-lg border border-gray-700 py-2 text-sm text-gray-300 hover:bg-white/5">Cancel</button>
+                <button onClick={() => void handleDelete(confirmDeleteId)} className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700">Remove</button>
+              </div>
             </div>
           </div>
-        </div>
+        );
+      })()}
+
+      {editing && (
+        <AnzTerminalEditorModal
+          initial={editing === 'new' ? null : editing}
+          onSave={(draft) => void handleSave(draft)}
+          onCancel={() => setEditing(null)}
+        />
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-semibold text-white">ANZ Worldline</h3>
+          <h3 className="font-semibold text-white">ANZ Worldline Terminals</h3>
           <p className="text-xs text-gray-400">
-            TIM API (SIXml over WebSocket) — default port {DEFAULT_ANZ_PORT}. Set the terminal to ECR / Integrated mode.
+            TIM API (SIXml over WebSocket) — default port {DEFAULT_ANZ_PORT}. Set each terminal to ECR / Integrated mode.
           </p>
         </div>
-        {connected && (
-          <span className="rounded-full bg-green-900/30 px-2.5 py-1 text-xs font-medium text-green-400">
-            Connected
-          </span>
-        )}
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <div className="col-span-2">
-          <label className="mb-1 block text-xs text-gray-400">Terminal IP Address</label>
-          <input value={terminalIp} onChange={(e) => setTerminalIp(e.target.value)} placeholder="192.168.1.100" className={darkInputCls} />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-gray-400">SIXml Port</label>
-          <input
-            value={terminalPort}
-            onChange={(e) => setTerminalPort(e.target.value)}
-            placeholder={String(DEFAULT_ANZ_PORT)}
-            type="number"
-            className={darkInputCls}
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs text-gray-400">Terminal Label (optional)</label>
-        <input value={terminalLabel} onChange={(e) => setTerminalLabel(e.target.value)} placeholder="e.g. Counter 1" className={darkInputCls} />
-      </div>
-
-      <div className="space-y-2 rounded-lg border border-white/5 bg-white/[0.02] p-3">
-        <label className="flex cursor-pointer items-start gap-3">
-          <input type="checkbox" checked={!autoCommit} onChange={(e) => setAutoCommit(!e.target.checked)} className="mt-0.5 h-4 w-4 rounded accent-indigo-500" />
-          <div>
-            <p className="text-sm font-medium text-white">Require explicit commit (recommended)</p>
-            <p className="text-xs text-gray-500">Prevents duplicate charges if the POS crashes between authorization and completion.</p>
-          </div>
-        </label>
-        <div className="border-t border-white/5 pt-2">
-          <p className="mb-2 text-xs font-medium text-gray-400">Terminal receipt printing</p>
-          <div className="space-y-1.5">
-            <label className="flex cursor-pointer items-center gap-3">
-              <input type="checkbox" checked={printMerchant} onChange={(e) => setPrintMerchant(e.target.checked)} className="h-4 w-4 rounded accent-indigo-500" />
-              <span className="text-sm text-white">Print merchant receipt</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-3">
-              <input type="checkbox" checked={printCustomer} onChange={(e) => setPrintCustomer(e.target.checked)} className="h-4 w-4 rounded accent-indigo-500" />
-              <span className="text-sm text-white">Print customer receipt</span>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex gap-2 flex-wrap">
         <button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+          onClick={() => setEditing('new')}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
         >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Save
+          <Plus className="h-4 w-4" />
+          Add Terminal
         </button>
-        <button
-          onClick={handleTest}
-          disabled={testing || !terminalIp.trim()}
-          className="flex items-center gap-1.5 rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-gray-300 hover:border-white/30 hover:text-white disabled:opacity-50"
-        >
-          {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-          Test Connection
-        </button>
-        {connected && (
-          <button
-            onClick={() => setConfirmDisconnect(true)}
-            disabled={disconnecting}
-            className="ml-auto flex items-center gap-1 text-sm text-gray-500 hover:text-red-500 disabled:opacity-50"
-          >
-            {disconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2Off className="h-4 w-4" />}
-            Disconnect
-          </button>
-        )}
       </div>
+
+      {terminals.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-6 text-center">
+          <p className="text-sm text-gray-400 mb-2">No ANZ Worldline terminals configured.</p>
+          <p className="text-xs text-gray-500">
+            Click <span className="font-medium text-indigo-400">Add Terminal</span> to register your first Castles S1F2 or EftSimulator.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {terminals.map((row) => (
+            <div
+              key={row.id}
+              className="flex flex-wrap items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-900/30">
+                  <CreditCard className="h-4 w-4 text-indigo-300" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-white">
+                    {row.label || 'Unlabeled terminal'}
+                  </p>
+                  <p className="truncate font-mono text-xs text-gray-400">
+                    {row.terminalIp}:{row.terminalPort}
+                    {row.metadata.autoCommit && <span className="ml-2 text-amber-400">· auto-commit</span>}
+                  </p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  onClick={() => void handleTest(row)}
+                  disabled={testingId === row.id}
+                  className="flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-300 hover:border-white/30 hover:text-white disabled:opacity-50"
+                  title="Test Connection"
+                >
+                  {testingId === row.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  Test
+                </button>
+                <button
+                  onClick={() => setEditing(row)}
+                  className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:border-white/30 hover:text-white"
+                  title="Edit"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setConfirmDeleteId(row.id)}
+                  disabled={deletingId === row.id}
+                  className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:border-red-500/50 hover:text-red-400 disabled:opacity-50"
+                  title="Remove"
+                >
+                  {deletingId === row.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex gap-3 rounded-xl border border-blue-800/30 bg-blue-900/10 p-3 text-xs text-blue-300">
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
+          Each register picks which terminal to use from{' '}
+          <span className="font-medium">POS → Settings → ANZ Terminal</span>.
           Place <code className="rounded bg-blue-900/30 px-1">timapi.js</code> and{' '}
           <code className="rounded bg-blue-900/30 px-1">timapi.wasm</code> in{' '}
           <code className="rounded bg-blue-900/30 px-1">/public/timapi/</code> and set{' '}
-          <code className="rounded bg-blue-900/30 px-1">ANZ_INTEGRATOR_ID</code> in your environment.{' '}
-          Obtain from the{' '}
+          <code className="rounded bg-blue-900/30 px-1">ANZ_INTEGRATOR_ID</code> in your environment. Obtain from the{' '}
           <a href="https://start.portal.anzworldline-solutions.com.au/" target="_blank" rel="noopener noreferrer" className="underline">
             ANZ Worldline portal
           </a>.
         </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── ANZ terminal editor modal ────────────────────────────────────────────────
+
+function AnzTerminalEditorModal({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: AnzTerminalRow | null;
+  onSave: (draft: {
+    id?: string;
+    label: string;
+    terminalIp: string;
+    terminalPort: number;
+    metadata: AnzTerminalRow['metadata'];
+  }) => void;
+  onCancel: () => void;
+}) {
+  const { toast } = useToast();
+  const [label,         setLabel]         = useState(initial?.label ?? '');
+  const [terminalIp,    setTerminalIp]    = useState(initial?.terminalIp ?? '');
+  const [terminalPort,  setTerminalPort]  = useState(String(initial?.terminalPort ?? DEFAULT_ANZ_PORT));
+  const [autoCommit,    setAutoCommit]    = useState(initial?.metadata.autoCommit ?? false);
+  const [printMerchant, setPrintMerchant] = useState(initial?.metadata.printMerchantReceipt ?? false);
+  const [printCustomer, setPrintCustomer] = useState(initial?.metadata.printCustomerReceipt ?? false);
+  const [saving,        setSaving]        = useState(false);
+
+  const isEdit = initial != null;
+
+  function submit() {
+    if (!terminalIp.trim()) {
+      toast({ title: 'Terminal IP is required', variant: 'destructive' });
+      return;
+    }
+    const port = Number(terminalPort);
+    if (!port || port < 1 || port > 65535) {
+      toast({ title: 'Enter a valid port (1–65535)', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    onSave({
+      ...(initial?.id ? { id: initial.id } : {}),
+      label,
+      terminalIp: terminalIp.trim(),
+      terminalPort: port,
+      metadata: {
+        autoCommit,
+        printMerchantReceipt: printMerchant,
+        printCustomerReceipt: printCustomer,
+      },
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-lg space-y-4 rounded-2xl border border-[#1e2a40] bg-[#0f172a] p-6">
+        <div>
+          <h3 className="text-lg font-bold text-white">
+            {isEdit ? 'Edit terminal' : 'Add ANZ terminal'}
+          </h3>
+          <p className="text-xs text-gray-400">
+            {isEdit ? 'Update connection details for this terminal.' : 'Register a new Castles S1F2, EftSimulator, or other SIXml-compatible terminal.'}
+          </p>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs text-gray-400">Terminal Label (optional)</label>
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. Counter 1"
+            className={darkInputCls}
+          />
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className="col-span-2">
+            <label className="mb-1 block text-xs text-gray-400">Terminal IP Address *</label>
+            <input
+              value={terminalIp}
+              onChange={(e) => setTerminalIp(e.target.value)}
+              placeholder="192.168.1.100"
+              className={darkInputCls}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-400">SIXml Port</label>
+            <input
+              value={terminalPort}
+              onChange={(e) => setTerminalPort(e.target.value)}
+              placeholder={String(DEFAULT_ANZ_PORT)}
+              type="number"
+              className={darkInputCls}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2 rounded-lg border border-white/5 bg-white/[0.02] p-3">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={!autoCommit}
+              onChange={(e) => setAutoCommit(!e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded accent-indigo-500"
+            />
+            <div>
+              <p className="text-sm font-medium text-white">Require explicit commit (recommended)</p>
+              <p className="text-xs text-gray-500">Prevents duplicate charges if the POS crashes between authorization and completion.</p>
+            </div>
+          </label>
+          <div className="border-t border-white/5 pt-2">
+            <p className="mb-2 text-xs font-medium text-gray-400">Terminal receipt printing</p>
+            <div className="space-y-1.5">
+              <label className="flex cursor-pointer items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={printMerchant}
+                  onChange={(e) => setPrintMerchant(e.target.checked)}
+                  className="h-4 w-4 rounded accent-indigo-500"
+                />
+                <span className="text-sm text-white">Print merchant receipt on terminal</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={printCustomer}
+                  onChange={(e) => setPrintCustomer(e.target.checked)}
+                  className="h-4 w-4 rounded accent-indigo-500"
+                />
+                <span className="text-sm text-white">Print customer receipt on terminal</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-white/5 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {isEdit ? 'Save' : 'Add Terminal'}
+          </button>
+        </div>
       </div>
     </div>
   );

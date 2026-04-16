@@ -40,16 +40,71 @@ const devicePaymentConfigSchema = z.object({
   terminalCredentialId: z.string().uuid().nullable().optional(),
 });
 
-// ─── Helper ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function getTIMClient(orgId: string): Promise<AnzWorldlineTIMClient | null> {
-  const creds = await db.query.terminalCredentials.findFirst({
-    where: and(
-      eq(schema.terminalCredentials.orgId,    orgId),
-      eq(schema.terminalCredentials.provider, 'anz'),
-      eq(schema.terminalCredentials.isActive, true),
-    ),
-  });
+/**
+ * Resolve an ANZ TIM client for the given org. Selection priority:
+ *   1. Explicit `credentialId` wins — used when the caller already knows which
+ *      terminal they want (e.g. the request was device-initiated).
+ *   2. Else `deviceId` — look up the device's assigned credential via
+ *      `devicePaymentConfigs` and use that if it's still active.
+ *   3. Else fall back to the first active ANZ credential for the org (legacy
+ *      single-terminal behaviour — preserved so existing integrations keep
+ *      working while the multi-terminal UI rolls out).
+ *
+ * All branches are scoped by orgId to prevent cross-tenant access.
+ */
+async function getTIMClient(
+  orgId: string,
+  opts: { credentialId?: string | undefined; deviceId?: string | undefined } = {},
+): Promise<AnzWorldlineTIMClient | null> {
+  let creds:
+    | typeof schema.terminalCredentials.$inferSelect
+    | undefined;
+
+  // 1. Explicit credential ID
+  if (opts.credentialId) {
+    creds = await db.query.terminalCredentials.findFirst({
+      where: and(
+        eq(schema.terminalCredentials.id,       opts.credentialId),
+        eq(schema.terminalCredentials.orgId,    orgId),
+        eq(schema.terminalCredentials.provider, 'anz'),
+        eq(schema.terminalCredentials.isActive, true),
+      ),
+    });
+  }
+
+  // 2. Device-specific assignment
+  if (!creds && opts.deviceId) {
+    const cfg = await db.query.devicePaymentConfigs.findFirst({
+      where: and(
+        eq(schema.devicePaymentConfigs.orgId,    orgId),
+        eq(schema.devicePaymentConfigs.deviceId, opts.deviceId),
+      ),
+    });
+    if (cfg?.terminalCredentialId) {
+      creds = await db.query.terminalCredentials.findFirst({
+        where: and(
+          eq(schema.terminalCredentials.id,       cfg.terminalCredentialId),
+          eq(schema.terminalCredentials.orgId,    orgId),
+          eq(schema.terminalCredentials.provider, 'anz'),
+          eq(schema.terminalCredentials.isActive, true),
+        ),
+      });
+    }
+  }
+
+  // 3. Org default
+  if (!creds) {
+    creds = await db.query.terminalCredentials.findFirst({
+      where: and(
+        eq(schema.terminalCredentials.orgId,    orgId),
+        eq(schema.terminalCredentials.provider, 'anz'),
+        eq(schema.terminalCredentials.isActive, true),
+      ),
+    });
+  }
+
   if (!creds?.terminalIp) return null;
 
   return new AnzWorldlineTIMClient({
@@ -236,11 +291,16 @@ export async function terminalRoutes(app: FastifyInstance) {
 
   /**
    * POST /api/v1/terminal/anz/test
+   *
    * Ping the terminal to confirm it is reachable on the local network.
+   * Accepts an optional `credentialId` query param so the Dashboard's
+   * multi-terminal UI can target a specific terminal by ID. Falls back to
+   * the org's first active ANZ terminal for backwards compatibility.
    */
   app.post('/anz/test', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
-    const client    = await getTIMClient(orgId);
+    const { credentialId } = request.query as { credentialId?: string };
+    const client    = await getTIMClient(orgId, { credentialId });
     if (!client) {
       return reply.status(404).send({
         type:   'https://elevatedpos.com/errors/not-configured',
@@ -316,7 +376,12 @@ export async function terminalRoutes(app: FastifyInstance) {
       return reply.status(409).send({ title: 'No terminal transaction ID on record', status: 409 });
     }
 
-    const client = await getTIMClient(orgId);
+    // Route the refund to the same terminal that took the original payment.
+    // Falls back to the device-assigned terminal, then the org default, if
+    // the payment pre-dates multi-terminal tracking.
+    const client = await getTIMClient(orgId, {
+      credentialId: payment.terminalId ?? undefined,
+    });
     if (!client) return reply.status(404).send({ title: 'Terminal Not Configured', status: 404 });
 
     const amountCents          = Math.round(body.data.amount * 100);
@@ -346,7 +411,11 @@ export async function terminalRoutes(app: FastifyInstance) {
     if (payment.status === 'void')         return reply.status(409).send({ title: 'Payment Already Voided', status: 409 });
     if (!payment.acquirerTransactionId)    return reply.status(409).send({ title: 'No terminal transaction ID on record', status: 409 });
 
-    const client = await getTIMClient(orgId);
+    // Reversal must go to the terminal that took the original sale — TIM
+    // terminals only know how to void their own most-recent approved txn.
+    const client = await getTIMClient(orgId, {
+      credentialId: payment.terminalId ?? undefined,
+    });
     if (!client) return reply.status(404).send({ title: 'Terminal Not Configured', status: 404 });
 
     const { data, httpStatus } = await client.reverse(payment.acquirerTransactionId);
