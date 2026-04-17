@@ -257,11 +257,21 @@ export async function runTimPairLifecycle(
         // DefaultTerminalListener inherits safe no-op defaults for every
         // callback, so we only need to override the ones we care about.
         let paired = false;
+        // 60s budget. Real Castles S1F2 firmware takes 2 attempts to get
+        // through Login (first attempt's FeatureRequest phase times out
+        // inside the SDK after ~30s, SDK auto-retries, second attempt
+        // succeeds). 30s total budget was too tight and fired while the
+        // SDK was mid-retry.
+        //
+        // Critically, we do NOT call t.cancel() on timeout anymore. The
+        // earlier cancel was forcing the SDK into apiCancelEcr mid-retry,
+        // masking the fact the underlying pair was recovering. If we
+        // genuinely need to abandon the pair the caller can dispose the
+        // Terminal instance.
         timeoutId = setTimeout(() => {
           if (paired) return;
-          try { t.cancel(); } catch { /* ignore */ }
-          reject(new Error(`Connection timed out — no response from ${ip}:${port} after 30s`));
-        }, 30_000);
+          reject(new Error(`Pair timed out — no activateCompleted from ${ip}:${port} after 60s`));
+        }, 60_000);
 
         const DefaultBase = tim.DefaultTerminalListener;
         // eslint-disable-next-line @typescript-eslint/no-empty-function,@typescript-eslint/no-unused-vars
@@ -418,9 +428,10 @@ export async function runTimPairLifecycle(
     return { viaBridge };
   } catch (err) {
     if (timeoutId) clearTimeout(timeoutId);
-    if (terminalRef && typeof terminalRef.cancel === 'function') {
-      try { terminalRef.cancel(); } catch { /* ignore */ }
-    }
+    // Don't call terminalRef.cancel() on error — the explicit pair path
+    // has no active transaction to cancel, and cancelling while the SDK
+    // is in a login/activate retry translates to an apiCancelEcr exception
+    // that masks the real failure.
     throw err;
   } finally {
     // GAP-13 (§3.13): Always dispose the Terminal to release WASM memory.

@@ -167,7 +167,10 @@ export class TerminalSessionManager {
       if (typeof adapter.connect === 'function') {
         await adapter.connect(15_000);
       }
-      await adapter.login(30_000);
+      // 60s login budget — Castles S1F2 firmware needs one internal retry
+      // (first Login attempt's FeatureRequest phase times out at ~30s,
+      // SDK retries, second attempt succeeds).
+      await adapter.login(60_000);
       await adapter.activate(30_000);
       this._setConnectionState('activated');
     } catch (err) {
