@@ -1,40 +1,31 @@
 /**
  * ANZ Worldline TIM API — pair-lifecycle runner.
  *
- * This module mirrors the ANZ-supplied JavaScript SDK simple ECR example
- * (`Examples/ExampleECRSimple/app.js`) VERBATIM. The ANZ example is what
- * works end-to-end against live Castles S1F2 hardware; any deviation from
- * it (extra settings, custom integratorId, a phantom transactionAsync to
- * kick off pre-automatisms, wrapping the listener as a plain object
- * instead of a DefaultTerminalListener subclass, etc.) has proven to stall
- * the pair flow. The only thing we add on top is a bridge-routing wrapper
- * so an HTTPS-origin browser can reach the terminal through the local
- * Hardware Bridge.
+ * Structural mirror of the ANZ simple ECR example (JavaScript/Examples/
+ * ExampleECRSimple/app.js). In the ANZ pattern:
+ *   • A listener extends timapi.DefaultTerminalListener and its
+ *     *Completed methods just RECORD events — they do not drive the flow.
+ *   • The flow is driven by the outer code (in the example, user button
+ *     clicks — Connect, then Login, then Activate). Each step happens in
+ *     an independent event loop tick, never nested inside a previous
+ *     step's callback.
  *
- * Flow mirrors the ANZ example:
- *  1. new TerminalSettings() — only IP + port + fetchBrands=false +
- *     autoCommit=false, nothing else.
- *  2. new Terminal(settings) — immutable after construction.
- *  3. setPosId("12") + setUserId(1) — matching the example values.
- *  4. Listener extends `timapi.DefaultTerminalListener` so every callback
- *     the WASM layer may invoke has a sensible default. We override the
- *     callbacks needed to chain Connect → Login → Activate.
- *  5. connectAsync() → loginAsync() → activateAsync() — explicit, driven
- *     from each *Completed callback. No phantom transaction.
+ * We reproduce that structure here: the listener resolves per-step
+ * Promises; the outer async function awaits them in sequence. Each
+ * `terminal.xxxAsync()` call is fired from a fresh await boundary, never
+ * re-entered from within a WASM dispatch tick. This is the pattern that
+ * works against live Castles S1F2 hardware — chaining xxxAsync() calls
+ * synchronously inside a *Completed callback has been observed to make
+ * the SDK abandon the session with timCommunicationFailure.
  */
 
 import { getAnzLogSink } from './anz-log-sink';
 
-/** Default SIXml port for the ANZ Worldline TIM API. */
 export const ANZ_DEFAULT_PORT = 7784;
-
-/** Integrator ID fallback (not set on TerminalSettings — the ANZ simple
- *  example doesn't set one, and the live terminal doesn't require it). */
 export const ANZ_DEFAULT_INTEGRATOR_ID = 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
 
 /**
- * Lazily loads /timapi/timapi.js into the page. Returns a promise that
- * resolves once `window.timapi.Terminal` is available.
+ * Lazily loads /timapi/timapi.js into the page.
  */
 export function loadTimApiScript(): Promise<void> {
   const w = window as unknown as {
@@ -48,8 +39,6 @@ export function loadTimApiScript(): Promise<void> {
   }
   if (w.__timapiLoading) return w.__timapiLoading;
 
-  // Wire FINEST log capture before loading the script so we don't miss
-  // any early records.
   try {
     const sink = getAnzLogSink();
     w.onTimApiPublishLogRecord = (record: unknown) => {
@@ -91,21 +80,14 @@ export function loadTimApiScript(): Promise<void> {
 }
 
 /**
- * Runs the ANZ-example pair lifecycle against a specific terminal.
- * Returns `{ viaBridge }` on success; rejects with a descriptive Error on
- * failure.
+ * Runs the pair lifecycle against a specific terminal.
+ * Returns `{ viaBridge }` on success; rejects with a descriptive Error on failure.
  */
 export async function runTimPairLifecycle(
   ip: string,
   port: number,
   _opts: { ecrName?: string; integratorId?: string } = {},
 ): Promise<{ viaBridge: boolean }> {
-  // ── Bridge routing ────────────────────────────────────────────────────
-  // HTTPS origins cannot open ws:// to non-loopback addresses, and our
-  // EftSimulator + real Castles S1F2 terminals both speak raw TCP SIXml
-  // (not WebSocket). The local Hardware Bridge translates both transport
-  // boundaries: it accepts ws://127.0.0.1:9999 from the browser and
-  // forwards the bytes to whatever TCP target the operator configured.
   const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
   let effectiveIp   = ip;
   let effectivePort = port;
@@ -136,158 +118,142 @@ export async function runTimPairLifecycle(
     throw new Error('TIM API SDK missing DefaultTerminalListener — wrong version?');
   }
 
+  // ── Per-step promise resolvers, wired into a single listener ────────
+  // The listener *just* records events and resolves whichever promise is
+  // currently awaiting. It does NOT call xxxAsync() — that happens in the
+  // outer async block below, between awaits.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let terminalRef: any = null;
+  type Resolver = ((event: any) => void) | null;
+  let connectResolver:  Resolver = null;
+  let loginResolver:    Resolver = null;
+  let activateResolver: Resolver = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let disconnectHandler: ((exception?: any) => void) | null = null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const settings = new tim.TerminalSettings();
+  settings.connectionIPString = effectiveIp;
+  settings.connectionIPPort   = effectivePort;
+  settings.fetchBrands        = false;
+  settings.autoCommit         = false;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const terminal: any = new tim.Terminal(settings);
+  terminal.setPosId('12');
+  terminal.setUserId(1);
+
+  class FlowListener extends tim.DefaultTerminalListener {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    connectCompleted(event: any): void {
+      super.connectCompleted(event);
+      const r = connectResolver;
+      connectResolver = null;
+      if (r) r(event);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    loginCompleted(event: any): void {
+      super.loginCompleted(event);
+      const r = loginResolver;
+      loginResolver = null;
+      if (r) r(event);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    activateCompleted(event: any, data?: unknown): void {
+      super.activateCompleted(event, data);
+      const r = activateResolver;
+      activateResolver = null;
+      if (r) r(event);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    disconnected(t: any, exception?: any): void {
+      super.disconnected(t, exception);
+      const h = disconnectHandler;
+      disconnectHandler = null;
+      if (h) h(exception);
+    }
+  }
+
+  terminal.addListener(new FlowListener());
+
+  /**
+   * Helper that wraps a single SDK step as a promise with per-step timeout.
+   * When the step's *Completed callback fires (resolve), we inspect the
+   * event for an exception and throw the corresponding Error.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const runStep = <T>(label: string, timeoutMs: number, setup: (resolve: (event: any) => void) => void): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`));
+      }, timeoutMs);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const done = (event: any) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (event?.exception !== undefined) {
+          reject(new Error(event.exception.message ?? `${label} failed`));
+          return;
+        }
+        resolve(event as T);
+      };
+
+      // Unexpected disconnect during this step
+      disconnectHandler = (exception) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(new Error(exception?.message ?? `Terminal disconnected during ${label}`));
+      };
+
+      setup(done);
+    });
+  };
 
   try {
-    await new Promise<void>((resolve, reject) => {
-      try {
-        // ── 1. TerminalSettings — EXACTLY what the ANZ simple example does.
-        // Only IP, port, fetchBrands=false, autoCommit=false. Anything else
-        // (integratorId, guides, protocolType, autoConnect, enableKeepAlive,
-        // etc.) has been verified to cause the live terminal to stall.
-        const settings = new tim.TerminalSettings();
-        settings.connectionIPString = effectiveIp;
-        settings.connectionIPPort   = effectivePort;
-        settings.fetchBrands        = false;
-        settings.autoCommit         = false;
-
-        // ── 2. Terminal
-        terminalRef = new tim.Terminal(settings);
-        const t = terminalRef;
-
-        // ── 3. User data — matches ANZ example.
-        t.setPosId('12');
-        t.setUserId(1);
-
-        let paired = false;
-        let pairFailed = false;
-        let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-        // 60s pair budget. The Castles S1F2 firmware takes one internal
-        // Login retry (FeatureRequest phase times out at ~30s, SDK auto-
-        // retries, second attempt succeeds). 30s was too tight.
-        timeoutId = setTimeout(() => {
-          if (paired || pairFailed) return;
-          pairFailed = true;
-          reject(new Error(
-            `Pair timed out — no activateCompleted from ${ip}:${port} after 60s`,
-          ));
-        }, 60_000);
-
-        // ── 4. Listener — subclass DefaultTerminalListener EXACTLY like the
-        // ANZ example. The SDK relies on inherited no-op behaviour for every
-        // callback the WASM may invoke; a plain object misses those defaults
-        // and causes [SEVERE] TypeError spam in the log.
-        //
-        // Each *Completed handler fires the NEXT lifecycle call via
-        // setTimeout(0), NOT synchronously from inside the callback. The
-        // WASM SDK dispatches completion events from inside its own state
-        // machine; calling loginAsync()/activateAsync() re-entrantly inside
-        // connectCompleted has been observed to make the SDK abandon the
-        // session with timCommunicationFailure on live Castles S1F2
-        // firmware. Deferring with setTimeout lets the WASM callback stack
-        // unwind before we initiate the next step.
-        class PairListener extends tim.DefaultTerminalListener {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          connectCompleted(event: any) {
-            super.connectCompleted(event);
-            if (pairFailed || paired) return;
-            if (event?.exception !== undefined) {
-              pairFailed = true;
-              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-              reject(new Error(event.exception.message ?? 'Connect failed'));
-              return;
-            }
-            setTimeout(() => {
-              if (pairFailed || paired) return;
-              try { t.loginAsync(); } catch (err) {
-                pairFailed = true;
-                if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-                reject(err instanceof Error ? err : new Error(String(err)));
-              }
-            }, 0);
-          }
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          loginCompleted(event: any) {
-            super.loginCompleted(event);
-            if (pairFailed || paired) return;
-            if (event?.exception !== undefined) {
-              pairFailed = true;
-              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-              reject(new Error(event.exception.message ?? 'Login failed'));
-              return;
-            }
-            setTimeout(() => {
-              if (pairFailed || paired) return;
-              try { t.activateAsync(); } catch (err) {
-                pairFailed = true;
-                if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-                reject(err instanceof Error ? err : new Error(String(err)));
-              }
-            }, 0);
-          }
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          activateCompleted(event: any, data?: unknown) {
-            super.activateCompleted(event, data);
-            if (pairFailed || paired) return;
-            if (event?.exception !== undefined) {
-              pairFailed = true;
-              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-              reject(new Error(event.exception.message ?? 'Activate failed'));
-              return;
-            }
-
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            let terminalId = '';
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            let brands: any[] = [];
-            try { terminalId = t.getTerminalId?.() ?? ''; } catch { /* non-fatal */ }
-            try { brands     = t.getBrands?.()     ?? []; } catch { /* non-fatal */ }
-
-            paired = true;
-            if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-
-            try {
-              // eslint-disable-next-line no-console
-              console.info('[ANZ-PAIR] activateCompleted', {
-                terminalId,
-                brandsCount: brands.length,
-                hasBrands:   brands.length > 0,
-              });
-            } catch { /* non-fatal */ }
-
-            resolve();
-          }
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          disconnected(terminal: any, exception?: any) {
-            super.disconnected(terminal, exception);
-            if (paired || pairFailed) return;
-            pairFailed = true;
-            if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-            reject(new Error(exception?.message ?? 'Terminal disconnected before pair completed'));
-          }
-        }
-
-        t.addListener(new PairListener());
-
-        // ── 5. Explicit Connect — each subsequent step (login, activate)
-        // fires from the listener callback on success.
-        t.connectAsync();
-      } catch (innerErr) {
-        reject(innerErr instanceof Error ? innerErr : new Error(String(innerErr)));
-      }
+    // Connect — Section 1.2
+    await runStep('Connect', 15_000, (done) => {
+      connectResolver = done;
+      terminal.connectAsync();
     });
+
+    // Login — Section 1.2. 60s accommodates the internal FeatureRequest
+    // retry observed on Castles S1F2 firmware.
+    await runStep('Login', 60_000, (done) => {
+      loginResolver = done;
+      terminal.loginAsync();
+    });
+
+    // Activate — Section 1.2
+    await runStep('Activate', 30_000, (done) => {
+      activateResolver = done;
+      terminal.activateAsync();
+    });
+
+    // Capture terminal identity for validation logs
+    let terminalId = '';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let brands: any[] = [];
+    try { terminalId = terminal.getTerminalId?.() ?? ''; } catch { /* non-fatal */ }
+    try { brands     = terminal.getBrands?.()     ?? []; } catch { /* non-fatal */ }
+    try {
+      // eslint-disable-next-line no-console
+      console.info('[ANZ-PAIR] activateCompleted', {
+        terminalId,
+        brandsCount: brands.length,
+        hasBrands:   brands.length > 0,
+      });
+    } catch { /* non-fatal */ }
 
     return { viaBridge };
   } finally {
-    // GAP-13 (§3.13): dispose the Terminal to release WASM memory. The pair
-    // lifecycle is one-shot; holding the Terminal would leak on every retry.
-    if (terminalRef && typeof terminalRef.dispose === 'function') {
-      try { terminalRef.dispose(); } catch { /* ignore */ }
+    // Dispose the Terminal — releases WASM memory. Pair is one-shot.
+    if (typeof terminal.dispose === 'function') {
+      try { terminal.dispose(); } catch { /* ignore */ }
     }
   }
 }
