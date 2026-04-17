@@ -16,6 +16,27 @@ import type { TimConfig, TerminalStatus, TerminalConnectionState, TerminalHealth
 import { TimApiAdapter, loadTimApiSdk } from './tim-adapter';
 import { PaymentLogger } from './logger';
 
+/**
+ * Config equality check for session reuse — returns true when the two
+ * configs describe the same logical terminal session (same IP/port/
+ * integrator/shift-management flags). Display-only fields like `terminalLabel`
+ * are ignored so renaming a saved terminal doesn't force a tear-down.
+ */
+function sameConfig(a: TimConfig, b: TimConfig): boolean {
+  return (
+    a.terminalIp?.trim()       === b.terminalIp?.trim() &&
+    a.terminalPort             === b.terminalPort       &&
+    (a.integratorId ?? '')     === (b.integratorId ?? '') &&
+    !!a.autoCommit             === !!b.autoCommit       &&
+    !!a.fetchBrands            === !!b.fetchBrands      &&
+    !!a.dcc                    === !!b.dcc              &&
+    !!a.partialApproval        === !!b.partialApproval  &&
+    !!a.tipAllowed             === !!b.tipAllowed       &&
+    (a.posId ?? '')            === (b.posId ?? '')      &&
+    (a.operatorId ?? '')       === (b.operatorId ?? '')
+  );
+}
+
 // ─── Mutex ────────────────────────────────────────────────────────────────────
 
 class AsyncMutex {
@@ -83,7 +104,25 @@ export class TerminalSessionManager {
   // ── Initialization ──────────────────────────────────────────────────────────
 
   async initialize(config: TimConfig): Promise<void> {
-    // Dispose any previous adapter
+    // Reuse existing adapter if the config hasn't changed — keeps the TIM
+    // session connected/logged-in/activated between transactions.
+    //
+    // Per ANZ §1.2/§1.3 the ECR↔terminal session is meant to persist; only
+    // end-of-day (§3.10) or graceful shutdown (§3.13) should close it. The
+    // WASM state machine can serve multiple transactions from the `open`
+    // state without any re-initialisation — the pre-automatisms cover
+    // disconnects (e.g. nightly PCI reboot 2AM-5AM) transparently.
+    if (this._adapter && this._adapter.isInitialized && this._config &&
+        sameConfig(this._config, config)) {
+      this._logger.info('session_reuse', {
+        terminalIp:   config.terminalIp,
+        terminalPort: config.terminalPort,
+      });
+      return;
+    }
+
+    // Config changed (different IP/port/integrator) — tear down the stale
+    // adapter before initialising the new one.
     if (this._adapter) {
       this._adapter.dispose();
       this._adapter = null;
