@@ -358,6 +358,28 @@ interface TimApiListener {
   printReceipts?(terminal: TimApiTerminal, printData: TimPrintData): void;
   requestCompleted?(event: TimTransactionEvent, data: unknown): void;
   errorNotification?(terminal: TimApiTerminal, response: unknown): void;
+  /** Cancel completed callback */
+  cancelCompleted?(event: TimTransactionEvent): void;
+  /** Disconnect completed (after explicit disconnectAsync) */
+  disconnectCompleted?(event: TimConnectionEvent): void;
+  /** Application information notification (during login, brand info) */
+  applicationInformation?(...args: unknown[]): void;
+  /** System information completed */
+  systemInformationCompleted?(...args: unknown[]): void;
+  /** Reconciliation (daily settlement) completed */
+  reconciliationCompleted?(...args: unknown[]): void;
+  /** Reservation completed */
+  reservationCompleted?(...args: unknown[]): void;
+  /** Terminal reconfiguration completed */
+  reconfigCompleted?(...args: unknown[]): void;
+  /** Counter request completed */
+  counterRequestCompleted?(...args: unknown[]): void;
+  /** Software update completed */
+  softwareUpdateCompleted?(...args: unknown[]): void;
+  /** Terminal hardware key pressed */
+  keyPressed?(...args: unknown[]): void;
+  /** Reference number request from terminal */
+  referenceNumberRequest?(...args: unknown[]): void;
 }
 
 // ── Terminal ──────────────────────────────────────────────────────────────────
@@ -676,14 +698,19 @@ export class TimApiAdapter {
     // Settings are immutable after construction.
     const settings = new timapi.TerminalSettings();
 
-    // ── Mixed-content bridge routing ────────────────────────────────────────
-    // Browsers block ws:// from https:// pages to non-loopback addresses.
-    // When this condition is met, route through the local Hardware Bridge
-    // (ws://127.0.0.1:9999/SIXml) which proxies to the real terminal.
-    const isHttps    = typeof window !== 'undefined' && window.location.protocol === 'https:';
-    const isLoopback = /^(127\.|localhost|::1)/.test(config.terminalIp.trim());
+    // ── Bridge routing ─────────────────────────────────────────────────────
+    // The Hardware Bridge (ws://127.0.0.1:9999) translates WebSocket ↔ TCP
+    // so the browser SDK can reach terminals (and the EftSimulator) that
+    // speak raw TCP SIXml. This is needed even for loopback addresses —
+    // mixed-content is only ONE reason; transport translation is the other.
+    //
+    // On HTTPS: ALWAYS route through the bridge when it is available,
+    // regardless of whether the terminal IP is loopback or LAN. This
+    // matches the pair lifecycle's routing logic and avoids the adapter
+    // trying to connect directly to port 80 (nothing listens there).
+    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
 
-    if (isHttps && !isLoopback) {
+    if (isHttps) {
       const bridgeReady = await isBridgeProxyReady();
       if (bridgeReady) {
         this._logger.info('bridge_proxy_routing', {
@@ -694,7 +721,8 @@ export class TimApiAdapter {
         settings.connectionIPPort   = getBridgePort();
       } else {
         throw new Error(
-          'Cannot reach the ANZ terminal from this browser (HTTPS blocks ws:// to LAN addresses). ' +
+          'Cannot reach the ANZ terminal from this browser — the Hardware Bridge is ' +
+          'required to translate WebSocket ↔ TCP for the terminal/simulator. ' +
           'Install the ElevatedPOS Hardware Bridge on this machine, ' +
           'or use the POS app on the tablet to process payments.',
         );
@@ -1173,6 +1201,47 @@ export class TimApiAdapter {
       errorNotification: (_terminal: TimApiTerminal, response: unknown) => {
         this._logger.warn('error_notification', { response: String(response) });
       },
+
+      // ── Cancel completed ──────────────────────────────────────────────────
+      cancelCompleted: (event: TimTransactionEvent) => {
+        this._logger.info('cancel_completed', {
+          success: event.exception === undefined,
+        });
+      },
+
+      // ── Disconnect completed ──────────────────────────────────────────────
+      disconnectCompleted: (event: TimConnectionEvent) => {
+        this._logger.info('disconnect_completed', {
+          success: event.exception === undefined,
+        });
+      },
+
+      // ── No-op callbacks ───────────────────────────────────────────────────
+      // The WASM layer calls every listener callback unconditionally via
+      // forEach(each => each.xxx(...)). Missing methods throw TypeError and
+      // spam [SEVERE] in ANZ validation logs. These no-ops suppress those.
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      applicationInformation:       () => {},
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      systemInformationCompleted:   () => {},
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      reconciliationCompleted:      () => {},
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      reservationCompleted:         () => {},
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      reconfigCompleted:            () => {},
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      counterRequestCompleted:      () => {},
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      hardwareInformationCompleted: () => {},
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      softwareUpdateCompleted:      () => {},
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      printReceipts:                () => {},
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      referenceNumberRequest:       () => {},
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      keyPressed:                   () => {},
     };
   }
 
