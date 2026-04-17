@@ -263,29 +263,63 @@ export async function runTimPairLifecycle(
         }, 30_000);
 
         const DefaultBase = tim.DefaultTerminalListener;
-        const listener = DefaultBase
-          ? Object.create(new DefaultBase())
-          // Fallback when the SDK does not export DefaultTerminalListener:
-          // provide explicit noops for every callback the SDK is known to
-          // invoke unconditionally.
+        // eslint-disable-next-line @typescript-eslint/no-empty-function,@typescript-eslint/no-unused-vars
+        const noop = (..._args: unknown[]) => {};
+        // Build listener with safe no-op defaults for EVERY callback the
+        // WASM layer may invoke. Two distinct patterns exist:
+        //
+        //   DefaultTerminalListener route: instantiate, then override. We
+        //   copy methods from the prototype onto an own-property object so
+        //   the WASM forEach(each => each.xxx(...)) always finds them.
+        //
+        //   Fallback route: explicit noop dict. Must include `disconnected`
+        //   (NOT the same as `disconnectCompleted`) — the WASM fires
+        //   TAWATerminalDisconnected → each.disconnected(...) on unexpected
+        //   socket close, and a missing handler throws a [SEVERE] TypeError.
+        //
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const listener: Record<string, any> = {};
+        if (DefaultBase) {
+          // Copy all methods from a fresh instance + its prototype chain
+          // into own properties so they survive the WASM forEach.
+          const base = new DefaultBase();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          : (() => {
-              // eslint-disable-next-line @typescript-eslint/no-empty-function,@typescript-eslint/no-unused-vars
-              const noop = (_e?: unknown) => {};
-              return {
-                connectCompleted: noop, disconnectCompleted: noop,
-                loginCompleted: noop, logoutCompleted: noop,
-                terminalStatusChanged: noop, applicationInformationCompleted: noop,
-                applicationInformation: noop, systemInformationCompleted: noop,
-                balanceCompleted: noop, reconciliationCompleted: noop,
-                reservationCompleted: noop, reconfigCompleted: noop,
-                counterRequestCompleted: noop, deactivateCompleted: noop,
-                hardwareInformationCompleted: noop, softwareUpdateCompleted: noop,
-                commitCompleted: noop, rollbackCompleted: noop,
-                cancelCompleted: noop, printReceipts: noop,
-                referenceNumberRequest: noop,
-              };
-            })();
+          const allKeys = new Set<string>();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let obj: any = base;
+          while (obj && obj !== Object.prototype) {
+            for (const key of Object.getOwnPropertyNames(obj)) {
+              if (key !== 'constructor' && typeof obj[key] === 'function') {
+                allKeys.add(key);
+              }
+            }
+            obj = Object.getPrototypeOf(obj);
+          }
+          for (const key of allKeys) {
+            listener[key] = base[key].bind(base);
+          }
+        }
+        // Ensure every known callback is present (covers both SDK builds
+        // that omit DefaultTerminalListener AND callbacks that it might
+        // miss, e.g. `disconnected`).
+        const requiredCallbacks = [
+          'connectCompleted', 'disconnected', 'disconnectCompleted',
+          'loginCompleted', 'logoutCompleted',
+          'activateCompleted', 'deactivateCompleted',
+          'transactionCompleted', 'commitCompleted', 'rollbackCompleted',
+          'cancelCompleted', 'balanceCompleted',
+          'terminalStatusChanged', 'applicationInformationCompleted',
+          'applicationInformation', 'systemInformationCompleted',
+          'reconciliationCompleted', 'reservationCompleted',
+          'reconfigCompleted', 'counterRequestCompleted',
+          'hardwareInformationCompleted', 'softwareUpdateCompleted',
+          'printReceipts', 'referenceNumberRequest',
+          'transactionInformationCompleted', 'errorNotification',
+          'keyPressed',
+        ];
+        for (const cb of requiredCallbacks) {
+          if (typeof listener[cb] !== 'function') listener[cb] = noop;
+        }
 
         // Override just the two callbacks we care about.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

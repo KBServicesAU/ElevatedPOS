@@ -109,7 +109,20 @@ const wss = eventWss;
 server.on('upgrade', (request, socket, head) => {
   const url = new URL(request.url ?? '/', 'http://localhost');
 
-  if (url.pathname === '/SIXml' && TERMINAL_PROXY_ENABLED) {
+  // The TIM API JS SDK v26-01 connects to ws://<ip>:<port>/SIXml with the
+  // "SIXml" subprotocol.  Some SDK builds (or when the bridge port IS the
+  // terminal port) may connect to the root path instead.  We detect:
+  //   1. Exact path match `/SIXml`
+  //   2. Root path `/` when the `Sec-WebSocket-Protocol` header contains "SIXml"
+  //   3. Root path `/` when the proxy is enabled and no event-bus token is present
+  //      (SDK never sends a ?token= param; event-bus clients always do)
+  const isSIXmlPath = url.pathname === '/SIXml';
+  const hasSIXmlProtocol = (request.headers['sec-websocket-protocol'] ?? '').includes('SIXml');
+  const isRootWithoutToken = url.pathname === '/' && !url.searchParams.has('token');
+  const shouldProxy = TERMINAL_PROXY_ENABLED &&
+    (isSIXmlPath || hasSIXmlProtocol || isRootWithoutToken);
+
+  if (shouldProxy) {
     proxyWss.handleUpgrade(request, socket, head, (ws) => {
       proxyWss.emit('connection', ws, request);
     });
@@ -258,16 +271,20 @@ app.post('/drawer/open', (_req, res) => {
 let activeProxyCount = 0;
 
 proxyWss.on('connection', (clientWs, request) => {
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  // The TIM API SDK opens a raw WebSocket with no auth headers or query
+  // params — it can't be modified.  When the bridge is bound to localhost
+  // (127.0.0.1) it's already protected by the OS network stack, so JWT
+  // auth is optional for proxy connections.
+  //
+  // If JWT_SECRET is set AND a ?token= is provided, we verify it.
+  // If JWT_SECRET is set but no token → allow (SDK can't send tokens).
+  // If JWT_SECRET is not set → allow (local-only mode).
   const jwtSecret = process.env['JWT_SECRET'];
-
-  // ── Auth (same pattern as event WebSocket) ──
-  if (!jwtSecret) {
-    clientWs.close(1011, 'Server misconfiguration — JWT_SECRET not set');
-    return;
-  }
   const url = new URL(request.url ?? '/', 'http://localhost');
   const token = url.searchParams.get('token');
-  if (token) {
+
+  if (jwtSecret && token) {
     try {
       verify(token, jwtSecret);
     } catch {
@@ -275,8 +292,8 @@ proxyWss.on('connection', (clientWs, request) => {
       return;
     }
   }
-  // Note: if no JWT_SECRET requirement is configured for the proxy
-  // in local-only mode, we skip auth (the bind is already 127.0.0.1).
+  // When no JWT_SECRET or no token: allow — the bind address (127.0.0.1)
+  // is the access-control boundary for the proxy.
 
   if (!TERMINAL_TARGET_HOST) {
     clientWs.close(1011, 'TERMINAL_TARGET_HOST not configured');
