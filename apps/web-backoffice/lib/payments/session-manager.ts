@@ -151,9 +151,33 @@ export class TerminalSessionManager {
     await adapter.initialize(config);
     this._adapter = adapter;
 
-    // TIM pre-automatisms handle connect/login/activate before each transaction,
-    // so we mark state as 'connected' here — the adapter is ready to accept requests.
-    this._setConnectionState('connected');
+    // Explicit Connect → Login → Activate.
+    //
+    // The TIM SDK offers "pre-automatism" shortcuts that let you fire a
+    // transactionAsync() in a disconnected state and have the SDK wrap Connect
+    // + Login + Activate around it transparently. That pattern works cleanly
+    // against the ANZ EftSimulator but fails against real Castles S1F2
+    // firmware — the terminal ignores the FeatureRequest the pre-automatisms
+    // prepend to Login, and the SDK state machine stalls at
+    // sms_sl_login_request_features. The ANZ-supplied simple ECR example works
+    // against the same hardware by calling the three lifecycle steps
+    // explicitly. We mirror that here so the very first transaction on a
+    // freshly-initialised session has a fully-paired terminal ready to serve.
+    try {
+      if (typeof adapter.connect === 'function') {
+        await adapter.connect(15_000);
+      }
+      await adapter.login(30_000);
+      await adapter.activate(30_000);
+      this._setConnectionState('activated');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._lastErrorMessage = msg;
+      this._logger.error('session_pair_failed', { error: msg });
+      this._setConnectionState('error');
+      throw err;
+    }
+
     this._lastConnectedAt = new Date();
     this._logger.info('session_ready', {});
   }

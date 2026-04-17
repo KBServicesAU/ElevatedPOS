@@ -200,13 +200,14 @@ export async function runTimPairLifecycle(
         settings.tipAllowed         = false;
         settings.enableKeepAlive    = true;
 
-        // GAP-2: Explicit protocol type (sixml per ANZ validation log extract)
-        // and pre-automatism flags. These properties may not exist on every
-        // SDK build; trySet() swallows errors for forward-compat.
+        // GAP-2: Explicit protocol type (sixml per ANZ validation log extract).
+        // Note: we no longer enable autoConnect/autoLogin/autoActivate + rely on
+        // a phantom transactionAsync to fire the pre-automatisms. That pattern
+        // fails against real Castles S1F2 firmware (terminal ignores the
+        // FeatureRequest that pre-automatisms wrap Login in). The ANZ-supplied
+        // simple ECR example uses explicit connectAsync → loginAsync → activateAsync
+        // and that is what works end-to-end on the live hardware. Do the same.
         trySet(settings, 'protocolType', tim.constants?.ProtocolType?.sixml);
-        trySet(settings, 'autoConnect',  true);
-        trySet(settings, 'autoLogin',    true);
-        trySet(settings, 'autoActivate', true);
 
         // Guides: retail is required for standard POS (SDK throws
         // invalidArgument if guides is undefined/empty).
@@ -321,15 +322,52 @@ export async function runTimPairLifecycle(
           if (typeof listener[cb] !== 'function') listener[cb] = noop;
         }
 
-        // Override just the two callbacks we care about.
+        // ── Explicit lifecycle step handlers ─────────────────────────────────
+        // Mirror the ANZ-supplied simple ECR example flow: connect → login →
+        // activate, chained through listener callbacks. Each step's
+        // `*Completed` callback either fires the next step or rejects with
+        // the terminal-returned error. No phantom transaction is required.
+        //
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        listener.activateCompleted = (event: any, _data?: unknown) => {
-          if (event?.exception !== undefined) return;
+        const rejectWith = (step: string, event: any): void => {
+          if (paired) return;
+          if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+          const exc = event?.exception;
+          const code = exc?.resultCode;
+          const codeStr = typeof code === 'string' ? code : (code?.name ?? '');
+          const msg = exc?.message
+            ?? (codeStr ? `${step} failed (${codeStr})` : `${step} failed`);
+          reject(new Error(msg));
+        };
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        listener.connectCompleted = (event: any): void => {
+          if (event?.exception !== undefined) { rejectWith('Connect', event); return; }
+          try {
+            if (typeof t.loginAsync === 'function') t.loginAsync();
+            else rejectWith('Login', { exception: { message: 'loginAsync not available' } });
+          } catch (err) {
+            rejectWith('Login', { exception: { message: String(err) } });
+          }
+        };
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        listener.loginCompleted = (event: any): void => {
+          if (event?.exception !== undefined) { rejectWith('Login', event); return; }
+          try {
+            if (typeof t.activateAsync === 'function') t.activateAsync();
+            else rejectWith('Activate', { exception: { message: 'activateAsync not available' } });
+          } catch (err) {
+            rejectWith('Activate', { exception: { message: String(err) } });
+          }
+        };
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        listener.activateCompleted = (event: any, _data?: unknown): void => {
+          if (event?.exception !== undefined) { rejectWith('Activate', event); return; }
           if (paired) return;
 
-          // GAP-8: ensure brands AND terminalId are populated before we
-          // declare pairing successful. If fetchBrands was honoured, both
-          // should be available by the time activateCompleted fires.
+          // GAP-8: capture brands + terminalId for ANZ §3.1 validation evidence.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let terminalId = '';
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -339,10 +377,7 @@ export async function runTimPairLifecycle(
 
           paired = true;
           if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-          try { t.cancel(); } catch { /* ignore */ }
 
-          // Log the pair-success criteria so ANZ validation reviewers can
-          // see that we verified the mandatory fields.
           try {
             // eslint-disable-next-line no-console
             console.info('[ANZ-PAIR] activateCompleted', {
@@ -356,28 +391,25 @@ export async function runTimPairLifecycle(
         };
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        listener.transactionCompleted = (event: any, _data?: unknown) => {
+        listener.disconnected = (_terminal: unknown, exception?: any): void => {
           if (paired) return;
           if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-          const exc = event?.exception;
-          const code = exc?.resultCode;
-          const codeStr = typeof code === 'string' ? code : (code?.name ?? '');
-          const msg = exc?.message
-            ?? (codeStr ? `Terminal unreachable (${codeStr})` : 'Terminal unreachable');
+          const msg = exception?.message ?? 'Terminal disconnected before pair completed';
           reject(new Error(msg));
         };
 
         t.addListener(listener);
 
-        // ── 6. Trigger pre-automatism chain (connect → login → activate) ──
-        // We use a $0.01 phantom purchase because it is the most reliable
-        // way to exercise the FULL pre-automatism chain including fetchBrands
-        // under SDK 26-01. We cancel as soon as activateCompleted fires,
-        // before the card-read phase starts — no financial event is created.
-        t.transactionAsync(
-          tim.constants.TransactionType.purchase,
-          new tim.Amount(1, tim.constants.Currency.AUD),
-        );
+        // ── 6. Explicit Connect → Login → Activate chain ─────────────────────
+        // connectAsync() opens the WebSocket. Each subsequent step is fired
+        // from the corresponding listener callback above when the prior step
+        // completes successfully. This matches the ANZ simple ECR example
+        // and is the flow that works against live Castles S1F2 hardware.
+        if (typeof t.connectAsync === 'function') {
+          t.connectAsync();
+        } else {
+          reject(new Error('connectAsync not available on this SDK build'));
+        }
       } catch (innerErr) {
         reject(innerErr instanceof Error ? innerErr : new Error(String(innerErr)));
       }

@@ -644,6 +644,11 @@ export class TimApiAdapter {
   } | null = null;
 
   // Pending resolvers for explicit lifecycle calls
+  private _pendingConnect: {
+    resolve: () => void;
+    reject:  (e: Error) => void;
+  } | null = null;
+
   private _pendingLogin: {
     resolve: () => void;
     reject:  (e: Error) => void;
@@ -946,6 +951,18 @@ export class TimApiAdapter {
         });
         if (ok) {
           this._pendingTransaction?.onStatus?.('Terminal connected');
+        }
+        // Resolve explicit connect() caller if pending
+        const pendingConnect = this._pendingConnect;
+        if (pendingConnect) {
+          this._pendingConnect = null;
+          if (ok) {
+            pendingConnect.resolve();
+          } else {
+            pendingConnect.reject(new Error(
+              event.exception!.message ?? `connect failed (${this._resultCodeString(event.exception!.resultCode)})`
+            ));
+          }
         }
       },
 
@@ -1461,6 +1478,45 @@ export class TimApiAdapter {
     } catch (err) {
       this._logger.warn('cancel_failed', { error: String(err) });
     }
+  }
+
+  // ── Explicit lifecycle: Connect ─────────────────────────────────────────────
+  // Section 1.2: Connect — establishes the underlying transport (WebSocket/TCP)
+  // between the ECR and the terminal. Must succeed before login/activate.
+  // Required for hardware that does not respond to the SDK's pre-automatism
+  // chain triggered via transactionAsync (e.g. live Castles S1F2 firmware
+  // ignores the FeatureRequest that pre-automatisms wrap Login in).
+
+  connect(timeoutMs = 15_000): Promise<void> {
+    if (!this._terminal) throw new Error('Adapter not initialized — call initialize() first');
+
+    this._logger.info('connect_start', {});
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._pendingConnect = null;
+        reject(new Error('connect timed out'));
+      }, timeoutMs);
+
+      this._pendingConnect = {
+        resolve: () => { clearTimeout(timer); resolve(); },
+        reject:  (err) => { clearTimeout(timer); reject(err); },
+      };
+
+      try {
+        if (typeof this._terminal!.connectAsync === 'function') {
+          this._terminal!.connectAsync();
+        } else {
+          clearTimeout(timer);
+          this._pendingConnect = null;
+          reject(new Error('connectAsync not available on this SDK build'));
+        }
+      } catch (err) {
+        clearTimeout(timer);
+        this._pendingConnect = null;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
   }
 
   // ── Explicit lifecycle: Login ───────────────────────────────────────────────
