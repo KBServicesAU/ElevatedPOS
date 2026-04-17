@@ -12,31 +12,38 @@ if (typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout !=
   };
 }
 
-import { initSentry } from '../lib/sentry';
-// Initialise Sentry before any component renders so startup errors are captured.
-// Wrap in try/catch because if this throws, the whole module fails to load and
-// the user sees a blank black screen with no way to recover.
-try {
-  initSentry();
-} catch (err) {
-  // eslint-disable-next-line no-console
-  console.error('[_layout] initSentry threw:', err);
-}
+// initSentry is REMOVED from the v2.7.4 blank-screen diagnostic build.
+// @sentry/react-native's native Application.onCreate() hook has been
+// observed to crash at startup on iMin hardware when the DSN or env is
+// not fully initialised. Keeping Sentry completely out of the startup
+// path until we confirm the rest of the app boots.
 
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { StripeProvider } from '@stripe/stripe-react-native';
 import { useDeviceStore } from '../store/device';
 import { useDeviceSettings } from '../store/device-settings';
 import { ToastViewport, AlertDialogHost } from '../components/ui';
 import { RootErrorBoundary } from '../components/ErrorBoundary';
 
+// StripeProvider is imported lazily only when a publishable key is present,
+// so the native Stripe module is never touched from this entry file on
+// non-POS builds.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let StripeProvider: any = null;
 const stripePublishableKey = process.env['EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?? '';
-const APP_VERSION = '2.7.3';
-const BUILD_TAG = 'v2.7.3 — blank-screen debug';
+if (stripePublishableKey) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    StripeProvider = require('@stripe/stripe-react-native').StripeProvider;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[_layout] failed to load @stripe/stripe-react-native:', err);
+  }
+}
+const BUILD_TAG = 'v2.7.4 — blank-screen diagnostic (no Sentry/USB/Stripe)';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -148,14 +155,10 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 
-  // Only wrap in StripeProvider when a publishable key is available (POS builds).
-  // Non-POS builds (KDS, Kiosk, Display, Dashboard) don't have the key set and
-  // initialising the native Stripe SDK with an empty key crashes the app on Android.
-  // Wrap StripeProvider init in its own try/catch so a Stripe native-module
-  // failure doesn't take down the whole app.
+  // Wrap in StripeProvider only if the native module loaded and we have a key.
   let providerContent;
   try {
-    providerContent = stripePublishableKey ? (
+    providerContent = stripePublishableKey && StripeProvider ? (
       <StripeProvider publishableKey={stripePublishableKey} urlScheme="elevatedpos">
         {content}
       </StripeProvider>

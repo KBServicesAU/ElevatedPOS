@@ -12,7 +12,6 @@
 
 import { Component, type ReactNode } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import * as Sentry from '@sentry/react-native';
 
 interface Props {
   children: ReactNode;
@@ -33,7 +32,12 @@ export class RootErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, errorInfo: { componentStack?: string | null }): void {
     this.setState({ errorInfo });
     // Report to Sentry — best-effort so the error surface always renders.
+    // Lazy-require so the native module isn't touched during this file's
+    // import graph evaluation (Sentry native init is suspected in the iMin
+    // blank-screen crash; we only hit it if the boundary catches something).
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Sentry = require('@sentry/react-native');
       Sentry.captureException(error, {
         contexts: { react: { componentStack: errorInfo.componentStack ?? 'unknown' } },
       });
