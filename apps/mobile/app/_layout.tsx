@@ -14,7 +14,14 @@ if (typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout !=
 
 import { initSentry } from '../lib/sentry';
 // Initialise Sentry before any component renders so startup errors are captured.
-initSentry();
+// Wrap in try/catch because if this throws, the whole module fails to load and
+// the user sees a blank black screen with no way to recover.
+try {
+  initSentry();
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.error('[_layout] initSentry threw:', err);
+}
 
 import { useEffect, useRef } from 'react';
 import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native';
@@ -101,10 +108,12 @@ export default function RootLayout() {
   // the first React commit, or when SecureStore hydration is slow).
   if (!ready) {
     return (
-      <View style={loadingStyles.root}>
-        <ActivityIndicator size="large" color="#4f46e5" />
-        <Text style={loadingStyles.text}>Starting up…</Text>
-      </View>
+      <RootErrorBoundary>
+        <View style={loadingStyles.root}>
+          <ActivityIndicator size="large" color="#4f46e5" />
+          <Text style={loadingStyles.text}>Starting up…</Text>
+        </View>
+      </RootErrorBoundary>
     );
   }
 
@@ -121,11 +130,20 @@ export default function RootLayout() {
   // Only wrap in StripeProvider when a publishable key is available (POS builds).
   // Non-POS builds (KDS, Kiosk, Display, Dashboard) don't have the key set and
   // initialising the native Stripe SDK with an empty key crashes the app on Android.
-  const providerContent = stripePublishableKey ? (
-    <StripeProvider publishableKey={stripePublishableKey} urlScheme="elevatedpos">
-      {content}
-    </StripeProvider>
-  ) : content;
+  // Wrap StripeProvider init in its own try/catch so a Stripe native-module
+  // failure doesn't take down the whole app.
+  let providerContent;
+  try {
+    providerContent = stripePublishableKey ? (
+      <StripeProvider publishableKey={stripePublishableKey} urlScheme="elevatedpos">
+        {content}
+      </StripeProvider>
+    ) : content;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[_layout] StripeProvider init threw:', err);
+    providerContent = content;
+  }
 
   return <RootErrorBoundary>{providerContent}</RootErrorBoundary>;
 }
