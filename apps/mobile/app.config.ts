@@ -101,7 +101,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   owner: 'kbservicesau',
   name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
   slug: resolved?.slug ?? 'elevatedpos',
-  version: '1.9.1',
+  version: '2.7.3',
   scheme: 'elevatedpos',
   orientation: 'default',
   platforms: ['ios', 'android'],
@@ -141,13 +141,16 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     package: resolved?.package ?? process.env['APP_PACKAGE_ANDROID'] ?? 'com.au.elevatedpos.mobile',
   },
   plugins: basePlugins,
+  // OTA updates are DISABLED. When enabled with checkAutomatically: 'ON_LOAD'
+  // the app blocks on a network request to u.expo.dev before rendering; on
+  // iMin / captive-network devices this can produce a long blank-screen
+  // window while the client waits for the 5s fallback. We'll re-enable OTA
+  // once the root-cause of the install-time blank screen is understood.
   updates: {
-    enabled: true,
-    url: 'https://u.expo.dev/5f03d9c6-0120-4047-aa27-f71a823afa7b',
-    fallbackToCacheTimeout: 5000,
-    checkAutomatically: 'ON_LOAD',
+    enabled: false,
+    checkAutomatically: 'NEVER',
   },
-  runtimeVersion: '1.9.1',
+  runtimeVersion: '2.7.3',
   experiments: { typedRoutes: true },
   extra: {
     eas: { projectId: process.env['EAS_PROJECT_ID'] ?? '5f03d9c6-0120-4047-aa27-f71a823afa7b' },

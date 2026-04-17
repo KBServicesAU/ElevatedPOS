@@ -23,7 +23,7 @@ try {
   console.error('[_layout] initSentry threw:', err);
 }
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -35,6 +35,8 @@ import { ToastViewport, AlertDialogHost } from '../components/ui';
 import { RootErrorBoundary } from '../components/ErrorBoundary';
 
 const stripePublishableKey = process.env['EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?? '';
+const APP_VERSION = '2.7.3';
+const BUILD_TAG = 'v2.7.3 — blank-screen debug';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -47,22 +49,39 @@ export default function RootLayout() {
   const router = useRouter();
   const pathname = usePathname();
   const previousIdentity = useRef(identity);
+  // Visible diagnostic step counter: the loading screen shows which stage
+  // of startup we're currently in, so a permanently-blank screen can be
+  // distinguished from a stuck hydrate/stuck splash.
+  const [stage, setStage] = useState<string>('mounted');
 
   // Hydrate stored identity on mount, then fetch server-side device config
   useEffect(() => {
+    setStage('hydrating SecureStore…');
     _hydrate().then(() => {
+      setStage('fetching device settings…');
       // Non-fatal if it fails — app still works with local fallbacks.
       fetchDeviceSettings().catch(() => { /* ignore */ });
+      setStage('ready');
+    }).catch((err) => {
+      setStage(`hydrate failed: ${err?.message ?? String(err)}`);
     });
   }, [_hydrate, fetchDeviceSettings]);
 
-  // Hide the splash only after the component has re-rendered with ready=true.
-  // Calling hideAsync() inside the _hydrate().then() callback races with
-  // React's state flush — the splash can vanish before the first real frame
-  // renders, leaving a black screen on slower devices.
+  // Force the splash to hide after at most 3 seconds regardless. If the
+  // hydrate chain stalls for any reason, we still want content to paint —
+  // the loading screen below will show the current stage and the user can
+  // at least see the app is alive.
+  useEffect(() => {
+    const forceHideTimer = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => { /* ignore */ });
+    }, 3000);
+    return () => clearTimeout(forceHideTimer);
+  }, []);
+
+  // Hide the splash once hydration completes.
   useEffect(() => {
     if (ready) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => { /* ignore */ });
     }
   }, [ready]);
 
@@ -111,7 +130,9 @@ export default function RootLayout() {
       <RootErrorBoundary>
         <View style={loadingStyles.root}>
           <ActivityIndicator size="large" color="#4f46e5" />
-          <Text style={loadingStyles.text}>Starting up…</Text>
+          <Text style={loadingStyles.title}>ElevatedPOS</Text>
+          <Text style={loadingStyles.version}>{BUILD_TAG}</Text>
+          <Text style={loadingStyles.text}>Stage: {stage}</Text>
         </View>
       </RootErrorBoundary>
     );
@@ -149,6 +170,8 @@ export default function RootLayout() {
 }
 
 const loadingStyles = StyleSheet.create({
-  root: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0f1f' },
-  text: { marginTop: 16, color: '#9ca3af', fontSize: 15 },
+  root: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0f1f', padding: 24 },
+  title: { marginTop: 24, color: '#e5e7eb', fontSize: 22, fontWeight: '800' },
+  version: { marginTop: 4, color: '#60a5fa', fontSize: 13, fontFamily: 'monospace' },
+  text: { marginTop: 12, color: '#9ca3af', fontSize: 14, textAlign: 'center' },
 });
