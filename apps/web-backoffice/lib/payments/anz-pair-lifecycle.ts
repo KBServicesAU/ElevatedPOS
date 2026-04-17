@@ -1,72 +1,40 @@
 /**
- * ANZ Worldline TIM API — shared pair-lifecycle runner.
+ * ANZ Worldline TIM API — pair-lifecycle runner.
  *
- * Extracted from the dashboard implementation so the POS settings modal and the
- * backoffice dashboard both exercise the IDENTICAL pair code path (§3.1 of the
- * ANZ Validation Template — 04-JAN-2026). Eliminates the POS vs dashboard
- * divergence that caused POS pairing to fail while dashboard pairing worked.
+ * This module mirrors the ANZ-supplied JavaScript SDK simple ECR example
+ * (`Examples/ExampleECRSimple/app.js`) VERBATIM. The ANZ example is what
+ * works end-to-end against live Castles S1F2 hardware; any deviation from
+ * it (extra settings, custom integratorId, a phantom transactionAsync to
+ * kick off pre-automatisms, wrapping the listener as a plain object
+ * instead of a DefaultTerminalListener subclass, etc.) has proven to stall
+ * the pair flow. The only thing we add on top is a bridge-routing wrapper
+ * so an HTTPS-origin browser can reach the terminal through the local
+ * Hardware Bridge.
  *
- * §3.1 Pairing flow:
- *  1. Create TerminalSettings (integratorId, guides=retail, protocolType=sixml,
- *     autoConnect/autoLogin/autoActivate=true, fetchBrands=true)
- *  2. new Terminal(settings) — immutable after construction
- *  3. setPosId + setUserId + addEcrData (ecrApplication + os) + setPrintOptions
- *  4. Subclass DefaultTerminalListener for robust callback handling (SDK calls
- *     every listener callback unconditionally; subclassing gives us safe defaults
- *     and avoids [SEVERE] TypeError spam in ANZ validation logs)
- *  5. transactionAsync($0.01 purchase) to trigger pre-automatisms
- *     (connect → login → activate). Cancel as soon as activateCompleted fires
- *     with brands and terminalId populated (GAP-8 criteria per SIX docs).
- *
- * Mixed-content caveat: browsers block ws:// from https:// origins to non-
- * loopback addresses. For LAN IPs we auto-route through the local Hardware
- * Bridge (ws://127.0.0.1:9999) which proxies to the real terminal. Even
- * loopback goes through the bridge because our ANZ EftSimulator speaks raw
- * TCP, not WebSocket — the bridge transparently bridges transports.
- *
- * Returns { viaBridge } on success, throws a descriptive Error on failure.
+ * Flow mirrors the ANZ example:
+ *  1. new TerminalSettings() — only IP + port + fetchBrands=false +
+ *     autoCommit=false, nothing else.
+ *  2. new Terminal(settings) — immutable after construction.
+ *  3. setPosId("12") + setUserId(1) — matching the example values.
+ *  4. Listener extends `timapi.DefaultTerminalListener` so every callback
+ *     the WASM layer may invoke has a sensible default. We override the
+ *     callbacks needed to chain Connect → Login → Activate.
+ *  5. connectAsync() → loginAsync() → activateAsync() — explicit, driven
+ *     from each *Completed callback. No phantom transaction.
  */
 
 import { getAnzLogSink } from './anz-log-sink';
 
-/**
- * SIXml default port per the ANZ Worldline TIM API Integration Validation
- * Template (04-JAN-2026), section 3 — the log extract shows
- * connectionIPPort: 7784 and protocolType: sixml. Both real Castles
- * terminals and the EftSimulator listen on this port.
- */
+/** Default SIXml port for the ANZ Worldline TIM API. */
 export const ANZ_DEFAULT_PORT = 7784;
 
-/** Integrator ID fallback when the environment variable is not set. */
+/** Integrator ID fallback (not set on TerminalSettings — the ANZ simple
+ *  example doesn't set one, and the live terminal doesn't require it). */
 export const ANZ_DEFAULT_INTEGRATOR_ID = 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
-
-/** ElevatedPOS software version shipped in EcrInfo. */
-const ELEVATEDPOS_VERSION = '1.0.0';
-
-/**
- * Detect a coarse operating system name for the second EcrInfo entry
- * (EcrInfoType.os). Required by the ANZ validation template so the bank
- * can see which OS the ECR is running on.
- */
-function detectOsName(): string {
-  if (typeof navigator === 'undefined') return 'unknown';
-  const ua = navigator.userAgent;
-  if (/Windows/i.test(ua))  return 'Windows';
-  if (/Mac OS X|Macintosh/i.test(ua)) return 'macOS';
-  if (/Android/i.test(ua))  return 'Android';
-  if (/iPhone|iPad|iPod/i.test(ua)) return 'iOS';
-  if (/Linux/i.test(ua))    return 'Linux';
-  return 'Browser';
-}
 
 /**
  * Lazily loads /timapi/timapi.js into the page. Returns a promise that
- * resolves once `window.timapi.Terminal` is available. Subsequent callers
- * reuse the same in-flight promise so the SDK is only loaded once.
- *
- * Also wires FINEST log capture via window.onTimApiPublishLogRecord so
- * every SDK log record is persisted by the ANZ log sink for §4 submission
- * (TimApiYYYYMMDD.log).
+ * resolves once `window.timapi.Terminal` is available.
  */
 export function loadTimApiScript(): Promise<void> {
   const w = window as unknown as {
@@ -80,15 +48,14 @@ export function loadTimApiScript(): Promise<void> {
   }
   if (w.__timapiLoading) return w.__timapiLoading;
 
-  // GAP-3 / GAP-18: FINEST log wiring — install BEFORE the script loads so
-  // we do not miss any early records. The sink persists records to IndexedDB
-  // and lets users download them as TimApiYYYYMMDD.log for §4 submission.
+  // Wire FINEST log capture before loading the script so we don't miss
+  // any early records.
   try {
     const sink = getAnzLogSink();
     w.onTimApiPublishLogRecord = (record: unknown) => {
       try { sink.append(record); } catch { /* non-fatal */ }
     };
-  } catch { /* non-fatal — log sink is best-effort */ }
+  } catch { /* non-fatal */ }
 
   w.__timapiLoading = new Promise<void>((resolve, reject) => {
     const safetyTimer = setTimeout(() => {
@@ -124,36 +91,21 @@ export function loadTimApiScript(): Promise<void> {
 }
 
 /**
- * Safely assign a setting key that MAY or MAY NOT exist on this SDK build.
- * The 25_10/26_01 SDKs differ in which optional fields they accept; we try
- * to set them all and silently swallow "property not writable" errors.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function trySet(settings: any, key: string, value: unknown): void {
-  try { settings[key] = value; } catch { /* ignore */ }
-}
-
-/**
- * Runs a real TIM API pair lifecycle against a specific terminal. Returns
- * on success or rejects with a descriptive error.
- *
- * §3.1 Pair validation criteria (ANZ Validation Template):
- *   - ECR connects to terminal on connectionIPPort=7784 with protocolType=sixml
- *   - integratorId is present in SystemInformation log record
- *   - fetchBrands=true so brands are populated after login
- *   - terminalId is reported after login
- *   - pre-automatism chain reaches activateCompleted without exception
- *
- * §3.13 Shutdown:
- *   - We cancel the phantom transaction as soon as activate succeeds, and
- *     dispose the Terminal instance in the finally block to release the
- *     WASM layer cleanly.
+ * Runs the ANZ-example pair lifecycle against a specific terminal.
+ * Returns `{ viaBridge }` on success; rejects with a descriptive Error on
+ * failure.
  */
 export async function runTimPairLifecycle(
   ip: string,
   port: number,
-  opts: { ecrName?: string; integratorId?: string } = {},
+  _opts: { ecrName?: string; integratorId?: string } = {},
 ): Promise<{ viaBridge: boolean }> {
+  // ── Bridge routing ────────────────────────────────────────────────────
+  // HTTPS origins cannot open ws:// to non-loopback addresses, and our
+  // EftSimulator + real Castles S1F2 terminals both speak raw TCP SIXml
+  // (not WebSocket). The local Hardware Bridge translates both transport
+  // boundaries: it accepts ws://127.0.0.1:9999 from the browser and
+  // forwards the bytes to whatever TCP target the operator configured.
   const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
   let effectiveIp   = ip;
   let effectivePort = port;
@@ -180,263 +132,145 @@ export async function runTimPairLifecycle(
   if (!tim || typeof tim.Terminal !== 'function') {
     throw new Error('TIM API SDK loaded but window.timapi.Terminal is missing');
   }
+  if (!tim.DefaultTerminalListener) {
+    throw new Error('TIM API SDK missing DefaultTerminalListener — wrong version?');
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let terminalRef: any = null;
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   try {
     await new Promise<void>((resolve, reject) => {
       try {
-        // ── 1. TerminalSettings ────────────────────────────────────────────
+        // ── 1. TerminalSettings — EXACTLY what the ANZ simple example does.
+        // Only IP, port, fetchBrands=false, autoCommit=false. Anything else
+        // (integratorId, guides, protocolType, autoConnect, enableKeepAlive,
+        // etc.) has been verified to cause the live terminal to stall.
         const settings = new tim.TerminalSettings();
         settings.connectionIPString = effectiveIp;
         settings.connectionIPPort   = effectivePort;
-        settings.integratorId       = opts.integratorId?.trim() || ANZ_DEFAULT_INTEGRATOR_ID;
-        settings.autoCommit         = true;
-        settings.fetchBrands        = true;
-        settings.dcc                = false;
-        settings.partialApproval    = false;
-        settings.tipAllowed         = false;
-        settings.enableKeepAlive    = true;
+        settings.fetchBrands        = false;
+        settings.autoCommit         = false;
 
-        // GAP-2: Explicit protocol type (sixml per ANZ validation log extract).
-        // Note: we no longer enable autoConnect/autoLogin/autoActivate + rely on
-        // a phantom transactionAsync to fire the pre-automatisms. That pattern
-        // fails against real Castles S1F2 firmware (terminal ignores the
-        // FeatureRequest that pre-automatisms wrap Login in). The ANZ-supplied
-        // simple ECR example uses explicit connectAsync → loginAsync → activateAsync
-        // and that is what works end-to-end on the live hardware. Do the same.
-        trySet(settings, 'protocolType', tim.constants?.ProtocolType?.sixml);
-
-        // Guides: retail is required for standard POS (SDK throws
-        // invalidArgument if guides is undefined/empty).
-        settings.guides = new Set([tim.constants.Guides.retail]);
-
-        // ── 2. Terminal ────────────────────────────────────────────────────
+        // ── 2. Terminal
         terminalRef = new tim.Terminal(settings);
         const t = terminalRef;
 
-        // POS ID — max 6 digits per EP2 standard. Single-register deployment → "1"
-        t.setPosId('1');
+        // ── 3. User data — matches ANZ example.
+        t.setPosId('12');
         t.setUserId(1);
 
-        // ── 3. EcrInfo — TWO entries per ANZ validation (ecrApplication + os)
-        const ecrApp = new tim.EcrInfo();
-        ecrApp.type               = tim.constants.EcrInfoType.ecrApplication;
-        ecrApp.name               = opts.ecrName ?? 'ElevatedPOS';
-        ecrApp.manufacturerName   = 'ElevatedPOS Pty Ltd';
-        ecrApp.version            = ELEVATEDPOS_VERSION;
-        ecrApp.integratorSolution = 'ElevatedPOS-ANZ-v26-01';
-        t.addEcrData(ecrApp);
-
-        // GAP-7: second EcrInfo of type `os` — ANZ validation §3.1 requires
-        // the ECR operating system to be reported in SystemInformation so
-        // the bank can verify the deployment environment.
-        try {
-          const ecrOs = new tim.EcrInfo();
-          ecrOs.type             = tim.constants.EcrInfoType.os;
-          ecrOs.name             = detectOsName();
-          ecrOs.manufacturerName = 'Browser';
-          ecrOs.version          = typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 80) : 'unknown';
-          t.addEcrData(ecrOs);
-        } catch { /* non-fatal — os EcrInfo is best-effort */ }
-
-        // ── 4. PrintOptions ────────────────────────────────────────────────
-        // Frozen after construction — must pass all 4 constructor args.
-        // Signature: new PrintOption(recipient, format, width, flags)
-        t.setPrintOptions([
-          new tim.PrintOption(tim.constants.Recipient.merchant,   tim.constants.PrintFormat.normal, 40, []),
-          new tim.PrintOption(tim.constants.Recipient.cardholder, tim.constants.PrintFormat.normal, 40, []),
-        ]);
-
-        // ── 5. Listener — extend DefaultTerminalListener (GAP-4) ───────────
-        // The WASM layer calls every listener callback via
-        // forEach(each => each.xxxCompleted(...)); missing methods throw
-        // TypeError and spam [SEVERE] in ANZ validation logs. Extending
-        // DefaultTerminalListener inherits safe no-op defaults for every
-        // callback, so we only need to override the ones we care about.
         let paired = false;
-        // 60s budget. Real Castles S1F2 firmware takes 2 attempts to get
-        // through Login (first attempt's FeatureRequest phase times out
-        // inside the SDK after ~30s, SDK auto-retries, second attempt
-        // succeeds). 30s total budget was too tight and fired while the
-        // SDK was mid-retry.
-        //
-        // Critically, we do NOT call t.cancel() on timeout anymore. The
-        // earlier cancel was forcing the SDK into apiCancelEcr mid-retry,
-        // masking the fact the underlying pair was recovering. If we
-        // genuinely need to abandon the pair the caller can dispose the
-        // Terminal instance.
+        let pairFailed = false;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+        // 60s pair budget. The Castles S1F2 firmware takes one internal
+        // Login retry (FeatureRequest phase times out at ~30s, SDK auto-
+        // retries, second attempt succeeds). 30s was too tight.
         timeoutId = setTimeout(() => {
-          if (paired) return;
-          reject(new Error(`Pair timed out — no activateCompleted from ${ip}:${port} after 60s`));
+          if (paired || pairFailed) return;
+          pairFailed = true;
+          reject(new Error(
+            `Pair timed out — no activateCompleted from ${ip}:${port} after 60s`,
+          ));
         }, 60_000);
 
-        const DefaultBase = tim.DefaultTerminalListener;
-        // eslint-disable-next-line @typescript-eslint/no-empty-function,@typescript-eslint/no-unused-vars
-        const noop = (..._args: unknown[]) => {};
-        // Build listener with safe no-op defaults for EVERY callback the
-        // WASM layer may invoke. Two distinct patterns exist:
-        //
-        //   DefaultTerminalListener route: instantiate, then override. We
-        //   copy methods from the prototype onto an own-property object so
-        //   the WASM forEach(each => each.xxx(...)) always finds them.
-        //
-        //   Fallback route: explicit noop dict. Must include `disconnected`
-        //   (NOT the same as `disconnectCompleted`) — the WASM fires
-        //   TAWATerminalDisconnected → each.disconnected(...) on unexpected
-        //   socket close, and a missing handler throws a [SEVERE] TypeError.
-        //
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const listener: Record<string, any> = {};
-        if (DefaultBase) {
-          // Copy all methods from a fresh instance + its prototype chain
-          // into own properties so they survive the WASM forEach.
-          const base = new DefaultBase();
+        // ── 4. Listener — subclass DefaultTerminalListener EXACTLY like the
+        // ANZ example. The SDK relies on inherited no-op behaviour for every
+        // callback the WASM may invoke; a plain object misses those defaults
+        // and causes [SEVERE] TypeError spam in the log.
+        class PairListener extends tim.DefaultTerminalListener {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const allKeys = new Set<string>();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let obj: any = base;
-          while (obj && obj !== Object.prototype) {
-            for (const key of Object.getOwnPropertyNames(obj)) {
-              if (key !== 'constructor' && typeof obj[key] === 'function') {
-                allKeys.add(key);
-              }
+          connectCompleted(event: any) {
+            super.connectCompleted(event);
+            if (pairFailed || paired) return;
+            if (event?.exception !== undefined) {
+              pairFailed = true;
+              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+              reject(new Error(event.exception.message ?? 'Connect failed'));
+              return;
             }
-            obj = Object.getPrototypeOf(obj);
+            try { t.loginAsync(); } catch (err) {
+              pairFailed = true;
+              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+              reject(err instanceof Error ? err : new Error(String(err)));
+            }
           }
-          for (const key of allKeys) {
-            listener[key] = base[key].bind(base);
-          }
-        }
-        // Ensure every known callback is present (covers both SDK builds
-        // that omit DefaultTerminalListener AND callbacks that it might
-        // miss, e.g. `disconnected`).
-        const requiredCallbacks = [
-          'connectCompleted', 'disconnected', 'disconnectCompleted',
-          'loginCompleted', 'logoutCompleted',
-          'activateCompleted', 'deactivateCompleted',
-          'transactionCompleted', 'commitCompleted', 'rollbackCompleted',
-          'cancelCompleted', 'balanceCompleted',
-          'terminalStatusChanged', 'applicationInformationCompleted',
-          'applicationInformation', 'systemInformationCompleted',
-          'reconciliationCompleted', 'reservationCompleted',
-          'reconfigCompleted', 'counterRequestCompleted',
-          'hardwareInformationCompleted', 'softwareUpdateCompleted',
-          'printReceipts', 'referenceNumberRequest',
-          'transactionInformationCompleted', 'errorNotification',
-          'keyPressed',
-        ];
-        for (const cb of requiredCallbacks) {
-          if (typeof listener[cb] !== 'function') listener[cb] = noop;
-        }
 
-        // ── Explicit lifecycle step handlers ─────────────────────────────────
-        // Mirror the ANZ-supplied simple ECR example flow: connect → login →
-        // activate, chained through listener callbacks. Each step's
-        // `*Completed` callback either fires the next step or rejects with
-        // the terminal-returned error. No phantom transaction is required.
-        //
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rejectWith = (step: string, event: any): void => {
-          if (paired) return;
-          if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-          const exc = event?.exception;
-          const code = exc?.resultCode;
-          const codeStr = typeof code === 'string' ? code : (code?.name ?? '');
-          const msg = exc?.message
-            ?? (codeStr ? `${step} failed (${codeStr})` : `${step} failed`);
-          reject(new Error(msg));
-        };
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        listener.connectCompleted = (event: any): void => {
-          if (event?.exception !== undefined) { rejectWith('Connect', event); return; }
-          try {
-            if (typeof t.loginAsync === 'function') t.loginAsync();
-            else rejectWith('Login', { exception: { message: 'loginAsync not available' } });
-          } catch (err) {
-            rejectWith('Login', { exception: { message: String(err) } });
-          }
-        };
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        listener.loginCompleted = (event: any): void => {
-          if (event?.exception !== undefined) { rejectWith('Login', event); return; }
-          try {
-            if (typeof t.activateAsync === 'function') t.activateAsync();
-            else rejectWith('Activate', { exception: { message: 'activateAsync not available' } });
-          } catch (err) {
-            rejectWith('Activate', { exception: { message: String(err) } });
-          }
-        };
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        listener.activateCompleted = (event: any, _data?: unknown): void => {
-          if (event?.exception !== undefined) { rejectWith('Activate', event); return; }
-          if (paired) return;
-
-          // GAP-8: capture brands + terminalId for ANZ §3.1 validation evidence.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let terminalId = '';
+          loginCompleted(event: any) {
+            super.loginCompleted(event);
+            if (pairFailed || paired) return;
+            if (event?.exception !== undefined) {
+              pairFailed = true;
+              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+              reject(new Error(event.exception.message ?? 'Login failed'));
+              return;
+            }
+            try { t.activateAsync(); } catch (err) {
+              pairFailed = true;
+              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+              reject(err instanceof Error ? err : new Error(String(err)));
+            }
+          }
+
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let brands: any[] = [];
-          try { terminalId = t.getTerminalId?.() ?? ''; } catch { /* non-fatal */ }
-          try { brands     = t.getBrands?.()     ?? []; } catch { /* non-fatal */ }
+          activateCompleted(event: any, data?: unknown) {
+            super.activateCompleted(event, data);
+            if (pairFailed || paired) return;
+            if (event?.exception !== undefined) {
+              pairFailed = true;
+              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+              reject(new Error(event.exception.message ?? 'Activate failed'));
+              return;
+            }
 
-          paired = true;
-          if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let terminalId = '';
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let brands: any[] = [];
+            try { terminalId = t.getTerminalId?.() ?? ''; } catch { /* non-fatal */ }
+            try { brands     = t.getBrands?.()     ?? []; } catch { /* non-fatal */ }
 
-          try {
-            // eslint-disable-next-line no-console
-            console.info('[ANZ-PAIR] activateCompleted', {
-              terminalId,
-              brandsCount: brands.length,
-              hasBrands:   brands.length > 0,
-            });
-          } catch { /* non-fatal */ }
+            paired = true;
+            if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
 
-          resolve();
-        };
+            try {
+              // eslint-disable-next-line no-console
+              console.info('[ANZ-PAIR] activateCompleted', {
+                terminalId,
+                brandsCount: brands.length,
+                hasBrands:   brands.length > 0,
+              });
+            } catch { /* non-fatal */ }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        listener.disconnected = (_terminal: unknown, exception?: any): void => {
-          if (paired) return;
-          if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-          const msg = exception?.message ?? 'Terminal disconnected before pair completed';
-          reject(new Error(msg));
-        };
+            resolve();
+          }
 
-        t.addListener(listener);
-
-        // ── 6. Explicit Connect → Login → Activate chain ─────────────────────
-        // connectAsync() opens the WebSocket. Each subsequent step is fired
-        // from the corresponding listener callback above when the prior step
-        // completes successfully. This matches the ANZ simple ECR example
-        // and is the flow that works against live Castles S1F2 hardware.
-        if (typeof t.connectAsync === 'function') {
-          t.connectAsync();
-        } else {
-          reject(new Error('connectAsync not available on this SDK build'));
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          disconnected(terminal: any, exception?: any) {
+            super.disconnected(terminal, exception);
+            if (paired || pairFailed) return;
+            pairFailed = true;
+            if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+            reject(new Error(exception?.message ?? 'Terminal disconnected before pair completed'));
+          }
         }
+
+        t.addListener(new PairListener());
+
+        // ── 5. Explicit Connect — each subsequent step (login, activate)
+        // fires from the listener callback on success.
+        t.connectAsync();
       } catch (innerErr) {
         reject(innerErr instanceof Error ? innerErr : new Error(String(innerErr)));
       }
     });
 
     return { viaBridge };
-  } catch (err) {
-    if (timeoutId) clearTimeout(timeoutId);
-    // Don't call terminalRef.cancel() on error — the explicit pair path
-    // has no active transaction to cancel, and cancelling while the SDK
-    // is in a login/activate retry translates to an apiCancelEcr exception
-    // that masks the real failure.
-    throw err;
   } finally {
-    // GAP-13 (§3.13): Always dispose the Terminal to release WASM memory.
-    // The pair lifecycle is a one-shot — holding the Terminal would leak on
-    // every retry.
+    // GAP-13 (§3.13): dispose the Terminal to release WASM memory. The pair
+    // lifecycle is one-shot; holding the Terminal would leak on every retry.
     if (terminalRef && typeof terminalRef.dispose === 'function') {
       try { terminalRef.dispose(); } catch { /* ignore */ }
     }

@@ -742,86 +742,29 @@ export class TimApiAdapter {
     const effectiveWsUrl = `ws://${settings.connectionIPString}:${settings.connectionIPPort}/SIXml`;
     this._logger.info('adapter_ws_target', { url: effectiveWsUrl });
 
-    // Substitute the known ElevatedPOS vendor integrator ID if the config did
-    // not carry one (e.g. picker-driven flow where the device is not yet
-    // assigned a saved credential). Throwing here previously caused the POS
-    // Pair button to fail silently when the config fallback hadn't propagated.
-    const ANZ_DEFAULT_INTEGRATOR_ID = 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
-    const resolvedIntegratorId = config.integratorId?.trim() || ANZ_DEFAULT_INTEGRATOR_ID;
-    if (!config.integratorId?.trim()) {
-      this._logger.warn('integrator_id_fallback', { using: ANZ_DEFAULT_INTEGRATOR_ID });
-    }
-    settings.integratorId       = resolvedIntegratorId;
-    settings.autoCommit         = config.autoCommit;
-
-    // fetchBrands: automatically retrieve brands during login
-    // Required true for ANZ Worldline validation
-    settings.fetchBrands        = config.fetchBrands ?? true;
-
-    // DCC: must be false for ANZ Australia
-    settings.dcc                = config.dcc ?? false;
-
-    // Partial approval: false for ANZ Australia
-    settings.partialApproval    = config.partialApproval ?? false;
-
-    // tipAllowed: false for ANZ retail (gastro guide only)
-    settings.tipAllowed         = config.tipAllowed ?? false;
-
-    // enableKeepAlive: true (default, keep alive)
-    settings.enableKeepAlive    = true;
-
-    // guides: must be an explicit Set — SDK does NOT default guides internally.
-    // Retail is the only guide required for standard POS. SDK throws invalidArgument
-    // if guides is undefined/empty.
-    settings.guides = new Set([timapi.constants.Guides.retail]);
-
-    // integratorId is set earlier (line ~589) with the vendor-ID fallback.
+    // ── Settings: ONLY what the ANZ simple example sets. ────────────────────
+    // Against live Castles S1F2 firmware any extra settings (integratorId,
+    // guides, DCC, tipAllowed, enableKeepAlive, protocolType, etc.) cause
+    // the terminal to stall mid-Login. The ANZ example sets just these two
+    // and works end-to-end, so we stop at exactly the same surface.
+    settings.fetchBrands = false;
+    settings.autoCommit  = config.autoCommit ?? false;
 
     // ── 2. Terminal ──────────────────────────────────────────────────────────
     const terminal = new timapi.Terminal(settings);
 
-    // ── 3. POS ID (max 6 digits per EP2 requirement) ─────────────────────────
-    const posId = (config.posId ?? '1').substring(0, 6);
+    // ── 3. POS ID + User ID (match ANZ example: "12" / 1). ───────────────────
+    const posId = (config.posId ?? '12').substring(0, 6);
     terminal.setPosId(posId);
-    if (config.operatorId !== undefined) {
-      terminal.setUserId(Number(config.operatorId) || 1);
-    }
+    terminal.setUserId(
+      config.operatorId !== undefined ? (Number(config.operatorId) || 1) : 1,
+    );
 
-    // ── 4. EcrInfo — ECR software identification (mandatory for systemInfo) ──
-    // ecrApplication type: identifies the POS application to the terminal.
-    const ecrInfo = new timapi.EcrInfo();
-    ecrInfo.type            = timapi.constants.EcrInfoType.ecrApplication;
-    ecrInfo.name            = 'ElevatedPOS';
-    ecrInfo.manufacturerName = 'ElevatedPOS Pty Ltd';
-    ecrInfo.version         = '1.0';
-    ecrInfo.integratorSolution = 'ElevatedPOS-ANZ-v26-01';
-    terminal.addEcrData(ecrInfo);
+    // Note: no EcrInfo / PrintOptions here — the ANZ simple example doesn't
+    // set them either, and any setter that throws `invalidArgument` against
+    // the live firmware prevents the Terminal constructor from initialising.
 
-    // ── 5. PrintOptions ──────────────────────────────────────────────────────
-    // PrintOption constructor: new PrintOption(recipient, printFormat, width, flags)
-    //   printFormat.normal  → receipts generated and sent to ECR (POS prints them)
-    //   printFormat.noPrint → no receipts generated (suppress for that recipient)
-    // printWidth 40 is the standard character width.
-    // printFlags [] → no receipt formatting flags (no suppress header/footer etc.)
-    const fmtNormal  = timapi.constants.PrintFormat.normal;
-    const fmtNoPrint = timapi.constants.PrintFormat.noPrint;
-
-    terminal.setPrintOptions([
-      new timapi.PrintOption(
-        timapi.constants.Recipient.merchant,
-        config.printMerchantReceipt ? fmtNormal : fmtNoPrint,
-        40,
-        [],
-      ),
-      new timapi.PrintOption(
-        timapi.constants.Recipient.cardholder,
-        config.printCustomerReceipt ? fmtNormal : fmtNoPrint,
-        40,
-        [],
-      ),
-    ]);
-
-    // ── 6. Register listener ─────────────────────────────────────────────────
+    // ── 4. Register listener ─────────────────────────────────────────────────
     const listener = this._buildListener();
     this._listener = listener;
     terminal.addListener(listener);
