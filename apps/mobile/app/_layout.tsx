@@ -17,7 +17,7 @@ import { initSentry } from '../lib/sentry';
 initSentry();
 
 import { useEffect, useRef } from 'react';
-import { AppState, View } from 'react-native';
+import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -25,6 +25,7 @@ import { StripeProvider } from '@stripe/stripe-react-native';
 import { useDeviceStore } from '../store/device';
 import { useDeviceSettings } from '../store/device-settings';
 import { ToastViewport, AlertDialogHost } from '../components/ui';
+import { RootErrorBoundary } from '../components/ErrorBoundary';
 
 const stripePublishableKey = process.env['EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?? '';
 
@@ -95,7 +96,17 @@ export default function RootLayout() {
     previousIdentity.current = identity;
   }, [identity, pathname, router]);
 
-  if (!ready) return null;
+  // Render a visible loading screen while hydration completes so operators
+  // don't see a blank black window (happens when splash auto-hides ahead of
+  // the first React commit, or when SecureStore hydration is slow).
+  if (!ready) {
+    return (
+      <View style={loadingStyles.root}>
+        <ActivityIndicator size="large" color="#4f46e5" />
+        <Text style={loadingStyles.text}>Starting up…</Text>
+      </View>
+    );
+  }
 
   const content = (
     <SafeAreaProvider>
@@ -110,11 +121,16 @@ export default function RootLayout() {
   // Only wrap in StripeProvider when a publishable key is available (POS builds).
   // Non-POS builds (KDS, Kiosk, Display, Dashboard) don't have the key set and
   // initialising the native Stripe SDK with an empty key crashes the app on Android.
-  if (!stripePublishableKey) return content;
-
-  return (
+  const providerContent = stripePublishableKey ? (
     <StripeProvider publishableKey={stripePublishableKey} urlScheme="elevatedpos">
       {content}
     </StripeProvider>
-  );
+  ) : content;
+
+  return <RootErrorBoundary>{providerContent}</RootErrorBoundary>;
 }
+
+const loadingStyles = StyleSheet.create({
+  root: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0f1f' },
+  text: { marginTop: 16, color: '#9ca3af', fontSize: 15 },
+});
