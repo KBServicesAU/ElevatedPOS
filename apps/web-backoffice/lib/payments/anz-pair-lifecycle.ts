@@ -179,6 +179,15 @@ export async function runTimPairLifecycle(
         // ANZ example. The SDK relies on inherited no-op behaviour for every
         // callback the WASM may invoke; a plain object misses those defaults
         // and causes [SEVERE] TypeError spam in the log.
+        //
+        // Each *Completed handler fires the NEXT lifecycle call via
+        // setTimeout(0), NOT synchronously from inside the callback. The
+        // WASM SDK dispatches completion events from inside its own state
+        // machine; calling loginAsync()/activateAsync() re-entrantly inside
+        // connectCompleted has been observed to make the SDK abandon the
+        // session with timCommunicationFailure on live Castles S1F2
+        // firmware. Deferring with setTimeout lets the WASM callback stack
+        // unwind before we initiate the next step.
         class PairListener extends tim.DefaultTerminalListener {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           connectCompleted(event: any) {
@@ -190,11 +199,14 @@ export async function runTimPairLifecycle(
               reject(new Error(event.exception.message ?? 'Connect failed'));
               return;
             }
-            try { t.loginAsync(); } catch (err) {
-              pairFailed = true;
-              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-              reject(err instanceof Error ? err : new Error(String(err)));
-            }
+            setTimeout(() => {
+              if (pairFailed || paired) return;
+              try { t.loginAsync(); } catch (err) {
+                pairFailed = true;
+                if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+                reject(err instanceof Error ? err : new Error(String(err)));
+              }
+            }, 0);
           }
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -207,11 +219,14 @@ export async function runTimPairLifecycle(
               reject(new Error(event.exception.message ?? 'Login failed'));
               return;
             }
-            try { t.activateAsync(); } catch (err) {
-              pairFailed = true;
-              if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-              reject(err instanceof Error ? err : new Error(String(err)));
-            }
+            setTimeout(() => {
+              if (pairFailed || paired) return;
+              try { t.activateAsync(); } catch (err) {
+                pairFailed = true;
+                if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+                reject(err instanceof Error ? err : new Error(String(err)));
+              }
+            }, 0);
           }
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
