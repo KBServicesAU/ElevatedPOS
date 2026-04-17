@@ -48,6 +48,16 @@ export interface RefundRequest {
     /** ISO date of the original purchase (YYYY-MM-DD) */
     originalTrxDate?:     string;
   };
+  /**
+   * §3.6 refund-amount guard: the maximum value that may still be refunded
+   * against this order (captured total minus prior refunds). Amounts in
+   * dollars. The provider throws PaymentProviderError('INVALID_STATE') if
+   * `amount` > `maxRefundAmount`, BEFORE contacting the terminal, so no
+   * partial chargeback side-effects leak onto the settlement file.
+   *
+   * Leave undefined for ad-hoc admin refunds where the cap is unknown.
+   */
+  maxRefundAmount?: number;
   reason?: string;
   onStateChange?: (state: import('./domain').PaymentIntent) => void;
   onStatusMessage?: (msg: string) => void;
@@ -145,6 +155,19 @@ export interface PaymentProvider {
   reversal(request: ReversalRequest): Promise<PaymentResult>;
 
   /**
+   * Section 1.4 / SDK rollbackAsync(): abort a just-approved transaction
+   * BEFORE commitAsync() is called. Only meaningful when autoCommit=false.
+   * Like a reversal, rollback does not require a subsequent commit.
+   *
+   * Returns true when the terminal acknowledges the rollback. Rejects with
+   * PaymentProviderError when no transaction is awaiting commit.
+   *
+   * Optional — older SDK builds expose only cancel(). Callers should
+   * feature-detect with `typeof provider.rollback === 'function'`.
+   */
+  rollback?(): Promise<RollbackResult>;
+
+  /**
    * Section 3.11 exception recovery: ask the terminal for its view of the
    * last transaction. Returns transactionRef / authCode / receipts so the
    * operator can decide how to reconcile an `unknown_outcome` intent.
@@ -157,6 +180,14 @@ export interface PaymentProvider {
    * Per ANZ Validation Section 3.13.
    */
   shutdown(): Promise<void>;
+}
+
+/** §1.4 rollback result surface. */
+export interface RollbackResult {
+  success: boolean;
+  resultCode?: string;
+  errorMessage?: string;
+  errorCategory?: import('./domain').PaymentErrorCategory;
 }
 
 /** §3.11 result shape exposed through the provider surface. */

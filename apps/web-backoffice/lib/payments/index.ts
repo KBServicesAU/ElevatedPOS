@@ -12,7 +12,15 @@
  * crashed transactions to the operator.
  */
 
-export { type PaymentProvider, PaymentProviderError, type RefundRequest, type ReversalRequest } from './provider';
+export {
+  type PaymentProvider,
+  PaymentProviderError,
+  type RefundRequest,
+  type ReversalRequest,
+  type RollbackResult,
+  type LastTransactionInformationResult,
+} from './provider';
+export { translateResultCode, type TranslatedResultCode } from './result-code';
 export type {
   TimConfig,
   PaymentIntent,
@@ -319,6 +327,7 @@ export function createAnzPaymentProvider(opts: AnzProviderOptions): PaymentProvi
         amount:          request.amount,
         currency:        'AUD',
         reference,
+        maxRefundAmount: request.maxRefundAmount,
         onStateChange:   request.onStateChange,
         onStatusMessage: request.onStatusMessage,
       });
@@ -348,6 +357,28 @@ export function createAnzPaymentProvider(opts: AnzProviderOptions): PaymentProvi
     async getLastTransactionInformation() {
       const adapter = sessionManager.getAdapter();
       return adapter.getLastTransactionInformation();
+    },
+
+    /**
+     * §1.4 rollback — operator-initiated abort of an approved transaction
+     * before commit. Short-circuits commitAsync() on the terminal side.
+     * Only useful when TimConfig.autoCommit=false.
+     */
+    async rollback() {
+      if (!sessionManager.hasAdapter()) {
+        throw new PaymentProviderError(
+          'NOT_INITIALIZED',
+          'Terminal session not initialised — nothing to rollback',
+        );
+      }
+      const adapter = sessionManager.getAdapter();
+      const result = await adapter.rollback();
+      return {
+        success:       result.success,
+        resultCode:    result.resultCode,
+        errorMessage:  result.errorMessage,
+        errorCategory: result.errorCategory,
+      };
     },
 
     async shutdown() {
@@ -429,6 +460,17 @@ export function createSimulatorProvider(opts: SimulatorOptions = {}): PaymentPro
     async balance() { return { balance: 0, currency: 'AUD' }; },
     /** Simulated refund (credit) — always approved in simulator */
     async refund(request: RefundRequest) {
+      // §3.6 cap: mirror the real provider so dev/demo surfaces the same UX
+      if (request.maxRefundAmount !== undefined) {
+        const rc = Math.round(request.amount * 100);
+        const mc = Math.round(request.maxRefundAmount * 100);
+        if (rc > mc) {
+          throw new PaymentProviderError(
+            'INVALID_STATE',
+            `Refund amount (${request.amount.toFixed(2)}) exceeds the remaining refundable balance (${request.maxRefundAmount.toFixed(2)}) for this order`,
+          );
+        }
+      }
       await new Promise((r) => setTimeout(r, 1500));
       request.onStatusMessage?.('Tap, Insert or Swipe card for refund…');
       await new Promise((r) => setTimeout(r, 500));
@@ -450,6 +492,11 @@ export function createSimulatorProvider(opts: SimulatorOptions = {}): PaymentPro
         approved: true, state: 'approved' as const,
         authCode: 'SIMVOID', transactionRef: `SIM-VOID-${Date.now()}`,
       };
+    },
+    /** Simulated rollback — always succeeds in simulator */
+    async rollback() {
+      await new Promise((r) => setTimeout(r, 400));
+      return { success: true };
     },
     shutdown: noop,
   };

@@ -27,6 +27,7 @@ import type { TimConfig, TerminalApplicationInfo } from './domain';
 import type { PaymentLogger } from './logger';
 import { isBridgeProxyReady, getBridgePort } from '../bridge-health';
 import { getAnzLogSink } from './anz-log-sink';
+import { translateResultCode, type ResultCodeLike } from './result-code';
 
 // ─── TIM API v26-01 TypeScript declarations ────────────────────────────────────
 // Covers the full known surface of the TIM API JavaScript SDK v26-01.
@@ -502,6 +503,18 @@ export interface AdapterTransactionResult {
   customerReceipt?: string;
   resultCode?:     string;
   declineReason?:  string;
+  /**
+   * §3.11 / validation: coarse-grained category derived from the SIX TIM
+   * ResultCode. Populated for approved=false results. See
+   * `lib/payments/result-code.ts` for the mapping table.
+   */
+  errorCategory?: import('./domain').PaymentErrorCategory;
+  /**
+   * Whether re-issuing the same request may succeed. The state machine
+   * layers additional business rules on top of this (e.g. unknown_outcome
+   * is never retried).
+   */
+  retryable?: boolean;
   applicationInfo?: TerminalApplicationInfo;
 }
 
@@ -510,6 +523,19 @@ export interface AdapterCommitResult {
   transactionRef?: string;
   resultCode?: string;
   errorMessage?: string;
+  errorCategory?: import('./domain').PaymentErrorCategory;
+}
+
+/**
+ * §1.4 / SDK rollbackAsync(): result of operator-initiated rollback before
+ * commit. Per the SDK guide rollback triggers a technical reversal on the
+ * terminal and does not require a subsequent commit.
+ */
+export interface AdapterRollbackResult {
+  success: boolean;
+  resultCode?: string;
+  errorMessage?: string;
+  errorCategory?: import('./domain').PaymentErrorCategory;
 }
 
 /**
@@ -570,6 +596,28 @@ export class TimApiAdapter {
 
   private _pendingTransactionInfo: {
     resolve: (data: LastTransactionInformation) => void;
+    reject:  (e: Error) => void;
+  } | null = null;
+
+  /**
+   * Tracks which transaction type completed most recently. Used to enforce
+   * ANZ Validation §1.4: "A Reversal/Void does not require a Commit".
+   * If a caller attempts to commit() after a reversal, the adapter refuses
+   * to pass the call to the SDK — this prevents accidental double-commits
+   * when a future refactor wires commit() into a reversal's approved path.
+   */
+  private _lastApprovedTxType: 'purchase' | 'credit' | 'reversal' | null = null;
+
+  /**
+   * Transaction type currently in-flight (between transactionAsync() and
+   * transactionCompleted). Set by purchase/refund/reversal; cleared in the
+   * transactionCompleted listener. Used to tag `_lastApprovedTxType` on
+   * success.
+   */
+  private _inFlightTxType: 'purchase' | 'credit' | 'reversal' | null = null;
+
+  private _pendingRollback: {
+    resolve: (r: AdapterRollbackResult) => void;
     reject:  (e: Error) => void;
   } | null = null;
 
@@ -775,8 +823,14 @@ export class TimApiAdapter {
           return;
         }
         this._pendingTransaction = null;
+        const inFlightType = this._inFlightTxType;
+        this._inFlightTxType = null;
 
         if (event.exception === undefined) {
+          // §1.4: remember which type approved so commit() can enforce the
+          // "reversal does not require commit" invariant.
+          this._lastApprovedTxType = inFlightType;
+
           // Approved — extract receipt data from printData.receipts
           const { merchant: mRcpt, cardholder: chRcpt } = this._extractReceipts(data.printData);
 
@@ -795,11 +849,16 @@ export class TimApiAdapter {
         } else {
           // Declined / error — receipts may be in exception.printData
           const { merchant: mRcpt, cardholder: chRcpt } = this._extractReceipts(event.exception.printData);
+          const translated = translateResultCode(
+            event.exception.resultCode as ResultCodeLike,
+            event.exception.message,
+          );
           pending.resolve({
             approved:       false,
-            resultCode:     this._resultCodeString(event.exception.resultCode),
-            declineReason:  event.exception.message
-                          ?? `Declined (${this._resultCodeString(event.exception.resultCode)})`,
+            resultCode:     translated.code || this._resultCodeString(event.exception.resultCode),
+            declineReason:  translated.message,
+            errorCategory:  translated.category,
+            retryable:      translated.retryable,
             merchantReceipt: mRcpt,
             customerReceipt: chRcpt,
           });
@@ -827,10 +886,15 @@ export class TimApiAdapter {
             transactionRef: data.transactionInformation?.trmTransRef,
           });
         } else {
+          const translated = translateResultCode(
+            event.exception.resultCode as ResultCodeLike,
+            event.exception.message,
+          );
           pending.resolve({
-            success:      false,
-            resultCode:   this._resultCodeString(event.exception.resultCode),
-            errorMessage: event.exception.message,
+            success:       false,
+            resultCode:    translated.code || this._resultCodeString(event.exception.resultCode),
+            errorMessage:  translated.message,
+            errorCategory: translated.category,
           });
         }
       },
@@ -1080,6 +1144,29 @@ export class TimApiAdapter {
           success: event.exception === undefined,
           resultCode: this._resultCodeString(event.exception?.resultCode),
         });
+
+        const pending = this._pendingRollback;
+        this._pendingRollback = null;
+        if (!pending) return; // nobody is awaiting — fire-and-forget rollback
+
+        if (event.exception === undefined) {
+          // §1.4: rollback does not need a commit; clear the last-approved
+          // state so a subsequent commit() is a no-op rather than leaking
+          // through to the SDK.
+          this._lastApprovedTxType = null;
+          pending.resolve({ success: true });
+        } else {
+          const translated = translateResultCode(
+            event.exception.resultCode as ResultCodeLike,
+            event.exception.message,
+          );
+          pending.resolve({
+            success:       false,
+            resultCode:    translated.code || this._resultCodeString(event.exception.resultCode),
+            errorMessage:  translated.message,
+            errorCategory: translated.category,
+          });
+        }
       },
 
       // ── Error notification ─────────────────────────────────────────────────
@@ -1103,6 +1190,7 @@ export class TimApiAdapter {
 
     return new Promise((resolve, reject) => {
       this._pendingTransaction = { resolve, reject, onStatus };
+      this._inFlightTxType = 'purchase';
 
       const timapi = window.timapi!;
       try {
@@ -1114,6 +1202,7 @@ export class TimApiAdapter {
         );
       } catch (err) {
         this._pendingTransaction = null;
+        this._inFlightTxType = null;
         reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
@@ -1148,6 +1237,7 @@ export class TimApiAdapter {
 
     return new Promise((resolve, reject) => {
       this._pendingTransaction = { resolve, reject, onStatus };
+      this._inFlightTxType = 'credit';
 
       const timapi = window.timapi!;
       try {
@@ -1174,6 +1264,7 @@ export class TimApiAdapter {
         );
       } catch (err) {
         this._pendingTransaction = null;
+        this._inFlightTxType = null;
         reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
@@ -1192,6 +1283,7 @@ export class TimApiAdapter {
 
     return new Promise((resolve, reject) => {
       this._pendingTransaction = { resolve, reject, onStatus };
+      this._inFlightTxType = 'reversal';
 
       const timapi = window.timapi!;
       try {
@@ -1201,6 +1293,7 @@ export class TimApiAdapter {
         );
       } catch (err) {
         this._pendingTransaction = null;
+        this._inFlightTxType = null;
         reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
@@ -1212,7 +1305,22 @@ export class TimApiAdapter {
     if (!this._terminal) throw new Error('Adapter not initialized');
     if (this._pendingCommit) throw new Error('A commit is already in progress');
 
-    this._logger.info('commit_start', {});
+    // §1.4: "A Reversal/Void does not require a Commit". Refuse the call so
+    // higher layers that accidentally fan-out a commit after a reversal
+    // (e.g. a future autoCommit=false code path) are corrected at review
+    // time rather than silently double-committing on the terminal.
+    if (this._lastApprovedTxType === 'reversal') {
+      this._logger.warn('commit_blocked_after_reversal', {
+        reason: 'ANZ Validation §1.4 — reversal does not require commit',
+      });
+      return Promise.resolve({
+        success:       false,
+        errorMessage:  'Commit is not required after a reversal (ANZ Validation §1.4)',
+        errorCategory: 'unsupported_operation',
+      });
+    }
+
+    this._logger.info('commit_start', { lastApprovedType: this._lastApprovedTxType });
 
     return new Promise((resolve, reject) => {
       this._pendingCommit = { resolve, reject };
@@ -1220,6 +1328,52 @@ export class TimApiAdapter {
         this._terminal!.commitAsync();
       } catch (err) {
         this._pendingCommit = null;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  // ── Rollback ────────────────────────────────────────────────────────────────
+  // §1.4 / SDK guide: rollbackAsync() cancels a just-approved transaction
+  // before commitAsync() is called. Only meaningful when autoCommit=false.
+  // Like a reversal, rollback does not require a commit.
+  //
+  // When the last approved tx was a reversal there is nothing to rollback;
+  // we surface a friendly error rather than passing the call to the SDK.
+
+  rollback(): Promise<AdapterRollbackResult> {
+    if (!this._terminal) throw new Error('Adapter not initialized');
+    if (this._pendingRollback) throw new Error('A rollback is already in progress');
+    if (this._pendingCommit) {
+      return Promise.resolve({
+        success:       false,
+        errorMessage:  'Cannot rollback while a commit is in progress',
+        errorCategory: 'commit_failure',
+      });
+    }
+    if (this._lastApprovedTxType === null) {
+      return Promise.resolve({
+        success:       false,
+        errorMessage:  'Nothing to rollback — no recent approved transaction',
+        errorCategory: 'unsupported_operation',
+      });
+    }
+    if (this._lastApprovedTxType === 'reversal') {
+      return Promise.resolve({
+        success:       false,
+        errorMessage:  'Cannot rollback a reversal (ANZ Validation §1.4)',
+        errorCategory: 'unsupported_operation',
+      });
+    }
+
+    this._logger.info('rollback_start', { lastApprovedType: this._lastApprovedTxType });
+
+    return new Promise((resolve, reject) => {
+      this._pendingRollback = { resolve, reject };
+      try {
+        this._terminal!.rollbackAsync();
+      } catch (err) {
+        this._pendingRollback = null;
         reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
@@ -1496,9 +1650,12 @@ export class TimApiAdapter {
     this._config    = null;
     this._pendingTransaction = null;
     this._pendingCommit      = null;
+    this._pendingRollback    = null;
     this._pendingApplicationInfo = null;
     this._pendingBalance     = null;
     this._pendingTransactionInfo = null;
+    this._lastApprovedTxType = null;
+    this._inFlightTxType     = null;
     this._logger.info('adapter_disposed', {});
   }
 

@@ -87,6 +87,15 @@ export interface StartCreditOptions {
     originalAcqId?:       number;
     originalTrxDate?:     string;
   };
+  /**
+   * Maximum refundable amount in dollars — normally the original order's
+   * captured total minus any prior partial refunds. When provided, the
+   * state machine refuses to send the refund to the terminal if `amount`
+   * exceeds this cap. Leave unset to skip the guard (e.g. when the caller
+   * has no reliable way to know the capture total, such as ad-hoc admin
+   * refunds from the settings modal).
+   */
+  maxRefundAmount?: number;
   onStateChange?: (intent: PaymentIntent) => void;
   onStatusMessage?: (msg: string) => void;
 }
@@ -192,6 +201,7 @@ export class PaymentStateMachine {
           state: 'declined',
           resultCode: txResult.resultCode,
           declineReason: txResult.declineReason,
+          errorCategory: txResult.errorCategory,
         });
       }
 
@@ -305,6 +315,32 @@ export class PaymentStateMachine {
     const { sessionManager, logger, config } = this._opts;
     this._cancelRequested = false;
 
+    // §3.6 row 3 (partial refund cap): prevent refunding more than was
+    // captured on the original purchase. Guard is best-effort — only runs
+    // when the caller passes maxRefundAmount. We compare in integer cents
+    // to avoid floating-point drift on e.g. $1.23 x 100 = 122.99999.
+    if (opts.maxRefundAmount !== undefined && opts.maxRefundAmount !== null) {
+      const requestedCents = Math.round(opts.amount * 100);
+      const maxCents       = Math.round(opts.maxRefundAmount * 100);
+      if (!Number.isFinite(requestedCents) || requestedCents <= 0) {
+        throw new PaymentProviderError(
+          'INVALID_STATE',
+          `Refund amount must be positive (got ${opts.amount})`,
+        );
+      }
+      if (requestedCents > maxCents) {
+        logger.warn('refund_amount_exceeds_cap', {
+          requested: opts.amount,
+          cap:       opts.maxRefundAmount,
+          posOrder:  opts.posOrderId,
+        });
+        throw new PaymentProviderError(
+          'INVALID_STATE',
+          `Refund amount (${opts.amount.toFixed(2)}) exceeds the remaining refundable balance (${opts.maxRefundAmount.toFixed(2)}) for this order`,
+        );
+      }
+    }
+
     await this._transition(opts.posOrderId, opts.amount, opts.currency ?? 'AUD', opts.onStateChange);
     opts.onStatusMessage?.('Loading terminal SDK…');
     await this._setState('initializing_terminal', 'Loading TIM API SDK', opts.onStateChange);
@@ -362,6 +398,7 @@ export class PaymentStateMachine {
           state: 'declined',
           resultCode: txResult.resultCode,
           declineReason: txResult.declineReason,
+          errorCategory: txResult.errorCategory,
         });
       }
 
@@ -481,6 +518,7 @@ export class PaymentStateMachine {
           state: 'declined',
           resultCode: txResult.resultCode,
           declineReason: txResult.declineReason,
+          errorCategory: txResult.errorCategory,
         });
       }
 
@@ -597,6 +635,7 @@ export class PaymentStateMachine {
       resultCode?:    string;
       declineReason?: string;
       errorMessage?:  string;
+      errorCategory?: import('./domain').PaymentErrorCategory;
     },
   ): PaymentResult {
     return {
@@ -614,6 +653,7 @@ export class PaymentStateMachine {
       customerReceipt: opts.txResult?.customerReceipt,
       resultCode:      opts.resultCode ?? opts.txResult?.resultCode,
       declineReason:   opts.declineReason ?? opts.txResult?.declineReason,
+      errorCategory:   opts.errorCategory ?? opts.txResult?.errorCategory,
       errorMessage:    opts.errorMessage,
     };
   }
