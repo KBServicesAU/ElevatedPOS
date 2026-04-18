@@ -12,43 +12,26 @@ if (typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout !=
   };
 }
 
-// initSentry is REMOVED from the v2.7.4 blank-screen diagnostic build.
-// @sentry/react-native's native Application.onCreate() hook has been
-// observed to crash at startup on iMin hardware when the DSN or env is
-// not fully initialised. Keeping Sentry completely out of the startup
-// path until we confirm the rest of the app boots.
+import { initSentry } from '../lib/sentry';
+// Initialise Sentry before any component renders so startup errors are captured.
+initSentry();
 
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { AppState, View } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { useDeviceStore } from '../store/device';
 import { useDeviceSettings } from '../store/device-settings';
 import { ToastViewport, AlertDialogHost } from '../components/ui';
-import { RootErrorBoundary } from '../components/ErrorBoundary';
 
-// StripeProvider is imported lazily only when a publishable key is present,
-// so the native Stripe module is never touched from this entry file on
-// non-POS builds.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let StripeProvider: any = null;
 const stripePublishableKey = process.env['EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?? '';
-if (stripePublishableKey) {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    StripeProvider = require('@stripe/stripe-react-native').StripeProvider;
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[_layout] failed to load @stripe/stripe-react-native:', err);
-  }
-}
-const BUILD_TAG = 'v2.7.4 — blank-screen diagnostic (no Sentry/USB/Stripe)';
 
 SplashScreen.preventAutoHideAsync();
 
 /** How often to ping the server to check that this device is still authorised. */
-const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
 
 export default function RootLayout() {
   const { ready, _hydrate, identity, checkHeartbeat } = useDeviceStore();
@@ -56,39 +39,22 @@ export default function RootLayout() {
   const router = useRouter();
   const pathname = usePathname();
   const previousIdentity = useRef(identity);
-  // Visible diagnostic step counter: the loading screen shows which stage
-  // of startup we're currently in, so a permanently-blank screen can be
-  // distinguished from a stuck hydrate/stuck splash.
-  const [stage, setStage] = useState<string>('mounted');
 
   // Hydrate stored identity on mount, then fetch server-side device config
   useEffect(() => {
-    setStage('hydrating SecureStore…');
     _hydrate().then(() => {
-      setStage('fetching device settings…');
       // Non-fatal if it fails — app still works with local fallbacks.
       fetchDeviceSettings().catch(() => { /* ignore */ });
-      setStage('ready');
-    }).catch((err) => {
-      setStage(`hydrate failed: ${err?.message ?? String(err)}`);
     });
   }, [_hydrate, fetchDeviceSettings]);
 
-  // Force the splash to hide after at most 3 seconds regardless. If the
-  // hydrate chain stalls for any reason, we still want content to paint —
-  // the loading screen below will show the current stage and the user can
-  // at least see the app is alive.
-  useEffect(() => {
-    const forceHideTimer = setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => { /* ignore */ });
-    }, 3000);
-    return () => clearTimeout(forceHideTimer);
-  }, []);
-
-  // Hide the splash once hydration completes.
+  // Hide the splash only after the component has re-rendered with ready=true.
+  // Calling hideAsync() inside the _hydrate().then() callback races with
+  // React's state flush — the splash can vanish before the first real frame
+  // renders, leaving a black screen on slower devices.
   useEffect(() => {
     if (ready) {
-      SplashScreen.hideAsync().catch(() => { /* ignore */ });
+      SplashScreen.hideAsync();
     }
   }, [ready]);
 
@@ -129,21 +95,7 @@ export default function RootLayout() {
     previousIdentity.current = identity;
   }, [identity, pathname, router]);
 
-  // Render a visible loading screen while hydration completes so operators
-  // don't see a blank black window (happens when splash auto-hides ahead of
-  // the first React commit, or when SecureStore hydration is slow).
-  if (!ready) {
-    return (
-      <RootErrorBoundary>
-        <View style={loadingStyles.root}>
-          <ActivityIndicator size="large" color="#4f46e5" />
-          <Text style={loadingStyles.title}>ElevatedPOS</Text>
-          <Text style={loadingStyles.version}>{BUILD_TAG}</Text>
-          <Text style={loadingStyles.text}>Stage: {stage}</Text>
-        </View>
-      </RootErrorBoundary>
-    );
-  }
+  if (!ready) return null;
 
   const content = (
     <SafeAreaProvider>
@@ -155,26 +107,14 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 
-  // Wrap in StripeProvider only if the native module loaded and we have a key.
-  let providerContent;
-  try {
-    providerContent = stripePublishableKey && StripeProvider ? (
-      <StripeProvider publishableKey={stripePublishableKey} urlScheme="elevatedpos">
-        {content}
-      </StripeProvider>
-    ) : content;
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[_layout] StripeProvider init threw:', err);
-    providerContent = content;
-  }
+  // Only wrap in StripeProvider when a publishable key is available (POS builds).
+  // Non-POS builds (KDS, Kiosk, Display, Dashboard) don't have the key set and
+  // initialising the native Stripe SDK with an empty key crashes the app on Android.
+  if (!stripePublishableKey) return content;
 
-  return <RootErrorBoundary>{providerContent}</RootErrorBoundary>;
+  return (
+    <StripeProvider publishableKey={stripePublishableKey} urlScheme="elevatedpos">
+      {content}
+    </StripeProvider>
+  );
 }
-
-const loadingStyles = StyleSheet.create({
-  root: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0f1f', padding: 24 },
-  title: { marginTop: 24, color: '#e5e7eb', fontSize: 22, fontWeight: '800' },
-  version: { marginTop: 4, color: '#60a5fa', fontSize: 13, fontFamily: 'monospace' },
-  text: { marginTop: 12, color: '#9ca3af', fontSize: 14, textAlign: 'center' },
-});

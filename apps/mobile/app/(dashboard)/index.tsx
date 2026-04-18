@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -122,22 +123,6 @@ const DASHBOARD_FEATURES: DashboardFeature[] = [
     color: '#94a3b8',
     route: '/dashboard/settings',
   },
-  {
-    key: 'card-readers',
-    label: 'Card Readers',
-    description: 'Pair readers, order hardware',
-    icon: 'card',
-    color: '#6366f1',
-    route: '/dashboard/payments?tab=hardware',
-  },
-  {
-    key: 'elevatedpay',
-    label: 'ElevatedPOS Pay',
-    description: 'Payouts, balance, compliance',
-    icon: 'wallet',
-    color: '#10b981',
-    route: '/dashboard/payments?tab=elevatedpay',
-  },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -239,12 +224,12 @@ export default function DashboardHomeScreen() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
 
-  // Dashboard SSO credentials
+  // Dashboard web credentials (for single-sign-on into WebView)
   const dashboardAuth = useDashboardAuthStore();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [loginLoading, setLoginLoading] = useState(false);
+  const [rememberLogin, setRememberLogin] = useState(true);
 
   useEffect(() => {
     if (!dashboardAuth.ready) dashboardAuth.hydrate();
@@ -497,29 +482,21 @@ export default function DashboardHomeScreen() {
     }
   }
 
-  async function openWebDashboard(path?: string) {
-    // No refresh token stored yet — ask the user to sign in once
-    if (!dashboardAuth.refreshToken) {
+  function openWebDashboard(path?: string) {
+    // If we have no saved credentials, prompt the user once so the web
+    // dashboard can auto-sign them in from that point onwards.
+    if (!dashboardAuth.email || !dashboardAuth.password) {
       setLoginEmail(dashboardAuth.email ?? '');
       setLoginPassword('');
+      setRememberLogin(true);
       setShowLoginModal(true);
       return;
     }
-    // Exchange stored refresh token for a fresh access token silently
-    const accessToken = await dashboardAuth.getValidToken(API_BASE);
-    if (!accessToken) {
-      // Refresh token expired — clear and ask to re-authenticate
-      await dashboardAuth.clear();
-      setLoginEmail(dashboardAuth.email ?? '');
-      setLoginPassword('');
-      setShowLoginModal(true);
-      return;
+    if (path) {
+      router.push(`/(dashboard)/web?path=${encodeURIComponent(path)}` as never);
+    } else {
+      router.push('/(dashboard)/web' as never);
     }
-    const tokenParam = `token=${encodeURIComponent(accessToken)}`;
-    const webPath = path
-      ? `/(dashboard)/web?path=${encodeURIComponent(path)}&${tokenParam}`
-      : `/(dashboard)/web?${tokenParam}`;
-    router.push(webPath as never);
   }
 
   async function handleSaveLogin() {
@@ -527,56 +504,23 @@ export default function DashboardHomeScreen() {
       toast.warning('Required', 'Email and password are required.');
       return;
     }
-    setLoginLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: loginEmail.trim().toLowerCase(),
-          password: loginPassword,
-        }),
-      });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as {
-          message?: string; error?: string; title?: string; detail?: string;
-        };
-        throw new Error(err.message ?? err.error ?? err.detail ?? err.title ?? 'Invalid credentials');
-      }
-      const data = (await res.json()) as {
-        accessToken: string;
-        refreshToken?: string;
-        user?: { firstName?: string };
-      };
-      if (!data.refreshToken) throw new Error('No refresh token returned — please try again.');
-      // Store only the refresh token — never the password
-      await dashboardAuth.save(loginEmail.trim(), data.refreshToken);
-      setShowLoginModal(false);
-      setLoginPassword('');
-      const name = data.user?.firstName ?? loginEmail.trim();
-      toast.success('Signed In', `Welcome, ${name}!`);
-      // Navigate immediately with the fresh access token we just got
-      const tokenParam = `token=${encodeURIComponent(data.accessToken)}`;
-      router.push(`/(dashboard)/web?${tokenParam}` as never);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Sign in failed';
-      toast.error('Sign In Failed', msg);
-    } finally {
-      setLoginLoading(false);
-    }
+    await dashboardAuth.save(loginEmail.trim(), loginPassword, rememberLogin);
+    setShowLoginModal(false);
+    toast.success('Signed In', `Welcome back, ${loginEmail.trim()}.`);
+    router.push('/(dashboard)/web' as never);
   }
 
   async function handleForgetLogin() {
     const ok = await confirm({
       title: 'Forget Login',
       description:
-        'This will remove the saved dashboard session. You will need to sign in again.',
+        'This will remove the saved dashboard credentials. You will need to sign in again.',
       confirmLabel: 'Forget',
       destructive: true,
     });
     if (!ok) return;
     await dashboardAuth.clear();
-    toast.success('Cleared', 'Dashboard session has been forgotten.');
+    toast.success('Cleared', 'Dashboard login has been forgotten.');
   }
 
   return (
@@ -594,15 +538,7 @@ export default function DashboardHomeScreen() {
             </View>
           </View>
         </TouchableOpacity>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {dashboardAuth.email ? (
-            <View style={s.userBadge}>
-              <Ionicons name="person-circle-outline" size={14} color="#a5b4fc" />
-              <Text style={s.userBadgeText} numberOfLines={1}>
-                {dashboardAuth.email.split('@')[0]}
-              </Text>
-            </View>
-          ) : null}
+        <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity style={s.headerBtn} onPress={() => openWebDashboard()} activeOpacity={0.85}>
             <Ionicons name="globe-outline" size={16} color="#ccc" />
             <Text style={s.headerBtnText}>Open Web</Text>
@@ -889,7 +825,7 @@ export default function DashboardHomeScreen() {
               Sign In to Dashboard
             </Text>
             <Text style={{ fontSize: 12, color: '#666', marginBottom: 16 }}>
-              Sign in once — we'll keep you logged in automatically from now on.
+              Enter once — we'll remember your credentials so the dashboard opens straight to the home page.
             </Text>
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 6 }}>Email</Text>
             <TextInput
@@ -901,7 +837,6 @@ export default function DashboardHomeScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
-              editable={!loginLoading}
             />
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 6 }}>Password</Text>
             <TextInput
@@ -913,19 +848,18 @@ export default function DashboardHomeScreen() {
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
-              editable={!loginLoading}
-              onSubmitEditing={handleSaveLogin}
             />
-            <TouchableOpacity
-              style={[s.pinBtn, { marginTop: 16, opacity: loginLoading ? 0.6 : 1 }]}
-              onPress={handleSaveLogin}
-              disabled={loginLoading}
-            >
-              {loginLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Sign In</Text>
-              )}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, marginBottom: 14 }}>
+              <Switch
+                value={rememberLogin}
+                onValueChange={setRememberLogin}
+                trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
+                thumbColor={rememberLogin ? '#6366f1' : '#555'}
+              />
+              <Text style={{ color: '#888', fontSize: 13, marginLeft: 8 }}>Remember on this device</Text>
+            </View>
+            <TouchableOpacity style={s.pinBtn} onPress={handleSaveLogin}>
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Sign In</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setShowLoginModal(false)} style={{ alignItems: 'center', paddingVertical: 10 }}>
               <Text style={{ color: '#666', fontSize: 13 }}>Cancel</Text>
@@ -1093,19 +1027,6 @@ const s = StyleSheet.create({
     borderColor: '#2a2a3a',
   },
   headerBtnText: { color: '#ccc', fontSize: 12, fontWeight: '700' },
-  userBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(99,102,241,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(99,102,241,0.25)',
-    maxWidth: 130,
-  },
-  userBadgeText: { color: '#a5b4fc', fontSize: 12, fontWeight: '700', flexShrink: 1 },
 
   // Scroll content
   scrollContent: { padding: 20, paddingBottom: 40 },

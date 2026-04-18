@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Linking,
   Modal,
@@ -36,8 +35,6 @@ import {
   isConnected as isPrinterConnected,
   type DiscoveredPrinter,
 } from '../../lib/printer';
-import { useTerminalConnectionStore } from '../../store/terminal-connection';
-import { AnzPairingModal } from '../../components/AnzPairingModal';
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
@@ -154,21 +151,6 @@ export default function MoreScreen() {
   const [lastChecked, setLastChecked] = useState<string | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
 
-  // ── Payment Terminal ─────────────────────────────────────────────
-  const {
-    credentials: terminalCredentials,
-    selectedId: selectedTerminalId,
-    pairingStatus,
-    errorMessage: pairingError,
-    fetchCredentials: fetchTerminals,
-    setSelectedId: setSelectedTerminalId,
-    hydrateSelection: hydrateTerminalSelection,
-    setPairing,
-    setPaired,
-    setPairError,
-  } = useTerminalConnectionStore();
-  const [showPairingModal, setShowPairingModal] = useState(false);
-
   /* ── Effects ──────────────────────────────────────────────────── */
 
   // Hydrate stores on mount
@@ -178,8 +160,6 @@ export default function MoreScreen() {
     hydrateDisplay();
     checkForUpdate();
     hydrateSidebar();
-    hydrateTerminalSelection();
-    void fetchTerminals();
   }, []);
 
   // Shift timer
@@ -449,42 +429,18 @@ export default function MoreScreen() {
   }
 
   async function handleDiscoverPrinters(type: PrinterConnectionType) {
-    // Show confirmation before USB/BT discovery to prevent permission crashes
-    await new Promise<void>((resolve) => {
-      Alert.alert(
-        'Scan for Printers',
-        type === 'usb'
-          ? 'This will search for nearby USB and network printers. Make sure your printer is plugged in.'
-          : 'This will search for Bluetooth printers. Make sure the printer is powered on and in range.',
-        [
-          { text: 'Cancel', style: 'cancel', onPress: () => resolve() },
-          {
-            text: 'Scan',
-            onPress: async () => {
-              setDiscovering(true);
-              try {
-                const devices = await discoverPrinters(type);
-                setDiscoveredPrinters(devices);
-                if (devices.length === 0) {
-                  toast.warning(
-                    'No Printers Found',
-                    `No ${type.toUpperCase()} printers detected. Check the connection.`,
-                  );
-                }
-              } catch (err) {
-                toast.error(
-                  'Discovery Failed',
-                  err instanceof Error ? err.message : 'Could not scan for printers',
-                );
-              } finally {
-                setDiscovering(false);
-              }
-              resolve();
-            },
-          },
-        ],
-      );
-    });
+    setDiscovering(true);
+    try {
+      const devices = await discoverPrinters(type);
+      setDiscoveredPrinters(devices);
+      if (devices.length === 0) {
+        toast.warning('No Printers Found', `No ${type.toUpperCase()} printers detected. Check the connection.`);
+      }
+    } catch (err) {
+      toast.error('Discovery Failed', err instanceof Error ? err.message : 'Could not scan for printers');
+    } finally {
+      setDiscovering(false);
+    }
   }
 
   async function handleSelectPrinter(printer: DiscoveredPrinter) {
@@ -524,58 +480,29 @@ export default function MoreScreen() {
     }
   }
 
-  /* ── Payment Terminal handlers ────────────────────────────────── */
-
-  function handleConnectTerminal() {
-    const cred = terminalCredentials.find((c) => c.id === selectedTerminalId);
-    if (!cred || cred.provider !== 'anz') {
-      toast.warning('Select Terminal', 'Please select an ANZ terminal before connecting.');
-      return;
-    }
-    setShowPairingModal(true);
-  }
-
   /* ── Order printer (separate kitchen / bar printer) ─────────── */
   const [discoveringOrder, setDiscoveringOrder] = useState(false);
   const [discoveredOrderPrinters, setDiscoveredOrderPrinters] = useState<DiscoveredPrinter[]>([]);
 
   async function handleDiscoverOrderPrinters(type: PrinterConnectionType) {
-    // Show confirmation before USB/BT discovery to prevent permission crashes
-    await new Promise<void>((resolve) => {
-      Alert.alert(
-        'Scan for Printers',
-        type === 'usb'
-          ? 'This will search for nearby USB and network printers. Make sure your order printer is plugged in.'
-          : 'This will search for Bluetooth printers. Make sure the printer is powered on and in range.',
-        [
-          { text: 'Cancel', style: 'cancel', onPress: () => resolve() },
-          {
-            text: 'Scan',
-            onPress: async () => {
-              setDiscoveringOrder(true);
-              try {
-                const devices = await discoverPrinters(type);
-                setDiscoveredOrderPrinters(devices);
-                if (devices.length === 0) {
-                  toast.warning(
-                    'No Printers Found',
-                    `No ${type.toUpperCase()} printers detected. Check the connection.`,
-                  );
-                }
-              } catch (err) {
-                toast.error(
-                  'Discovery Failed',
-                  err instanceof Error ? err.message : 'Could not scan for printers',
-                );
-              } finally {
-                setDiscoveringOrder(false);
-              }
-              resolve();
-            },
-          },
-        ],
+    setDiscoveringOrder(true);
+    try {
+      const devices = await discoverPrinters(type);
+      setDiscoveredOrderPrinters(devices);
+      if (devices.length === 0) {
+        toast.warning(
+          'No Printers Found',
+          `No ${type.toUpperCase()} printers detected. Check the connection.`,
+        );
+      }
+    } catch (err) {
+      toast.error(
+        'Discovery Failed',
+        err instanceof Error ? err.message : 'Could not scan for printers',
       );
-    });
+    } finally {
+      setDiscoveringOrder(false);
+    }
   }
 
   async function handleSelectOrderPrinter(printer: DiscoveredPrinter) {
@@ -1143,122 +1070,6 @@ export default function MoreScreen() {
             </TouchableOpacity>
           </View>
         )}
-
-        {/* ═══════ Payment Terminal ═══════ */}
-        <Text style={[s.sectionTitle, { marginTop: 32 }]}>Payment Terminal</Text>
-
-        <View style={s.card}>
-          <View style={s.row}>
-            <Text style={s.label}>Terminal</Text>
-            <Text style={s.value} numberOfLines={1}>
-              {terminalCredentials.find((c) => c.id === selectedTerminalId)?.label ??
-               (terminalCredentials.length === 0 ? 'None configured' : 'Not selected')}
-            </Text>
-          </View>
-          <View style={s.divider} />
-          <View style={s.row}>
-            <Text style={s.label}>Status</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{
-                width: 8, height: 8, borderRadius: 4,
-                backgroundColor: pairingStatus === 'paired' ? '#22c55e' : pairingStatus === 'error' ? '#f87171' : '#666',
-              }} />
-              <Text style={[s.value, pairingStatus === 'paired' && { color: '#22c55e' }, pairingStatus === 'error' && { color: '#f87171' }]}>
-                {pairingStatus === 'idle'    ? 'Not connected' :
-                 pairingStatus === 'pairing' ? 'Connecting…' :
-                 pairingStatus === 'paired'  ? 'Connected' :
-                 `Error: ${pairingError ?? 'Unknown'}`}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Credential selector */}
-        {terminalCredentials.length > 0 && (
-          <View style={[s.card, { marginTop: 8 }]}>
-            <Text style={[s.label, { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }]}>Available Terminals</Text>
-            {terminalCredentials.map((cred) => (
-              <TouchableOpacity
-                key={cred.id}
-                style={[s.manageRow, { paddingHorizontal: 16 }, selectedTerminalId === cred.id && { backgroundColor: '#6366f115' }]}
-                onPress={() => void setSelectedTerminalId(cred.id)}
-                activeOpacity={0.6}
-              >
-                <Ionicons
-                  name="card"
-                  size={18}
-                  color={selectedTerminalId === cred.id ? '#6366f1' : '#666'}
-                  style={{ marginRight: 10 }}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.manageName, selectedTerminalId === cred.id && { color: '#6366f1' }]}>
-                    {cred.label ?? cred.provider.toUpperCase()}
-                  </Text>
-                  <Text style={s.manageSub}>
-                    {cred.provider.toUpperCase()} · {cred.terminalIp ?? '—'}:{cred.terminalPort ?? 7784}
-                  </Text>
-                </View>
-                {selectedTerminalId === cred.id && (
-                  <Ionicons name="checkmark-circle" size={20} color="#6366f1" />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Connect button */}
-        <View style={s.btnRow}>
-          <TouchableOpacity
-            style={[
-              s.outlineBtn,
-              pairingStatus === 'paired' && { borderColor: '#22c55e' },
-              (!selectedTerminalId || terminalCredentials.find(c => c.id === selectedTerminalId)?.provider !== 'anz') && { opacity: 0.4 },
-            ]}
-            onPress={handleConnectTerminal}
-            disabled={!selectedTerminalId}
-            activeOpacity={0.85}
-          >
-            <Ionicons
-              name={pairingStatus === 'paired' ? 'checkmark-circle-outline' : 'link-outline'}
-              size={16}
-              color={pairingStatus === 'paired' ? '#22c55e' : '#ccc'}
-            />
-            <Text style={[s.outlineBtnText, pairingStatus === 'paired' && { color: '#22c55e' }]}>
-              {pairingStatus === 'paired' ? 'Re-test' : 'Connect'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={s.outlineBtn}
-            onPress={() => { void fetchTerminals(); }}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="refresh-outline" size={16} color="#ccc" />
-            <Text style={s.outlineBtnText}>Refresh</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ANZ Pairing Modal */}
-        {showPairingModal && selectedTerminalId && (() => {
-          const cred = terminalCredentials.find((c) => c.id === selectedTerminalId);
-          if (!cred || !cred.terminalIp) return null;
-          return (
-            <AnzPairingModal
-              visible={showPairingModal}
-              config={{ terminalIp: cred.terminalIp, terminalPort: cred.terminalPort, integratorId: cred.integratorId }}
-              onPaired={() => {
-                setPaired();
-                setShowPairingModal(false);
-                toast.success('Terminal Connected', 'Ready to accept payments.');
-              }}
-              onError={(msg) => {
-                setPairError(msg);
-                setShowPairingModal(false);
-                toast.error('Connection Failed', msg);
-              }}
-              onDismiss={() => setShowPairingModal(false)}
-            />
-          );
-        })()}
 
         {/* ═══════ Sidebar ═══════ */}
         <Text style={[s.sectionTitle, { marginTop: 32 }]}>Sidebar</Text>

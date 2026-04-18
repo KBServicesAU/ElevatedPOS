@@ -46,40 +46,20 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   // with an empty publishable key it throws IllegalStateException and the process
   // dies immediately. Only POS builds have the Stripe publishable key set, so we
   // must NOT include the @stripe/stripe-react-native config plugin for other roles.
-  // MINIMAL plugin set for blank-screen diagnostic.
-  //
-  // Installed APKs (v2.7.3 and prior) go straight to black with no splash
-  // on iMin devices, which is an Android-level crash at Application.onCreate()
-  // — before any JS runs. Without logcat access we're narrowing by
-  // elimination: strip every plugin that touches native init and see which
-  // role still renders the splash. After this lands we add plugins back one
-  // at a time.
-  //
-  // Temporarily removed:
-  //   • @sentry/react-native/expo — registers a native auto-init that can
-  //     throw during Application.onCreate() if the DSN / env is wrong.
-  //   • withUsbPrinter — adds <receiver> for com.pinmi.react.printer.*
-  //     classes to the manifest. If autolinking fails to link the native
-  //     class for any reason (version mismatch, missing dep), Android
-  //     ClassNotFoundExceptions at boot.
-  //   • withUsbPrinterPatch — patches source of the same library; harmless
-  //     on its own but the library it patches is the culprit above.
-  //   • @stripe/stripe-react-native — not needed for non-POS and crashes
-  //     with empty publishable key.
-  //
-  // Kept:
-  //   • expo-router (core navigation)
-  //   • expo-secure-store (device identity persistence)
-  //   • withCleartextTraffic (manifest flag only, no native init)
-  //   • withGradleWrapper (build-time only)
-  //   • withTimApiBridge (just copies asset files, no native init)
-  //   • expo-build-properties + expo-splash-screen + expo-screen-orientation
-  //     (standard Expo modules; these always worked before)
   const basePlugins: ExpoConfig['plugins'] = [
     'expo-router',
     'expo-secure-store',
+    [
+      '@sentry/react-native/expo',
+      {
+        organization: 'elevatedpos',
+        project: 'elevatedpos-mobile',
+      },
+    ],
     './plugins/withCleartextTraffic',
     './plugins/withGradleWrapper',
+    './plugins/withUsbPrinter',
+    './plugins/withUsbPrinterPatch',
     './plugins/withTimApiBridge',
     [
       'expo-build-properties',
@@ -103,12 +83,25 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     'expo-screen-orientation',
   ];
 
+  // Only include the Stripe native plugin for POS builds (or unspecified role for dev).
+  // All other roles (kds, kiosk, dashboard, display) do not use Stripe and the native
+  // initializer crashes on launch when no publishable key is present.
+  if (!ROLE_LOCK || ROLE_LOCK === 'pos') {
+    basePlugins.push([
+      '@stripe/stripe-react-native',
+      {
+        merchantIdentifier: 'merchant.au.elevatedpos',
+        enableGooglePay: true,
+      },
+    ]);
+  }
+
   return {
   ...config,
   owner: 'kbservicesau',
   name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
   slug: resolved?.slug ?? 'elevatedpos',
-  version: '2.7.4',
+  version: '2.7.5',
   scheme: 'elevatedpos',
   orientation: 'default',
   platforms: ['ios', 'android'],
@@ -148,16 +141,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     package: resolved?.package ?? process.env['APP_PACKAGE_ANDROID'] ?? 'com.au.elevatedpos.mobile',
   },
   plugins: basePlugins,
-  // OTA updates are DISABLED. When enabled with checkAutomatically: 'ON_LOAD'
-  // the app blocks on a network request to u.expo.dev before rendering; on
-  // iMin / captive-network devices this can produce a long blank-screen
-  // window while the client waits for the 5s fallback. We'll re-enable OTA
-  // once the root-cause of the install-time blank screen is understood.
   updates: {
-    enabled: false,
-    checkAutomatically: 'NEVER',
+    enabled: true,
+    url: 'https://u.expo.dev/5f03d9c6-0120-4047-aa27-f71a823afa7b',
+    fallbackToCacheTimeout: 5000,
+    checkAutomatically: 'ON_LOAD',
   },
-  runtimeVersion: '2.7.4',
+  runtimeVersion: '2.7.5',
   experiments: { typedRoutes: true },
   extra: {
     eas: { projectId: process.env['EAS_PROJECT_ID'] ?? '5f03d9c6-0120-4047-aa27-f71a823afa7b' },

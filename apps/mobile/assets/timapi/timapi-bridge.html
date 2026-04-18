@@ -1,363 +1,135 @@
 <!DOCTYPE html>
 <!--
-  ANZ Worldline TIM API v26-01 – Android WebView Bridge
-  ======================================================
-  Runs inside a hidden WebView in AnzPaymentModal (React Native).
-  Loads timapi.js (co-located), connects to the EFTPOS terminal via WebSocket,
-  and communicates results back to React Native via window.ReactNativeWebView.postMessage().
-
-  SDK version: 26-01
-  Documentation: https://six-tim.github.io/timapi/doc/js/guide.html
+  ANZ Worldline TIM API – Android WebView Bridge
+  ================================================
+  This page runs inside a hidden WebView in AnzPaymentModal.
+  It loads timapi.js (co-located in this folder), connects to the
+  EFTPOS terminal via WebSocket, and communicates results back to
+  React Native via window.ReactNativeWebView.postMessage().
 
   Files required in apps/mobile/assets/timapi/:
     - timapi-bridge.html  (this file)
-    - timapi.js           (SDK v26-01 — 715 KB)
-    - timapi.wasm         (SDK v26-01 — 3.1 MB)
+    - timapi.js           (obtain from ANZ Worldline portal)
+    - timapi.wasm         (obtain from ANZ Worldline portal)
 
-  ── Message protocol ─────────────────────────────────────────────────────────
-  React Native → Bridge (JSON):
-    { type: 'purchase',  terminalIp, terminalPort, integratorId, amountCents, referenceId? }
-    { type: 'refund',    terminalIp, terminalPort, integratorId, amountCents }
-    { type: 'reversal',  terminalIp, terminalPort, integratorId, amountCents }
-    { type: 'cancel' }
-    { type: 'pair',      terminalIp, terminalPort, integratorId }
-
-  Bridge → React Native (JSON):
-    { type: 'sdk_ready' }
-    { type: 'status',   message: string }
-    { type: 'approved', transactionRef, authCode, cardLast4, cardScheme, merchantReceipt, customerReceipt }
-    { type: 'declined', declineCode, message }
-    { type: 'error',    message }
-    { type: 'paired' }
+  Portal: https://start.portal.anzworldline-solutions.com.au/
 -->
 <html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script>
-    'use strict';
-
-    // ── Notify React Native when WASM is ready ────────────────────────────────
-    // MUST be set before <script src="timapi.js"> is loaded.
+    // Notify React Native when the page is ready to receive commands
     window.onTimApiReady = function () {
       rn({ type: 'sdk_ready' });
     };
 
-    // ── Helper: send message to React Native ──────────────────────────────────
+    // Helper — send JSON message to React Native
     function rn(obj) {
       try {
         window.ReactNativeWebView.postMessage(JSON.stringify(obj));
       } catch (e) {
-        console.error('[bridge] postMessage failed', e);
+        console.error('postMessage failed', e);
       }
     }
 
-    // ── Active terminal instance ──────────────────────────────────────────────
-    var _terminal    = null;
-    var _pairingMode = false;
+    var terminal = null;
 
-    // ── Extract receipts from SDK v26-01 printData ────────────────────────────
-    function extractReceipts(printData) {
-      var merchant = null, cardholder = null;
-      if (!printData || !printData.receipts) return { merchant: merchant, cardholder: cardholder };
-      for (var i = 0; i < printData.receipts.length; i++) {
-        var r = printData.receipts[i];
-        var recipientName = r.recipient && r.recipient.name;
-        if (recipientName === 'merchant')   merchant   = r.value || null;
-        if (recipientName === 'cardholder') cardholder = r.value || null;
-      }
-      return { merchant: merchant, cardholder: cardholder };
-    }
-
-    // ── Result code to string ─────────────────────────────────────────────────
-    function codeStr(code) {
-      if (!code) return '';
-      if (typeof code === 'string') return code;
-      return code.name || String(code);
-    }
-
-    // ── Handle commands from React Native ─────────────────────────────────────
+    // ── Handle commands from React Native ──────────────────────────────────────
     function handleMessage(raw) {
       var msg;
-      try { msg = JSON.parse(raw); } catch (e) { return; }
+      try { msg = JSON.parse(raw); } catch { return; }
 
-      switch (msg.type) {
-        case 'purchase': return startTransaction('purchase', msg);
-        case 'refund':   return startTransaction('refund',   msg);
-        case 'reversal': return startTransaction('reversal', msg);
-        case 'pair':     return startPair(msg);
-        case 'cancel':
-          if (_terminal) {
-            try {
-              // SDK v26-01: cancel() is NOT async — no callback
-              _terminal.cancel();
-            } catch (e) { /* best-effort */ }
-          }
-          break;
+      if (msg.type === 'purchase') {
+        startPurchase(msg);
+      } else if (msg.type === 'cancel') {
+        if (terminal) {
+          try { terminal.cancelAsync(); } catch (e) { /* ignore */ }
+        }
       }
     }
 
-    // React Native sends messages on 'message' (Android) and 'window.message'
+    // React Native sends messages via injectedJavaScript — listen on document
     document.addEventListener('message', function (e) { handleMessage(e.data); });
-    window.addEventListener('message',   function (e) { handleMessage(e.data); });
+    // Android fires on window
+    window.addEventListener('message', function (e) { handleMessage(e.data); });
 
-    // ── Transaction flow ──────────────────────────────────────────────────────
-    function startTransaction(txType, msg) {
+    // ── Purchase flow ──────────────────────────────────────────────────────────
+    function startPurchase(msg) {
       if (!window.timapi) {
-        rn({ type: 'error', message: 'TIM API SDK not loaded. Ensure timapi.js is in assets/timapi/.' });
+        rn({ type: 'error', message: 'TIM API SDK not loaded. Place timapi.js in assets/timapi/.' });
         return;
       }
 
       try {
-        // ── 1. TerminalSettings ────────────────────────────────────────────
-        // All settings must be configured before Terminal construction.
-        // Per ANZWL TIM API Integration Validation (04-JAN-2026), section 3:
-        //   - protocolType: sixml
-        //   - connectionIPPort: 7784 (SIXml standard)
-        //   - guides: RETAIL
-        //   - autoCommit / fetchBrands / enableKeepAlive: YES
-        //   - partialApproval / dcc / tipAllowed: NO
         var settings = new timapi.TerminalSettings();
         settings.connectionIPString = msg.terminalIp;
-        settings.connectionIPPort   = msg.terminalPort || 7784;
-        settings.integratorId       = msg.integratorId || 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
-        // ANZ Worldline validation requirements:
-        settings.autoCommit         = true;   // auto-commit after approval
-        settings.fetchBrands        = true;   // retrieve brands during login
-        settings.dcc                = false;  // no DCC in AU
-        settings.partialApproval    = false;
-        settings.tipAllowed         = false;  // retail guide only
-        settings.enableKeepAlive    = true;
-        // guides: 'retail' is included by default in the SDK constructor
+        settings.connectionIPPort   = msg.terminalPort || 80;
+        settings.autoCommit         = false;
+        settings.integratorId       = msg.integratorId || '';
 
-        // ── 2. Terminal ────────────────────────────────────────────────────
-        _terminal = new timapi.Terminal(settings);
+        terminal = new timapi.Terminal(settings);
+        terminal.setPosId('ECR-01');
 
-        // ── 3. POS ID (max 6 digits per EP2) ──────────────────────────────
-        _terminal.setPosId('1');
-        _terminal.setUserId(1);
-
-        // ── 4. EcrInfo — software identification ───────────────────────────
-        var ecrInfo = new timapi.EcrInfo();
-        ecrInfo.type             = timapi.constants.EcrInfoType.ecrApplication;
-        ecrInfo.name             = 'ElevatedPOS';
-        ecrInfo.manufacturerName = 'ElevatedPOS Pty Ltd';
-        ecrInfo.version          = '1.0';
-        ecrInfo.integratorSolution = 'ElevatedPOS-ANZ-v26-01';
-        _terminal.addEcrData(ecrInfo);
-
-        // ── 5. PrintOptions — POS handles printing, disable terminal print ─
-        var merchantOpt = new timapi.PrintOption();
-        merchantOpt.recipient = timapi.constants.Recipient.merchant;
-        merchantOpt.isEnabled = false;
-
-        var cardholderOpt = new timapi.PrintOption();
-        cardholderOpt.recipient = timapi.constants.Recipient.cardholder;
-        cardholderOpt.isEnabled = false;
-
-        _terminal.setPrintOptions([merchantOpt, cardholderOpt]);
-
-        // ── 6. Listener ────────────────────────────────────────────────────
-        _terminal.addListener({
+        terminal.addListener({
           transactionCompleted: function (event, data) {
             if (event.exception === undefined) {
-              // Approved
-              var trxInfo = data.transactionInformation || {};
-              var cardData = data.cardData || {};
-              var rcpts    = extractReceipts(data.printData);
-
-              var cardLast4 = (cardData.cardNumberPrintable || cardData.cardNumberPrintableCardholder || '').slice(-4) || null;
-
+              // Approved — commit
+              try { terminal.commitAsync(); } catch (e) { /* non-fatal */ }
               rn({
-                type:            'approved',
-                transactionRef:  trxInfo.trmTransRef  || null,
-                authCode:        trxInfo.authCode      || null,
-                cardLast4:       cardLast4,
-                cardScheme:      cardData.brandName    || null,
-                merchantReceipt: rcpts.merchant,
-                customerReceipt: rcpts.cardholder,
+                type:           'approved',
+                transactionRef: data.transactionReference || null,
+                authCode:       data.authorisationCode    || null,
+                maskedPan:      data.maskedPan            || null,
+                cardType:       data.cardType             || null,
+                rrn:            data.rrn                  || null,
+                merchantReceipt: data.merchantReceiptText || data.receiptText || null,
+                customerReceipt: data.customerReceiptText || null,
               });
             } else {
-              // Declined / error — decline receipts may be in exception.printData
-              var rcpts = extractReceipts(event.exception.printData);
               rn({
-                type:            'declined',
-                declineCode:     codeStr(event.exception.resultCode),
-                message:         event.exception.message || ('Declined (' + codeStr(event.exception.resultCode) + ')'),
-                merchantReceipt: rcpts.merchant,
-                customerReceipt: rcpts.cardholder,
+                type:        'declined',
+                declineCode: event.exception.resultCode || '',
+                message:     event.exception.message    || ('Declined (' + event.exception.resultCode + ')'),
               });
             }
-            _terminal = null;
+            terminal = null;
           },
 
-          connectCompleted: function (event) {
-            if (event.exception === undefined) {
-              rn({ type: 'status', message: 'Terminal connected' });
-            }
+          connectionStateChanged: function (event, data) {
+            rn({ type: 'status', message: 'Terminal connected' });
           },
 
-          loginCompleted: function (event) {
-            if (event.exception === undefined) {
-              rn({ type: 'status', message: 'Terminal ready' });
-            }
+          displayTextChanged: function (event, data) {
+            var text = (data && data.text) ? data.text.trim() : '';
+            if (text) rn({ type: 'status', message: text });
           },
 
-          activateCompleted: function (event) {
-            if (event.exception === undefined) {
-              rn({ type: 'status', message: 'Terminal activated' });
-            }
-          },
-
-          terminalStatusChanged: function (terminal) {
-            try {
-              var status = terminal.getTerminalStatus();
-              if (status) {
-                var s = String(status);
-                if (s && s !== 'undefined' && s !== '[object Object]') {
-                  rn({ type: 'status', message: s });
-                }
-              }
-            } catch (e) { /* non-fatal */ }
+          receiptGenerated: function (event, data) {
+            // Receipt text is already returned in transactionCompleted — ignore here
           },
         });
 
-        // ── 7. Start transaction ───────────────────────────────────────────
-        // Pre-automatisms handle connect → login → activate automatically.
-        // transactionAsync(type, amount) — only 2 args in SDK v26-01
         rn({ type: 'status', message: 'Connecting to terminal\u2026' });
 
-        var txTypeEnum;
-        if (txType === 'refund') {
-          // ANZ TIM API: refund = 'credit' (NOT 'refund')
-          txTypeEnum = timapi.constants.TransactionType.credit;
-        } else if (txType === 'reversal') {
-          txTypeEnum = timapi.constants.TransactionType.reversal;
-        } else {
-          txTypeEnum = timapi.constants.TransactionType.purchase;
-        }
-
-        _terminal.transactionAsync(
-          txTypeEnum,
-          new timapi.Amount(msg.amountCents, timapi.constants.Currency.AUD)
-        );
-
-      } catch (e) {
-        rn({ type: 'error', message: e && e.message ? e.message : String(e) });
-        _terminal = null;
-      }
-    }
-
-    // ── Pairing flow (connect + login + activate, no real transaction) ────────
-    // Starts a 1-cent purchase purely to trigger pre-automatisms (connect →
-    // login → activate). On activateCompleted it cancels immediately and reports
-    // 'paired'. The subsequent transactionCompleted (cancelled) is swallowed.
-    function startPair(msg) {
-      if (!window.timapi) {
-        rn({ type: 'error', message: 'TIM API SDK not loaded. Ensure timapi.js is in assets/timapi/.' });
-        return;
-      }
-
-      _pairingMode = true;
-
-      try {
-        // ── 1. TerminalSettings ──────────────────────────────────────────────
-        // Per ANZWL TIM API Validation: protocolType=sixml, default port 7784.
-        var settings = new timapi.TerminalSettings();
-        settings.connectionIPString = msg.terminalIp;
-        settings.connectionIPPort   = msg.terminalPort || 7784;
-        settings.integratorId       = msg.integratorId || 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
-        settings.autoCommit         = true;
-        settings.fetchBrands        = true;
-        settings.dcc                = false;
-        settings.partialApproval    = false;
-        settings.tipAllowed         = false;
-        settings.enableKeepAlive    = true;
-
-        // ── 2. Terminal ──────────────────────────────────────────────────────
-        _terminal = new timapi.Terminal(settings);
-
-        // ── 3. POS ID ────────────────────────────────────────────────────────
-        _terminal.setPosId('1');
-        _terminal.setUserId(1);
-
-        // ── 4. EcrInfo ───────────────────────────────────────────────────────
-        var ecrInfo = new timapi.EcrInfo();
-        ecrInfo.type             = timapi.constants.EcrInfoType.ecrApplication;
-        ecrInfo.name             = 'ElevatedPOS';
-        ecrInfo.manufacturerName = 'ElevatedPOS Pty Ltd';
-        ecrInfo.version          = '1.0';
-        ecrInfo.integratorSolution = 'ElevatedPOS-ANZ-v26-01';
-        _terminal.addEcrData(ecrInfo);
-
-        // ── 5. PrintOptions ──────────────────────────────────────────────────
-        var merchantOpt = new timapi.PrintOption();
-        merchantOpt.recipient = timapi.constants.Recipient.merchant;
-        merchantOpt.isEnabled = false;
-
-        var cardholderOpt = new timapi.PrintOption();
-        cardholderOpt.recipient = timapi.constants.Recipient.cardholder;
-        cardholderOpt.isEnabled = false;
-
-        _terminal.setPrintOptions([merchantOpt, cardholderOpt]);
-
-        // ── 6. Listener ──────────────────────────────────────────────────────
-        _terminal.addListener({
-          activateCompleted: function (event) {
-            if (event.exception === undefined) {
-              // Pre-automatisms finished — terminal is connected, logged in,
-              // and activated. Cancel the dummy transaction and report success.
-              try { _terminal.cancel(); } catch (e) { /* best-effort */ }
-              rn({ type: 'paired' });
-              _pairingMode = false;
-            }
-            // If activation itself failed the exception will surface through
-            // transactionCompleted below, which will send an error.
-          },
-
-          transactionCompleted: function (event) {
-            if (_pairingMode) {
-              _pairingMode = false;
-              // activateCompleted never fired — connect/login/activate failed.
-              // Surface the error so the pairing modal doesn't spin forever.
-              if (event.exception !== undefined) {
-                var errMsg = (event.exception && event.exception.message)
-                  ? event.exception.message
-                  : ('Terminal unreachable (' + codeStr(event.exception && event.exception.resultCode) + ')');
-                rn({ type: 'error', message: errMsg });
-              }
-              // If no exception here: activateCompleted already sent 'paired'
-              // and cleared the flag — this branch won't be reached.
-            }
-            _terminal = null;
-          },
-        });
-
-        // ── 7. Trigger pre-automatisms with a 1-cent dummy purchase ─────────
-        rn({ type: 'status', message: 'Connecting to terminal\u2026' });
-        _terminal.transactionAsync(
+        terminal.transactionAsync(
           timapi.constants.TransactionType.purchase,
-          new timapi.Amount(1, timapi.constants.Currency.AUD)
+          new timapi.Amount(msg.amountCents, timapi.constants.Currency.AUD),
+          msg.referenceId ? msg.referenceId : undefined
         );
-
       } catch (e) {
-        _pairingMode = false;
         rn({ type: 'error', message: e && e.message ? e.message : String(e) });
-        _terminal = null;
+        terminal = null;
       }
     }
   </script>
 
   <!--
     timapi.js MUST be in the same folder as this HTML file.
-    It fires window.onTimApiReady when the WASM module finishes compiling.
+    It fires window.onTimApiReady when loaded and WASM is compiled.
     The src path is relative to this file in Android assets.
-    SDK version: 26-01
   -->
-  <script
-    src="timapi.js"
-    onerror="rn({ type: 'error', message: 'timapi.js not found. Ensure timapi.js and timapi.wasm (v26-01) are in apps/mobile/assets/timapi/.' })"
-  ></script>
+  <script src="timapi.js" onerror="rn({ type: 'error', message: 'timapi.js not found. Place timapi.js and timapi.wasm in apps/mobile/assets/timapi/.' })"></script>
 </head>
 <body style="background:#000;margin:0;padding:0;"></body>
 </html>

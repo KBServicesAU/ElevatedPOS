@@ -144,7 +144,7 @@ export default function OrdersScreen() {
       const token = employeeToken ?? identity?.deviceToken ?? '';
       const amountCents = Math.round(dollars * 100);
       const ip = (serverAnz.terminalIp ?? '').trim();
-      const port = serverAnz.terminalPort ?? 7784;
+      const port = serverAnz.terminalPort ?? 8080;
       const refId = `POS-REFUND-${refundOrder.orderNumber}-${Date.now()}`;
 
       try {

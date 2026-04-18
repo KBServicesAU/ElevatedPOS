@@ -1,109 +1,83 @@
 /**
- * Dashboard SSO token store.
+ * Dashboard web-auth credential store.
  *
- * The user enters their email + password ONCE via the native login modal.
- * We call the auth service to get a real access + refresh token pair,
- * then store ONLY the refresh token (30-day lifetime) in SecureStore.
- * Passwords are NEVER persisted.
+ * Stores the email/password the merchant enters into the native dashboard
+ * login screen so we can auto-submit the embedded web dashboard's login
+ * form without asking the user a second time.
  *
- * On every subsequent "Open Web Dashboard" tap:
- *   1. getValidToken() exchanges the stored refresh token for a fresh
- *      15-minute access token via POST /api/v1/auth/refresh.
- *   2. The WebView loads /api/auth/device-sso?token=<accessToken> on
- *      the web app, which validates the token, sets the session cookie,
- *      and redirects to /dashboard — fully authenticated, no second
- *      login screen.
- *
- * If the refresh token has expired (after 30 days of inactivity)
- * getValidToken() returns null and the caller should prompt the user
- * to sign in again.
+ * Credentials are stored in SecureStore (encrypted), never in plaintext
+ * storage. Clearing the credentials (or signing out) wipes them.
  */
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 
 const KEYS = {
   email: 'dashboard_email',
-  refreshToken: 'dashboard_refresh_token',
+  password: 'dashboard_password',
+  rememberMe: 'dashboard_remember',
 } as const;
 
 export interface DashboardAuthStore {
-  /** Display email — shown in the dashboard header / "Forget Login" section */
   email: string;
-  /** Long-lived refresh token (30 days). Never the raw password. */
-  refreshToken: string;
+  password: string;
+  rememberMe: boolean;
   ready: boolean;
 
-  /** Load from SecureStore on app start. */
+  /** Load credentials from SecureStore on app start. */
   hydrate: () => Promise<void>;
-
-  /**
-   * Persist credentials after a successful login.
-   * Only the refresh token is stored — never the password.
-   */
-  save: (email: string, refreshToken: string) => Promise<void>;
-
-  /**
-   * Exchange the stored refresh token for a fresh access token.
-   * Returns the access token string, or null if:
-   *   - No refresh token is stored yet (first use)
-   *   - The refresh token has expired (>30 days)
-   *   - The auth service is unreachable
-   *
-   * On null the caller should clear() and prompt the user to sign in.
-   */
-  getValidToken: (apiBase: string) => Promise<string | null>;
-
-  /** Clear all stored credentials (forget / sign out). */
+  /** Save credentials (when rememberMe is on). */
+  save: (email: string, password: string, rememberMe: boolean) => Promise<void>;
+  /** Clear stored credentials. */
   clear: () => Promise<void>;
 }
 
-export const useDashboardAuthStore = create<DashboardAuthStore>((set, get) => ({
+export const useDashboardAuthStore = create<DashboardAuthStore>((set) => ({
   email: '',
-  refreshToken: '',
+  password: '',
+  rememberMe: false,
   ready: false,
 
   hydrate: async () => {
     try {
-      const [email, refreshToken] = await Promise.all([
+      const [email, password, rememberRaw] = await Promise.all([
         SecureStore.getItemAsync(KEYS.email),
-        SecureStore.getItemAsync(KEYS.refreshToken),
+        SecureStore.getItemAsync(KEYS.password),
+        SecureStore.getItemAsync(KEYS.rememberMe),
       ]);
-      set({ email: email ?? '', refreshToken: refreshToken ?? '', ready: true });
+      set({
+        email: email ?? '',
+        password: password ?? '',
+        rememberMe: rememberRaw === '1',
+        ready: true,
+      });
     } catch {
       set({ ready: true });
     }
   },
 
-  save: async (email: string, refreshToken: string) => {
-    await Promise.all([
-      SecureStore.setItemAsync(KEYS.email, email),
-      SecureStore.setItemAsync(KEYS.refreshToken, refreshToken),
-    ]);
-    set({ email, refreshToken });
-  },
-
-  getValidToken: async (apiBase: string) => {
-    const { refreshToken } = get();
-    if (!refreshToken) return null;
-    try {
-      const res = await fetch(`${apiBase}/api/v1/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (!res.ok) return null;
-      const data = (await res.json()) as { accessToken?: string };
-      return data.accessToken ?? null;
-    } catch {
-      return null;
+  save: async (email: string, password: string, rememberMe: boolean) => {
+    if (rememberMe) {
+      await Promise.all([
+        SecureStore.setItemAsync(KEYS.email, email),
+        SecureStore.setItemAsync(KEYS.password, password),
+        SecureStore.setItemAsync(KEYS.rememberMe, '1'),
+      ]);
+    } else {
+      await Promise.all([
+        SecureStore.deleteItemAsync(KEYS.email),
+        SecureStore.deleteItemAsync(KEYS.password),
+        SecureStore.deleteItemAsync(KEYS.rememberMe),
+      ]);
     }
+    set({ email, password, rememberMe });
   },
 
   clear: async () => {
     await Promise.all([
       SecureStore.deleteItemAsync(KEYS.email),
-      SecureStore.deleteItemAsync(KEYS.refreshToken),
+      SecureStore.deleteItemAsync(KEYS.password),
+      SecureStore.deleteItemAsync(KEYS.rememberMe),
     ]);
-    set({ email: '', refreshToken: '' });
+    set({ email: '', password: '', rememberMe: false });
   },
 }));
