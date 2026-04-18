@@ -101,7 +101,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   owner: 'kbservicesau',
   name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
   slug: resolved?.slug ?? 'elevatedpos',
-  version: '2.7.5',
+  version: '2.7.6',
   scheme: 'elevatedpos',
   orientation: 'default',
   platforms: ['ios', 'android'],
@@ -141,13 +141,19 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     package: resolved?.package ?? process.env['APP_PACKAGE_ANDROID'] ?? 'com.au.elevatedpos.mobile',
   },
   plugins: basePlugins,
+  // OTA updates DISABLED — a poisoned JS bundle was published for runtime '2.7.5'
+  // (from the v2.7.4 diagnostic commit) and every APK built against that runtime
+  // was fetching it on launch → blank black screen. Bumping runtimeVersion to
+  // '2.7.6' guarantees no matching OTA exists, and checkAutomatically='NEVER'
+  // means the APK always boots its own bundled JS rather than fetching remote.
+  // Re-enable OTA only after republishing a verified-good bundle on this runtime.
   updates: {
-    enabled: true,
+    enabled: false,
     url: 'https://u.expo.dev/5f03d9c6-0120-4047-aa27-f71a823afa7b',
-    fallbackToCacheTimeout: 5000,
-    checkAutomatically: 'ON_LOAD',
+    fallbackToCacheTimeout: 0,
+    checkAutomatically: 'NEVER',
   },
-  runtimeVersion: '2.7.5',
+  runtimeVersion: '2.7.6',
   experiments: { typedRoutes: true },
   extra: {
     eas: { projectId: process.env['EAS_PROJECT_ID'] ?? '5f03d9c6-0120-4047-aa27-f71a823afa7b' },
