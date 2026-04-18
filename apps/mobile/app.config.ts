@@ -49,13 +49,18 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const basePlugins: ExpoConfig['plugins'] = [
     'expo-router',
     'expo-secure-store',
-    [
-      '@sentry/react-native/expo',
-      {
-        organization: 'elevatedpos',
-        project: 'elevatedpos-mobile',
-      },
-    ],
+    // Sentry plugin DISABLED for v2.7.7 diagnostic — the Sentry ContentProviders
+    // (SentryInitProvider / SentryPerformanceProvider) fire at Application.onCreate()
+    // BEFORE any JS runs. Suspected of crashing on iMin + generic Android tablet
+    // (straight-to-black with no splash, confirmed native-side crash).
+    // Re-enable once Sentry 6.0.x upstream issue is resolved or downgraded.
+    // [
+    //   '@sentry/react-native/expo',
+    //   {
+    //     organization: 'elevatedpos',
+    //     project: 'elevatedpos-mobile',
+    //   },
+    // ],
     './plugins/withCleartextTraffic',
     './plugins/withGradleWrapper',
     './plugins/withUsbPrinter',
@@ -101,7 +106,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   owner: 'kbservicesau',
   name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
   slug: resolved?.slug ?? 'elevatedpos',
-  version: '2.7.6',
+  version: '2.7.7',
   scheme: 'elevatedpos',
   orientation: 'default',
   platforms: ['ios', 'android'],
@@ -153,7 +158,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     fallbackToCacheTimeout: 0,
     checkAutomatically: 'NEVER',
   },
-  runtimeVersion: '2.7.6',
+  runtimeVersion: '2.7.7',
   experiments: { typedRoutes: true },
   extra: {
     eas: { projectId: process.env['EAS_PROJECT_ID'] ?? '5f03d9c6-0120-4047-aa27-f71a823afa7b' },

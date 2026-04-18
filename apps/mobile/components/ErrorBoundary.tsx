@@ -35,15 +35,9 @@ export class RootErrorBoundary extends Component<Props, State> {
     // Lazy-require so the native module isn't touched during this file's
     // import graph evaluation (Sentry native init is suspected in the iMin
     // blank-screen crash; we only hit it if the boundary catches something).
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const Sentry = require('@sentry/react-native');
-      Sentry.captureException(error, {
-        contexts: { react: { componentStack: errorInfo.componentStack ?? 'unknown' } },
-      });
-    } catch {
-      /* ignore */
-    }
+    // Sentry reporting DISABLED for v2.7.7 diagnostic — see lib/sentry.ts.
+    // The native @sentry/react-native module must not be touched from JS
+    // while we are bisecting the Application.onCreate() native crash.
     // eslint-disable-next-line no-console
     console.error('[RootErrorBoundary]', error, errorInfo);
   }
