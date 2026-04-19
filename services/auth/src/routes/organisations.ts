@@ -266,42 +266,54 @@ export async function organisationRoutes(app: FastifyInstance) {
     });
   });
 
-  // PATCH /api/v1/organisations/onboarding — advance onboarding step
-  app.patch('/onboarding', { onRequest: [app.authenticate] }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
+  // POST / PATCH /api/v1/organisations/onboarding — advance onboarding step.
+  //
+  // Historically defined as PATCH only, but the web-backoffice setup flow
+  // (app/setup/page.tsx, setup/location/page.tsx, setup/products/page.tsx,
+  // setup/complete/page.tsx) sends POST. Deployed frontends in the wild
+  // call POST, so we accept both verbs here to avoid breaking onboarding
+  // for existing users. Long-term, pick one verb in the frontend and drop
+  // the other; for now both share one handler.
+  app.route({
+    method: ['PATCH', 'POST'],
+    url: '/onboarding',
+    onRequest: [app.authenticate],
+    handler: async (request, reply) => {
+      const { orgId } = request.user as { orgId: string };
 
-    const parsed = updateOnboardingSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.status(400).send({ error: 'Invalid body', details: parsed.error.flatten() });
-    }
+      const parsed = updateOnboardingSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid body', details: parsed.error.flatten() });
+      }
 
-    const { step, industry } = parsed.data;
+      const { step, industry } = parsed.data;
 
-    const updates: Record<string, unknown> = {
-      onboardingStep: step,
-      updatedAt: new Date(),
-    };
+      const updates: Record<string, unknown> = {
+        onboardingStep: step,
+        updatedAt: new Date(),
+      };
 
-    if (industry) {
-      updates['industry'] = industry;
-    }
+      if (industry) {
+        updates['industry'] = industry;
+      }
 
-    if (step === 'completed') {
-      updates['onboardingCompletedAt'] = new Date();
-    }
+      if (step === 'completed') {
+        updates['onboardingCompletedAt'] = new Date();
+      }
 
-    const [updated] = await db.update(schema.organisations)
-      .set(updates)
-      .where(eq(schema.organisations.id, orgId))
-      .returning();
+      const [updated] = await db.update(schema.organisations)
+        .set(updates)
+        .where(eq(schema.organisations.id, orgId))
+        .returning();
 
-    if (!updated) return reply.status(404).send({ error: 'Organisation not found' });
+      if (!updated) return reply.status(404).send({ error: 'Organisation not found' });
 
-    return reply.send({
-      step: updated.onboardingStep,
-      industry: updated.industry ?? null,
-      completedAt: updated.onboardingCompletedAt ?? null,
-    });
+      return reply.send({
+        step: updated.onboardingStep,
+        industry: updated.industry ?? null,
+        completedAt: updated.onboardingCompletedAt ?? null,
+      });
+    },
   });
 
   // ══════════════════════════════════════════════════════════════════════════════
