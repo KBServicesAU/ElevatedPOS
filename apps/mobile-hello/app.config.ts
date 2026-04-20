@@ -4,7 +4,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   owner: 'kbservicesau',
   name: 'ElevatedPOS Hello',
-  slug: 'elevatedpos-hello',
+  slug: 'elevatedpos',
   version: '1.0.0',
   scheme: 'elevatedposhello',
   orientation: 'default',
