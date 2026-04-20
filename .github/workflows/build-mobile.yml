@@ -25,7 +25,7 @@ jobs:
       cancel-in-progress: true
     strategy:
       matrix:
-        role: [pos, kds, kiosk, dashboard, display]
+        role: [pos, kds, kiosk, dashboard, display, hello]
       fail-fast: false
 
     steps:
@@ -61,7 +61,8 @@ jobs:
       - name: Verify Expo auth
         run: eas whoami
 
-      - name: Build ${{ matrix.role }} APK (Android)
+      - name: Build ${{ matrix.role }} APK (Android — main app)
+        if: matrix.role != 'hello'
         working-directory: apps/mobile
         run: |
           eas build \
@@ -71,4 +72,16 @@ jobs:
             --no-wait
         env:
           EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || 'https://api.elevatedpos.com.au' }}
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID || '5f03d9c6-0120-4047-aa27-f71a823afa7b' }}
+
+      - name: Build hello diagnostic APK (Android)
+        if: matrix.role == 'hello'
+        working-directory: apps/mobile-hello
+        run: |
+          eas build \
+            --profile production-hello \
+            --platform android \
+            --non-interactive \
+            --no-wait
+        env:
           EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID || '5f03d9c6-0120-4047-aa27-f71a823afa7b' }}

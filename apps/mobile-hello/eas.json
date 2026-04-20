@@ -1,0 +1,16 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "production-hello": {
+      "env": {
+        "EXPO_PUBLIC_ROLE_LOCK": "hello"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    }
+  }
+}
