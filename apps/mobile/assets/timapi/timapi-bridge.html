@@ -61,11 +61,84 @@
     // Android fires on window
     window.addEventListener('message', function (e) { handleMessage(e.data); });
 
-    // ── Pair flow (Connect → Login → Activate) ─────────────────────────────────
-    // Mirrors apps/web-backoffice/lib/payments/anz-pair-lifecycle.ts: each step
-    // is awaited from a fresh event-loop tick, never re-entered from inside a
-    // *Completed callback (which has been observed to make the SDK abandon the
-    // session with timCommunicationFailure on Castles S1F2 firmware).
+    // ── Helper: build a listener object that resolves step-promises ─────────
+    // NOTE: timapi.DefaultTerminalListener is an ES6 class in the SDK.
+    // Trying to extend it via the ES5 prototype pattern
+    // (`function Foo(){ Base.call(this); }`) throws
+    // "Class constructors cannot be invoked with 'new'" on Hermes because
+    // ES6 classes can't be invoked without `new`.
+    //
+    // terminal.addListener() accepts a plain object with method callbacks —
+    // that's what the ANZ samples use and is the portable, version-safe way.
+    function makeFlowListener(ctx) {
+      return {
+        connectCompleted: function (event) {
+          var r = ctx.connectResolver; ctx.connectResolver = null;
+          if (r) r(event);
+        },
+        loginCompleted: function (event) {
+          var r = ctx.loginResolver; ctx.loginResolver = null;
+          if (r) r(event);
+        },
+        activateCompleted: function (event, data) {
+          var r = ctx.activateResolver; ctx.activateResolver = null;
+          if (r) r({ event: event, data: data });
+        },
+        transactionCompleted: function (event, data) {
+          var r = ctx.txResolver; ctx.txResolver = null;
+          if (r) r({ event: event, data: data });
+        },
+        displayTextChanged: function (event, data) {
+          var text = (data && data.text) ? String(data.text).trim() : '';
+          if (text) rn({ type: 'status', message: text });
+        },
+        connectionStateChanged: function () {
+          // No-op — we drive state via the per-step promises above.
+        },
+        receiptGenerated: function () {
+          // Receipt text is returned in transactionCompleted.
+        },
+        disconnected: function (_t, exception) {
+          var h = ctx.disconnectHandler; ctx.disconnectHandler = null;
+          if (h) h(exception);
+        }
+      };
+    }
+
+    // ── Helper: run a single SDK step as a promise with per-step timeout ───
+    function runStep(ctx, label, timeoutMs, setup) {
+      return new Promise(function (resolve, reject) {
+        var settled = false;
+        var timer = setTimeout(function () {
+          if (settled) return;
+          settled = true;
+          reject(new Error(label + ' timed out after ' + Math.round(timeoutMs / 1000) + 's'));
+        }, timeoutMs);
+
+        var done = function (eventOrWrapper) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          var event = (eventOrWrapper && eventOrWrapper.event) ? eventOrWrapper.event : eventOrWrapper;
+          if (event && event.exception !== undefined) {
+            reject(new Error((event.exception && event.exception.message) || (label + ' failed')));
+            return;
+          }
+          resolve(eventOrWrapper);
+        };
+
+        ctx.disconnectHandler = function (exception) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(new Error((exception && exception.message) || ('Terminal disconnected during ' + label)));
+        };
+
+        setup(done);
+      });
+    }
+
+    // ── Pair flow (Connect → Login → Activate) ─────────────────────────────
     function startPair(msg) {
       if (!window.timapi) {
         rn({ type: 'error', message: 'TIM API SDK not loaded. Place timapi.js in assets/timapi/.' });
@@ -83,93 +156,34 @@
         terminal.setPosId('12');
         terminal.setUserId(1);
 
-        // Per-step promise resolvers, wired into a single listener.
-        // The listener just records events and resolves whichever promise is
-        // currently awaiting. It does NOT call xxxAsync() — that happens in
-        // the outer code, between awaits.
-        var connectResolver  = null;
-        var loginResolver    = null;
-        var activateResolver = null;
-        var disconnectHandler = null;
-
-        function FlowListener() { timapi.DefaultTerminalListener.call(this); }
-        FlowListener.prototype = Object.create(timapi.DefaultTerminalListener.prototype);
-        FlowListener.prototype.connectCompleted = function (event) {
-          timapi.DefaultTerminalListener.prototype.connectCompleted.call(this, event);
-          var r = connectResolver; connectResolver = null;
-          if (r) r(event);
+        var ctx = {
+          connectResolver:   null,
+          loginResolver:     null,
+          activateResolver:  null,
+          txResolver:        null,
+          disconnectHandler: null,
         };
-        FlowListener.prototype.loginCompleted = function (event) {
-          timapi.DefaultTerminalListener.prototype.loginCompleted.call(this, event);
-          var r = loginResolver; loginResolver = null;
-          if (r) r(event);
-        };
-        FlowListener.prototype.activateCompleted = function (event, data) {
-          timapi.DefaultTerminalListener.prototype.activateCompleted.call(this, event, data);
-          var r = activateResolver; activateResolver = null;
-          if (r) r(event);
-        };
-        FlowListener.prototype.disconnected = function (t, exception) {
-          timapi.DefaultTerminalListener.prototype.disconnected.call(this, t, exception);
-          var h = disconnectHandler; disconnectHandler = null;
-          if (h) h(exception);
-        };
+        terminal.addListener(makeFlowListener(ctx));
 
-        terminal.addListener(new FlowListener());
-
-        function runStep(label, timeoutMs, setup) {
-          return new Promise(function (resolve, reject) {
-            var settled = false;
-            var timer = setTimeout(function () {
-              if (settled) return;
-              settled = true;
-              reject(new Error(label + ' timed out after ' + Math.round(timeoutMs / 1000) + 's'));
-            }, timeoutMs);
-
-            var done = function (event) {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              if (event && event.exception !== undefined) {
-                reject(new Error((event.exception && event.exception.message) || (label + ' failed')));
-                return;
-              }
-              resolve(event);
-            };
-
-            disconnectHandler = function (exception) {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              reject(new Error((exception && exception.message) || ('Terminal disconnected during ' + label)));
-            };
-
-            setup(done);
-          });
-        }
-
-        rn({ type: 'status', message: 'Connecting…' });
-        runStep('Connect', 15000, function (done) {
-          connectResolver = done;
+        rn({ type: 'status', message: 'Connecting\u2026' });
+        runStep(ctx, 'Connect', 15000, function (done) {
+          ctx.connectResolver = done;
           terminal.connectAsync();
         }).then(function () {
-          rn({ type: 'status', message: 'Logging in…' });
-          // 60s accommodates the internal FeatureRequest retry observed on
-          // Castles S1F2 firmware.
-          return runStep('Login', 60000, function (done) {
-            loginResolver = done;
+          rn({ type: 'status', message: 'Logging in\u2026' });
+          return runStep(ctx, 'Login', 60000, function (done) {
+            ctx.loginResolver = done;
             terminal.loginAsync();
           });
         }).then(function () {
-          rn({ type: 'status', message: 'Activating…' });
-          return runStep('Activate', 30000, function (done) {
-            activateResolver = done;
+          rn({ type: 'status', message: 'Activating\u2026' });
+          return runStep(ctx, 'Activate', 30000, function (done) {
+            ctx.activateResolver = done;
             terminal.activateAsync();
           });
         }).then(function () {
           rn({ type: 'paired' });
-          // Pair is one-shot: dispose the terminal so a fresh one is created
-          // next time. Holding it open here just leaks WASM memory.
+          // Pair is one-shot: dispose so the next attempt starts fresh.
           try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
           terminal = null;
         }).catch(function (err) {
@@ -179,16 +193,12 @@
         });
       } catch (e) {
         rn({ type: 'error', message: (e && e.message) || String(e) });
+        try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
         terminal = null;
       }
     }
 
-    // ── Purchase flow ──────────────────────────────────────────────────────────
-    // Runs the full lifecycle: Connect → Login → Activate → Transaction → Commit.
-    // The Castles S1F2 rejects transactions on non-activated sessions with
-    // `invalidArgument` — so we always drive the SDK through the four-step
-    // pair before issuing the purchase, mirroring the browser-side
-    // anz-pair-lifecycle.ts pattern.
+    // ── Purchase flow (Connect → Login → Activate → Transaction → Commit) ──
     function startPurchase(msg) {
       if (!window.timapi) {
         rn({ type: 'error', message: 'TIM API SDK not loaded. Place timapi.js in assets/timapi/.' });
@@ -201,8 +211,8 @@
         settings.connectionIPPort   = msg.terminalPort || 7784;
         settings.fetchBrands        = false;
         settings.autoCommit         = false;
-        // integratorId is only set when a non-empty string was supplied. The
-        // SDK validates and rejects empty strings with `invalidArgument`.
+        // Only set integratorId if provided — empty strings are rejected by
+        // the SDK with `invalidArgument`.
         if (msg.integratorId && typeof msg.integratorId === 'string' && msg.integratorId.length > 0) {
           settings.integratorId = msg.integratorId;
         }
@@ -211,100 +221,35 @@
         terminal.setPosId('12');
         terminal.setUserId(1);
 
-        // Per-step promise resolvers + shared listener (same pattern as startPair).
-        var connectResolver    = null;
-        var loginResolver      = null;
-        var activateResolver   = null;
-        var txResolver         = null;
-        var disconnectHandler  = null;
-
-        function FlowListener() { timapi.DefaultTerminalListener.call(this); }
-        FlowListener.prototype = Object.create(timapi.DefaultTerminalListener.prototype);
-        FlowListener.prototype.connectCompleted = function (event) {
-          timapi.DefaultTerminalListener.prototype.connectCompleted.call(this, event);
-          var r = connectResolver; connectResolver = null;
-          if (r) r(event);
+        var ctx = {
+          connectResolver:   null,
+          loginResolver:     null,
+          activateResolver:  null,
+          txResolver:        null,
+          disconnectHandler: null,
         };
-        FlowListener.prototype.loginCompleted = function (event) {
-          timapi.DefaultTerminalListener.prototype.loginCompleted.call(this, event);
-          var r = loginResolver; loginResolver = null;
-          if (r) r(event);
-        };
-        FlowListener.prototype.activateCompleted = function (event, data) {
-          timapi.DefaultTerminalListener.prototype.activateCompleted.call(this, event, data);
-          var r = activateResolver; activateResolver = null;
-          if (r) r(event);
-        };
-        FlowListener.prototype.transactionCompleted = function (event, data) {
-          timapi.DefaultTerminalListener.prototype.transactionCompleted.call(this, event, data);
-          var r = txResolver; txResolver = null;
-          if (r) r({ event: event, data: data });
-        };
-        FlowListener.prototype.displayTextChanged = function (event, data) {
-          timapi.DefaultTerminalListener.prototype.displayTextChanged.call(this, event, data);
-          var text = (data && data.text) ? String(data.text).trim() : '';
-          if (text) rn({ type: 'status', message: text });
-        };
-        FlowListener.prototype.disconnected = function (t, exception) {
-          timapi.DefaultTerminalListener.prototype.disconnected.call(this, t, exception);
-          var h = disconnectHandler; disconnectHandler = null;
-          if (h) h(exception);
-        };
-
-        terminal.addListener(new FlowListener());
-
-        function runStep(label, timeoutMs, setup) {
-          return new Promise(function (resolve, reject) {
-            var settled = false;
-            var timer = setTimeout(function () {
-              if (settled) return;
-              settled = true;
-              reject(new Error(label + ' timed out after ' + Math.round(timeoutMs / 1000) + 's'));
-            }, timeoutMs);
-
-            var done = function (eventOrWrapper) {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              var event = (eventOrWrapper && eventOrWrapper.event) ? eventOrWrapper.event : eventOrWrapper;
-              if (event && event.exception !== undefined) {
-                reject(new Error((event.exception && event.exception.message) || (label + ' failed')));
-                return;
-              }
-              resolve(eventOrWrapper);
-            };
-
-            disconnectHandler = function (exception) {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              reject(new Error((exception && exception.message) || ('Terminal disconnected during ' + label)));
-            };
-
-            setup(done);
-          });
-        }
+        terminal.addListener(makeFlowListener(ctx));
 
         rn({ type: 'status', message: 'Connecting\u2026' });
-        runStep('Connect', 15000, function (done) {
-          connectResolver = done;
+        runStep(ctx, 'Connect', 15000, function (done) {
+          ctx.connectResolver = done;
           terminal.connectAsync();
         }).then(function () {
           rn({ type: 'status', message: 'Logging in\u2026' });
-          return runStep('Login', 60000, function (done) {
-            loginResolver = done;
+          return runStep(ctx, 'Login', 60000, function (done) {
+            ctx.loginResolver = done;
             terminal.loginAsync();
           });
         }).then(function () {
           rn({ type: 'status', message: 'Activating\u2026' });
-          return runStep('Activate', 30000, function (done) {
-            activateResolver = done;
+          return runStep(ctx, 'Activate', 30000, function (done) {
+            ctx.activateResolver = done;
             terminal.activateAsync();
           });
         }).then(function () {
           rn({ type: 'status', message: 'Present card\u2026' });
-          return runStep('Transaction', 180000, function (done) {
-            txResolver = done;
+          return runStep(ctx, 'Transaction', 180000, function (done) {
+            ctx.txResolver = done;
             terminal.transactionAsync(
               timapi.constants.TransactionType.purchase,
               new timapi.Amount(msg.amountCents, timapi.constants.Currency.AUD),
@@ -312,9 +257,7 @@
             );
           });
         }).then(function (wrapper) {
-          var event = wrapper && wrapper.event;
-          var data  = wrapper && wrapper.data;
-          // Approved — commit, then report
+          var data = wrapper && wrapper.data;
           try { terminal.commitAsync(); } catch (_) { /* non-fatal */ }
           rn({
             type:            'approved',
@@ -326,13 +269,9 @@
             merchantReceipt: (data && (data.merchantReceiptText || data.receiptText)) || null,
             customerReceipt: (data && data.customerReceiptText) || null,
           });
-          // Leave terminal alive for subsequent transactions — dispose only
-          // when the WebView unloads.
+          // Leave terminal alive for subsequent transactions.
         }).catch(function (err) {
           var msg2 = (err && err.message) || String(err);
-          // If the exception carries a declineCode-like field (rare), surface
-          // it as declined; otherwise it's a generic error that should not be
-          // reported as a decline (which would log a bogus transaction).
           rn({ type: 'error', message: msg2 });
           try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
           terminal = null;

@@ -56,54 +56,33 @@ export default function ANZSettingsScreen() {
     }
   }
 
-  async function handleTestConnection() {
-    if (!local.terminalIp.trim()) {
-      toast.warning('Required', 'Enter the terminal IP address first.');
-      return;
-    }
+  function handleTestConnection() {
+    // Real connectivity is tested by the "Pair Terminal" button below, which
+    // runs the full TIM API lifecycle against the terminal. Doing a secondary
+    // HTTP reachability probe here was the cause of an iMin app crash —
+    // hitting the terminal's WebSocket port with fetch() and then trying to
+    // parse the response blew up somewhere in the iMin's old fetch
+    // implementation. We now do local-only input validation so the button
+    // still gives the user feedback without any network I/O.
     setTesting(true);
-    // Reachability probe via fetch(). TIM API uses SIXml over WebSocket, not
-    // HTTP, so we're just looking for a socket-level response as evidence the
-    // IP/port combo is alive. Anything that comes back — even an HTTP parse
-    // error — means the socket opened. ECONNREFUSED / timeout / ENOTFOUND
-    // mean the device isn't there.
-    //
-    // Wrapped in an aggressive outer try/catch plus a 4s ceiling so that
-    // any iMin/Hermes/fetch quirk can't crash the UI thread.
     try {
-      const port = local.terminalPort || 7784;
       const ip   = local.terminalIp.trim();
-      const timeoutMs = 4000;
-      const race = new Promise<string>((resolve) => {
-        const timer = setTimeout(() => resolve('timeout'), timeoutMs);
-        // Fire-and-handle — never let this bubble
-        fetch(`http://${ip}:${port}/`, { method: 'GET' })
-          .then(() => { clearTimeout(timer); resolve('reachable'); })
-          .catch((err: unknown) => {
-            clearTimeout(timer);
-            const m = err instanceof Error ? err.message : String(err);
-            if (/refused|unreachable|ENOTFOUND|EHOSTUNREACH|not allowed/i.test(m)) {
-              resolve('refused');
-            } else {
-              // A socket-level response that fetch couldn't parse as HTTP —
-              // this is what a WebSocket server typically does. Still proves
-              // the device is listening on the port.
-              resolve('reachable');
-            }
-          });
-      });
-      const outcome = await race;
-      if (outcome === 'reachable') {
-        toast.success('Reachable', `Terminal responded on ${ip}:${port}.`);
-      } else if (outcome === 'timeout') {
-        toast.error('Timeout', `No response from ${ip}:${port} within ${timeoutMs / 1000}s. Check the IP / Wi-Fi.`);
-      } else {
-        toast.error('Unreachable', `Could not connect to ${ip}:${port}. Check the IP, port, and Wi-Fi network.`);
+      const port = local.terminalPort;
+      if (!ip) {
+        toast.warning('Required', 'Enter the terminal IP address first.');
+        return;
       }
-    } catch (err) {
-      // Last-resort catch — should never fire given the wrapped race above.
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error('Test failed', msg);
+      // Basic IPv4 format check — must be four 0-255 octets separated by dots.
+      const ipv4 = /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)$/;
+      if (!ipv4.test(ip)) {
+        toast.error('Invalid IP', `"${ip}" is not a valid IPv4 address.`);
+        return;
+      }
+      if (!port || port < 1 || port > 65535) {
+        toast.error('Invalid Port', `Port must be between 1 and 65535 (TIM API default is 7784).`);
+        return;
+      }
+      toast.success('Looks good', `Settings are valid. Use "Pair Terminal" to actually connect to ${ip}:${port}.`);
     } finally {
       setTesting(false);
     }
@@ -225,7 +204,7 @@ export default function ANZSettingsScreen() {
               <Ionicons name="wifi-outline" size={15} color="#6366f1" />
             )}
             <Text style={styles.testBtnText}>
-              {testing ? 'Testing…' : 'Test Connection'}
+              {testing ? 'Checking…' : 'Validate Settings'}
             </Text>
           </TouchableOpacity>
 

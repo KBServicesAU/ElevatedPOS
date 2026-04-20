@@ -106,7 +106,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   owner: 'kbservicesau',
   name: resolved?.name ?? process.env['EXPO_PUBLIC_APP_NAME'] ?? 'ElevatedPOS',
   slug: resolved?.slug ?? 'elevatedpos',
-  version: '2.7.13',
+  version: '2.7.14',
   scheme: 'elevatedpos',
   orientation: 'default',
   platforms: ['ios', 'android'],
@@ -158,7 +158,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     fallbackToCacheTimeout: 0,
     checkAutomatically: 'NEVER',
   },
-  runtimeVersion: '2.7.13',
+  runtimeVersion: '2.7.14',
   experiments: { typedRoutes: true },
   extra: {
     eas: { projectId: process.env['EAS_PROJECT_ID'] ?? '5f03d9c6-0120-4047-aa27-f71a823afa7b' },
