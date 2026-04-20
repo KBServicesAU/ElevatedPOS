@@ -184,6 +184,11 @@
     }
 
     // ── Purchase flow ──────────────────────────────────────────────────────────
+    // Runs the full lifecycle: Connect → Login → Activate → Transaction → Commit.
+    // The Castles S1F2 rejects transactions on non-activated sessions with
+    // `invalidArgument` — so we always drive the SDK through the four-step
+    // pair before issuing the purchase, mirroring the browser-side
+    // anz-pair-lifecycle.ts pattern.
     function startPurchase(msg) {
       if (!window.timapi) {
         rn({ type: 'error', message: 'TIM API SDK not loaded. Place timapi.js in assets/timapi/.' });
@@ -194,60 +199,147 @@
         var settings = new timapi.TerminalSettings();
         settings.connectionIPString = msg.terminalIp;
         settings.connectionIPPort   = msg.terminalPort || 7784;
+        settings.fetchBrands        = false;
         settings.autoCommit         = false;
-        settings.integratorId       = msg.integratorId || '';
+        // integratorId is only set when a non-empty string was supplied. The
+        // SDK validates and rejects empty strings with `invalidArgument`.
+        if (msg.integratorId && typeof msg.integratorId === 'string' && msg.integratorId.length > 0) {
+          settings.integratorId = msg.integratorId;
+        }
 
         terminal = new timapi.Terminal(settings);
-        terminal.setPosId('ECR-01');
+        terminal.setPosId('12');
+        terminal.setUserId(1);
 
-        terminal.addListener({
-          transactionCompleted: function (event, data) {
-            if (event.exception === undefined) {
-              // Approved — commit
-              try { terminal.commitAsync(); } catch (e) { /* non-fatal */ }
-              rn({
-                type:           'approved',
-                transactionRef: (data && data.transactionReference) || null,
-                authCode:       (data && data.authorisationCode)    || null,
-                maskedPan:      (data && data.maskedPan)            || null,
-                cardType:       (data && data.cardType)             || null,
-                rrn:            (data && data.rrn)                  || null,
-                merchantReceipt: (data && (data.merchantReceiptText || data.receiptText)) || null,
-                customerReceipt: (data && data.customerReceiptText) || null,
-              });
-            } else {
-              rn({
-                type:        'declined',
-                declineCode: event.exception.resultCode || '',
-                message:     event.exception.message    || ('Declined (' + event.exception.resultCode + ')'),
-              });
-            }
-            terminal = null;
-          },
+        // Per-step promise resolvers + shared listener (same pattern as startPair).
+        var connectResolver    = null;
+        var loginResolver      = null;
+        var activateResolver   = null;
+        var txResolver         = null;
+        var disconnectHandler  = null;
 
-          connectionStateChanged: function () {
-            rn({ type: 'status', message: 'Terminal connected' });
-          },
+        function FlowListener() { timapi.DefaultTerminalListener.call(this); }
+        FlowListener.prototype = Object.create(timapi.DefaultTerminalListener.prototype);
+        FlowListener.prototype.connectCompleted = function (event) {
+          timapi.DefaultTerminalListener.prototype.connectCompleted.call(this, event);
+          var r = connectResolver; connectResolver = null;
+          if (r) r(event);
+        };
+        FlowListener.prototype.loginCompleted = function (event) {
+          timapi.DefaultTerminalListener.prototype.loginCompleted.call(this, event);
+          var r = loginResolver; loginResolver = null;
+          if (r) r(event);
+        };
+        FlowListener.prototype.activateCompleted = function (event, data) {
+          timapi.DefaultTerminalListener.prototype.activateCompleted.call(this, event, data);
+          var r = activateResolver; activateResolver = null;
+          if (r) r(event);
+        };
+        FlowListener.prototype.transactionCompleted = function (event, data) {
+          timapi.DefaultTerminalListener.prototype.transactionCompleted.call(this, event, data);
+          var r = txResolver; txResolver = null;
+          if (r) r({ event: event, data: data });
+        };
+        FlowListener.prototype.displayTextChanged = function (event, data) {
+          timapi.DefaultTerminalListener.prototype.displayTextChanged.call(this, event, data);
+          var text = (data && data.text) ? String(data.text).trim() : '';
+          if (text) rn({ type: 'status', message: text });
+        };
+        FlowListener.prototype.disconnected = function (t, exception) {
+          timapi.DefaultTerminalListener.prototype.disconnected.call(this, t, exception);
+          var h = disconnectHandler; disconnectHandler = null;
+          if (h) h(exception);
+        };
 
-          displayTextChanged: function (event, data) {
-            var text = (data && data.text) ? data.text.trim() : '';
-            if (text) rn({ type: 'status', message: text });
-          },
+        terminal.addListener(new FlowListener());
 
-          receiptGenerated: function () {
-            // Receipt text is already returned in transactionCompleted — ignore here
-          },
+        function runStep(label, timeoutMs, setup) {
+          return new Promise(function (resolve, reject) {
+            var settled = false;
+            var timer = setTimeout(function () {
+              if (settled) return;
+              settled = true;
+              reject(new Error(label + ' timed out after ' + Math.round(timeoutMs / 1000) + 's'));
+            }, timeoutMs);
+
+            var done = function (eventOrWrapper) {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              var event = (eventOrWrapper && eventOrWrapper.event) ? eventOrWrapper.event : eventOrWrapper;
+              if (event && event.exception !== undefined) {
+                reject(new Error((event.exception && event.exception.message) || (label + ' failed')));
+                return;
+              }
+              resolve(eventOrWrapper);
+            };
+
+            disconnectHandler = function (exception) {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              reject(new Error((exception && exception.message) || ('Terminal disconnected during ' + label)));
+            };
+
+            setup(done);
+          });
+        }
+
+        rn({ type: 'status', message: 'Connecting\u2026' });
+        runStep('Connect', 15000, function (done) {
+          connectResolver = done;
+          terminal.connectAsync();
+        }).then(function () {
+          rn({ type: 'status', message: 'Logging in\u2026' });
+          return runStep('Login', 60000, function (done) {
+            loginResolver = done;
+            terminal.loginAsync();
+          });
+        }).then(function () {
+          rn({ type: 'status', message: 'Activating\u2026' });
+          return runStep('Activate', 30000, function (done) {
+            activateResolver = done;
+            terminal.activateAsync();
+          });
+        }).then(function () {
+          rn({ type: 'status', message: 'Present card\u2026' });
+          return runStep('Transaction', 180000, function (done) {
+            txResolver = done;
+            terminal.transactionAsync(
+              timapi.constants.TransactionType.purchase,
+              new timapi.Amount(msg.amountCents, timapi.constants.Currency.AUD),
+              (msg.referenceId && typeof msg.referenceId === 'string') ? msg.referenceId : undefined
+            );
+          });
+        }).then(function (wrapper) {
+          var event = wrapper && wrapper.event;
+          var data  = wrapper && wrapper.data;
+          // Approved — commit, then report
+          try { terminal.commitAsync(); } catch (_) { /* non-fatal */ }
+          rn({
+            type:            'approved',
+            transactionRef:  (data && data.transactionReference) || null,
+            authCode:        (data && data.authorisationCode)    || null,
+            maskedPan:       (data && data.maskedPan)            || null,
+            cardType:        (data && data.cardType)             || null,
+            rrn:             (data && data.rrn)                  || null,
+            merchantReceipt: (data && (data.merchantReceiptText || data.receiptText)) || null,
+            customerReceipt: (data && data.customerReceiptText) || null,
+          });
+          // Leave terminal alive for subsequent transactions — dispose only
+          // when the WebView unloads.
+        }).catch(function (err) {
+          var msg2 = (err && err.message) || String(err);
+          // If the exception carries a declineCode-like field (rare), surface
+          // it as declined; otherwise it's a generic error that should not be
+          // reported as a decline (which would log a bogus transaction).
+          rn({ type: 'error', message: msg2 });
+          try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
+          terminal = null;
         });
-
-        rn({ type: 'status', message: 'Connecting to terminal\u2026' });
-
-        terminal.transactionAsync(
-          timapi.constants.TransactionType.purchase,
-          new timapi.Amount(msg.amountCents, timapi.constants.Currency.AUD),
-          msg.referenceId ? msg.referenceId : undefined
-        );
       } catch (e) {
-        rn({ type: 'error', message: e && e.message ? e.message : String(e) });
+        rn({ type: 'error', message: (e && e.message) || String(e) });
+        try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
         terminal = null;
       }
     }

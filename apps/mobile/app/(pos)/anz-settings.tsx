@@ -62,41 +62,48 @@ export default function ANZSettingsScreen() {
       return;
     }
     setTesting(true);
+    // Reachability probe via fetch(). TIM API uses SIXml over WebSocket, not
+    // HTTP, so we're just looking for a socket-level response as evidence the
+    // IP/port combo is alive. Anything that comes back — even an HTTP parse
+    // error — means the socket opened. ECONNREFUSED / timeout / ENOTFOUND
+    // mean the device isn't there.
+    //
+    // Wrapped in an aggressive outer try/catch plus a 4s ceiling so that
+    // any iMin/Hermes/fetch quirk can't crash the UI thread.
     try {
       const port = local.terminalPort || 7784;
-      // Probe TCP reachability on the TIM API port via a short fetch with a
-      // bogus path. The terminal's WebSocket server will respond with an HTTP
-      // upgrade error, but the very fact that the socket opens proves the
-      // device is up and listening on the right port. Anything else (timeout,
-      // ECONNREFUSED) means it's offline / wrong IP / wrong port.
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
-      try {
-        await fetch(`http://${local.terminalIp.trim()}:${port}/`, {
-          signal: controller.signal,
-          // Don't follow redirects, don't read body — we only care that the
-          // socket opens. Any non-network response is "reachable".
-          method: 'GET',
-        }).catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          // A successful TCP connect followed by an HTTP rejection appears as
-          // a parse error rather than a network error. Treat anything that
-          // isn't an explicit network/abort failure as success.
-          if (/abort|timeout|network|refused|unreachable|ENOTFOUND|EHOSTUNREACH/i.test(msg)) {
-            throw err;
-          }
-        });
-        toast.success('Reachable', `Terminal is responding on ${local.terminalIp.trim()}:${port}.`);
-      } finally {
-        clearTimeout(timer);
+      const ip   = local.terminalIp.trim();
+      const timeoutMs = 4000;
+      const race = new Promise<string>((resolve) => {
+        const timer = setTimeout(() => resolve('timeout'), timeoutMs);
+        // Fire-and-handle — never let this bubble
+        fetch(`http://${ip}:${port}/`, { method: 'GET' })
+          .then(() => { clearTimeout(timer); resolve('reachable'); })
+          .catch((err: unknown) => {
+            clearTimeout(timer);
+            const m = err instanceof Error ? err.message : String(err);
+            if (/refused|unreachable|ENOTFOUND|EHOSTUNREACH|not allowed/i.test(m)) {
+              resolve('refused');
+            } else {
+              // A socket-level response that fetch couldn't parse as HTTP —
+              // this is what a WebSocket server typically does. Still proves
+              // the device is listening on the port.
+              resolve('reachable');
+            }
+          });
+      });
+      const outcome = await race;
+      if (outcome === 'reachable') {
+        toast.success('Reachable', `Terminal responded on ${ip}:${port}.`);
+      } else if (outcome === 'timeout') {
+        toast.error('Timeout', `No response from ${ip}:${port} within ${timeoutMs / 1000}s. Check the IP / Wi-Fi.`);
+      } else {
+        toast.error('Unreachable', `Could not connect to ${ip}:${port}. Check the IP, port, and Wi-Fi network.`);
       }
     } catch (err) {
+      // Last-resort catch — should never fire given the wrapped race above.
       const msg = err instanceof Error ? err.message : String(err);
-      if (/abort|timeout/i.test(msg)) {
-        toast.error('Timeout', 'No response from terminal. Check the IP and that the device is on the same network.');
-      } else {
-        toast.error('Unreachable', `Could not connect to ${local.terminalIp.trim()}:${local.terminalPort || 7784}. ${msg}`);
-      }
+      toast.error('Test failed', msg);
     } finally {
       setTesting(false);
     }

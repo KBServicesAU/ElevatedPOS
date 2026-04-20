@@ -114,15 +114,20 @@ export function AnzPaymentModal({
     sentRef.current = true;
 
     const amountCents = Math.round(amount * 100);
-    const msg = JSON.stringify({
-      type:        'purchase',
-      terminalIp:  config.terminalIp.trim(),
-      terminalPort: config.terminalPort ?? 80,
-      integratorId: config.integratorId ?? '',
+    // NOTE: TIM API uses SIXml WebSocket on port 7784 by default (NOT HTTP 80).
+    // integratorId is omitted if empty — the SDK rejects empty strings with
+    // `invalidArgument`, so we send `undefined` and the SDK uses its default.
+    const payload: Record<string, unknown> = {
+      type:         'purchase',
+      terminalIp:   config.terminalIp.trim(),
+      terminalPort: config.terminalPort ?? 7784,
       amountCents,
       referenceId:  referenceId ?? `POS-${Date.now()}`,
-    });
-    webviewRef.current.postMessage(msg);
+    };
+    if (config.integratorId && config.integratorId.trim() !== '') {
+      payload['integratorId'] = config.integratorId.trim();
+    }
+    webviewRef.current.postMessage(JSON.stringify(payload));
   }
 
   function handleBridgeMessage(raw: string) {
