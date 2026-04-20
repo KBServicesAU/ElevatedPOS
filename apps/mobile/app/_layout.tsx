@@ -21,12 +21,45 @@ import { AppState, View } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { StripeProvider } from '@stripe/stripe-react-native';
+// NOTE: `@stripe/stripe-react-native` is intentionally NOT imported at the top.
+// Evaluation of its module body reaches into `NativeModules.StripeSdk`; if the
+// native side fails to register (any Android linkage hiccup) the import itself
+// throws. Because this file is the root of the expo-router entry, a throw here
+// aborts module evaluation BEFORE `AppRegistry.registerComponent(...)` runs,
+// producing a blank black screen with no JS-side stack available in release
+// Hermes builds (emulator logcat confirms `Registered callable JavaScript
+// modules (n = 0)` with no preceding JS error).
+// We require() the native module lazily inside the component, only when a
+// publishable key is present and only on platforms where it has any chance
+// of resolving. Any failure falls back to rendering without Stripe so the
+// rest of the app still boots.
 import { useDeviceStore } from '../store/device';
 import { useDeviceSettings } from '../store/device-settings';
 import { ToastViewport, AlertDialogHost } from '../components/ui';
 
 const stripePublishableKey = process.env['EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?? '';
+
+/**
+ * Lazily resolves the StripeProvider component. Returns `null` when Stripe is
+ * unavailable or throws during require — in which case the caller must render
+ * the children directly instead of wrapping them. The require() happens at
+ * call time, not at module-evaluation time, so a broken native binding does
+ * not take the whole app down on launch.
+ */
+function resolveStripeProvider(): React.ComponentType<{
+  publishableKey: string;
+  urlScheme?: string;
+  merchantIdentifier?: string;
+  children: React.ReactNode;
+}> | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    const mod = require('@stripe/stripe-react-native');
+    return (mod?.StripeProvider ?? null) as never;
+  } catch {
+    return null;
+  }
+}
 
 SplashScreen.preventAutoHideAsync();
 
@@ -111,6 +144,12 @@ export default function RootLayout() {
   // Non-POS builds (KDS, Kiosk, Display, Dashboard) don't have the key set and
   // initialising the native Stripe SDK with an empty key crashes the app on Android.
   if (!stripePublishableKey) return content;
+
+  // Lazy-resolve the StripeProvider at render time. If require() throws (broken
+  // native binding, missing package, etc.) we silently fall back to rendering
+  // without Stripe rather than crashing the entire app at startup.
+  const StripeProvider = resolveStripeProvider();
+  if (!StripeProvider) return content;
 
   return (
     <StripeProvider publishableKey={stripePublishableKey} urlScheme="elevatedpos">
