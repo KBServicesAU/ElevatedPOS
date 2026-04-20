@@ -883,6 +883,41 @@ export default function MoreScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* ═══════ Payments ═══════ */}
+        <Text style={[s.sectionTitle, { marginTop: 32 }]}>Payments</Text>
+
+        <View style={s.card}>
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={() => router.push('/(pos)/anz-settings' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="card-outline" size={20} color="#6366f1" />
+              <Text style={s.menuRowText}>ANZ Worldline</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Pair terminal · TIM API</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+          <View style={s.divider} />
+          <TouchableOpacity
+            style={s.menuRow}
+            onPress={() => router.push('/(pos)/tyro-settings' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuRowLeft}>
+              <Ionicons name="terminal-outline" size={20} color="#22c55e" />
+              <Text style={s.menuRowText}>Tyro</Text>
+            </View>
+            <View style={s.menuRowRight}>
+              <Text style={s.menuRowSub}>Configure Tyro terminal</Text>
+              <Ionicons name="chevron-forward" size={18} color="#444" />
+            </View>
+          </TouchableOpacity>
+        </View>
+
         {/* ═══════ Printer Settings ═══════ */}
         <Text style={[s.sectionTitle, { marginTop: 32 }]}>Printer</Text>
 
