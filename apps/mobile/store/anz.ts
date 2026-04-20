@@ -20,7 +20,7 @@ export interface AnzConfig {
   enableTipping: boolean;
   /** IPv4 address of the EFTPOS terminal on the local network */
   terminalIp: string;
-  /** HTTP port the TIM listens on — default 8080 */
+  /** TIM API port (SIXml WebSocket) the terminal listens on — default 7784 */
   terminalPort: number;
 }
 
@@ -40,7 +40,7 @@ const DEFAULTS: AnzConfig = {
   enableSurcharge: false,
   enableTipping: false,
   terminalIp: '',
-  terminalPort: 8080,
+  terminalPort: 7784,
 };
 
 export const useAnzStore = create<AnzStore>((set, get) => ({

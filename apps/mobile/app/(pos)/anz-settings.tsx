@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
 import { useAnzStore, type AnzConfig } from '../../store/anz';
 import { confirm, toast } from '../../components/ui';
+import { AnzPairingModal } from '../../components/AnzPairingModal';
 
 /* ------------------------------------------------------------------ */
 /* Screen                                                              */
@@ -24,6 +25,7 @@ export default function ANZSettingsScreen() {
   const [local, setLocal] = useState<AnzConfig>(config);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [pairing, setPairing] = useState(false);
 
   useEffect(() => {
     hydrate();
@@ -61,30 +63,56 @@ export default function ANZSettingsScreen() {
     }
     setTesting(true);
     try {
-      const port = local.terminalPort || 8080;
+      const port = local.terminalPort || 7784;
+      // Probe TCP reachability on the TIM API port via a short fetch with a
+      // bogus path. The terminal's WebSocket server will respond with an HTTP
+      // upgrade error, but the very fact that the socket opens proves the
+      // device is up and listening on the right port. Anything else (timeout,
+      // ECONNREFUSED) means it's offline / wrong IP / wrong port.
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(`http://${local.terminalIp.trim()}:${port}/v1/status`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (res.ok) {
-        const data = await res.json().catch(() => ({})) as { status?: string; terminalId?: string };
-        const detail = data.status ? `Status: ${data.status}` : 'Terminal responded.';
-        toast.success('Connected', detail);
-      } else {
-        toast.warning('Unreachable', `Terminal returned HTTP ${res.status}.`);
+      try {
+        await fetch(`http://${local.terminalIp.trim()}:${port}/`, {
+          signal: controller.signal,
+          // Don't follow redirects, don't read body — we only care that the
+          // socket opens. Any non-network response is "reachable".
+          method: 'GET',
+        }).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          // A successful TCP connect followed by an HTTP rejection appears as
+          // a parse error rather than a network error. Treat anything that
+          // isn't an explicit network/abort failure as success.
+          if (/abort|timeout|network|refused|unreachable|ENOTFOUND|EHOSTUNREACH/i.test(msg)) {
+            throw err;
+          }
+        });
+        toast.success('Reachable', `Terminal is responding on ${local.terminalIp.trim()}:${port}.`);
+      } finally {
+        clearTimeout(timer);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('abort') || msg.includes('timeout')) {
+      if (/abort|timeout/i.test(msg)) {
         toast.error('Timeout', 'No response from terminal. Check the IP and that the device is on the same network.');
       } else {
-        toast.error('Connection Failed', msg);
+        toast.error('Unreachable', `Could not connect to ${local.terminalIp.trim()}:${local.terminalPort || 7784}. ${msg}`);
       }
     } finally {
       setTesting(false);
     }
+  }
+
+  function handlePair() {
+    if (!local.terminalIp.trim()) {
+      toast.warning('Required', 'Enter and save the terminal IP address first.');
+      return;
+    }
+    if (local.terminalIp.trim() !== config.terminalIp.trim() ||
+        (local.terminalPort || 7784) !== (config.terminalPort || 7784)) {
+      toast.warning('Save first', 'Save your settings before pairing so the new IP is used.');
+      return;
+    }
+    setPairing(true);
   }
 
   async function handleClear() {
@@ -97,7 +125,7 @@ export default function ANZSettingsScreen() {
     });
     if (!ok) return;
     await clearConfig();
-    setLocal({ merchantId: '', terminalId: '', merchantName: '', environment: 'production', enableSurcharge: false, enableTipping: false, terminalIp: '', terminalPort: 8080 });
+    setLocal({ merchantId: '', terminalId: '', merchantName: '', environment: 'production', enableSurcharge: false, enableTipping: false, terminalIp: '', terminalPort: 7784 });
     toast.success('Cleared', 'ANZ Worldline settings removed.');
   }
 
@@ -142,7 +170,7 @@ export default function ANZSettingsScreen() {
               <View style={styles.divider} />
               <View style={styles.row}>
                 <Text style={styles.label}>Terminal IP</Text>
-                <Text style={styles.value}>{config.terminalIp}:{config.terminalPort || 8080}</Text>
+                <Text style={styles.value}>{config.terminalIp}:{config.terminalPort || 7784}</Text>
               </View>
             </>
           )}
@@ -166,16 +194,16 @@ export default function ANZSettingsScreen() {
           <Text style={[styles.inputLabel, { marginTop: 14 }]}>Terminal Port</Text>
           <TextInput
             style={styles.input}
-            value={String(local.terminalPort || 8080)}
-            onChangeText={(v) => update({ terminalPort: parseInt(v) || 8080 })}
-            placeholder="8080"
+            value={String(local.terminalPort || 7784)}
+            onChangeText={(v) => update({ terminalPort: parseInt(v) || 7784 })}
+            placeholder="7784"
             placeholderTextColor="#555"
             keyboardType="number-pad"
           />
 
           <Text style={styles.hint}>
-            The ANZ terminal's local IP address and HTTP port. The device must be on the same
-            Wi-Fi network as the terminal.
+            The ANZ terminal's local IP address and TIM API port (default 7784). The device
+            must be on the same Wi-Fi network as the terminal.
           </Text>
 
           <TouchableOpacity
@@ -193,6 +221,22 @@ export default function ANZSettingsScreen() {
               {testing ? 'Testing…' : 'Test Connection'}
             </Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.pairBtn, pairing && { opacity: 0.6 }]}
+            onPress={handlePair}
+            disabled={pairing || !isConfigured}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="link-outline" size={15} color="#fff" />
+            <Text style={styles.pairBtnText}>
+              {pairing ? 'Pairing…' : 'Pair Terminal'}
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.hint}>
+            Runs the full TIM API pair lifecycle (Connect → Login → Activate).
+            Save your settings first if you've changed the IP or port.
+          </Text>
         </View>
 
         {/* ─── Merchant Details ───────────────────── */}
@@ -336,6 +380,25 @@ export default function ANZSettingsScreen() {
           <Text style={styles.dangerBtnText}>Clear ANZ Settings</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Pair lifecycle modal — runs Connect → Login → Activate against the
+          terminal at the saved IP/port via the hidden timapi WebView. */}
+      <AnzPairingModal
+        visible={pairing}
+        config={{
+          terminalIp: config.terminalIp,
+          terminalPort: config.terminalPort || 7784,
+        }}
+        onPaired={() => {
+          setPairing(false);
+          toast.success('Paired', 'Terminal is connected and ready.');
+        }}
+        onError={(message) => {
+          setPairing(false);
+          toast.error('Pair failed', message);
+        }}
+        onDismiss={() => setPairing(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -396,6 +459,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   testBtnText: { color: '#6366f1', fontWeight: '700', fontSize: 13 },
+  pairBtn: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#6366f1',
+    borderRadius: 10,
+    paddingVertical: 12,
+  },
+  pairBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   envOption: { borderRadius: 8, paddingVertical: 8 },
   envOptionActive: { backgroundColor: 'rgba(99,102,241,0.08)' },
   envLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },

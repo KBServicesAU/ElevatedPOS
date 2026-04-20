@@ -2,10 +2,10 @@
 <!--
   ANZ Worldline TIM API – Android WebView Bridge
   ================================================
-  This page runs inside a hidden WebView in AnzPaymentModal.
-  It loads timapi.js (co-located in this folder), connects to the
-  EFTPOS terminal via WebSocket, and communicates results back to
-  React Native via window.ReactNativeWebView.postMessage().
+  This page runs inside a hidden WebView in AnzPaymentModal /
+  AnzPairingModal. It loads timapi.js (co-located in this folder),
+  connects to the EFTPOS terminal via WebSocket, and reports results
+  back to React Native via window.ReactNativeWebView.postMessage().
 
   Files required in apps/mobile/assets/timapi/:
     - timapi-bridge.html  (this file)
@@ -13,6 +13,11 @@
     - timapi.wasm         (obtain from ANZ Worldline portal)
 
   Portal: https://start.portal.anzworldline-solutions.com.au/
+
+  Supported messages from React Native:
+    { type: 'pair',     terminalIp, terminalPort, integratorId? }
+    { type: 'purchase', terminalIp, terminalPort, integratorId?, amountCents, referenceId? }
+    { type: 'cancel' }
 -->
 <html>
 <head>
@@ -38,9 +43,11 @@
     // ── Handle commands from React Native ──────────────────────────────────────
     function handleMessage(raw) {
       var msg;
-      try { msg = JSON.parse(raw); } catch { return; }
+      try { msg = JSON.parse(raw); } catch (_) { return; }
 
-      if (msg.type === 'purchase') {
+      if (msg.type === 'pair') {
+        startPair(msg);
+      } else if (msg.type === 'purchase') {
         startPurchase(msg);
       } else if (msg.type === 'cancel') {
         if (terminal) {
@@ -54,6 +61,128 @@
     // Android fires on window
     window.addEventListener('message', function (e) { handleMessage(e.data); });
 
+    // ── Pair flow (Connect → Login → Activate) ─────────────────────────────────
+    // Mirrors apps/web-backoffice/lib/payments/anz-pair-lifecycle.ts: each step
+    // is awaited from a fresh event-loop tick, never re-entered from inside a
+    // *Completed callback (which has been observed to make the SDK abandon the
+    // session with timCommunicationFailure on Castles S1F2 firmware).
+    function startPair(msg) {
+      if (!window.timapi) {
+        rn({ type: 'error', message: 'TIM API SDK not loaded. Place timapi.js in assets/timapi/.' });
+        return;
+      }
+
+      try {
+        var settings = new timapi.TerminalSettings();
+        settings.connectionIPString = msg.terminalIp;
+        settings.connectionIPPort   = msg.terminalPort || 7784;
+        settings.fetchBrands        = false;
+        settings.autoCommit         = false;
+
+        terminal = new timapi.Terminal(settings);
+        terminal.setPosId('12');
+        terminal.setUserId(1);
+
+        // Per-step promise resolvers, wired into a single listener.
+        // The listener just records events and resolves whichever promise is
+        // currently awaiting. It does NOT call xxxAsync() — that happens in
+        // the outer code, between awaits.
+        var connectResolver  = null;
+        var loginResolver    = null;
+        var activateResolver = null;
+        var disconnectHandler = null;
+
+        function FlowListener() { timapi.DefaultTerminalListener.call(this); }
+        FlowListener.prototype = Object.create(timapi.DefaultTerminalListener.prototype);
+        FlowListener.prototype.connectCompleted = function (event) {
+          timapi.DefaultTerminalListener.prototype.connectCompleted.call(this, event);
+          var r = connectResolver; connectResolver = null;
+          if (r) r(event);
+        };
+        FlowListener.prototype.loginCompleted = function (event) {
+          timapi.DefaultTerminalListener.prototype.loginCompleted.call(this, event);
+          var r = loginResolver; loginResolver = null;
+          if (r) r(event);
+        };
+        FlowListener.prototype.activateCompleted = function (event, data) {
+          timapi.DefaultTerminalListener.prototype.activateCompleted.call(this, event, data);
+          var r = activateResolver; activateResolver = null;
+          if (r) r(event);
+        };
+        FlowListener.prototype.disconnected = function (t, exception) {
+          timapi.DefaultTerminalListener.prototype.disconnected.call(this, t, exception);
+          var h = disconnectHandler; disconnectHandler = null;
+          if (h) h(exception);
+        };
+
+        terminal.addListener(new FlowListener());
+
+        function runStep(label, timeoutMs, setup) {
+          return new Promise(function (resolve, reject) {
+            var settled = false;
+            var timer = setTimeout(function () {
+              if (settled) return;
+              settled = true;
+              reject(new Error(label + ' timed out after ' + Math.round(timeoutMs / 1000) + 's'));
+            }, timeoutMs);
+
+            var done = function (event) {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              if (event && event.exception !== undefined) {
+                reject(new Error((event.exception && event.exception.message) || (label + ' failed')));
+                return;
+              }
+              resolve(event);
+            };
+
+            disconnectHandler = function (exception) {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              reject(new Error((exception && exception.message) || ('Terminal disconnected during ' + label)));
+            };
+
+            setup(done);
+          });
+        }
+
+        rn({ type: 'status', message: 'Connecting…' });
+        runStep('Connect', 15000, function (done) {
+          connectResolver = done;
+          terminal.connectAsync();
+        }).then(function () {
+          rn({ type: 'status', message: 'Logging in…' });
+          // 60s accommodates the internal FeatureRequest retry observed on
+          // Castles S1F2 firmware.
+          return runStep('Login', 60000, function (done) {
+            loginResolver = done;
+            terminal.loginAsync();
+          });
+        }).then(function () {
+          rn({ type: 'status', message: 'Activating…' });
+          return runStep('Activate', 30000, function (done) {
+            activateResolver = done;
+            terminal.activateAsync();
+          });
+        }).then(function () {
+          rn({ type: 'paired' });
+          // Pair is one-shot: dispose the terminal so a fresh one is created
+          // next time. Holding it open here just leaks WASM memory.
+          try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
+          terminal = null;
+        }).catch(function (err) {
+          rn({ type: 'error', message: (err && err.message) || String(err) });
+          try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
+          terminal = null;
+        });
+      } catch (e) {
+        rn({ type: 'error', message: (e && e.message) || String(e) });
+        terminal = null;
+      }
+    }
+
     // ── Purchase flow ──────────────────────────────────────────────────────────
     function startPurchase(msg) {
       if (!window.timapi) {
@@ -64,7 +193,7 @@
       try {
         var settings = new timapi.TerminalSettings();
         settings.connectionIPString = msg.terminalIp;
-        settings.connectionIPPort   = msg.terminalPort || 80;
+        settings.connectionIPPort   = msg.terminalPort || 7784;
         settings.autoCommit         = false;
         settings.integratorId       = msg.integratorId || '';
 
@@ -78,13 +207,13 @@
               try { terminal.commitAsync(); } catch (e) { /* non-fatal */ }
               rn({
                 type:           'approved',
-                transactionRef: data.transactionReference || null,
-                authCode:       data.authorisationCode    || null,
-                maskedPan:      data.maskedPan            || null,
-                cardType:       data.cardType             || null,
-                rrn:            data.rrn                  || null,
-                merchantReceipt: data.merchantReceiptText || data.receiptText || null,
-                customerReceipt: data.customerReceiptText || null,
+                transactionRef: (data && data.transactionReference) || null,
+                authCode:       (data && data.authorisationCode)    || null,
+                maskedPan:      (data && data.maskedPan)            || null,
+                cardType:       (data && data.cardType)             || null,
+                rrn:            (data && data.rrn)                  || null,
+                merchantReceipt: (data && (data.merchantReceiptText || data.receiptText)) || null,
+                customerReceipt: (data && data.customerReceiptText) || null,
               });
             } else {
               rn({
@@ -96,7 +225,7 @@
             terminal = null;
           },
 
-          connectionStateChanged: function (event, data) {
+          connectionStateChanged: function () {
             rn({ type: 'status', message: 'Terminal connected' });
           },
 
@@ -105,7 +234,7 @@
             if (text) rn({ type: 'status', message: text });
           },
 
-          receiptGenerated: function (event, data) {
+          receiptGenerated: function () {
             // Receipt text is already returned in transactionCompleted — ignore here
           },
         });
