@@ -389,28 +389,63 @@
         ctx = makeCtx();
         terminal.addListener(makeFlowListener(ctx));
 
-        // Progress reporter so the RN host can show "Logging in… (0:12 / 0:30)"
+        // Progress reporter so the RN host can show "Logging in… (0:12 / 1:00)"
         // instead of a frozen spinner. Fires every 2s per step.
         var progress = function (label, elapsed, timeoutSec) {
           rn({ type: 'progress', step: label, elapsed: elapsed, timeout: timeoutSec });
         };
 
+        // v2.7.32 — some TimException categories indicate the terminal is
+        // ALREADY in the requested state, not a failure. Treat those as
+        // success so a stale session from a previous WebView instance
+        // doesn't wedge us forever on Login or Activate. We recognize the
+        // category via extractTimError() (runStep bubbles it on e.category)
+        // and also tolerate these textual fingerprints so we're
+        // bullet-proof across SDK versions.
+        function isAlreadyInState(err, stateNames) {
+          if (!err) return false;
+          var cat = String(err.category || '').toLowerCase();
+          var msg = String(err.message || '').toLowerCase();
+          for (var i = 0; i < stateNames.length; i++) {
+            var name = String(stateNames[i]).toLowerCase();
+            // Common SDK variants: "alreadyLoggedIn", "alreadyActivated",
+            // "alreadyConnected", "loggedIn", "activated", etc.
+            if (cat.indexOf('already' + name) !== -1) return true;
+            if (cat === name) return true;
+            if (msg.indexOf('already ' + name) !== -1) return true;
+            if (msg.indexOf(name + ' already') !== -1) return true;
+          }
+          return false;
+        }
+
+        // Resilient step wrapper: if a step rejects with an "already in
+        // state" error, treat it as success so openTill can proceed.
+        function tolerantStep(label, timeoutMs, setup, alreadyStates) {
+          return runStep(ctx, label, timeoutMs, setup, progress).catch(function (err) {
+            if (isAlreadyInState(err, alreadyStates)) {
+              rn({ type: 'status', message: label + ' already done — skipping' });
+              return null; // resolve the chain
+            }
+            throw err; // real failure
+          });
+        }
+
         rn({ type: 'status', message: 'Connecting\u2026' });
-        runStep(ctx, 'Connect', 10000, function (done) {
+        tolerantStep('Connect', 15000, function (done) {
           ctx.connectResolver = done;
           try { terminal.connectAsync(); } catch (err) { done({ exception: err }); }
-        }, progress).then(function () {
+        }, ['connected']).then(function () {
           rn({ type: 'status', message: 'Logging in\u2026' });
-          return runStep(ctx, 'Login', 30000, function (done) {
+          return tolerantStep('Login', 60000, function (done) {
             ctx.loginResolver = done;
             try { terminal.loginAsync(); } catch (err) { done({ exception: err }); }
-          }, progress);
+          }, ['loggedIn', 'login']);
         }).then(function () {
           rn({ type: 'status', message: 'Activating\u2026' });
-          return runStep(ctx, 'Activate', 20000, function (done) {
+          return tolerantStep('Activate', 45000, function (done) {
             ctx.activateResolver = done;
             try { terminal.activateAsync(); } catch (err) { done({ exception: err }); }
-          }, progress);
+          }, ['activated', 'activate']);
         }).then(function () {
           // v2.7.23 — read the real capability bits from the Terminal after
           // activation. These are set by the acquirer-level merchant config
@@ -433,6 +468,24 @@
           rn({ type: 'till_opened', requestId: reqId, capabilities: capabilities });
           // Keep the terminal alive for subsequent transactions.
         }).catch(function (err) {
+          // v2.7.32 — before we tear down, gather a diagnostic snapshot of
+          // what the SDK thinks the terminal is doing. If the operator
+          // hits "Retry" right after this failure, the status log now
+          // carries these breadcrumbs so we can spot wedged states
+          // (e.g. "connected=true, loggedIn=true, activated=false" means
+          // activate is the actual bottleneck).
+          var diag = [];
+          try {
+            if (terminal) {
+              try { if (typeof terminal.isConnected  === 'function') diag.push('connected=' + !!terminal.isConnected()); } catch (_) {}
+              try { if (typeof terminal.isLoggedIn   === 'function') diag.push('loggedIn='  + !!terminal.isLoggedIn()); } catch (_) {}
+              try { if (typeof terminal.isActivated  === 'function') diag.push('activated=' + !!terminal.isActivated()); } catch (_) {}
+              try { if (typeof terminal.getState     === 'function') diag.push('state='     + String(terminal.getState())); } catch (_) {}
+            }
+          } catch (_) { /* ignore */ }
+          if (diag.length > 0) {
+            rn({ type: 'status', message: 'Terminal state: ' + diag.join(', ') });
+          }
           rn(errorPayload(reqId, err, 'OpenTill'));
           try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
           terminal = null;

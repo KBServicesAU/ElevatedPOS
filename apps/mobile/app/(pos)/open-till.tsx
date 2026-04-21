@@ -218,21 +218,44 @@ export default function OpenTillScreen() {
             </Text>
           </>
         ) : (
-          <TouchableOpacity
-            style={[styles.primaryBtn, busy && { opacity: 0.6 }]}
-            onPress={handleOpen}
-            disabled={busy}
-            activeOpacity={0.85}
-          >
-            {busy ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Ionicons name="lock-open-outline" size={16} color="#fff" />
+          <>
+            <TouchableOpacity
+              style={[styles.primaryBtn, busy && { opacity: 0.6 }]}
+              onPress={handleOpen}
+              disabled={busy}
+              activeOpacity={0.85}
+            >
+              {busy ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="lock-open-outline" size={16} color="#fff" />
+              )}
+              <Text style={styles.primaryBtnText}>
+                {busy ? 'Opening…' : 'Open Till'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* v2.7.32 — escape hatch when the initial Open Till hangs
+                (terminal unreachable / stale session on device side).
+                Without this, the user is stuck with a disabled
+                "Opening…" button forever. */}
+            {busy && (
+              <>
+                <TouchableOpacity
+                  style={styles.dangerBtn}
+                  onPress={handleForceReset}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="power-outline" size={16} color="#f87171" />
+                  <Text style={styles.dangerBtnText}>Cancel & Reset Terminal</Text>
+                </TouchableOpacity>
+                <Text style={[styles.hint, { textAlign: 'center', marginTop: 8 }]}>
+                  Stuck on &quot;Logging in&quot; or &quot;Activating&quot;? Tap Reset
+                  to clear the bridge and try again. Your float amount is kept.
+                </Text>
+              </>
             )}
-            <Text style={styles.primaryBtnText}>
-              {busy ? 'Opening…' : 'Open Till'}
-            </Text>
-          </TouchableOpacity>
+          </>
         )}
 
         <Text style={styles.footHint}>
