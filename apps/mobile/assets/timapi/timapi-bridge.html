@@ -2,10 +2,10 @@
 <!--
   ANZ Worldline TIM API – Android WebView Bridge
   ================================================
-  This page runs inside a hidden WebView in AnzPaymentModal /
-  AnzPairingModal. It loads timapi.js (co-located in this folder),
-  connects to the EFTPOS terminal via WebSocket, and reports results
-  back to React Native via window.ReactNativeWebView.postMessage().
+  This page runs inside a hidden WebView (AnzBridgeHost) for the life
+  of the POS session. It loads timapi.js (co-located in this folder),
+  connects to the EFTPOS terminal via WebSocket (SIXml), and reports
+  results back to React Native via window.ReactNativeWebView.postMessage().
 
   Files required in apps/mobile/assets/timapi/:
     - timapi-bridge.html  (this file)
@@ -14,10 +14,14 @@
 
   Portal: https://start.portal.anzworldline-solutions.com.au/
 
-  Supported messages from React Native:
-    { type: 'pair',     terminalIp, terminalPort, integratorId? }
-    { type: 'purchase', terminalIp, terminalPort, integratorId?, amountCents, referenceId? }
+  Supported commands from React Native:
+    { type: 'open_till',   requestId, terminalIp, terminalPort, integratorId? }
+    { type: 'transaction', requestId, amountCents, referenceId? }
+    { type: 'close_till',  requestId }
     { type: 'cancel' }
+
+  Responses carry the requestId back so the RN host can resolve the
+  matching promise.
 -->
 <html>
 <head>
@@ -38,17 +42,22 @@
       }
     }
 
+    // Shared state — persists across commands for the life of the page.
     var terminal = null;
+    // The active lifecycle context (holds the per-step resolvers).
+    var ctx = null;
 
     // ── Handle commands from React Native ──────────────────────────────────────
     function handleMessage(raw) {
       var msg;
       try { msg = JSON.parse(raw); } catch (_) { return; }
 
-      if (msg.type === 'pair') {
-        startPair(msg);
-      } else if (msg.type === 'purchase') {
-        startPurchase(msg);
+      if (msg.type === 'open_till') {
+        openTill(msg);
+      } else if (msg.type === 'transaction') {
+        runTransaction(msg);
+      } else if (msg.type === 'close_till') {
+        closeTill(msg);
       } else if (msg.type === 'cancel') {
         if (terminal) {
           try { terminal.cancelAsync(); } catch (e) { /* ignore */ }
@@ -70,22 +79,30 @@
     //
     // terminal.addListener() accepts a plain object with method callbacks —
     // that's what the ANZ samples use and is the portable, version-safe way.
-    function makeFlowListener(ctx) {
+    function makeFlowListener(c) {
       return {
         connectCompleted: function (event) {
-          var r = ctx.connectResolver; ctx.connectResolver = null;
+          var r = c.connectResolver; c.connectResolver = null;
           if (r) r(event);
         },
         loginCompleted: function (event) {
-          var r = ctx.loginResolver; ctx.loginResolver = null;
+          var r = c.loginResolver; c.loginResolver = null;
           if (r) r(event);
         },
         activateCompleted: function (event, data) {
-          var r = ctx.activateResolver; ctx.activateResolver = null;
+          var r = c.activateResolver; c.activateResolver = null;
           if (r) r({ event: event, data: data });
         },
+        deactivateCompleted: function (event, data) {
+          var r = c.deactivateResolver; c.deactivateResolver = null;
+          if (r) r({ event: event, data: data });
+        },
+        logoutCompleted: function (event) {
+          var r = c.logoutResolver; c.logoutResolver = null;
+          if (r) r(event);
+        },
         transactionCompleted: function (event, data) {
-          var r = ctx.txResolver; ctx.txResolver = null;
+          var r = c.txResolver; c.txResolver = null;
           if (r) r({ event: event, data: data });
         },
         displayTextChanged: function (event, data) {
@@ -99,14 +116,14 @@
           // Receipt text is returned in transactionCompleted.
         },
         disconnected: function (_t, exception) {
-          var h = ctx.disconnectHandler; ctx.disconnectHandler = null;
+          var h = c.disconnectHandler; c.disconnectHandler = null;
           if (h) h(exception);
         }
       };
     }
 
     // ── Helper: run a single SDK step as a promise with per-step timeout ───
-    function runStep(ctx, label, timeoutMs, setup) {
+    function runStep(c, label, timeoutMs, setup) {
       return new Promise(function (resolve, reject) {
         var settled = false;
         var timer = setTimeout(function () {
@@ -127,7 +144,7 @@
           resolve(eventOrWrapper);
         };
 
-        ctx.disconnectHandler = function (exception) {
+        c.disconnectHandler = function (exception) {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
@@ -138,70 +155,27 @@
       });
     }
 
-    // ── Pair flow (Connect → Login → Activate) ─────────────────────────────
-    function startPair(msg) {
-      if (!window.timapi) {
-        rn({ type: 'error', message: 'TIM API SDK not loaded. Place timapi.js in assets/timapi/.' });
-        return;
-      }
-
-      try {
-        var settings = new timapi.TerminalSettings();
-        settings.connectionIPString = msg.terminalIp;
-        settings.connectionIPPort   = msg.terminalPort || 7784;
-        settings.fetchBrands        = false;
-        settings.autoCommit         = false;
-
-        terminal = new timapi.Terminal(settings);
-        terminal.setPosId('12');
-        terminal.setUserId(1);
-
-        var ctx = {
-          connectResolver:   null,
-          loginResolver:     null,
-          activateResolver:  null,
-          txResolver:        null,
-          disconnectHandler: null,
-        };
-        terminal.addListener(makeFlowListener(ctx));
-
-        rn({ type: 'status', message: 'Connecting\u2026' });
-        runStep(ctx, 'Connect', 15000, function (done) {
-          ctx.connectResolver = done;
-          terminal.connectAsync();
-        }).then(function () {
-          rn({ type: 'status', message: 'Logging in\u2026' });
-          return runStep(ctx, 'Login', 60000, function (done) {
-            ctx.loginResolver = done;
-            terminal.loginAsync();
-          });
-        }).then(function () {
-          rn({ type: 'status', message: 'Activating\u2026' });
-          return runStep(ctx, 'Activate', 30000, function (done) {
-            ctx.activateResolver = done;
-            terminal.activateAsync();
-          });
-        }).then(function () {
-          rn({ type: 'paired' });
-          // Pair is one-shot: dispose so the next attempt starts fresh.
-          try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
-          terminal = null;
-        }).catch(function (err) {
-          rn({ type: 'error', message: (err && err.message) || String(err) });
-          try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
-          terminal = null;
-        });
-      } catch (e) {
-        rn({ type: 'error', message: (e && e.message) || String(e) });
-        try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
-        terminal = null;
-      }
+    function makeCtx() {
+      return {
+        connectResolver:    null,
+        loginResolver:      null,
+        activateResolver:   null,
+        deactivateResolver: null,
+        logoutResolver:     null,
+        txResolver:         null,
+        disconnectHandler:  null,
+      };
     }
 
-    // ── Purchase flow (Connect → Login → Activate → Transaction → Commit) ──
-    function startPurchase(msg) {
+    // ── Open Till: Connect → Login → Activate ──────────────────────────────
+    function openTill(msg) {
+      var reqId = msg.requestId;
       if (!window.timapi) {
-        rn({ type: 'error', message: 'TIM API SDK not loaded. Place timapi.js in assets/timapi/.' });
+        rn({ type: 'error', requestId: reqId, message: 'TIM API SDK not loaded. Place timapi.js in assets/timapi/.' });
+        return;
+      }
+      if (terminal) {
+        rn({ type: 'error', requestId: reqId, message: 'Till is already open' });
         return;
       }
 
@@ -211,8 +185,6 @@
         settings.connectionIPPort   = msg.terminalPort || 7784;
         settings.fetchBrands        = false;
         settings.autoCommit         = false;
-        // Only set integratorId if provided — empty strings are rejected by
-        // the SDK with `invalidArgument`.
         if (msg.integratorId && typeof msg.integratorId === 'string' && msg.integratorId.length > 0) {
           settings.integratorId = msg.integratorId;
         }
@@ -221,13 +193,7 @@
         terminal.setPosId('12');
         terminal.setUserId(1);
 
-        var ctx = {
-          connectResolver:   null,
-          loginResolver:     null,
-          activateResolver:  null,
-          txResolver:        null,
-          disconnectHandler: null,
-        };
+        ctx = makeCtx();
         terminal.addListener(makeFlowListener(ctx));
 
         rn({ type: 'status', message: 'Connecting\u2026' });
@@ -247,20 +213,46 @@
             terminal.activateAsync();
           });
         }).then(function () {
-          rn({ type: 'status', message: 'Present card\u2026' });
-          return runStep(ctx, 'Transaction', 180000, function (done) {
-            ctx.txResolver = done;
-            terminal.transactionAsync(
-              timapi.constants.TransactionType.purchase,
-              new timapi.Amount(msg.amountCents, timapi.constants.Currency.AUD),
-              (msg.referenceId && typeof msg.referenceId === 'string') ? msg.referenceId : undefined
-            );
-          });
+          rn({ type: 'till_opened', requestId: reqId });
+          // Keep the terminal alive for subsequent transactions.
+        }).catch(function (err) {
+          var errMsg = (err && err.message) || String(err);
+          rn({ type: 'error', requestId: reqId, message: errMsg });
+          try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
+          terminal = null;
+          ctx = null;
+        });
+      } catch (e) {
+        rn({ type: 'error', requestId: reqId, message: (e && e.message) || String(e) });
+        try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
+        terminal = null;
+        ctx = null;
+      }
+    }
+
+    // ── Transaction (requires open till): transactionAsync → commitAsync ───
+    function runTransaction(msg) {
+      var reqId = msg.requestId;
+      if (!terminal || !ctx) {
+        rn({ type: 'error', requestId: reqId, message: 'Till is not open' });
+        return;
+      }
+
+      try {
+        rn({ type: 'status', message: 'Present card\u2026' });
+        runStep(ctx, 'Transaction', 180000, function (done) {
+          ctx.txResolver = done;
+          terminal.transactionAsync(
+            timapi.constants.TransactionType.purchase,
+            new timapi.Amount(msg.amountCents, timapi.constants.Currency.AUD),
+            (msg.referenceId && typeof msg.referenceId === 'string') ? msg.referenceId : undefined
+          );
         }).then(function (wrapper) {
           var data = wrapper && wrapper.data;
           try { terminal.commitAsync(); } catch (_) { /* non-fatal */ }
           rn({
             type:            'approved',
+            requestId:       reqId,
             transactionRef:  (data && data.transactionReference) || null,
             authCode:        (data && data.authorisationCode)    || null,
             maskedPan:       (data && data.maskedPan)            || null,
@@ -271,16 +263,47 @@
           });
           // Leave terminal alive for subsequent transactions.
         }).catch(function (err) {
-          var msg2 = (err && err.message) || String(err);
-          rn({ type: 'error', message: msg2 });
-          try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
-          terminal = null;
+          // Transaction failures are NOT fatal to the till session — the
+          // terminal stays alive so the operator can retry.
+          var errMsg = (err && err.message) || String(err);
+          rn({ type: 'error', requestId: reqId, message: errMsg });
         });
       } catch (e) {
-        rn({ type: 'error', message: (e && e.message) || String(e) });
+        rn({ type: 'error', requestId: reqId, message: (e && e.message) || String(e) });
+      }
+    }
+
+    // ── Close Till: Deactivate → Logout → Dispose ──────────────────────────
+    function closeTill(msg) {
+      var reqId = msg.requestId;
+      if (!terminal || !ctx) {
+        rn({ type: 'error', requestId: reqId, message: 'Till is not open' });
+        return;
+      }
+
+      rn({ type: 'status', message: 'Deactivating\u2026' });
+      runStep(ctx, 'Deactivate', 30000, function (done) {
+        ctx.deactivateResolver = done;
+        try { terminal.deactivateAsync(); } catch (err) { done({ exception: err }); }
+      }).then(function () {
+        rn({ type: 'status', message: 'Logging out\u2026' });
+        return runStep(ctx, 'Logout', 30000, function (done) {
+          ctx.logoutResolver = done;
+          try { terminal.logoutAsync(); } catch (err) { done({ exception: err }); }
+        });
+      }).then(function () {
         try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
         terminal = null;
-      }
+        ctx = null;
+        rn({ type: 'till_closed', requestId: reqId });
+      }).catch(function (err) {
+        // Even on error, try to dispose and null out so the next openTill
+        // can start fresh.
+        try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
+        terminal = null;
+        ctx = null;
+        rn({ type: 'error', requestId: reqId, message: (err && err.message) || String(err) });
+      });
     }
   </script>
 

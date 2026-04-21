@@ -14,7 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
 import { useAnzStore, type AnzConfig } from '../../store/anz';
 import { confirm, toast } from '../../components/ui';
-import { AnzPairingModal } from '../../components/AnzPairingModal';
 
 /* ------------------------------------------------------------------ */
 /* Screen                                                              */
@@ -25,7 +24,6 @@ export default function ANZSettingsScreen() {
   const [local, setLocal] = useState<AnzConfig>(config);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [pairing, setPairing] = useState(false);
 
   useEffect(() => {
     hydrate();
@@ -86,19 +84,6 @@ export default function ANZSettingsScreen() {
     } finally {
       setTesting(false);
     }
-  }
-
-  function handlePair() {
-    if (!local.terminalIp.trim()) {
-      toast.warning('Required', 'Enter and save the terminal IP address first.');
-      return;
-    }
-    if (local.terminalIp.trim() !== config.terminalIp.trim() ||
-        (local.terminalPort || 7784) !== (config.terminalPort || 7784)) {
-      toast.warning('Save first', 'Save your settings before pairing so the new IP is used.');
-      return;
-    }
-    setPairing(true);
   }
 
   async function handleClear() {
@@ -208,20 +193,10 @@ export default function ANZSettingsScreen() {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.pairBtn, pairing && { opacity: 0.6 }]}
-            onPress={handlePair}
-            disabled={pairing || !isConfigured}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="link-outline" size={15} color="#fff" />
-            <Text style={styles.pairBtnText}>
-              {pairing ? 'Pairing…' : 'Pair Terminal'}
-            </Text>
-          </TouchableOpacity>
           <Text style={styles.hint}>
-            Runs the full TIM API pair lifecycle (Connect → Login → Activate).
-            Save your settings first if you've changed the IP or port.
+            To actually connect the terminal, use <Text style={{ color: '#a5b4fc', fontWeight: '700' }}>Open Till</Text> from the More menu.
+            That runs the Connect → Login → Activate lifecycle and keeps the
+            terminal online for the rest of the shift.
           </Text>
         </View>
 
@@ -366,25 +341,6 @@ export default function ANZSettingsScreen() {
           <Text style={styles.dangerBtnText}>Clear ANZ Settings</Text>
         </TouchableOpacity>
       </ScrollView>
-
-      {/* Pair lifecycle modal — runs Connect → Login → Activate against the
-          terminal at the saved IP/port via the hidden timapi WebView. */}
-      <AnzPairingModal
-        visible={pairing}
-        config={{
-          terminalIp: config.terminalIp,
-          terminalPort: config.terminalPort || 7784,
-        }}
-        onPaired={() => {
-          setPairing(false);
-          toast.success('Paired', 'Terminal is connected and ready.');
-        }}
-        onError={(message) => {
-          setPairing(false);
-          toast.error('Pair failed', message);
-        }}
-        onDismiss={() => setPairing(false)}
-      />
     </SafeAreaView>
   );
 }
@@ -445,17 +401,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   testBtnText: { color: '#6366f1', fontWeight: '700', fontSize: 13 },
-  pairBtn: {
-    marginTop: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#6366f1',
-    borderRadius: 10,
-    paddingVertical: 12,
-  },
-  pairBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   envOption: { borderRadius: 8, paddingVertical: 8 },
   envOptionActive: { backgroundColor: 'rgba(99,102,241,0.08)' },
   envLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },

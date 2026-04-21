@@ -25,6 +25,7 @@ import { usePrinterStore, type PrinterConnectionType } from '../../store/printer
 import { useSidebarStore, ALL_SIDEBAR_ITEMS } from '../../store/sidebar';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
+import { useTillStore } from '../../store/till';
 import { catalogApiFetch } from '../../lib/catalog-api';
 import {
   connectPrinter,
@@ -151,6 +152,11 @@ export default function MoreScreen() {
   const [lastChecked, setLastChecked] = useState<string | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
 
+  // ── Till ─────────────────────────────────────────────────────────
+  const tillOpen = useTillStore((s) => s.isOpen);
+  const tillOpenedAt = useTillStore((s) => s.openedAt);
+  const hydrateTill = useTillStore((s) => s.hydrate);
+
   /* ── Effects ──────────────────────────────────────────────────── */
 
   // Hydrate stores on mount
@@ -160,6 +166,7 @@ export default function MoreScreen() {
     hydrateDisplay();
     checkForUpdate();
     hydrateSidebar();
+    hydrateTill();
   }, []);
 
   // Shift timer
@@ -893,14 +900,50 @@ export default function MoreScreen() {
             activeOpacity={0.7}
           >
             <View style={s.menuRowLeft}>
-              <Ionicons name="card-outline" size={20} color="#6366f1" />
-              <Text style={s.menuRowText}>ANZ Worldline</Text>
+              <Ionicons name="settings-outline" size={20} color="#6366f1" />
+              <Text style={s.menuRowText}>ANZ Settings</Text>
             </View>
             <View style={s.menuRowRight}>
-              <Text style={s.menuRowSub}>Pair terminal · TIM API</Text>
+              <Text style={s.menuRowSub}>Terminal IP · TIM API</Text>
               <Ionicons name="chevron-forward" size={18} color="#444" />
             </View>
           </TouchableOpacity>
+          <View style={s.divider} />
+          {tillOpen ? (
+            <TouchableOpacity
+              style={s.menuRow}
+              onPress={() => router.push('/(pos)/close-till' as never)}
+              activeOpacity={0.7}
+            >
+              <View style={s.menuRowLeft}>
+                <Ionicons name="lock-closed-outline" size={20} color="#ef4444" />
+                <Text style={s.menuRowText}>Close Till</Text>
+              </View>
+              <View style={s.menuRowRight}>
+                <Text style={s.menuRowSub}>
+                  {tillOpenedAt
+                    ? `Opened at ${new Date(tillOpenedAt).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`
+                    : 'Till is open'}
+                </Text>
+                <Ionicons name="chevron-forward" size={18} color="#444" />
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={s.menuRow}
+              onPress={() => router.push('/(pos)/open-till' as never)}
+              activeOpacity={0.7}
+            >
+              <View style={s.menuRowLeft}>
+                <Ionicons name="lock-open-outline" size={20} color="#22c55e" />
+                <Text style={s.menuRowText}>Open Till</Text>
+              </View>
+              <View style={s.menuRowRight}>
+                <Text style={s.menuRowSub}>Start shift · connect terminal</Text>
+                <Ionicons name="chevron-forward" size={18} color="#444" />
+              </View>
+            </TouchableOpacity>
+          )}
           <View style={s.divider} />
           <TouchableOpacity
             style={s.menuRow}

@@ -7,27 +7,20 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
+import { useAnzBridge } from './AnzBridgeHost';
+import { useTillStore } from '../store/till';
 
 /**
  * ANZ Worldline TIM API payment modal (Android).
  *
- * Uses a hidden WebView to run timapi.js (WebSocket/SIXml protocol).
- * The WebView communicates with the physical EFTPOS terminal on the
- * local network (ws://<ip>:80) via the ANZ TIM API JS SDK.
+ * v2.7.16: the WebView lives at the POS layout level (AnzBridgeHost) so
+ * the terminal stays connected for the life of the shift. This modal
+ * just drives the already-connected terminal through a purchase.
  *
- * ─── Required files ──────────────────────────────────────────────────────────
- * Place these two files in apps/mobile/assets/timapi/ :
- *   - timapi.js    (ANZ Worldline TIM API JS SDK)
- *   - timapi.wasm  (WebAssembly binary, loaded by timapi.js)
- *
- * Obtain from: https://start.portal.anzworldline-solutions.com.au/
- *
- * ─── integratorId ────────────────────────────────────────────────────────────
- * The integratorId is provided by ANZ Worldline when you register as a POS
- * vendor. It is returned from the server in the device config response
- * (GET /api/v1/devices/config) so it is never hardcoded in the app.
+ * The till MUST be open before a card transaction can run — the bridge
+ * rejects transactions with "Till is not open" otherwise. We surface
+ * that as a friendly message and bail.
  */
 
 export interface AnzPaymentResult {
@@ -47,8 +40,8 @@ export interface AnzPaymentModalProps {
   visible: boolean;
   /** Sale amount in dollars (e.g. 12.50) */
   amount: number;
-  /** ANZ terminal config from server */
-  config: { terminalIp: string; terminalPort?: number; integratorId?: string };
+  /** Accepted for compat — the bridge reads config from useAnzStore. */
+  config?: { terminalIp: string; terminalPort?: number; integratorId?: string };
   /** Reference ID to include in the transaction (e.g. order ID) */
   referenceId?: string;
   title?: string;
@@ -58,32 +51,11 @@ export interface AnzPaymentModalProps {
   onError: (message: string) => void;
 }
 
-// Bridge HTML loaded from Android assets
-// The file must be at apps/mobile/assets/timapi/timapi-bridge.html
-const BRIDGE_URI = 'file:///android_asset/timapi/timapi-bridge.html';
-
-type Phase = 'loading' | 'connecting' | 'waiting' | 'approved' | 'declined' | 'cancelled' | 'error';
-
-interface BridgeMessage {
-  type: 'sdk_ready' | 'status' | 'approved' | 'declined' | 'error';
-  message?: string;
-  // approved fields
-  transactionRef?: string;
-  authCode?: string;
-  maskedPan?: string;
-  cardType?: string;
-  rrn?: string;
-  merchantReceipt?: string;
-  customerReceipt?: string;
-  // declined fields
-  declineCode?: string;
-  // error fields — message above
-}
+type Phase = 'idle' | 'connecting' | 'waiting' | 'approved' | 'declined' | 'cancelled' | 'error';
 
 export function AnzPaymentModal({
   visible,
   amount,
-  config,
   referenceId,
   title = 'Card Payment',
   onApproved,
@@ -91,119 +63,102 @@ export function AnzPaymentModal({
   onCancelled,
   onError,
 }: AnzPaymentModalProps) {
-  const [phase, setPhase] = useState<Phase>('loading');
-  const [statusText, setStatusText] = useState('Loading terminal SDK…');
-  const webviewRef = useRef<WebView>(null);
-  // True once we have sent the purchase command to the bridge
-  const sentRef = useRef(false);
-  // True if operator cancelled
+  const bridge = useAnzBridge();
+  const tillOpen = useTillStore((s) => s.isOpen);
+
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [statusText, setStatusText] = useState('Starting…');
+  const startedRef = useRef(false);
   const cancelledRef = useRef(false);
 
-  // Reset state when modal opens/closes
+  // Subscribe to status messages from the bridge while visible.
+  useEffect(() => {
+    if (!visible) return;
+    return bridge.onStatus((m) => {
+      const lower = m.toLowerCase();
+      if (lower.includes('connect')) setPhase('connecting');
+      else setPhase((p) => (p === 'connecting' ? 'waiting' : p));
+      setStatusText(m);
+    });
+  }, [visible, bridge]);
+
+  // When the modal opens, kick off the transaction exactly once.
   useEffect(() => {
     if (!visible) {
-      sentRef.current    = false;
+      startedRef.current = false;
       cancelledRef.current = false;
-      setPhase('loading');
-      setStatusText('Loading terminal SDK…');
+      setPhase('idle');
+      setStatusText('Starting…');
+      return;
     }
-  }, [visible]);
 
-  function sendPurchase() {
-    if (sentRef.current || !webviewRef.current) return;
-    sentRef.current = true;
+    if (!tillOpen) {
+      const msg = 'Open the till from the More menu before taking card payments.';
+      setPhase('error');
+      setStatusText(msg);
+      setTimeout(() => onError(msg), 1500);
+      return;
+    }
+
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    setPhase('connecting');
+    setStatusText('Contacting terminal…');
 
     const amountCents = Math.round(amount * 100);
-    // NOTE: TIM API uses SIXml WebSocket on port 7784 by default (NOT HTTP 80).
-    // integratorId is omitted if empty — the SDK rejects empty strings with
-    // `invalidArgument`, so we send `undefined` and the SDK uses its default.
-    const payload: Record<string, unknown> = {
-      type:         'purchase',
-      terminalIp:   config.terminalIp.trim(),
-      terminalPort: config.terminalPort ?? 7784,
-      amountCents,
-      referenceId:  referenceId ?? `POS-${Date.now()}`,
-    };
-    if (config.integratorId && config.integratorId.trim() !== '') {
-      payload['integratorId'] = config.integratorId.trim();
-    }
-    webviewRef.current.postMessage(JSON.stringify(payload));
-  }
-
-  function handleBridgeMessage(raw: string) {
-    let msg: BridgeMessage;
-    try { msg = JSON.parse(raw) as BridgeMessage; }
-    catch { return; }
-
-    switch (msg.type) {
-      case 'sdk_ready':
-        setPhase('connecting');
-        setStatusText('Connecting to terminal…');
-        sendPurchase();
-        break;
-
-      case 'status':
-        if (msg.message) {
-          const m = msg.message.toLowerCase();
-          if (m.includes('connect')) setPhase('connecting');
-          else setPhase('waiting');
-          setStatusText(msg.message);
-        }
-        break;
-
-      case 'approved':
+    const ref = referenceId ?? `POS-${Date.now()}`;
+    bridge
+      .transaction(amountCents, ref)
+      .then((result) => {
         if (cancelledRef.current) return;
         setPhase('approved');
         setStatusText('Payment approved!');
         setTimeout(() => {
           onApproved({
-            approved:       true,
-            transactionRef: msg.transactionRef,
-            authCode:       msg.authCode,
-            cardLast4:      msg.maskedPan?.slice(-4),
-            cardType:       msg.cardType,
-            rrn:            msg.rrn,
-            merchantReceipt: msg.merchantReceipt ?? undefined,
-            customerReceipt: msg.customerReceipt ?? undefined,
+            approved:        true,
+            transactionRef:  result.transactionRef  ?? undefined,
+            authCode:        result.authCode        ?? undefined,
+            cardLast4:       result.maskedPan?.slice(-4),
+            cardType:        result.cardType        ?? undefined,
+            rrn:             result.rrn             ?? undefined,
+            merchantReceipt: result.merchantReceipt ?? undefined,
+            customerReceipt: result.customerReceipt ?? undefined,
           });
         }, 800);
-        break;
-
-      case 'declined':
+      })
+      .catch((err: Error) => {
         if (cancelledRef.current) return;
-        setPhase('declined');
-        setStatusText(msg.message ?? 'Payment declined');
-        setTimeout(() => {
-          onDeclined({
-            approved:      false,
-            declineCode:   msg.declineCode,
-            declineReason: msg.message,
-          });
-        }, 1500);
-        break;
-
-      case 'error': {
-        if (cancelledRef.current) return;
-        const errMsg = msg.message ?? 'Terminal error';
-        setPhase('error');
-        setStatusText(errMsg);
-        setTimeout(() => onError(errMsg), 2000);
-        break;
-      }
-    }
-  }
+        const errMsg = err?.message ?? 'Terminal error';
+        // The bridge only emits 'declined' for true card declines, and emits
+        // 'error' for SDK/network/operator-cancel. Treat "cancel" text as a
+        // soft cancellation, and everything else as an error.
+        if (/cancel/i.test(errMsg)) {
+          setPhase('cancelled');
+          setStatusText('Transaction cancelled.');
+          setTimeout(() => onCancelled(), 600);
+        } else if (/decline/i.test(errMsg)) {
+          setPhase('declined');
+          setStatusText(errMsg);
+          setTimeout(() => onDeclined({ approved: false, declineReason: errMsg }), 1500);
+        } else {
+          setPhase('error');
+          setStatusText(errMsg);
+          setTimeout(() => onError(errMsg), 1800);
+        }
+      });
+  }, [visible, tillOpen, amount, referenceId, bridge, onApproved, onDeclined, onCancelled, onError]);
 
   function handleCancel() {
     cancelledRef.current = true;
-    // Tell the bridge to cancel the in-flight transaction
-    webviewRef.current?.postMessage(JSON.stringify({ type: 'cancel' }));
+    bridge.cancel();
     setPhase('cancelled');
     setStatusText('Transaction cancelled.');
     setTimeout(() => onCancelled(), 600);
   }
 
   const isTerminal  = phase === 'approved' || phase === 'declined' || phase === 'cancelled' || phase === 'error';
-  const isProcessing = phase === 'loading'  || phase === 'connecting' || phase === 'waiting';
+  const isProcessing = phase === 'idle'  || phase === 'connecting' || phase === 'waiting';
 
   return (
     <Modal
@@ -212,27 +167,6 @@ export function AnzPaymentModal({
       animationType="fade"
       statusBarTranslucent
     >
-      {/* Hidden WebView — runs the TIM API bridge */}
-      {visible && (
-        <WebView
-          ref={webviewRef}
-          source={{ uri: BRIDGE_URI }}
-          style={styles.hidden}
-          javaScriptEnabled
-          allowFileAccess
-          allowFileAccessFromFileURLs
-          allowUniversalAccessFromFileURLs
-          originWhitelist={['*']}
-          mixedContentMode="always"
-          onMessage={(e) => handleBridgeMessage(e.nativeEvent.data)}
-          onError={(e) => {
-            setPhase('error');
-            setStatusText('Failed to load terminal bridge: ' + e.nativeEvent.description);
-            setTimeout(() => onError(e.nativeEvent.description), 2000);
-          }}
-        />
-      )}
-
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           {/* Icon */}
@@ -251,7 +185,7 @@ export function AnzPaymentModal({
               </View>
             ) : (
               <View style={[styles.iconCircle, styles.iconIndigo]}>
-                {phase === 'loading' || phase === 'connecting' ? (
+                {phase === 'idle' || phase === 'connecting' ? (
                   <ActivityIndicator size="large" color="#6366f1" />
                 ) : (
                   <Ionicons name="card-outline" size={44} color="#6366f1" />
@@ -288,12 +222,6 @@ export function AnzPaymentModal({
 }
 
 const styles = StyleSheet.create({
-  hidden: {
-    position: 'absolute',
-    width: 1,
-    height: 1,
-    opacity: 0,
-  },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.82)',

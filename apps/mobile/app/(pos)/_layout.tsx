@@ -7,6 +7,9 @@ import { CommandPalette, type CommandItem } from '../../components/ui';
 import { useSidebarStore, ALL_SIDEBAR_ITEMS } from '../../store/sidebar';
 import { useAuthStore } from '../../store/auth';
 import { useDeviceSettings } from '../../store/device-settings';
+import { AnzBridgeProvider } from '../../components/AnzBridgeHost';
+import { useAnzStore } from '../../store/anz';
+import { useTillStore } from '../../store/till';
 
 interface NavItem {
   /** File-system route (without (pos) group, since expo-router strips groups from pathname). */
@@ -23,9 +26,17 @@ export default function PosLayout() {
   const { enabledIds, hydrate: hydrateSidebar } = useSidebarStore();
   const employee = useAuthStore((s) => s.employee);
   const fetchDeviceSettings = useDeviceSettings((s) => s.fetch);
+  const hydrateAnz  = useAnzStore((s) => s.hydrate);
+  const hydrateTill = useTillStore((s) => s.hydrate);
 
-  // Hydrate sidebar preferences on mount
-  React.useEffect(() => { hydrateSidebar(); }, []);
+  // Hydrate sidebar preferences on mount. Also hydrate the ANZ + till
+  // stores here so the bridge provider can read terminal IP / till state
+  // from the very first render.
+  React.useEffect(() => {
+    hydrateSidebar();
+    hydrateAnz();
+    hydrateTill();
+  }, []);
 
   // Re-fetch device settings whenever the app comes to the foreground so
   // any changes made in the dashboard (e.g. switching payment provider from
@@ -182,6 +193,7 @@ export default function PosLayout() {
   ];
 
   return (
+    <AnzBridgeProvider>
     <SafeAreaView style={styles.root} edges={['left', 'top', 'bottom']}>
       <View style={styles.layout}>
         {/* ── Left vertical sidebar ── */}
@@ -247,6 +259,7 @@ export default function PosLayout() {
         placeholder="Jump to a screen, action, or setting…"
       />
     </SafeAreaView>
+    </AnzBridgeProvider>
   );
 }
 
