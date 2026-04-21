@@ -1379,6 +1379,54 @@ export default function PosSellScreen() {
                 </TouchableOpacity>
                 <View style={{ backgroundColor: '#141425', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#2a2a3a', marginBottom: 10 }}>
                   <Text style={{ color: '#888', fontSize: 13, marginBottom: 8 }}>Cash Tendered</Text>
+
+                  {/* Quick-tender chips — Exact, then next four $5 increments
+                      rounded UP from the total. e.g. total $12.30 → chips
+                      show $12.30 · $15 · $20 · $25 · $30. */}
+                  {(() => {
+                    const exact = parseFloat(total.toFixed(2));
+                    const nextFive = Math.ceil(total / 5) * 5;
+                    const quickAmounts: number[] = [exact];
+                    let next = nextFive;
+                    if (next === exact) next = exact + 5;
+                    for (let i = 0; i < 4; i++) {
+                      quickAmounts.push(next);
+                      next += 5;
+                    }
+                    return (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                        {quickAmounts.map((amt, i) => {
+                          const isExact = i === 0;
+                          const selected = cashTendered === amt.toFixed(2);
+                          return (
+                            <TouchableOpacity
+                              key={`${i}-${amt}`}
+                              style={{
+                                flex: 1,
+                                minWidth: 70,
+                                backgroundColor: selected ? '#6366f1' : '#0d0d14',
+                                borderRadius: 10,
+                                paddingVertical: 12,
+                                alignItems: 'center',
+                                borderWidth: 1,
+                                borderColor: selected ? '#6366f1' : (isExact ? '#22c55e66' : '#2a2a3a'),
+                              }}
+                              onPress={() => setCashTendered(amt.toFixed(2))}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={{ fontSize: 10, color: isExact ? '#22c55e' : '#888', fontWeight: '700', letterSpacing: 1 }}>
+                                {isExact ? 'EXACT' : ''}
+                              </Text>
+                              <Text style={{ fontSize: 15, fontWeight: '800', color: selected ? '#fff' : '#eee', marginTop: isExact ? 2 : 11 }}>
+                                ${amt.toFixed(amt % 1 === 0 ? 0 : 2)}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    );
+                  })()}
+
                   <TextInput
                     style={{ backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 20, color: '#fff', textAlign: 'center', borderWidth: 1, borderColor: '#2a2a3a' }}
                     value={cashTendered}
