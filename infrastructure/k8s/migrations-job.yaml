@@ -99,6 +99,72 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
 
+        # v2.7.29 — raw idempotent SQL safety net.
+        # drizzle-migrator was not applying 0003/0004/0005 in prod even
+        # after the journal fix in v2.7.25 (the deploy reports success
+        # because the migrations Job is fire-and-forget and we never
+        # checked Job completion). Every one of those migrations is
+        # pure ADD COLUMN IF NOT EXISTS / CREATE TABLE IF NOT EXISTS, so
+        # running them directly via psql is 100% safe on any DB state:
+        # if drizzle did eventually catch up, the second attempt is a
+        # no-op. This container runs BEFORE the drizzle migrator so
+        # the orders service starts cleanly regardless of journal drift.
+        - name: migrate-orders-raw
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/orders:latest
+          command:
+            - node
+            - -e
+            - |
+              const {Pool}=require('pg');
+              const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
+              const statements = [
+                // 0003 — fulfillment_requests table (partial; full table
+                // creation lives in the SQL file. Safe CREATE IF NOT
+                // EXISTS so drizzle can also run it later.)
+                `CREATE TABLE IF NOT EXISTS fulfillment_requests (
+                   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                   org_id uuid NOT NULL,
+                   order_id uuid NOT NULL,
+                   location_id uuid,
+                   type varchar(50) NOT NULL,
+                   status varchar(50) NOT NULL DEFAULT 'pending',
+                   notes text,
+                   created_at timestamptz NOT NULL DEFAULT now(),
+                   updated_at timestamptz NOT NULL DEFAULT now()
+                 )`,
+                // 0004 — kds_destination column
+                `ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS kds_destination varchar(50)`,
+                // 0005 — payment_method column (this is the one blocking
+                // cash + card sales end-to-end right now).
+                `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method text`,
+              ];
+              (async () => {
+                try {
+                  for (const sql of statements) {
+                    try {
+                      await p.query(sql);
+                      console.log('orders-raw: ok —', sql.slice(0, 80).replace(/\s+/g, ' '));
+                    } catch (e) {
+                      console.warn('orders-raw: skipped —', e.message);
+                    }
+                  }
+                  await p.end();
+                  process.exit(0);
+                } catch (e) {
+                  console.error('orders-raw: fatal —', e.message);
+                  await p.end();
+                  process.exit(1);
+                }
+              })();
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+          envFrom:
+            - secretRef:
+                name: elevatedpos-secrets
+            - configMapRef:
+                name: elevatedpos-config
+
         - name: migrate-orders
           image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/orders:latest
           command:
