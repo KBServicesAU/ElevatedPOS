@@ -28,6 +28,8 @@ export default function PosLayout() {
   const fetchDeviceSettings = useDeviceSettings((s) => s.fetch);
   const hydrateAnz  = useAnzStore((s) => s.hydrate);
   const hydrateTill = useTillStore((s) => s.hydrate);
+  const tillOpen    = useTillStore((s) => s.isOpen);
+  const tillReady   = useTillStore((s) => s.ready);
 
   // Hydrate sidebar preferences on mount. Also hydrate the ANZ + till
   // stores here so the bridge provider can read terminal IP / till state
@@ -50,8 +52,28 @@ export default function PosLayout() {
     return () => sub.remove();
   }, [fetchDeviceSettings]);
 
-  // Build nav items from enabled IDs in master order
-  const navItems = ALL_SIDEBAR_ITEMS.filter(item => enabledIds.includes(item.id));
+  // Build nav items from enabled IDs in master order. The "close-till"
+  // item is only relevant while a shift is active — hide it when the
+  // till is closed so operators aren't presented with a no-op button
+  // they have to think about.
+  const navItems = ALL_SIDEBAR_ITEMS
+    .filter(item => enabledIds.includes(item.id))
+    .filter(item => item.id !== 'close-till' || tillOpen);
+
+  // Auto-prompt: when an employee has logged in and the till isn't open,
+  // route them to the Open Till screen so they enter the float BEFORE
+  // trying to take a sale. We only fire this on the POS landing (`/`)
+  // to avoid yanking the user out of other screens (settings, orders
+  // detail, etc.). The tillReady guard avoids a redirect flicker before
+  // the persisted till state has hydrated from SecureStore.
+  useEffect(() => {
+    if (!employee) return;
+    if (!tillReady) return;
+    if (tillOpen) return;
+    const isLanding = pathname === '/' || pathname === '';
+    if (!isLanding) return;
+    router.replace('/(pos)/open-till' as never);
+  }, [employee, tillReady, tillOpen, pathname, router]);
 
   function isActive(route: string) {
     if (route === '/') {

@@ -24,10 +24,12 @@ export const ALL_SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'laybys',     route: '/(pos)/laybys',         label: 'Laybys',   icon: 'bookmark' },
   { id: 'floor-plan', route: '/(pos)/floor-plan',     label: 'Floor',    icon: 'grid' },
   { id: 'eod',        route: '/(pos)/eod',            label: 'EOD',      icon: 'moon' },
+  // Shown in the sidebar only while the till is OPEN — see PosLayout filter.
+  { id: 'close-till', route: '/(pos)/close-till',     label: 'Close',    icon: 'lock-closed', permanent: true },
   { id: 'more',       route: '/more',                 label: 'More',     icon: 'menu',    permanent: true },
 ];
 
-const DEFAULT_ENABLED = ['sell', 'orders', 'customers', 'more'];
+const DEFAULT_ENABLED = ['sell', 'orders', 'customers', 'close-till', 'more'];
 const STORAGE_KEY = 'elevatedpos_sidebar_prefs';
 
 interface SidebarStore {

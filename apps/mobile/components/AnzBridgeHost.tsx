@@ -11,6 +11,7 @@ import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useAnzStore } from '../store/anz';
 import { getServerAnzConfig } from '../store/device-settings';
+import { useTillStore } from '../store/till';
 
 /**
  * AnzBridgeHost
@@ -99,6 +100,8 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
   const pendingRef = useRef<Map<string, PendingRequest>>(new Map());
   /** Registered status listeners. */
   const statusListenersRef = useRef<Set<(m: string) => void>>(new Set());
+  /** Late-bound auto-reopen helper — set once openTill is defined below. */
+  const maybeAutoReopenTillRef = useRef<(() => Promise<void>) | null>(null);
 
   const [state, setState] = useState<AnzBridgeState>('idle');
 
@@ -139,6 +142,13 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
       case 'sdk_ready':
         sdkReadyRef.current = true;
         flushOutbox();
+        // Auto-restore: if persisted till state says we are in the middle
+        // of a shift but the WebView has just been reloaded (app restart,
+        // layout remount), silently re-run open_till so the terminal is
+        // re-activated. Without this, the first transaction after a
+        // remount fails with "Till is not open" even though the till
+        // store says isOpen=true.
+        void maybeAutoReopenTillRef.current?.();
         return;
 
       case 'status': {
@@ -279,7 +289,23 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
   }, [makeRequestId, sendRaw]);
 
   const transaction = useCallback<AnzBridgeApi['transaction']>(
-    (amountCents, referenceId) => {
+    async (amountCents, referenceId) => {
+      // Self-heal: if the user is mid-shift (till store says open) but the
+      // bridge has no live terminal (e.g. the WebView just reloaded), run
+      // open_till first so the transaction doesn't fail with
+      // "Till is not open". If the till is genuinely closed we just fire
+      // the transaction and let the bridge reject it with a clear message.
+      const storeOpen = useTillStore.getState().isOpen;
+      if (storeOpen && state !== 'open' && state !== 'transacting') {
+        try {
+          await openTill();
+        } catch (err) {
+          throw err instanceof Error
+            ? err
+            : new Error('Could not re-open terminal: ' + String(err));
+        }
+      }
+
       return new Promise<AnzTransactionResult>((resolve, reject) => {
         const requestId = makeRequestId();
         pendingRef.current.set(requestId, { resolve, reject, kind: 'transaction' });
@@ -293,8 +319,29 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
         sendRaw(JSON.stringify(payload));
       });
     },
-    [makeRequestId, sendRaw],
+    [makeRequestId, sendRaw, state, openTill],
   );
+
+  // Wire the auto-reopen that fires on sdk_ready above. We need access to
+  // openTill + state, which are defined after the sdk_ready handler, so we
+  // stash a reference and call it indirectly.
+  useEffect(() => {
+    maybeAutoReopenTillRef.current = async () => {
+      const storeOpen = useTillStore.getState().isOpen;
+      if (!storeOpen) return;
+      try {
+        await openTill();
+      } catch {
+        // If auto-reopen fails we deliberately do NOT flip the till store
+        // back to closed — the operator can manually re-open or close the
+        // till. We surface the failure as a status message so the UI can
+        // show something if it's listening.
+        for (const cb of statusListenersRef.current) {
+          try { cb('Terminal reconnect failed. Please re-open the till.'); } catch { /* ignore */ }
+        }
+      }
+    };
+  }, [openTill]);
 
   const cancel = useCallback<AnzBridgeApi['cancel']>(() => {
     sendRaw(JSON.stringify({ type: 'cancel' }));

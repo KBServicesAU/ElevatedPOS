@@ -174,9 +174,14 @@
         rn({ type: 'error', requestId: reqId, message: 'TIM API SDK not loaded. Place timapi.js in assets/timapi/.' });
         return;
       }
+      // Idempotent — if a terminal is already alive (e.g. the RN host
+      // called open_till as a self-heal after a remount but the previous
+      // WebView still had a live handle in scope), dispose it and start
+      // fresh so we always end in a known-good activated state.
       if (terminal) {
-        rn({ type: 'error', requestId: reqId, message: 'Till is already open' });
-        return;
+        try { terminal.dispose(); } catch (_) { /* ignore */ }
+        terminal = null;
+        ctx = null;
       }
 
       try {
