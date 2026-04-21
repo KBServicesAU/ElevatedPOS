@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Slot, usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { View, Text, TouchableOpacity, StyleSheet, AppState } from 'react-native';
@@ -60,16 +60,27 @@ export default function PosLayout() {
     .filter(item => enabledIds.includes(item.id))
     .filter(item => item.id !== 'close-till' || tillOpen);
 
-  // Auto-prompt: when an employee has logged in and the till isn't open,
-  // route them to the Open Till screen so they enter the float BEFORE
-  // trying to take a sale. We only fire this on the POS landing (`/`)
-  // to avoid yanking the user out of other screens (settings, orders
-  // detail, etc.). The tillReady guard avoids a redirect flicker before
-  // the persisted till state has hydrated from SecureStore.
+  // Auto-prompt: when an employee logs in and the till isn't open, route
+  // them to Open Till ONCE so they enter the float before taking a sale.
+  //
+  // v2.7.20 — the previous version re-fired this redirect on every
+  // navigation back to `/`, so if the operator closed the till without
+  // logging out (common mid-shift) any tap on the Sell tab bounced them
+  // back to Open Till — which felt like being kicked out. We now stash
+  // the last employee id we prompted for in a ref and only fire the
+  // redirect when the id transitions null → something (i.e., a fresh
+  // login). Employees who dismissed the prompt stay on Sell and get a
+  // banner from the Sell screen itself.
+  const lastPromptedEmployeeRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!employee) return;
+    if (!employee) {
+      lastPromptedEmployeeRef.current = null;
+      return;
+    }
     if (!tillReady) return;
     if (tillOpen) return;
+    if (lastPromptedEmployeeRef.current === employee.id) return;
+    lastPromptedEmployeeRef.current = employee.id;
     const isLanding = pathname === '/' || pathname === '';
     if (!isLanding) return;
     router.replace('/(pos)/open-till' as never);
@@ -145,14 +156,14 @@ export default function PosLayout() {
       onSelect: () => router.push('/(pos)/laybys' as never),
     },
     {
-      id: 'eod',
-      label: 'End of Day',
-      description: 'Close the till and run EOD',
+      id: 'close-till',
+      label: 'Close Till',
+      description: 'End the shift, reconcile cash, and sign out',
       icon: 'moon',
       iconColor: '#a855f7',
       section: 'Operations',
-      keywords: ['close', 'eod', 'cash up', 'reconcile'],
-      onSelect: () => router.push('/(pos)/eod' as never),
+      keywords: ['close', 'eod', 'end of day', 'cash up', 'reconcile', 'shift'],
+      onSelect: () => router.push('/(pos)/close-till' as never),
     },
     {
       id: 'floor-plan',

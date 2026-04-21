@@ -300,11 +300,34 @@ export interface PrintReceiptOpts {
     address1?: string;
     address2?: string;
     phone?: string;
+    /** Contact email printed under phone. */
+    email?: string;
     abn?: string;
     website?: string;
+    /** Branch label for multi-venue deployments, e.g. "Downtown". */
+    branch?: string;
+    /** Device / register label, e.g. "POS-1". */
+    device?: string;
+    /** URL or text encoded into the feedback QR placeholder line. */
+    qrPayload?: string;
+    /** Caption printed below the QR (e.g. "Share your feedback"). */
+    qrMessage?: string;
   };
   order: {
     orderNumber?: string;
+    /**
+     * Optional short reset-sequence number printed large at the top of the
+     * receipt when `orderNumberMode === 'short'`. Callers (typically the
+     * order store) supply this — the printer library does not compute it.
+     */
+    shortOrderNumber?: string;
+    /**
+     * How prominently to render the order number. 'short' prints the
+     * caller-supplied shortOrderNumber in the big centred header;
+     * 'full' prints the long orderNumber as a normal line. Defaults to
+     * 'full'.
+     */
+    orderNumberMode?: 'full' | 'short';
     registerLabel?: string;
     cashierName?: string;
     customerName?: string;
@@ -347,6 +370,21 @@ export interface PrintReceiptOpts {
 /**
  * Build the receipt text. Extracted so callers (and tests) can format
  * without touching the printer hardware.
+ *
+ * v2.7.20 — redesigned layout:
+ *   - Large bold store name + optional address / phone / email / ABN
+ *   - Branch + device line
+ *   - Optional large centred short order number
+ *   - Date LEFT, time RIGHT on one line
+ *   - Items with per-unit price when qty > 1
+ *   - Totals block with tax-exclusive subtotal + GST breakdown
+ *   - Payment block with card auth / rrn or cash tendered / change
+ *   - Loyalty line when available
+ *   - Copy marker (CUSTOMER or MERCHANT)
+ *   - Verbatim ANZ terminal receipt block
+ *   - Feedback QR placeholder line (proper QR rendering needs raw
+ *     ESC/POS bytes — TODO for v2.7.21)
+ *   - Order ref for refunds + footer with ISO timestamp + trace
  */
 function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   const w = paperWidth === 58 ? 32 : 48;
@@ -362,9 +400,9 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
     return s.length > max ? s.slice(0, max) : s;
   }
 
-  function moneyCol(n: number, signed = false): string {
+  function moneyCol(n: number): string {
     const abs = Math.abs(n).toFixed(2);
-    return signed && n < 0 ? `-$${abs}` : `$${abs}`;
+    return n < 0 ? `-$${abs}` : `$${abs}`;
   }
 
   function centre(s: string): string {
@@ -382,41 +420,58 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   let r = '';
 
   // ── Header ────────────────────────────────────────────────────────
+  // Store name — large (CM = centred + medium). <CM> is honoured by the
+  // react-native-thermal-receipt-printer tag dialect; cheap drivers fall
+  // back to normal text, which is still readable.
   r += line + '\n';
-  r += `<C><B>${clip(opts.store.name, w)}</B></C>\n`;
+  r += `<CM>${clip(opts.store.name, w)}</CM>\n`;
   if (opts.store.address1) r += centre(clip(opts.store.address1, w)) + '\n';
   if (opts.store.address2) r += centre(clip(opts.store.address2, w)) + '\n';
-  if (opts.store.phone)    r += centre(clip(`Ph: ${opts.store.phone}`, w)) + '\n';
+  if (opts.store.phone)    r += centre(clip(opts.store.phone, w)) + '\n';
+  if (opts.store.email)    r += centre(clip(opts.store.email, w)) + '\n';
   if (opts.store.abn)      r += centre(clip(`ABN ${opts.store.abn}`, w)) + '\n';
   r += line + '\n';
-  r += `<C><B>TAX INVOICE</B></C>\n`;
 
-  // Date/time + order metadata. Use pad() so values line up on the right.
-  r += pad(date, time) + '\n';
-  const orderLabel    = opts.order.orderNumber ? `Order #${opts.order.orderNumber}` : '';
-  const registerLabel = opts.order.registerLabel ? `Register ${opts.order.registerLabel}` : '';
-  if (orderLabel || registerLabel) {
-    r += pad(orderLabel, registerLabel) + '\n';
+  // ── Branch + device line ─────────────────────────────────────────
+  if (opts.store.branch || opts.store.device) {
+    const branchStr = opts.store.branch ? `  Branch: ${opts.store.branch}` : '';
+    const deviceStr = opts.store.device ? `Device: ${opts.store.device}  ` : '';
+    r += pad(branchStr, deviceStr) + '\n';
+    r += line + '\n';
   }
-  if (opts.order.cashierName)  r += `Cashier: ${clip(opts.order.cashierName, w - 9)}\n`;
-  if (opts.order.customerName) r += `Customer: ${clip(opts.order.customerName, w - 10)}\n`;
+
+  // ── Big order number (short mode) ────────────────────────────────
+  const mode = opts.order.orderNumberMode ?? 'full';
+  if (mode === 'short' && opts.order.shortOrderNumber) {
+    r += `<CM>ORDER #${opts.order.shortOrderNumber}</CM>\n`;
+    r += line + '\n';
+  } else if (opts.order.orderNumber) {
+    r += centre(`Order #${opts.order.orderNumber}`) + '\n';
+    r += line + '\n';
+  }
+
+  // ── Date left, time right ────────────────────────────────────────
+  r += pad(`  ${date}`, `${time}  `) + '\n';
+  if (opts.order.cashierName) {
+    r += `  Staff: ${clip(opts.order.cashierName, w - 9)}\n`;
+  }
+  if (opts.order.customerName) {
+    r += `  Customer: ${clip(opts.order.customerName, w - 12)}\n`;
+  }
   if (opts.order.tableNumber !== undefined && opts.order.tableNumber !== null && opts.order.tableNumber !== '') {
-    const seatsStr = opts.order.covers ? `Seats ${opts.order.covers}` : '';
-    r += pad(`Table ${opts.order.tableNumber}`, seatsStr) + '\n';
+    const seatsStr = opts.order.covers ? `Covers ${opts.order.covers}  ` : '';
+    r += pad(`  Table ${opts.order.tableNumber}`, seatsStr) + '\n';
   }
   r += line + '\n';
 
   // ── Items ─────────────────────────────────────────────────────────
-  r += 'Items\n';
-  r += dash + '\n';
   for (const item of opts.items) {
     const qty = item.qty ?? 1;
     const lineTotalStr = moneyCol(item.lineTotal);
-    const nameBudget = w - lineTotalStr.length - 4; // "  {qty} x " prefix
     const prefix = `  ${qty} x `;
     const nameLine = prefix + clip(item.name, Math.max(1, w - prefix.length - lineTotalStr.length - 1));
     r += pad(nameLine, lineTotalStr) + '\n';
-    // Unit price when qty > 1 so the customer can see the per-item price.
+    // Per-unit price when qty > 1 so the customer can see the per-item price.
     if (qty > 1) {
       r += `       @ $${item.unitPrice.toFixed(2)} ea\n`;
     }
@@ -430,9 +485,6 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
     }
     if (item.discountAmount && item.discountAmount > 0) {
       r += clip(`       Discount -$${item.discountAmount.toFixed(2)}`, w) + '\n';
-      // Suppress the unused-local warning for nameBudget without breaking
-      // behaviour — kept to document the budget we computed above.
-      void nameBudget;
     }
     if (item.note) {
       r += clip(`       Note: ${item.note}`, w) + '\n';
@@ -465,35 +517,34 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   // ── Payment ───────────────────────────────────────────────────────
   if (opts.payment) {
     const method = opts.payment.method;
-    let methodDesc = method;
+    const paid = opts.totals.total;
+    r += pad(`  Payment: ${clip(method, w - 16)}`, moneyCol(paid)) + '\n';
     if (opts.payment.cardType || opts.payment.cardLast4) {
-      const t = opts.payment.cardType ?? 'Card';
-      const l4 = opts.payment.cardLast4 ? ` ••${opts.payment.cardLast4}` : '';
-      methodDesc = `${method} (${t}${l4})`;
+      const t  = opts.payment.cardType ?? 'Card';
+      const l4 = opts.payment.cardLast4 ? ` ****${opts.payment.cardLast4}` : '';
+      r += clip(`  Card: ${t}${l4}`, w) + '\n';
+      if (opts.payment.authCode || opts.payment.rrn) {
+        const auth = opts.payment.authCode ? `Auth: ${opts.payment.authCode}` : '';
+        const rrn  = opts.payment.rrn      ? `RRN: ${opts.payment.rrn}`      : '';
+        r += `    ${clip(auth, Math.max(1, Math.floor(w / 2) - 2))}    ${clip(rrn, Math.max(1, w - Math.floor(w / 2) - 6))}\n`;
+      }
     }
-    const tenderedStr = opts.payment.tendered !== undefined
-      ? moneyCol(opts.payment.tendered)
-      : moneyCol(opts.totals.total);
-    r += pad(`  Tendered: ${clip(methodDesc, w - 20)}`, tenderedStr) + '\n';
+    if (opts.payment.tendered !== undefined) {
+      r += pad('  Tendered', moneyCol(opts.payment.tendered)) + '\n';
+    }
     if (opts.payment.changeGiven && opts.payment.changeGiven > 0) {
-      r += pad('  Change given', moneyCol(opts.payment.changeGiven)) + '\n';
-    }
-    if (opts.payment.authCode || opts.payment.rrn) {
-      const auth = opts.payment.authCode ? `Auth: ${opts.payment.authCode}` : '';
-      const rrn  = opts.payment.rrn      ? `RRN: ${opts.payment.rrn}`      : '';
-      r += `  ${clip(auth, Math.floor(w / 2))}   ${clip(rrn, w - Math.floor(w / 2) - 5)}\n`;
+      r += pad('  Change', moneyCol(opts.payment.changeGiven)) + '\n';
     }
     r += line + '\n';
   }
 
   // ── Loyalty ───────────────────────────────────────────────────────
   if (opts.loyalty && (opts.loyalty.pointsEarned !== undefined || opts.loyalty.pointsBalance !== undefined)) {
-    if (opts.loyalty.pointsEarned !== undefined) {
-      r += `  Loyalty: Earned ${opts.loyalty.pointsEarned} points\n`;
-    }
-    if (opts.loyalty.pointsBalance !== undefined) {
-      r += `  Balance: ${opts.loyalty.pointsBalance} points\n`;
-    }
+    const earnedPart = opts.loyalty.pointsEarned !== undefined
+      ? `Earned ${opts.loyalty.pointsEarned}` : '';
+    const balancePart = opts.loyalty.pointsBalance !== undefined
+      ? ` (Balance ${opts.loyalty.pointsBalance})` : '';
+    r += clip(`  Loyalty: ${earnedPart}${balancePart}`, w) + '\n';
     r += line + '\n';
   }
 
@@ -507,14 +558,37 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
     r += line + '\n';
   }
 
+  // ── Feedback QR placeholder ──────────────────────────────────────
+  // Rendering a real QR requires raw ESC/POS GS ( k bytes which the
+  // current library's printText() does not expose. For now print a
+  // human-readable placeholder line so staff and customers can still see
+  // the payload. TODO v2.7.21 — wire a real QR via a raw-bytes path.
+  if (opts.store.qrPayload) {
+    r += centre('Scan this QR to leave feedback:') + '\n';
+    r += centre(clip(`[QR: ${opts.store.qrPayload}]`, w)) + '\n';
+    if (opts.store.qrMessage) {
+      r += centre(clip(opts.store.qrMessage, w)) + '\n';
+    }
+    r += line + '\n';
+  }
+
+  // ── Order ref for refund (big readable) ──────────────────────────
+  if (opts.order.orderNumber) {
+    r += centre('Order ref for refund:') + '\n';
+    r += `<C><B>#${clip(opts.order.orderNumber, w - 4)}</B></C>\n`;
+    r += centre('(scan-ready barcode in next release)') + '\n';
+    r += line + '\n';
+  }
+
   // ── Footer ────────────────────────────────────────────────────────
-  r += '\n';
-  r += `<C>Thank you for shopping!</C>\n`;
-  if (opts.store.website) r += centre(opts.store.website) + '\n';
-  r += `<C>Powered by ElevatedPOS</C>\n`;
-  r += `<C>${iso}</C>\n`;
+  r += centre('Thank you!') + '\n';
+  if (opts.store.website) r += centre(clip(opts.store.website, w)) + '\n';
+  r += centre(clip(iso, w)) + '\n';
   const trace = opts.traceId ?? opts.order.orderNumber;
-  if (trace) r += `<C>${clip(`Ref: ${trace}`, w)}</C>\n`;
+  if (trace) r += centre(clip(`Trace ${trace}`, w)) + '\n';
+  r += '\n';
+  r += centre('Powered by ElevatedPOS') + '\n';
+  r += line + '\n';
   r += '\n\n\n';
 
   return r;

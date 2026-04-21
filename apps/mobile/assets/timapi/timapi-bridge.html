@@ -86,6 +86,53 @@
     // Android fires on window
     window.addEventListener('message', function (e) { handleMessage(e.data); });
 
+    // ── Helper: extract cardholder + merchant receipts from an SDK payload ──
+    // The TIM API SDK delivers receipts as:
+    //   data.receipts            → Receipt[]   (on commit / dcc results)
+    //   data.printData.receipts  → Receipt[]   (on activate / transaction results)
+    // Each Receipt = { recipient: 'cardholder' | 'merchant' | 'both', value: string }
+    //
+    // Earlier versions of this bridge looked for
+    // `data.merchantReceiptText` / `data.customerReceiptText` which never
+    // existed in the SDK — so merchant/customer receipts always came back
+    // as null. This helper is the single source of truth.
+    function extractReceipts(data) {
+      var arr = null;
+      if (data && Array.isArray(data.receipts)) arr = data.receipts;
+      else if (data && data.printData && Array.isArray(data.printData.receipts)) arr = data.printData.receipts;
+      if (!arr) return { merchant: null, customer: null };
+      var merchant = null, customer = null;
+      for (var i = 0; i < arr.length; i++) {
+        var r = arr[i] || {};
+        var recip = String(r.recipient || '').toLowerCase();
+        var text  = typeof r.value === 'string' ? r.value : '';
+        if (!text) continue;
+        if (recip === 'merchant' || recip === 'both') {
+          if (!merchant) merchant = text; else merchant += '\n' + text;
+        }
+        if (recip === 'cardholder' || recip === 'both') {
+          if (!customer) customer = text; else customer += '\n' + text;
+        }
+      }
+      return { merchant: merchant, customer: customer };
+    }
+
+    // Merge two {merchant, customer} pairs. Newline-joins when both sides
+    // supplied a value so we don't drop receipt text that arrived via
+    // receiptGenerated() and via transactionCompleted().
+    function mergeReceipts(a, b) {
+      function join(x, y) {
+        if (!x) return y || null;
+        if (!y) return x || null;
+        if (x === y) return x;
+        return x + '\n' + y;
+      }
+      return {
+        merchant: join(a && a.merchant, b && b.merchant),
+        customer: join(a && a.customer, b && b.customer),
+      };
+    }
+
     // ── Helper: build a listener object that resolves step-promises ─────────
     // NOTE: timapi.DefaultTerminalListener is an ES6 class in the SDK.
     // Trying to extend it via the ES5 prototype pattern
@@ -128,8 +175,20 @@
         connectionStateChanged: function () {
           // No-op — we drive state via the per-step promises above.
         },
-        receiptGenerated: function () {
-          // Receipt text is returned in transactionCompleted.
+        receiptGenerated: function (_event, data) {
+          // Some SDK builds deliver receipts via this callback in addition
+          // to (or instead of) the transactionCompleted payload. Collect any
+          // that arrive here so runTransaction can merge them before
+          // resolving. The primary path is still data.receipts /
+          // data.printData.receipts on transactionCompleted — this is
+          // defensive only.
+          try {
+            var extracted = extractReceipts(data);
+            if (extracted.merchant || extracted.customer) {
+              if (!c.pendingReceipts) c.pendingReceipts = [];
+              c.pendingReceipts.push(extracted);
+            }
+          } catch (_) { /* ignore */ }
         },
         disconnected: function (_t, exception) {
           var h = c.disconnectHandler; c.disconnectHandler = null;
@@ -180,6 +239,10 @@
         logoutResolver:     null,
         txResolver:         null,
         disconnectHandler:  null,
+        // Receipts that arrive asynchronously via receiptGenerated during a
+        // transaction — merged with the transactionCompleted payload before
+        // we resolve the tx promise. Cleared at the start of each tx.
+        pendingReceipts:    null,
       };
     }
 
@@ -259,6 +322,10 @@
         return;
       }
 
+      // Reset receipt buffer for this transaction so receiptGenerated events
+      // from a previous tx don't bleed in.
+      ctx.pendingReceipts = [];
+
       try {
         rn({ type: 'status', message: 'Present card\u2026' });
         runStep(ctx, 'Transaction', 180000, function (done) {
@@ -271,6 +338,16 @@
         }).then(function (wrapper) {
           var data = wrapper && wrapper.data;
           try { terminal.commitAsync(); } catch (_) { /* non-fatal */ }
+
+          // Primary extraction from transactionCompleted payload.
+          var receipts = extractReceipts(data);
+          // Fold in anything collected via receiptGenerated callbacks.
+          var pending = ctx.pendingReceipts || [];
+          for (var i = 0; i < pending.length; i++) {
+            receipts = mergeReceipts(receipts, pending[i]);
+          }
+          ctx.pendingReceipts = null;
+
           rn({
             type:            'approved',
             requestId:       reqId,
@@ -279,11 +356,12 @@
             maskedPan:       (data && data.maskedPan)            || null,
             cardType:        (data && data.cardType)             || null,
             rrn:             (data && data.rrn)                  || null,
-            merchantReceipt: (data && (data.merchantReceiptText || data.receiptText)) || null,
-            customerReceipt: (data && data.customerReceiptText) || null,
+            merchantReceipt: receipts.merchant,
+            customerReceipt: receipts.customer,
           });
           // Leave terminal alive for subsequent transactions.
         }).catch(function (err) {
+          if (ctx) ctx.pendingReceipts = null;
           // Transaction failures are NOT fatal to the till session — the
           // terminal stays alive so the operator can retry.
           var errMsg = (err && err.message) || String(err);

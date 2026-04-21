@@ -876,15 +876,15 @@ export default function MoreScreen() {
           <View style={s.divider} />
           <TouchableOpacity
             style={s.menuRow}
-            onPress={() => router.push('/(pos)/eod' as never)}
+            onPress={() => router.push('/(pos)/close-till' as never)}
             activeOpacity={0.7}
           >
             <View style={s.menuRowLeft}>
               <Ionicons name="document-text-outline" size={20} color="#22c55e" />
-              <Text style={s.menuRowText}>End of Day</Text>
+              <Text style={s.menuRowText}>Close Till</Text>
             </View>
             <View style={s.menuRowRight}>
-              <Text style={s.menuRowSub}>Close shift report</Text>
+              <Text style={s.menuRowSub}>End shift &amp; reconcile</Text>
               <Ionicons name="chevron-forward" size={18} color="#444" />
             </View>
           </TouchableOpacity>

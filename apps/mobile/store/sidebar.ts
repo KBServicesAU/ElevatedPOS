@@ -23,8 +23,10 @@ export const ALL_SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'gift-cards', route: '/(pos)/gift-cards',     label: 'Gifts',    icon: 'gift' },
   { id: 'laybys',     route: '/(pos)/laybys',         label: 'Laybys',   icon: 'bookmark' },
   { id: 'floor-plan', route: '/(pos)/floor-plan',     label: 'Floor',    icon: 'grid' },
-  { id: 'eod',        route: '/(pos)/eod',            label: 'EOD',      icon: 'moon' },
   // Shown in the sidebar only while the till is OPEN — see PosLayout filter.
+  // v2.7.20: replaces the old separate EOD entry — Close Till is now the
+  // single shift-close page that shows summary, count, and logs the
+  // employee out.
   { id: 'close-till', route: '/(pos)/close-till',     label: 'Close',    icon: 'lock-closed', permanent: true },
   { id: 'more',       route: '/more',                 label: 'More',     icon: 'menu',    permanent: true },
 ];

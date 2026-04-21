@@ -45,6 +45,7 @@ import {
   type StripePaymentResult,
 } from '../../components/payments/StripePaymentModal';
 import { useStripeTerminalStore } from '../../store/stripe-terminal';
+import { useTillStore } from '../../store/till';
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -82,6 +83,12 @@ export default function PosSellScreen() {
   const router = useRouter();
   const authEmployee = useAuthStore((s) => s.employee);
   const authLogout = useAuthStore((s) => s.logout);
+  // v2.7.20 — surface an inline banner when the till is closed so the
+  // operator knows why sales aren't being recorded against a shift. The
+  // layout no longer auto-redirects to Open Till mid-session, so the
+  // Sell screen itself has to show the state.
+  const tillOpen  = useTillStore((s) => s.isOpen);
+  const tillReady = useTillStore((s) => s.ready);
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -412,6 +419,11 @@ export default function PosSellScreen() {
         await printSaleReceipts({
           store: {
             name: identity?.label || 'ElevatedPOS',
+            // v2.7.20 — device label doubles as branch hint; register id
+            // as device. Real branch/QR metadata will come from the
+            // server-side device settings in a follow-up.
+            ...(identity?.label ? { branch: identity.label } : {}),
+            ...(identity?.registerId ? { device: identity.registerId } : {}),
           },
           order: {
             orderNumber,
@@ -1001,6 +1013,27 @@ export default function PosSellScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* ═══ Till-closed banner (v2.7.20) ═══
+          Shown when the operator is logged in but the till has not been
+          opened. Non-blocking — they can still browse the catalog; the
+          banner just makes the state visible and offers a one-tap route
+          to the Open Till screen. */}
+      {authEmployee && tillReady && !tillOpen && (
+        <View style={styles.tillClosedBanner}>
+          <Ionicons name="lock-closed-outline" size={16} color="#f59e0b" />
+          <Text style={styles.tillClosedText}>
+            Till is closed. Open the till to start a shift.
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.push('/(pos)/open-till' as never)}
+            style={styles.tillClosedBtn}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.tillClosedBtnText}>Open Till</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <View style={styles.layout}>
         {/* ═══════════ LEFT: Products ═══════════ */}
@@ -1992,6 +2025,35 @@ export default function PosSellScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d14' },
   layout: { flex: 1, flexDirection: 'row' },
+
+  // Till-closed inline banner (v2.7.20)
+  tillClosedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(245,158,11,0.12)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(245,158,11,0.35)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  tillClosedText: {
+    flex: 1,
+    color: '#f59e0b',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  tillClosedBtn: {
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  tillClosedBtnText: {
+    color: '#0d0d14',
+    fontSize: 11,
+    fontWeight: '800',
+  },
 
   /* ── Left pane ── */
   leftPane: {
