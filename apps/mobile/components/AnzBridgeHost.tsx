@@ -111,6 +111,7 @@ interface PendingRequest {
 type BridgeMessage =
   | { type: 'sdk_ready' }
   | { type: 'status'; message?: string }
+  | { type: 'progress'; step?: string; elapsed?: number; timeout?: number }
   | { type: 'till_opened'; requestId?: string; capabilities?: Partial<AnzCapabilities> & Record<string, unknown> }
   | { type: 'till_closed'; requestId?: string }
   | { type: 'reconciliation_done'; requestId?: string; reconciliationReceipt?: string | null }
@@ -126,7 +127,60 @@ type BridgeMessage =
       customerReceipt?: string | null;
     }
   | { type: 'declined'; requestId?: string; message?: string; declineCode?: string }
-  | { type: 'error'; requestId?: string; message?: string };
+  | {
+      type: 'error';
+      requestId?: string;
+      message?: string;
+      /**
+       * SDK error category from TimException — drives the user-facing
+       * title ("Card Declined" vs "Not Supported" vs "Cancelled" vs
+       * "Terminal Error"). See extractTimError() in timapi-bridge.html.
+       */
+      category?: string | null;
+      code?: number | null;
+      step?: string | null;
+      timedOut?: boolean;
+      disconnected?: boolean;
+    };
+
+/**
+ * Rich error thrown by the bridge. Carries the TimException category
+ * so callers (AnzPaymentModal, Open Till screen) can differentiate
+ * declinedNotSupported from a genuine card decline and render
+ * appropriate copy.
+ */
+export class AnzBridgeError extends Error {
+  category: string | null;
+  code: number | null;
+  step: string | null;
+  timedOut: boolean;
+  disconnected: boolean;
+  constructor(opts: {
+    message: string;
+    category?: string | null;
+    code?: number | null;
+    step?: string | null;
+    timedOut?: boolean;
+    disconnected?: boolean;
+  }) {
+    super(opts.message);
+    this.name = 'AnzBridgeError';
+    this.category = opts.category ?? null;
+    this.code = opts.code ?? null;
+    this.step = opts.step ?? null;
+    this.timedOut = !!opts.timedOut;
+    this.disconnected = !!opts.disconnected;
+  }
+  get isDeclined(): boolean {
+    return this.category === 'declined';
+  }
+  get isNotSupported(): boolean {
+    return this.category === 'declinedNotSupported';
+  }
+  get isAborted(): boolean {
+    return this.category === 'aborted' || /cancel/i.test(this.message);
+  }
+}
 
 const AnzBridgeContext = createContext<AnzBridgeApi | null>(null);
 
@@ -202,6 +256,19 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
       case 'status': {
         const text = msg.message ?? '';
         if (!text) return;
+        for (const cb of statusListenersRef.current) {
+          try { cb(text); } catch { /* ignore listener errors */ }
+        }
+        return;
+      }
+
+      case 'progress': {
+        // v2.7.31 — per-step elapsed time during openTill so the UI can
+        // show "Logging in… (12s / 30s)" instead of a frozen spinner.
+        const step = msg.step ?? 'Working';
+        const elapsed = Math.max(0, Number(msg.elapsed) || 0);
+        const timeout = Math.max(1, Number(msg.timeout) || 30);
+        const text = `${step}… (${elapsed}s / ${timeout}s)`;
         for (const cb of statusListenersRef.current) {
           try { cb(text); } catch { /* ignore listener errors */ }
         }
@@ -301,7 +368,11 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
           const pending = pendingRef.current.get(reqId);
           if (pending) {
             pendingRef.current.delete(reqId);
-            pending.reject(new Error(msg.message ?? 'Declined'));
+            pending.reject(new AnzBridgeError({
+              message: msg.message ?? 'Declined',
+              category: 'declined',
+              code: typeof msg.declineCode === 'string' ? Number(msg.declineCode) || null : null,
+            }));
           }
         }
         setState((prev) => (prev === 'transacting' ? 'open' : prev));
@@ -315,7 +386,14 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
           const pending = pendingRef.current.get(reqId);
           if (pending) {
             pendingRef.current.delete(reqId);
-            pending.reject(new Error(errMsg));
+            pending.reject(new AnzBridgeError({
+              message: errMsg,
+              category: msg.category ?? null,
+              code: msg.code ?? null,
+              step: msg.step ?? null,
+              timedOut: msg.timedOut ?? false,
+              disconnected: msg.disconnected ?? false,
+            }));
             // Correct the state based on what the pending call was.
             setState((prev) => {
               if (pending.kind === 'open')        return 'idle';

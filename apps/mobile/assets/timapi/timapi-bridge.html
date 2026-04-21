@@ -223,37 +223,119 @@
       };
     }
 
+    // ── Helper: parse the TIM API exception structure into a flat object ───
+    // TimException.toString() returns something like:
+    //   "timapi.TimExeption(declinedNotSupported:Authorization declined 0 Not supported)"
+    // where the first token inside the parens is the *category* — critical
+    // because it distinguishes a real card decline from "transaction type /
+    // card brand not supported". The SDK object also exposes these as
+    // properties (.resultCode, .result, .errorCategory depending on build)
+    // but their names are unstable across SDK versions, so we parse the
+    // string as a safe fallback.
+    function extractTimError(exception) {
+      var category = null;
+      var code = null;
+      var message = null;
+      if (exception) {
+        // Direct property access — preferred when available.
+        if (exception.errorCategory) category = String(exception.errorCategory);
+        if (exception.result) category = category || String(exception.result);
+        if (exception.resultCode !== undefined && exception.resultCode !== null) code = Number(exception.resultCode);
+        if (exception.message) message = String(exception.message);
+
+        // Fallback: parse toString() output.
+        var raw = (typeof exception.toString === 'function') ? exception.toString() : String(exception);
+        if (!category) {
+          var m = /\(([a-zA-Z]+)\s*[:,]/.exec(raw);
+          if (m) category = m[1];
+        }
+        if (!message) {
+          var m2 = /\(.+?[:,]\s*(.+)\)\s*$/.exec(raw);
+          if (m2) message = m2[1].trim();
+        }
+        if (!message) message = raw;
+      }
+      return {
+        category: category || 'unknown',
+        code: (code === null || isNaN(code)) ? null : code,
+        message: message || 'Terminal error',
+      };
+    }
+
     // ── Helper: run a single SDK step as a promise with per-step timeout ───
-    function runStep(c, label, timeoutMs, setup) {
+    // The error carries (category, code, message, step) so the RN host can
+    // show richer feedback than a single flattened string — critical for
+    // distinguishing a real decline from declinedNotSupported.
+    function runStep(c, label, timeoutMs, setup, onProgress) {
       return new Promise(function (resolve, reject) {
         var settled = false;
-        var timer = setTimeout(function () {
-          if (settled) return;
-          settled = true;
-          reject(new Error(label + ' timed out after ' + Math.round(timeoutMs / 1000) + 's'));
-        }, timeoutMs);
+        var startMs = Date.now();
+        var progressTimer = null;
 
-        var done = function (eventOrWrapper) {
+        var finish = function (err, value) {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
+          if (progressTimer) clearInterval(progressTimer);
+          if (err) reject(err); else resolve(value);
+        };
+
+        var timer = setTimeout(function () {
+          var e = new Error(label + ' timed out after ' + Math.round(timeoutMs / 1000) + 's');
+          e.timedOut = true;
+          e.step = label;
+          finish(e);
+        }, timeoutMs);
+
+        if (typeof onProgress === 'function') {
+          progressTimer = setInterval(function () {
+            var elapsed = Math.round((Date.now() - startMs) / 1000);
+            try { onProgress(label, elapsed, Math.round(timeoutMs / 1000)); } catch (_) { /* ignore */ }
+          }, 2000);
+        }
+
+        var done = function (eventOrWrapper) {
           var event = (eventOrWrapper && eventOrWrapper.event) ? eventOrWrapper.event : eventOrWrapper;
           if (event && event.exception !== undefined) {
-            reject(new Error((event.exception && event.exception.message) || (label + ' failed')));
+            var info = extractTimError(event.exception);
+            var e = new Error(info.message);
+            e.category = info.category;
+            e.code = info.code;
+            e.step = label;
+            finish(e);
             return;
           }
-          resolve(eventOrWrapper);
+          finish(null, eventOrWrapper);
         };
 
         c.disconnectHandler = function (exception) {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          reject(new Error((exception && exception.message) || ('Terminal disconnected during ' + label)));
+          var info = extractTimError(exception);
+          var e = new Error(info.message || ('Terminal disconnected during ' + label));
+          e.category = info.category || 'disconnected';
+          e.code = info.code;
+          e.step = label;
+          e.disconnected = true;
+          finish(e);
         };
 
         setup(done);
       });
+    }
+
+    // Build a rich error payload for RN. Includes `category` and `code` so
+    // the POS can show the correct decline / error message without regex
+    // matching on the string.
+    function errorPayload(reqId, err, fallbackStep) {
+      return {
+        type: 'error',
+        requestId: reqId,
+        message: (err && err.message) || String(err) || 'Terminal error',
+        category: (err && err.category) || null,
+        code: (err && err.code) !== undefined ? err.code : null,
+        step: (err && err.step) || fallbackStep || null,
+        timedOut: !!(err && err.timedOut),
+        disconnected: !!(err && err.disconnected),
+      };
     }
 
     function makeCtx() {
@@ -307,22 +389,28 @@
         ctx = makeCtx();
         terminal.addListener(makeFlowListener(ctx));
 
+        // Progress reporter so the RN host can show "Logging in… (0:12 / 0:30)"
+        // instead of a frozen spinner. Fires every 2s per step.
+        var progress = function (label, elapsed, timeoutSec) {
+          rn({ type: 'progress', step: label, elapsed: elapsed, timeout: timeoutSec });
+        };
+
         rn({ type: 'status', message: 'Connecting\u2026' });
-        runStep(ctx, 'Connect', 15000, function (done) {
+        runStep(ctx, 'Connect', 10000, function (done) {
           ctx.connectResolver = done;
-          terminal.connectAsync();
-        }).then(function () {
+          try { terminal.connectAsync(); } catch (err) { done({ exception: err }); }
+        }, progress).then(function () {
           rn({ type: 'status', message: 'Logging in\u2026' });
-          return runStep(ctx, 'Login', 60000, function (done) {
+          return runStep(ctx, 'Login', 30000, function (done) {
             ctx.loginResolver = done;
-            terminal.loginAsync();
-          });
+            try { terminal.loginAsync(); } catch (err) { done({ exception: err }); }
+          }, progress);
         }).then(function () {
           rn({ type: 'status', message: 'Activating\u2026' });
-          return runStep(ctx, 'Activate', 30000, function (done) {
+          return runStep(ctx, 'Activate', 20000, function (done) {
             ctx.activateResolver = done;
-            terminal.activateAsync();
-          });
+            try { terminal.activateAsync(); } catch (err) { done({ exception: err }); }
+          }, progress);
         }).then(function () {
           // v2.7.23 — read the real capability bits from the Terminal after
           // activation. These are set by the acquirer-level merchant config
@@ -345,14 +433,13 @@
           rn({ type: 'till_opened', requestId: reqId, capabilities: capabilities });
           // Keep the terminal alive for subsequent transactions.
         }).catch(function (err) {
-          var errMsg = (err && err.message) || String(err);
-          rn({ type: 'error', requestId: reqId, message: errMsg });
+          rn(errorPayload(reqId, err, 'OpenTill'));
           try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
           terminal = null;
           ctx = null;
         });
       } catch (e) {
-        rn({ type: 'error', requestId: reqId, message: (e && e.message) || String(e) });
+        rn(errorPayload(reqId, e, 'OpenTill'));
         try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
         terminal = null;
         ctx = null;
@@ -409,11 +496,10 @@
           if (ctx) ctx.pendingReceipts = null;
           // Transaction failures are NOT fatal to the till session — the
           // terminal stays alive so the operator can retry.
-          var errMsg = (err && err.message) || String(err);
-          rn({ type: 'error', requestId: reqId, message: errMsg });
+          rn(errorPayload(reqId, err, 'Transaction'));
         });
       } catch (e) {
-        rn({ type: 'error', requestId: reqId, message: (e && e.message) || String(e) });
+        rn(errorPayload(reqId, e, 'Transaction'));
       }
     }
 
@@ -467,11 +553,10 @@
           });
         }).catch(function (err) {
           if (ctx) ctx.pendingReceipts = null;
-          var errMsg = (err && err.message) || String(err);
-          rn({ type: 'error', requestId: reqId, message: errMsg });
+          rn(errorPayload(reqId, err, 'Transaction'));
         });
       } catch (e) {
-        rn({ type: 'error', requestId: reqId, message: (e && e.message) || String(e) });
+        rn(errorPayload(reqId, e, 'Transaction'));
       }
     }
 
@@ -542,11 +627,10 @@
           });
         }).catch(function (err) {
           if (ctx) ctx.pendingReceipts = null;
-          var errMsg = (err && err.message) || String(err);
-          rn({ type: 'error', requestId: reqId, message: errMsg });
+          rn(errorPayload(reqId, err, 'Transaction'));
         });
       } catch (e) {
-        rn({ type: 'error', requestId: reqId, message: (e && e.message) || String(e) });
+        rn(errorPayload(reqId, e, 'Transaction'));
       }
     }
 
@@ -589,11 +673,10 @@
           rn({ type: 'reconciliation_done', requestId: reqId, reconciliationReceipt: text });
         }).catch(function (err) {
           if (ctx) ctx.pendingReceipts = null;
-          var errMsg = (err && err.message) || String(err);
-          rn({ type: 'error', requestId: reqId, message: errMsg });
+          rn(errorPayload(reqId, err, 'Transaction'));
         });
       } catch (e) {
-        rn({ type: 'error', requestId: reqId, message: (e && e.message) || String(e) });
+        rn(errorPayload(reqId, e, 'Transaction'));
       }
     }
 
@@ -626,7 +709,7 @@
         try { if (terminal && terminal.dispose) terminal.dispose(); } catch (_) { /* ignore */ }
         terminal = null;
         ctx = null;
-        rn({ type: 'error', requestId: reqId, message: (err && err.message) || String(err) });
+        rn(errorPayload(reqId, err, 'CloseTill'));
       });
     }
   </script>

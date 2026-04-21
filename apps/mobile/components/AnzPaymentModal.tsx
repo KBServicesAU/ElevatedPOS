@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAnzBridge } from './AnzBridgeHost';
+import { useAnzBridge, AnzBridgeError } from './AnzBridgeHost';
 import { useTillStore } from '../store/till';
 
 /**
@@ -130,22 +130,56 @@ export function AnzPaymentModal({
       .catch((err: Error) => {
         if (cancelledRef.current) return;
         const errMsg = err?.message ?? 'Terminal error';
-        // The bridge only emits 'declined' for true card declines, and emits
-        // 'error' for SDK/network/operator-cancel. Treat "cancel" text as a
-        // soft cancellation, and everything else as an error.
-        if (/cancel/i.test(errMsg)) {
+        // v2.7.31 — use the TimException category from the SDK instead
+        // of regex-matching the raw message. The bridge now wraps errors
+        // in AnzBridgeError with `.category` ∈ {declined, declinedNotSupported,
+        // aborted, ...}. Old regex path retained as a fallback for any
+        // non-bridge error that might slip through.
+        const anzErr = err instanceof AnzBridgeError ? err : null;
+
+        if (anzErr?.isAborted || /cancel/i.test(errMsg)) {
           setPhase('cancelled');
           setStatusText('Transaction cancelled.');
           setTimeout(() => onCancelled(), 600);
-        } else if (/decline/i.test(errMsg)) {
+          return;
+        }
+
+        if (anzErr?.isNotSupported) {
+          // "Not supported" is NOT a card decline — it's the acquirer
+          // saying this card brand / BIN / transaction type isn't
+          // enabled on this merchant. Most common cause: merchant hasn't
+          // enrolled the card brand with ANZ, or the terminal firmware
+          // doesn't support contactless for this amount.
+          setPhase('error');
+          setStatusText('Transaction not supported');
+          setTimeout(
+            () =>
+              onError(
+                'ANZ rejected the transaction as "Not Supported". This usually means the card brand or transaction type is not enrolled on your merchant profile. Try a different card or call ANZ to enable this card brand.',
+              ),
+            1800,
+          );
+          return;
+        }
+
+        if (anzErr?.isDeclined || /decline/i.test(errMsg)) {
           setPhase('declined');
           setStatusText(errMsg);
-          setTimeout(() => onDeclined({ approved: false, declineReason: errMsg }), 1500);
-        } else {
-          setPhase('error');
-          setStatusText(errMsg);
-          setTimeout(() => onError(errMsg), 1800);
+          setTimeout(
+            () =>
+              onDeclined({
+                approved: false,
+                declineReason: errMsg,
+                declineCode: anzErr?.code != null ? String(anzErr.code) : undefined,
+              }),
+            1500,
+          );
+          return;
         }
+
+        setPhase('error');
+        setStatusText(errMsg);
+        setTimeout(() => onError(errMsg), 1800);
       });
   }, [visible, tillOpen, amount, referenceId, bridge, onApproved, onDeclined, onCancelled, onError]);
 
