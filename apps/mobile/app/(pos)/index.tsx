@@ -21,11 +21,12 @@ import { useCustomerDisplayStore } from '../../store/customer-display';
 import { usePrinterStore } from '../../store/printers';
 import { confirm, toast } from '../../components/ui';
 import {
-  printReceipt,
+  printSaleReceipts,
   printOrderTicket,
   printTyroMerchantReceipt,
   isConnected as isPrinterConnected,
   connectPrinter,
+  type ReceiptLine,
 } from '../../lib/printer';
 import { useRouter } from 'expo-router';
 import { initTyro, tyroPurchase, isTyroInitialized } from '../../modules/tyro-tta';
@@ -281,6 +282,17 @@ export default function PosSellScreen() {
     paymentMethod: 'Card' | 'Cash' | 'Split' = 'Card',
     changeGiven = 0,
     tyroExtras?: { tipCents?: number; surchargeCents?: number; transactionTotalCents?: number; authCode?: string; cardLast4?: string; cardScheme?: string },
+    cardExtras?: {
+      cardType?: string;
+      cardLast4?: string;
+      authCode?: string;
+      rrn?: string;
+      /** Raw ANZ terminal receipt text — customer copy. */
+      anzCustomerReceipt?: string;
+      /** Raw ANZ terminal receipt text — merchant copy. */
+      anzMerchantReceipt?: string;
+    },
+    cashExtras?: { tendered?: number },
   ) {
     if (cart.length === 0) return;
     setCharging(true);
@@ -305,6 +317,10 @@ export default function PosSellScreen() {
       costPrice: 0,
       taxRate: 10,
     }));
+
+    // Snapshot the cart for the receipt before we clear it on success.
+    const cartSnapshot = cart.map((i) => ({ ...i }));
+    const orderDiscountSnapshot = orderDiscountAmount;
 
     let orderNumber: string;
     let orderId: string;
@@ -367,23 +383,67 @@ export default function PosSellScreen() {
       return;
     }
 
-    // Auto-print receipt if configured
+    // Auto-print receipt(s) if configured
     if (printerConfig.autoPrint && printerConfig.type) {
       try {
         if (!isPrinterConnected()) await connectPrinter();
-        await printReceipt({
-          storeName: 'ElevatedPOS',
-          orderNumber,
-          items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price })),
-          subtotal: orderTotal - orderGst,
-          gst: orderGst,
-          total: paidTotal,
-          paymentMethod,
-          cashierName: authEmployee
-            ? `${authEmployee.firstName} ${authEmployee.lastName}`
-            : undefined,
-          surchargeAmount: surchargeDollars || undefined,
-          tipAmount: tipDollars || undefined,
+
+        // Compute per-item and order-level discount totals so the receipt
+        // can break them out on their own lines.
+        let itemDiscountTotal = 0;
+        const receiptItems: ReceiptLine[] = cartSnapshot.map((i) => {
+          const discPerUnit = i.discount
+            ? (i.discountType === '%' ? (i.price * i.discount / 100) : i.discount)
+            : 0;
+          const effectiveDisc = Math.min(discPerUnit, i.price);
+          const lineDiscount = effectiveDisc * i.qty;
+          itemDiscountTotal += lineDiscount;
+          return {
+            name: i.name,
+            qty: i.qty,
+            unitPrice: i.price,
+            lineTotal: (i.price - effectiveDisc) * i.qty,
+            discountAmount: lineDiscount > 0 ? +lineDiscount.toFixed(2) : undefined,
+            note: i.note,
+            seat: i.seat,
+          };
+        });
+
+        await printSaleReceipts({
+          store: {
+            name: identity?.label || 'ElevatedPOS',
+          },
+          order: {
+            orderNumber,
+            registerLabel: identity?.registerId ?? undefined,
+            cashierName: authEmployee
+              ? `${authEmployee.firstName} ${authEmployee.lastName}`
+              : undefined,
+            customerName: customerName ?? undefined,
+            orderedAt: new Date(),
+          },
+          items: receiptItems,
+          totals: {
+            subtotalExGst: +(orderTotal - orderGst).toFixed(2),
+            itemDiscount: itemDiscountTotal > 0 ? +itemDiscountTotal.toFixed(2) : undefined,
+            orderDiscount: orderDiscountSnapshot > 0 ? +orderDiscountSnapshot.toFixed(2) : undefined,
+            gst: orderGst,
+            surcharge: surchargeDollars || undefined,
+            tip: tipDollars || undefined,
+            total: paidTotal,
+          },
+          payment: {
+            method: paymentMethod,
+            tendered: cashExtras?.tendered,
+            changeGiven: changeGiven > 0 ? changeGiven : undefined,
+            cardType:  cardExtras?.cardType  ?? tyroExtras?.cardScheme,
+            cardLast4: cardExtras?.cardLast4 ?? tyroExtras?.cardLast4,
+            authCode:  cardExtras?.authCode  ?? tyroExtras?.authCode,
+            rrn:       cardExtras?.rrn,
+          },
+          anzCustomerReceipt: cardExtras?.anzCustomerReceipt,
+          anzMerchantReceipt: cardExtras?.anzMerchantReceipt,
+          traceId: orderNumber,
         });
       } catch {
         // Print failed — don't block order
@@ -626,7 +686,14 @@ export default function PosSellScreen() {
     if (split) setPendingSplit(null);
 
     // ANZ TIM doesn't expose surcharge/tip separately — charge the plain cart total.
-    handleCharge(split ? 'Split' : 'Card');
+    handleCharge(split ? 'Split' : 'Card', 0, undefined, {
+      cardType:  result.cardType,
+      cardLast4: result.cardLast4,
+      authCode:  result.authCode,
+      rrn:       result.rrn,
+      anzCustomerReceipt: result.customerReceipt,
+      anzMerchantReceipt: result.merchantReceipt,
+    });
 
     const cardDesc = result.cardType
       ? `${result.cardType} ••••${result.cardLast4 ?? ''}`
@@ -670,7 +737,7 @@ export default function PosSellScreen() {
     setShowPayment(false);
     setCashTendered('');
     // Process as cash, passing change given for order complete record
-    handleCharge('Cash', change);
+    handleCharge('Cash', change, undefined, undefined, { tendered });
     if (change > 0) {
       toast.info('Change Due', `$${change.toFixed(2)}`);
     }

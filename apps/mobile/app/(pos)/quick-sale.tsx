@@ -18,7 +18,7 @@ import { confirm, toast } from '../../components/ui';
 import {
   connectPrinter,
   isConnected as isPrinterConnected,
-  printReceipt,
+  printSaleReceipts,
 } from '../../lib/printer';
 import { initTyro, isTyroInitialized, tyroPurchase } from '../../modules/tyro-tta';
 import { useTyroStore } from '../../store/tyro';
@@ -147,38 +147,58 @@ export default function QuickSaleScreen() {
     return data.orderNumber as string;
   }
 
-  async function printReceiptIfConfigured(orderNumber: string, paymentMethod: string) {
+  async function printReceiptIfConfigured(
+    orderNumber: string,
+    paymentMethod: string,
+    changeDue: number,
+    tendered?: number,
+  ) {
     if (!printerConfig.autoPrint || !printerConfig.type) return;
     try {
       if (!isPrinterConnected()) await connectPrinter();
-      await printReceipt({
-        storeName: 'ElevatedPOS',
-        orderNumber,
+      const label = description.trim() || 'Quick Sale';
+      await printSaleReceipts({
+        store: {
+          name: identity?.label || 'ElevatedPOS',
+        },
+        order: {
+          orderNumber,
+          registerLabel: identity?.registerId ?? undefined,
+          cashierName: authEmployee
+            ? `${authEmployee.firstName} ${authEmployee.lastName}`
+            : undefined,
+          orderedAt: new Date(),
+        },
         items: [
           {
-            name: description.trim() || 'Quick Sale',
+            name: label,
             qty: 1,
-            price: amount,
+            unitPrice: amount,
+            lineTotal: amount,
           },
         ],
-        subtotal: ex,
-        gst: +gst.toFixed(2),
-        total: amount,
-        paymentMethod,
-        cashierName: authEmployee
-          ? `${authEmployee.firstName} ${authEmployee.lastName}`
-          : undefined,
+        totals: {
+          subtotalExGst: +ex.toFixed(2),
+          gst: +gst.toFixed(2),
+          total: amount,
+        },
+        payment: {
+          method: paymentMethod,
+          tendered: tendered ?? amount,
+          changeGiven: changeDue > 0 ? changeDue : undefined,
+        },
+        traceId: orderNumber,
       });
     } catch (err) {
       console.warn('[QuickSale] Receipt print failed:', err);
     }
   }
 
-  async function finalise(paymentMethod: string, changeDue: number = 0) {
+  async function finalise(paymentMethod: string, changeDue: number = 0, tendered?: number) {
     setCharging(true);
     try {
       const orderNumber = await saveOrderToServer();
-      await printReceiptIfConfigured(orderNumber, paymentMethod);
+      await printReceiptIfConfigured(orderNumber, paymentMethod, changeDue, tendered);
       const msg =
         changeDue > 0
           ? `Order #${orderNumber} — $${amount.toFixed(2)} · Change $${changeDue.toFixed(2)}`
@@ -215,7 +235,7 @@ export default function QuickSaleScreen() {
     const change = tendered - amount;
     setShowPayment(false);
     setCashTendered('');
-    finalise('Cash', change);
+    finalise('Cash', change, tendered);
   }
 
   function handlePayCard() {
