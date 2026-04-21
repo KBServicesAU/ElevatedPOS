@@ -780,6 +780,173 @@ function legacyToRich(o: LegacyReceiptOpts): PrintReceiptOpts {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* End-of-Day (Close Till) Report                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Options for {@link printEodReport}.
+ *
+ * The POS close-till flow gathers these numbers from three sources:
+ *   - `store`  → local device identity + branch label
+ *   - `shift`  → local till store (opened/closed times, float, counted cash)
+ *   - `sales`  → server `/api/v1/orders/eod-summary` response
+ *
+ * Any missing optional fields render as blank lines rather than crashing.
+ */
+export interface EodReportOpts {
+  store: { name: string; branch?: string; device?: string };
+  shift: {
+    openedAt: Date | null;
+    closedAt: Date;
+    openedByName?: string;
+    floatDollars: number;
+    expectedCashDollars: number;
+    countedCashDollars: number;
+    varianceDollars: number;
+    notes?: string;
+  };
+  sales: {
+    totalCount: number;       totalDollars: number;
+    cashCount: number;        cashDollars: number;
+    cardCount: number;        cardDollars: number;
+    otherCount?: number;      otherDollars?: number;
+    refundCount: number;      refundDollars: number;
+  };
+  /** Optional raw ANZ reconciliation receipt text, appended verbatim. */
+  anzReconciliationText?: string;
+}
+
+/**
+ * Print the End-of-Day (Close Till) report.
+ *
+ * Layout is designed to mirror the sale-receipt style in
+ * {@link buildReceiptText} — large centred store header, dashed
+ * section dividers, monospaced aligned columns. Honours the paper width
+ * from `usePrinterStore` (58mm → 32 cols, 80mm → 48 cols).
+ */
+export async function printEodReport(opts: EodReportOpts): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+  const { type, paperWidth } = usePrinterStore.getState().config;
+  const printer = getPrinter(type);
+  if (!printer) throw new Error('No printer configured');
+  if (!connected) await connectPrinter();
+
+  const w = paperWidth === 58 ? 32 : 48;
+  const bigW = Math.floor(w / 2);
+  const line = '='.repeat(w);
+  const dash = '-'.repeat(w);
+
+  function pad(left: string, right: string): string {
+    const space = w - left.length - right.length;
+    return left + ' '.repeat(Math.max(1, space)) + right;
+  }
+  function clip(s: string, max: number): string {
+    return s.length > max ? s.slice(0, max) : s;
+  }
+  function centre(s: string): string {
+    return `<C>${clip(s, w)}</C>`;
+  }
+  function money(n: number): string {
+    const abs = Math.abs(n).toFixed(2);
+    return n < 0 ? `-$${abs}` : `$${abs}`;
+  }
+  function fmtDT(d: Date | null): string {
+    if (!d) return '—';
+    try {
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const h = String(d.getHours()).padStart(2, '0');
+      const m = String(d.getMinutes()).padStart(2, '0');
+      return `${day}/${month} ${h}:${m}`;
+    } catch {
+      return '—';
+    }
+  }
+
+  const otherCount = opts.sales.otherCount ?? 0;
+  const otherDollars = opts.sales.otherDollars ?? 0;
+
+  let r = '';
+  // ── Header ──────────────────────────────────────────────────────────
+  r += line + '\n';
+  r += `<CM>${clip('END OF DAY REPORT', bigW)}</CM>\n`;
+  r += `<CM>${clip(opts.store.name, bigW)}</CM>\n`;
+  if (opts.store.branch || opts.store.device) {
+    const parts: string[] = [];
+    if (opts.store.branch) parts.push(opts.store.branch);
+    if (opts.store.device) parts.push(`Device: ${opts.store.device}`);
+    r += centre(clip(parts.join('  '), w)) + '\n';
+  }
+  r += line + '\n';
+
+  // ── Shift times ─────────────────────────────────────────────────────
+  const openedLine = opts.shift.openedByName
+    ? pad(`  Opened:  ${fmtDT(opts.shift.openedAt)}`, `By ${clip(opts.shift.openedByName, Math.max(4, w - 20))}  `)
+    : `  Opened:  ${fmtDT(opts.shift.openedAt)}`;
+  r += openedLine + '\n';
+  r += `  Closed:  ${fmtDT(opts.shift.closedAt)}\n`;
+  r += dash + '\n';
+
+  // ── Sales block ─────────────────────────────────────────────────────
+  r += centre('Sales') + '\n';
+  r += dash + '\n';
+  r += pad(`  Total sales (${opts.sales.totalCount})`, money(opts.sales.totalDollars)) + '\n';
+  r += pad(`    Cash  (${opts.sales.cashCount})`, money(opts.sales.cashDollars)) + '\n';
+  r += pad(`    Card  (${opts.sales.cardCount})`, money(opts.sales.cardDollars)) + '\n';
+  if (otherCount > 0 || otherDollars > 0) {
+    r += pad(`    Other (${otherCount})`, money(otherDollars)) + '\n';
+  }
+  r += pad(`  Refunds (${opts.sales.refundCount})`, `-${money(opts.sales.refundDollars)}`) + '\n';
+  r += line + '\n';
+
+  // ── Cash reconciliation ────────────────────────────────────────────
+  const cashRefunds = 0; // Server currently returns cashRefunds=0 — placeholder.
+  r += centre('Cash Reconciliation') + '\n';
+  r += dash + '\n';
+  r += pad('  Opening float', money(opts.shift.floatDollars)) + '\n';
+  r += pad('  + Cash sales', money(opts.sales.cashDollars)) + '\n';
+  r += pad('  - Cash refunds', `-${money(cashRefunds)}`) + '\n';
+  r += pad('  = Expected in drawer', money(opts.shift.expectedCashDollars)) + '\n';
+  r += pad('  Counted cash', money(opts.shift.countedCashDollars)) + '\n';
+  const vSign = opts.shift.varianceDollars > 0
+    ? '+'
+    : opts.shift.varianceDollars < 0 ? '-' : '';
+  const vAbs = Math.abs(opts.shift.varianceDollars).toFixed(2);
+  r += `<B>${pad('  Variance', `${vSign}$${vAbs}`)}</B>\n`;
+  r += line + '\n';
+
+  // ── Notes (optional) ───────────────────────────────────────────────
+  if (opts.shift.notes && opts.shift.notes.trim().length > 0) {
+    r += '  Notes:\n';
+    // Wrap the notes to the paper width so long runs don't clip.
+    const body = opts.shift.notes.trim();
+    const chunkSize = Math.max(16, w - 4);
+    for (let i = 0; i < body.length; i += chunkSize) {
+      r += `  ${body.slice(i, i + chunkSize)}\n`;
+    }
+    r += line + '\n';
+  }
+
+  // ── Verbatim ANZ reconciliation receipt ────────────────────────────
+  if (opts.anzReconciliationText && opts.anzReconciliationText.trim().length > 0) {
+    r += '\n' + opts.anzReconciliationText.trim() + '\n';
+    r += line + '\n';
+  }
+
+  // ── Footer ─────────────────────────────────────────────────────────
+  r += centre('Powered by ElevatedPOS') + '\n';
+  r += centre(clip(new Date().toISOString(), w)) + '\n';
+  r += line + '\n';
+  r += '\n\n\n';
+
+  try {
+    await printer.printText(r, { cut: true });
+  } catch (e: any) {
+    throw new Error('EOD report print failed: ' + (e?.message ?? 'unknown'));
+  }
+}
+
 export async function printRefundReceipt(opts: {
   storeName: string;
   orderNumber?: string;

@@ -65,6 +65,15 @@ export interface AnzBridgeApi {
   openTill: () => Promise<void>;
   closeTill: () => Promise<void>;
   transaction: (amountCents: number, referenceId?: string) => Promise<AnzTransactionResult>;
+  /**
+   * Trigger an EOD reconciliation (bank settlement) on the terminal.
+   * The ANZ Worldline SDK runs `reconciliationAsync()` which clears the
+   * terminal's batch and returns a printable settlement receipt. If the
+   * SDK doesn't expose the method (older builds) this resolves with
+   * `{ reconciliationReceipt: null }` rather than throwing, so the
+   * close-till flow can still complete.
+   */
+  reconcile: () => Promise<{ reconciliationReceipt: string | null }>;
   cancel: () => void;
   onStatus: (cb: (message: string) => void) => () => void;
   /**
@@ -83,7 +92,7 @@ interface PendingRequest {
   resolve: (value: any) => void;
   reject: (error: Error) => void;
   /** Kind of request — used to map response types back to the right promise. */
-  kind: 'open' | 'close' | 'transaction';
+  kind: 'open' | 'close' | 'transaction' | 'reconcile';
 }
 
 type BridgeMessage =
@@ -91,6 +100,7 @@ type BridgeMessage =
   | { type: 'status'; message?: string }
   | { type: 'till_opened'; requestId?: string; capabilities?: Partial<AnzCapabilities> & Record<string, unknown> }
   | { type: 'till_closed'; requestId?: string }
+  | { type: 'reconciliation_done'; requestId?: string; reconciliationReceipt?: string | null }
   | {
       type: 'approved';
       requestId?: string;
@@ -234,6 +244,21 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      case 'reconciliation_done': {
+        const reqId = msg.requestId;
+        if (reqId) {
+          const pending = pendingRef.current.get(reqId);
+          if (pending) {
+            pendingRef.current.delete(reqId);
+            pending.resolve({ reconciliationReceipt: msg.reconciliationReceipt ?? null });
+          }
+        }
+        // Reconciliation fires while the till is still open — we do NOT
+        // transition state here. The terminal stays in 'open' so the caller
+        // can still run closeTill() immediately after.
+        return;
+      }
+
       case 'approved': {
         const reqId = msg.requestId;
         if (reqId) {
@@ -283,6 +308,7 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
               if (pending.kind === 'open')        return 'idle';
               if (pending.kind === 'close')       return 'open';
               if (pending.kind === 'transaction') return 'open';
+              if (pending.kind === 'reconcile')   return prev;
               return prev;
             });
             return;
@@ -347,6 +373,24 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
       setState('closing');
       sendRaw(JSON.stringify({ type: 'close_till', requestId }));
     });
+  }, [makeRequestId, sendRaw]);
+
+  /**
+   * Deduped reconcile — a second call while one is in flight waits on the
+   * existing promise instead of issuing a second reconciliation command.
+   * Mirrors the openTill pattern.
+   */
+  const inflightReconcileRef = useRef<Promise<{ reconciliationReceipt: string | null }> | null>(null);
+  const reconcile = useCallback<AnzBridgeApi['reconcile']>(() => {
+    if (inflightReconcileRef.current) return inflightReconcileRef.current;
+    const p = new Promise<{ reconciliationReceipt: string | null }>((resolve, reject) => {
+      const requestId = makeRequestId();
+      pendingRef.current.set(requestId, { resolve, reject, kind: 'reconcile' });
+      sendRaw(JSON.stringify({ type: 'reconcile', requestId }));
+    });
+    inflightReconcileRef.current = p;
+    p.finally(() => { inflightReconcileRef.current = null; });
+    return p;
   }, [makeRequestId, sendRaw]);
 
   const transaction = useCallback<AnzBridgeApi['transaction']>(
@@ -443,10 +487,11 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
     openTill,
     closeTill,
     transaction,
+    reconcile,
     cancel,
     onStatus,
     forceReset,
-  }), [state, capabilities, openTill, closeTill, transaction, cancel, onStatus, forceReset]);
+  }), [state, capabilities, openTill, closeTill, transaction, reconcile, cancel, onStatus, forceReset]);
 
   return (
     <AnzBridgeContext.Provider value={api}>

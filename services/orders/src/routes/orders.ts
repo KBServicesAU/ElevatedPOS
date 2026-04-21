@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql, gte, lte } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { generateOrderNumber, generateRefundNumber } from '../lib/orderNumber';
 import { publishTypedEvent } from '../lib/kafka';
@@ -97,6 +97,128 @@ export async function orderRoutes(app: FastifyInstance) {
         hasMore: query.offset + orders.length < totalCount,
         limit: query.limit,
         offset: query.offset,
+      },
+    });
+  });
+
+  // GET /api/v1/orders/eod-summary
+  // Rolls up completed + refunded orders for a location between `from` and
+  // `to` (defaults to today 00:00 local → now). Mobile close-till and the
+  // dashboard both call this to show the cash/card split and refund totals.
+  //
+  // Declared BEFORE `/:id` so it isn't swallowed by the catch-all param.
+  app.get('/eod-summary', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const querySchema = z.object({
+      locationId: z.string().uuid(),
+      from: z.string().datetime().optional(),
+      to: z.string().datetime().optional(),
+    });
+    const parsed = querySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: parsed.error.message,
+      });
+    }
+    const { locationId } = parsed.data;
+
+    // Default range = today (local midnight → now).
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(0, 0, 0, 0);
+    const from = parsed.data.from ? new Date(parsed.data.from) : midnight;
+    const to = parsed.data.to ? new Date(parsed.data.to) : now;
+
+    const rangeFilter = and(
+      eq(schema.orders.orgId, orgId),
+      eq(schema.orders.locationId, locationId),
+      inArray(schema.orders.status, ['completed', 'refunded', 'partially_refunded'] as const),
+      gte(schema.orders.completedAt, from),
+      lte(schema.orders.completedAt, to),
+    );
+
+    // Group by payment method. null is bucketed into 'other'. `total` is a
+    // numeric(12,4) string in postgres — cast to text and let JS parseFloat
+    // it at the end. Status returned too so we can derive refund counts
+    // without a second query.
+    const grouped = await db.select({
+      paymentMethod: schema.orders.paymentMethod,
+      status: schema.orders.status,
+      orderCount: sql<number>`count(*)::int`,
+      totalSum: sql<string>`COALESCE(SUM(${schema.orders.total})::text, '0')`,
+      paidSum: sql<string>`COALESCE(SUM(${schema.orders.paidTotal})::text, '0')`,
+    }).from(schema.orders)
+      .where(rangeFilter)
+      .groupBy(schema.orders.paymentMethod, schema.orders.status);
+
+    // Aggregate into the response shape the merchant UI expects.
+    let transactionCount = 0;
+    let totalSales = 0;
+    let cashTransactionCount = 0;
+    let cardTransactionCount = 0;
+    let refundCount = 0;
+    let refunds = 0;
+    const payments = { cash: 0, card: 0, other: 0, split: 0 };
+
+    for (const row of grouped) {
+      const count = Number(row.orderCount) || 0;
+      const total = parseFloat(row.totalSum) || 0;
+      const paid = parseFloat(row.paidSum) || 0;
+      const method = (row.paymentMethod ?? '').toString();
+
+      if (row.status === 'refunded' || row.status === 'partially_refunded') {
+        refundCount += count;
+        // Use paid_total as a proxy for the refunded dollar value. When the
+        // dedicated `refunds` table is wired into this endpoint we'll switch
+        // to SUM(refunds.total_amount) instead.
+        // TODO(v2.7.25): join `refunds` table for a per-tender refund split.
+        refunds += paid;
+      }
+
+      transactionCount += count;
+      totalSales += total;
+
+      if (method === 'Cash' || method === 'cash') {
+        cashTransactionCount += count;
+        payments.cash += total;
+      } else if (method === 'Card' || method === 'card') {
+        cardTransactionCount += count;
+        payments.card += total;
+      } else if (method === 'Split' || method === 'split') {
+        // Split payments are not currently broken out into separate tender
+        // buckets on the orders row — keep them as 'split' for now.
+        payments.split += total;
+      } else {
+        payments.other += total;
+      }
+    }
+
+    // Round everything to cents before returning so the merchant UI can
+    // display without accumulating float noise.
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    return reply.status(200).send({
+      data: {
+        locationId,
+        from: from.toISOString(),
+        to: to.toISOString(),
+        transactionCount,
+        totalSales: r2(totalSales),
+        refundCount,
+        refunds: r2(refunds),
+        cashTransactionCount,
+        cardTransactionCount,
+        payments: {
+          cash: r2(payments.cash),
+          card: r2(payments.card),
+          other: r2(payments.other),
+          split: r2(payments.split),
+        },
+        // TODO(v2.7.25): count cash-tender refunds separately once the
+        // refunds table carries a tender column.
+        cashRefunds: 0,
       },
     });
   });
@@ -284,6 +406,10 @@ export async function orderRoutes(app: FastifyInstance) {
       paidTotal: String(body.data.paidTotal),
       changeGiven: String(body.data.changeGiven),
       ...(body.data.receiptChannel !== undefined && { receiptChannel: body.data.receiptChannel }),
+      // Persist the tender so the EOD summary can split sales into
+      // Cash / Card / Other. Only set when the POS supplied it — leaving
+      // the column untouched keeps legacy clients working.
+      ...(body.data.paymentMethod !== undefined && { paymentMethod: body.data.paymentMethod }),
       completedAt: new Date(),
       updatedAt: new Date(),
     }).where(and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId))).returning();

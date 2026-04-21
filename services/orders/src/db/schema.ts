@@ -32,6 +32,11 @@ export const orders = pgTable('orders', {
   total: decimal('total', { precision: 12, scale: 4 }).notNull().default('0'),
   paidTotal: decimal('paid_total', { precision: 12, scale: 4 }).notNull().default('0'),
   changeGiven: decimal('change_given', { precision: 12, scale: 4 }).notNull().default('0'),
+  // Tender used to settle the order at completion. One of 'Cash' | 'Card' |
+  // 'Split' | 'Other'. Nullable because rows created before v2.7.24 don't
+  // carry this and the column was added in migration 0005. The EOD summary
+  // endpoint groups on this field; null is treated as 'other'.
+  paymentMethod: text('payment_method'),
   notes: text('notes'),
   receiptSentAt: timestamp('receipt_sent_at', { withTimezone: true }),
   receiptChannel: varchar('receipt_channel', { length: 50 }),

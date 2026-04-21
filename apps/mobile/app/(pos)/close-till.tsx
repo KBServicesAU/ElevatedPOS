@@ -16,17 +16,25 @@ import { useTillStore } from '../../store/till';
 import { useAuthStore } from '../../store/auth';
 import { useDeviceStore } from '../../store/device';
 import { useAnzBridge } from '../../components/AnzBridgeHost';
+import { printEodReport } from '../../lib/printer';
 
 /**
- * Close Till screen (v2.7.20).
+ * Close Till screen (v2.7.24).
  *
  * Single unified page for closing a shift. Combines what used to live
  * across `close-till` and `eod`:
  *   - Shift summary (opened-at, opened-by, float)
- *   - Sales breakdown pulled from the server EOD endpoint if available
+ *   - Sales breakdown pulled from the server EOD endpoint
  *   - Cash count + variance against expected drawer balance
  *   - Primary action closes the till and logs the employee out
  *   - Secondary action closes the till but keeps the session signed in
+ *
+ * Both close actions now:
+ *   1. Refresh sales from /api/v1/orders/eod-summary
+ *   2. Trigger ANZ terminal reconciliation (bank settlement) — best-effort
+ *   3. Close the terminal (Deactivate → Logout)
+ *   4. Persist the till close in the local store
+ *   5. Print a POS EOD summary receipt with the ANZ settlement appended
  */
 
 const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
@@ -42,6 +50,8 @@ interface SalesBreakdown {
   cashDollars: number;
   cardCount: number;
   cardDollars: number;
+  otherCount: number;
+  otherDollars: number;
   refundCount: number;
   refundDollars: number;
   cashRefundDollars: number;
@@ -120,20 +130,16 @@ export default function CloseTillScreen() {
 
   // ── Load the server-side sales breakdown. Non-fatal on failure — the
   // reconciliation still works from the local till numbers. ─────────
-  const loadSales = useCallback(async () => {
+  const loadSales = useCallback(async (): Promise<SalesBreakdown | null> => {
     const token = employeeToken ?? identity?.deviceToken ?? '';
     const locationId = identity?.locationId ?? '';
     if (!token || !locationId) {
       setSales(null);
-      return;
+      return null;
     }
     setSalesLoading(true);
     setSalesError(null);
     try {
-      // We reuse the existing eod-summary endpoint here — it's the only
-      // report the server currently exposes that rolls up today's orders.
-      // TODO: when a dedicated `/api/v1/reports/till` ships, point at that
-      // instead so we get shift-scoped numbers rather than day-scoped.
       const res = await fetch(
         `${API_BASE}/api/v1/orders/eod-summary?locationId=${locationId}`,
         {
@@ -147,7 +153,7 @@ export default function CloseTillScreen() {
       if (!res.ok) {
         setSalesError('Sales data unavailable.');
         setSales(null);
-        return;
+        return null;
       }
       const data = await res.json();
       const p = (data.data ?? data ?? {}) as Record<string, unknown>;
@@ -155,28 +161,40 @@ export default function CloseTillScreen() {
       const totalDollars = safeNumber(p['totalSales']);
       const cashDollars = safeNumber(payments['cash']);
       const cardDollars = safeNumber(payments['card']);
+      const otherDollars = safeNumber(payments['other']) + safeNumber(payments['split']);
       const refundDollars = safeNumber(p['refunds']);
-      setSales({
-        totalCount: Number(p['transactionCount']) || 0,
+      const totalCount = Number(p['transactionCount']) || 0;
+      const cashCount = Number(p['cashTransactionCount']) || 0;
+      const cardCount = Number(p['cardTransactionCount']) || 0;
+      // The server doesn't return otherTransactionCount yet — derive by
+      // subtraction so the count row still balances against the total.
+      const otherCount = Math.max(0, totalCount - cashCount - cardCount);
+      const next: SalesBreakdown = {
+        totalCount,
         totalDollars,
-        cashCount: Number(p['cashTransactionCount']) || 0,
+        cashCount,
         cashDollars,
-        cardCount: Number(p['cardTransactionCount']) || 0,
+        cardCount,
         cardDollars,
+        otherCount,
+        otherDollars,
         refundCount: Number(p['refundCount']) || 0,
         refundDollars,
         cashRefundDollars: safeNumber(p['cashRefunds']),
-      });
+      };
+      setSales(next);
+      return next;
     } catch {
       setSalesError('Could not reach the server.');
       setSales(null);
+      return null;
     } finally {
       setSalesLoading(false);
     }
   }, [employeeToken, identity]);
 
   useEffect(() => {
-    if (till.isOpen) loadSales();
+    if (till.isOpen) void loadSales();
   }, [till.isOpen, loadSales]);
 
   // Expected cash = float + cash sales − cash refunds. If the server data
@@ -193,7 +211,14 @@ export default function CloseTillScreen() {
   const countedCents = useMemo(() => parseDollars(countedInput), [countedInput]);
   const varianceCents = countedCents != null ? countedCents - expectedCents : null;
 
-  async function performClose(alsoLogout: boolean): Promise<boolean> {
+  /**
+   * The close-out pipeline. Parametrised by `logoutAfter` so the two UI
+   * buttons share the same logic. Every step that can fail is wrapped in
+   * its own try/catch so a single failure (e.g. printer offline) doesn't
+   * abort the whole close — losing the till reconciliation in the store
+   * is a much worse outcome than a missing paper receipt.
+   */
+  async function performClose({ logoutAfter }: { logoutAfter: boolean }): Promise<boolean> {
     if (countedCents == null) {
       toast.warning('Invalid', 'Enter the counted cash amount.');
       return false;
@@ -204,10 +229,30 @@ export default function CloseTillScreen() {
     }
 
     setSubmitting(true);
-    setStatusText('Starting…');
+    setStatusText('Refreshing sales…');
     try {
-      // Tear down the terminal first. "Till is not open" from the bridge
-      // is non-fatal — we still want to record the reconciliation.
+      // 1. Refresh the server numbers so the printed EOD matches whatever
+      //    the dashboard will show next sync. Non-fatal on failure — we
+      //    fall back to whatever is already in `sales`.
+      const fresh = await loadSales();
+      const sb = fresh ?? sales;
+
+      // 2. Best-effort ANZ reconciliation. If the terminal is offline or
+      //    the SDK doesn't support it we still want the shift to close,
+      //    so any error here degrades to a null receipt.
+      let reconciliationReceipt: string | null = null;
+      try {
+        setStatusText('Reconciling terminal…');
+        const { reconciliationReceipt: rx } = await bridge.reconcile();
+        reconciliationReceipt = rx ?? null;
+      } catch (err) {
+        console.warn('[CloseTill] Reconciliation failed:', err);
+        reconciliationReceipt = null;
+      }
+
+      // 3. Close the terminal. "Till is not open" is non-fatal — the
+      //    local store close must still run so the till can be re-opened.
+      setStatusText('Closing terminal…');
       try {
         await bridge.closeTill();
       } catch (err) {
@@ -216,10 +261,57 @@ export default function CloseTillScreen() {
           throw err;
         }
       }
+
+      // 4. Persist the close in the local till store. This is the point
+      //    of no return — after this the drawer is "closed" regardless
+      //    of what happens with printing below.
       await till.closeTill(countedCents, notes);
+
+      // 5. Print the POS EOD summary + ANZ reconciliation verbatim.
+      //    Wrapped in try/catch so a printer failure (not connected,
+      //    missing module, offline) doesn't block the close or the
+      //    subsequent navigation.
+      try {
+        setStatusText('Printing EOD report…');
+        const closedAt = new Date();
+        await printEodReport({
+          store: {
+            name: identity?.label || 'ElevatedPOS',
+            ...(identity?.label ? { branch: identity.label } : {}),
+            ...(identity?.registerId ? { device: identity.registerId } : {}),
+          },
+          shift: {
+            openedAt: till.openedAt ? new Date(till.openedAt) : null,
+            closedAt,
+            ...(openedByName ? { openedByName } : {}),
+            floatDollars: till.floatCents / 100,
+            expectedCashDollars: expectedCents / 100,
+            countedCashDollars: countedCents / 100,
+            varianceDollars: (countedCents - expectedCents) / 100,
+            ...(notes.trim() ? { notes: notes.trim() } : {}),
+          },
+          sales: {
+            totalCount: sb?.totalCount ?? 0,
+            totalDollars: sb?.totalDollars ?? 0,
+            cashCount: sb?.cashCount ?? 0,
+            cashDollars: sb?.cashDollars ?? 0,
+            cardCount: sb?.cardCount ?? 0,
+            cardDollars: sb?.cardDollars ?? 0,
+            otherCount: sb?.otherCount ?? 0,
+            otherDollars: sb?.otherDollars ?? 0,
+            refundCount: sb?.refundCount ?? 0,
+            refundDollars: sb?.refundDollars ?? 0,
+          },
+          ...(reconciliationReceipt ? { anzReconciliationText: reconciliationReceipt } : {}),
+        });
+      } catch (err) {
+        console.warn('[CloseTill] EOD print failed:', err);
+      }
+
       const vDollars = ((countedCents - expectedCents) / 100).toFixed(2);
       toast.success('Till closed', `Variance $${vDollars}.`);
-      if (alsoLogout) {
+      setStatusText(null);
+      if (logoutAfter) {
         authLogout();
         router.replace('/employee-login' as never);
       } else {
@@ -311,6 +403,15 @@ export default function CloseTillScreen() {
                 <Text style={s.label}>Card sales ({sales.cardCount})</Text>
                 <Text style={s.value}>${sales.cardDollars.toFixed(2)}</Text>
               </View>
+              {sales.otherCount > 0 || sales.otherDollars > 0 ? (
+                <>
+                  <View style={s.divider} />
+                  <View style={s.row}>
+                    <Text style={s.label}>Other ({sales.otherCount})</Text>
+                    <Text style={s.value}>${sales.otherDollars.toFixed(2)}</Text>
+                  </View>
+                </>
+              ) : null}
               <View style={s.divider} />
               <View style={s.row}>
                 <Text style={[s.label, { color: '#ef4444' }]}>Refunds ({sales.refundCount})</Text>
@@ -376,7 +477,7 @@ export default function CloseTillScreen() {
         {/* ── Actions ─────────────────────────────────────────────── */}
         <TouchableOpacity
           style={[s.primaryBtn, (busy || !till.isOpen) && { opacity: 0.6 }]}
-          onPress={() => { void performClose(true); }}
+          onPress={() => { void performClose({ logoutAfter: true }); }}
           disabled={busy || !till.isOpen}
           activeOpacity={0.85}
         >
@@ -392,7 +493,7 @@ export default function CloseTillScreen() {
 
         <TouchableOpacity
           style={[s.secondaryBtn, (busy || !till.isOpen) && { opacity: 0.6 }]}
-          onPress={() => { void performClose(false); }}
+          onPress={() => { void performClose({ logoutAfter: false }); }}
           disabled={busy || !till.isOpen}
           activeOpacity={0.85}
         >
@@ -401,8 +502,9 @@ export default function CloseTillScreen() {
         </TouchableOpacity>
 
         <Text style={s.footHint}>
-          Closing runs Deactivate → Logout on the terminal and records the
-          final cash count in the till session.
+          Closing reconciles the ANZ terminal, prints an EOD summary
+          (including the bank settlement receipt) and records the final
+          cash count in the till session.
         </Text>
       </ScrollView>
     </SafeAreaView>

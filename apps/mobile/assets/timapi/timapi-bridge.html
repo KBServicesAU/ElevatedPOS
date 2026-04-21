@@ -17,6 +17,7 @@
   Supported commands from React Native:
     { type: 'open_till',   requestId, terminalIp, terminalPort, integratorId? }
     { type: 'transaction', requestId, amountCents, referenceId? }
+    { type: 'reconcile',   requestId }
     { type: 'close_till',  requestId }
     { type: 'cancel' }
 
@@ -56,6 +57,8 @@
         openTill(msg);
       } else if (msg.type === 'transaction') {
         runTransaction(msg);
+      } else if (msg.type === 'reconcile') {
+        runReconciliation(msg);
       } else if (msg.type === 'close_till') {
         closeTill(msg);
       } else if (msg.type === 'force_reset') {
@@ -181,6 +184,10 @@
           var r = c.txResolver; c.txResolver = null;
           if (r) r({ event: event, data: data });
         },
+        reconciliationCompleted: function (event, data) {
+          var r = c.reconcileResolver; c.reconcileResolver = null;
+          if (r) r({ event: event, data: data });
+        },
         displayTextChanged: function (event, data) {
           var text = (data && data.text) ? String(data.text).trim() : '';
           if (text) rn({ type: 'status', message: text });
@@ -245,17 +252,18 @@
 
     function makeCtx() {
       return {
-        connectResolver:    null,
-        loginResolver:      null,
-        activateResolver:   null,
-        deactivateResolver: null,
-        logoutResolver:     null,
-        txResolver:         null,
-        disconnectHandler:  null,
+        connectResolver:     null,
+        loginResolver:       null,
+        activateResolver:    null,
+        deactivateResolver:  null,
+        logoutResolver:      null,
+        txResolver:          null,
+        reconcileResolver:   null,
+        disconnectHandler:   null,
         // Receipts that arrive asynchronously via receiptGenerated during a
         // transaction — merged with the transactionCompleted payload before
         // we resolve the tx promise. Cleared at the start of each tx.
-        pendingReceipts:    null,
+        pendingReceipts:     null,
       };
     }
 
@@ -395,6 +403,53 @@
           if (ctx) ctx.pendingReceipts = null;
           // Transaction failures are NOT fatal to the till session — the
           // terminal stays alive so the operator can retry.
+          var errMsg = (err && err.message) || String(err);
+          rn({ type: 'error', requestId: reqId, message: errMsg });
+        });
+      } catch (e) {
+        rn({ type: 'error', requestId: reqId, message: (e && e.message) || String(e) });
+      }
+    }
+
+    // ── EOD Reconciliation (requires open till) ────────────────────────────
+    // Runs the TIM API reconciliationAsync → reconciliationCompleted flow.
+    // On success the terminal prints its own bank-settlement receipt AND
+    // returns the same text via the receipts array so we can also print it
+    // from the POS receipt printer. If the SDK build doesn't expose
+    // reconciliationAsync (e.g. very old bundles) we respond with a null
+    // receipt rather than crashing — the caller treats this as "reconcile
+    // unsupported, skip".
+    function runReconciliation(msg) {
+      var reqId = msg.requestId;
+      if (!terminal || !ctx) {
+        rn({ type: 'error', requestId: reqId, message: 'Till is not open' });
+        return;
+      }
+      if (typeof terminal.reconciliationAsync !== 'function') {
+        rn({ type: 'reconciliation_done', requestId: reqId, reconciliationReceipt: null });
+        return;
+      }
+
+      ctx.pendingReceipts = [];
+      try {
+        rn({ type: 'status', message: 'Reconciling\u2026' });
+        runStep(ctx, 'Reconciliation', 120000, function (done) {
+          ctx.reconcileResolver = done;
+          try { terminal.reconciliationAsync(); } catch (err) { done({ exception: err }); }
+        }).then(function (wrapper) {
+          var data = wrapper && wrapper.data;
+          var receipts = extractReceipts(data);
+          var pending = ctx.pendingReceipts || [];
+          for (var i = 0; i < pending.length; i++) {
+            receipts = mergeReceipts(receipts, pending[i]);
+          }
+          ctx.pendingReceipts = null;
+          // Prefer merchant copy (bank settlement report); fall back to
+          // customer copy if that's all the terminal returned.
+          var text = receipts.merchant || receipts.customer || null;
+          rn({ type: 'reconciliation_done', requestId: reqId, reconciliationReceipt: text });
+        }).catch(function (err) {
+          if (ctx) ctx.pendingReceipts = null;
           var errMsg = (err && err.message) || String(err);
           rn({ type: 'error', requestId: reqId, message: errMsg });
         });
