@@ -51,6 +51,14 @@ export interface AnzBridgeApi {
   transaction: (amountCents: number, referenceId?: string) => Promise<AnzTransactionResult>;
   cancel: () => void;
   onStatus: (cb: (message: string) => void) => () => void;
+  /**
+   * Force a reset: best-effort close the terminal, clear ALL pending
+   * promises, reset bridge state to 'idle'. Used when the terminal or
+   * a lifecycle step gets stuck (e.g. hanging on Activate) and the
+   * operator needs to start fresh. Does NOT touch the till store —
+   * caller owns that.
+   */
+  forceReset: () => Promise<void>;
 }
 
 const BRIDGE_URI = 'file:///android_asset/timapi/timapi-bridge.html';
@@ -249,8 +257,18 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [flushOutbox]);
 
+  /**
+   * Deduped openTill — if a call is already in flight, callers wait on
+   * the existing promise instead of queuing a second open_till command
+   * in the bridge. Without this, a manual tap on "Open Till" racing
+   * against the sdk_ready auto-heal would fire open_till twice and the
+   * terminal would appear to loop on "Activating…".
+   */
+  const inflightOpenRef = useRef<Promise<void> | null>(null);
   const openTill = useCallback<AnzBridgeApi['openTill']>(() => {
-    return new Promise<void>((resolve, reject) => {
+    if (inflightOpenRef.current) return inflightOpenRef.current;
+
+    const p = new Promise<void>((resolve, reject) => {
       // Prefer the server-pushed config (includes integratorId); fall back to local store.
       const serverCfg = getServerAnzConfig();
       const ip   = (serverCfg?.terminalIp ?? terminalIp).trim();
@@ -277,6 +295,9 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
       }
       sendRaw(JSON.stringify(payload));
     });
+    inflightOpenRef.current = p;
+    p.finally(() => { inflightOpenRef.current = null; });
+    return p;
   }, [terminalIp, terminalPort, makeRequestId, sendRaw]);
 
   const closeTill = useCallback<AnzBridgeApi['closeTill']>(() => {
@@ -352,6 +373,22 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
     return () => { statusListenersRef.current.delete(cb); };
   }, []);
 
+  /**
+   * Force-reset the bridge. Used by the operator when a lifecycle step
+   * hangs (e.g. terminal stuck on Activate) or the previous shift left
+   * the bridge in an unrecoverable state. Sends `force_reset` to the
+   * WebView (disposes the terminal + clears internal state) AND
+   * rejects every pending promise in the RN host so any UI spinners
+   * unblock immediately. Best-effort; always resolves.
+   */
+  const forceReset = useCallback<AnzBridgeApi['forceReset']>(async () => {
+    try { sendRaw(JSON.stringify({ type: 'force_reset' })); } catch { /* ignore */ }
+    // Drop any in-flight promises so callers don't wait on a ghost.
+    rejectAll('Bridge was force-reset by the operator.');
+    inflightOpenRef.current = null;
+    setState('idle');
+  }, [sendRaw, rejectAll]);
+
   // Best-effort cleanup if the provider unmounts (POS session ends).
   useEffect(() => {
     return () => {
@@ -366,7 +403,8 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
     transaction,
     cancel,
     onStatus,
-  }), [state, openTill, closeTill, transaction, cancel, onStatus]);
+    forceReset,
+  }), [state, openTill, closeTill, transaction, cancel, onStatus, forceReset]);
 
   return (
     <AnzBridgeContext.Provider value={api}>

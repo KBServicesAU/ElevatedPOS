@@ -58,6 +58,19 @@
         runTransaction(msg);
       } else if (msg.type === 'close_till') {
         closeTill(msg);
+      } else if (msg.type === 'force_reset') {
+        // Operator-triggered escape hatch when a lifecycle step hangs
+        // (e.g. Activate stuck). Dispose any live terminal handle and
+        // clear the shared ctx so the next open_till starts from a
+        // clean slate. Unlike close_till this does NOT try to talk to
+        // the terminal first — it's a local cleanup only.
+        if (terminal) {
+          try { if (typeof terminal.cancel === 'function') terminal.cancel(); } catch (_) { /* ignore */ }
+          try { terminal.dispose(); } catch (_) { /* ignore */ }
+        }
+        terminal = null;
+        ctx = null;
+        rn({ type: 'status', message: 'Bridge reset' });
       } else if (msg.type === 'cancel') {
         // The TIM API SDK exposes `terminal.cancel()` (synchronous, no
         // Async suffix). Previous versions of this bridge called

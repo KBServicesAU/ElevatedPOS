@@ -79,6 +79,49 @@ export default function OpenTillScreen() {
     }
   }
 
+  /**
+   * When the till was already open (previous session crashed / app was
+   * killed mid-shift), reopen the bridge with the saved float instead
+   * of forcing the operator to close + re-open. Fast path: just run
+   * bridge.openTill() which is idempotent.
+   */
+  async function handleResume() {
+    setSubmitting(true);
+    setStatusText('Reconnecting terminal…');
+    try {
+      await bridge.openTill();
+      toast.success('Shift resumed', 'Terminal is reconnected.');
+      router.back();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error('Could not reconnect', msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /**
+   * Escape hatch when the bridge is stuck (e.g. looping "Activating…").
+   * Force-resets the WebView side (disposes the terminal handle locally,
+   * sends nothing to the physical device) and clears the till store so
+   * the operator can enter a fresh float.
+   */
+  async function handleForceReset() {
+    setSubmitting(true);
+    setStatusText('Resetting…');
+    try {
+      await bridge.forceReset();
+      await resetTill();
+      toast.success('Till reset', 'You can now open a fresh shift.');
+      setStatusText(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error('Reset failed', msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   const busy = submitting || bridge.state === 'opening';
 
   return (
@@ -94,9 +137,10 @@ export default function OpenTillScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
         {isOpen && (
           <View style={styles.warnBox}>
-            <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+            <Ionicons name="information-circle-outline" size={16} color="#60a5fa" />
             <Text style={styles.warnText}>
-              A till is already open. Close it from the More menu before opening a new one.
+              A till is already open from a previous session. Resume the shift
+              to reconnect the terminal, or reset to start a new shift.
             </Text>
           </View>
         )}
@@ -139,21 +183,57 @@ export default function OpenTillScreen() {
           </View>
         )}
 
-        <TouchableOpacity
-          style={[styles.primaryBtn, (busy || isOpen) && { opacity: 0.6 }]}
-          onPress={handleOpen}
-          disabled={busy || isOpen}
-          activeOpacity={0.85}
-        >
-          {busy ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Ionicons name="lock-open-outline" size={16} color="#fff" />
-          )}
-          <Text style={styles.primaryBtnText}>
-            {busy ? 'Opening…' : 'Open Till'}
-          </Text>
-        </TouchableOpacity>
+        {isOpen ? (
+          <>
+            <TouchableOpacity
+              style={[styles.primaryBtn, busy && { opacity: 0.6 }]}
+              onPress={handleResume}
+              disabled={busy}
+              activeOpacity={0.85}
+            >
+              {busy ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="refresh-outline" size={16} color="#fff" />
+              )}
+              <Text style={styles.primaryBtnText}>
+                {busy ? 'Reconnecting…' : 'Resume Shift (reconnect terminal)'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.dangerBtn, busy && { opacity: 0.6 }]}
+              onPress={handleForceReset}
+              disabled={busy}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="power-outline" size={16} color="#f87171" />
+              <Text style={styles.dangerBtnText}>
+                Force Reset — Start New Shift
+              </Text>
+            </TouchableOpacity>
+            <Text style={[styles.hint, { textAlign: 'center', marginTop: 8 }]}>
+              Use Force Reset if the terminal is stuck on &quot;Activating…&quot;
+              or &quot;Connecting…&quot;.
+            </Text>
+          </>
+        ) : (
+          <TouchableOpacity
+            style={[styles.primaryBtn, busy && { opacity: 0.6 }]}
+            onPress={handleOpen}
+            disabled={busy}
+            activeOpacity={0.85}
+          >
+            {busy ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="lock-open-outline" size={16} color="#fff" />
+            )}
+            <Text style={styles.primaryBtnText}>
+              {busy ? 'Opening…' : 'Open Till'}
+            </Text>
+          </TouchableOpacity>
+        )}
 
         <Text style={styles.footHint}>
           Runs Connect → Login → Activate on the terminal and keeps it connected
@@ -243,4 +323,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   primaryBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  dangerBtn: {
+    marginTop: 12,
+    borderColor: '#f87171',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(248, 113, 113, 0.08)',
+  },
+  dangerBtnText: { color: '#f87171', fontWeight: '700', fontSize: 14 },
 });
