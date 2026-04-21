@@ -217,15 +217,11 @@ export default function PosLayout() {
       keywords: ['upsell', 'suggest', 'kiosk', 'cross sell', 'recommend', 'add on'],
       onSelect: () => router.push('/(pos)/upsell-setup' as never),
     },
-    {
-      id: 'tyro',
-      label: 'Tyro EFTPOS',
-      description: 'Configure card terminal',
-      icon: 'card',
-      iconColor: '#22c55e',
-      section: 'Settings',
-      onSelect: () => router.push('/(pos)/tyro-settings' as never),
-    },
+    // v2.7.30 — Tyro / ANZ terminal configuration removed from the POS
+    // command palette. Payment terminals are now assigned per device
+    // in the dashboard (Dashboard → Devices → Assign Terminal). Having
+    // two places to configure caused device B to inherit device A's
+    // terminal — see v2.7.26. Use the Sync button in More to re-pull.
     {
       id: 'more',
       label: 'More & Settings',

@@ -164,6 +164,10 @@ export default function MoreScreen() {
   const tillOpenedAt = useTillStore((s) => s.openedAt);
   const hydrateTill = useTillStore((s) => s.hydrate);
 
+  // ── Sync (re-pull server config — v2.7.30) ───────────────────────
+  const fetchDeviceSettings = useDeviceSettings((s) => s.fetch);
+  const [syncing, setSyncing] = useState(false);
+
   // ── Receipt print prefs ──────────────────────────────────────────
   const printStoreReceipt    = useReceiptPrefs((s) => s.printStoreReceipt);
   const printCustomerReceipt = useReceiptPrefs((s) => s.printCustomerReceipt);
@@ -581,6 +585,39 @@ export default function MoreScreen() {
     router.replace('/pair');
   }
 
+  /* ── Sync (v2.7.30) ──────────────────────────────────────────────
+     Re-pulls server-managed device config (payment terminal, network
+     printers, customer display, identity) + refreshes menu so admin
+     edits made in the dashboard show up without needing to restart
+     the app. */
+  async function handleSync() {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      // Server config: terminal assignment + identity + printers + display
+      await fetchDeviceSettings();
+      // Menu: products + categories
+      await fetchCatalog().catch(() => { /* non-fatal */ });
+
+      const cfg = useDeviceSettings.getState().config;
+      const assignedTerminal = cfg?.terminal
+        ? cfg.terminal.provider === 'anz'
+          ? `ANZ Worldline (${cfg.terminal.terminalIp ?? '—'})`
+          : cfg.terminal.provider === 'tyro'
+            ? 'Tyro'
+            : cfg.terminal.provider
+        : 'not assigned';
+      toast.success('Device synced', `Terminal: ${assignedTerminal}`);
+    } catch (err) {
+      toast.error(
+        'Sync failed',
+        err instanceof Error ? err.message : 'Could not reach the server',
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   /* ── Open manage modal ────────────────────────────────────────── */
 
   function openManageModal(tab: 'products' | 'categories') {
@@ -906,25 +943,20 @@ export default function MoreScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ═══════ Payments ═══════ */}
-        <Text style={[s.sectionTitle, { marginTop: 32 }]}>Payments</Text>
+        {/* ═══════ Till ═══════ */}
+        {/*
+         * v2.7.30 — payment-terminal configuration was moved entirely
+         * to the dashboard (Dashboard → Devices → assign a terminal
+         * credential to each device). The "ANZ Settings" and "Tyro"
+         * rows that used to live in this section are gone — having two
+         * places to configure payment was a foot-gun. The current
+         * assignment is displayed read-only in the Device card below;
+         * use the Sync button at the bottom of this screen to re-pull
+         * the assignment if an admin just changed it in the dashboard.
+         */}
+        <Text style={[s.sectionTitle, { marginTop: 32 }]}>Till</Text>
 
         <View style={s.card}>
-          <TouchableOpacity
-            style={s.menuRow}
-            onPress={() => router.push('/(pos)/anz-settings' as never)}
-            activeOpacity={0.7}
-          >
-            <View style={s.menuRowLeft}>
-              <Ionicons name="settings-outline" size={20} color="#6366f1" />
-              <Text style={s.menuRowText}>ANZ Settings</Text>
-            </View>
-            <View style={s.menuRowRight}>
-              <Text style={s.menuRowSub}>Terminal IP · TIM API</Text>
-              <Ionicons name="chevron-forward" size={18} color="#444" />
-            </View>
-          </TouchableOpacity>
-          <View style={s.divider} />
           {tillOpen ? (
             <TouchableOpacity
               style={s.menuRow}
@@ -960,21 +992,6 @@ export default function MoreScreen() {
               </View>
             </TouchableOpacity>
           )}
-          <View style={s.divider} />
-          <TouchableOpacity
-            style={s.menuRow}
-            onPress={() => router.push('/(pos)/tyro-settings' as never)}
-            activeOpacity={0.7}
-          >
-            <View style={s.menuRowLeft}>
-              <Ionicons name="terminal-outline" size={20} color="#22c55e" />
-              <Text style={s.menuRowText}>Tyro</Text>
-            </View>
-            <View style={s.menuRowRight}>
-              <Text style={s.menuRowSub}>Configure Tyro terminal</Text>
-              <Ionicons name="chevron-forward" size={18} color="#444" />
-            </View>
-          </TouchableOpacity>
         </View>
 
         {/* ═══════ Receipts ═══════ */}
@@ -1466,6 +1483,29 @@ export default function MoreScreen() {
             </>
           )}
         </View>
+
+        {/* v2.7.30 — Sync button: re-pulls server config (terminal,
+            printers, identity, menu). Useful when an admin changes
+            device assignment in the dashboard and the POS needs to
+            pick it up without restarting. */}
+        <TouchableOpacity
+          style={[s.syncBtn, syncing && s.syncBtnDisabled]}
+          onPress={handleSync}
+          disabled={syncing}
+          activeOpacity={0.85}
+        >
+          {syncing ? (
+            <ActivityIndicator size="small" color="#6366f1" />
+          ) : (
+            <>
+              <Ionicons name="sync" size={18} color="#6366f1" />
+              <Text style={s.syncBtnText}>Sync Device Settings</Text>
+            </>
+          )}
+        </TouchableOpacity>
+        <Text style={[s.warning, { marginBottom: 12 }]}>
+          Re-pulls terminal assignment, printers, and menu from the dashboard.
+        </Text>
 
         <TouchableOpacity style={s.unpairBtn} onPress={handleUnpair} activeOpacity={0.85}>
           <Text style={s.unpairBtnText}>Unpair Device</Text>
@@ -2088,6 +2128,23 @@ const s = StyleSheet.create({
   },
   roleBadgeText: { fontSize: 13, fontWeight: '800', color: '#6366f1' },
 
+  /* ── Sync (v2.7.30) ── */
+  syncBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(99,102,241,0.1)',
+    borderRadius: 14,
+    paddingVertical: 16,
+    borderWidth: 1.5,
+    borderColor: '#6366f1',
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  syncBtnDisabled: { opacity: 0.6 },
+  syncBtnText: { fontSize: 16, fontWeight: '700', color: '#6366f1' },
+
   /* ── Unpair ── */
   unpairBtn: {
     backgroundColor: 'rgba(239,68,68,0.1)',
@@ -2097,7 +2154,7 @@ const s = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#ef4444',
     marginBottom: 12,
-    marginTop: 16,
+    marginTop: 8,
   },
   unpairBtnText: { fontSize: 16, fontWeight: '700', color: '#ef4444' },
   warning: { fontSize: 13, color: '#555', textAlign: 'center', lineHeight: 18 },
