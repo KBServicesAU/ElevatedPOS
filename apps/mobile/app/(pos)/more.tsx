@@ -1399,11 +1399,29 @@ export default function MoreScreen() {
               <Text style={s.roleBadgeText}>{identity?.role?.toUpperCase() ?? '—'}</Text>
             </View>
           </View>
+
+          {/* v2.7.26 — merchant / location / device are now pushed by the
+              server (see services/auth devices/config → identity block).
+              Fall back to the local device-store labels when the server
+              version is older. */}
           <View style={s.divider} />
           <View style={s.row}>
-            <Text style={s.label}>Label</Text>
-            <Text style={s.value}>{identity?.label ?? '—'}</Text>
+            <Text style={s.label}>Merchant</Text>
+            <Text style={s.value}>{serverConfig?.identity?.orgName ?? '—'}</Text>
           </View>
+          <View style={s.divider} />
+          <View style={s.row}>
+            <Text style={s.label}>Location</Text>
+            <Text style={s.value}>{serverConfig?.identity?.locationName ?? '—'}</Text>
+          </View>
+          <View style={s.divider} />
+          <View style={s.row}>
+            <Text style={s.label}>Device</Text>
+            <Text style={s.value}>
+              {serverConfig?.identity?.deviceLabel ?? identity?.label ?? '—'}
+            </Text>
+          </View>
+
           <View style={s.divider} />
           <View style={s.row}>
             <Text style={s.label}>Location ID</Text>
@@ -1429,9 +1447,24 @@ export default function MoreScreen() {
                   : serverConfig.terminal.provider === 'tyro'
                     ? 'Tyro'
                     : serverConfig.terminal.provider
-                : 'Not configured'}
+                : 'Not assigned'}
             </Text>
           </View>
+          {!serverConfig?.terminal && serverConfig && (
+            <>
+              <View style={s.divider} />
+              <View style={{ padding: 10, backgroundColor: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, marginTop: 4 }}>
+                <Text style={{ color: '#f59e0b', fontSize: 12, fontWeight: '600' }}>
+                  No terminal assigned to this device
+                </Text>
+                <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 4, lineHeight: 15 }}>
+                  Each device needs its own payment terminal in the back-office.
+                  Go to Dashboard → Devices → select this device → Assign Terminal.
+                  Until assigned, card payments are disabled on this register.
+                </Text>
+              </View>
+            </>
+          )}
         </View>
 
         <TouchableOpacity style={s.unpairBtn} onPress={handleUnpair} activeOpacity={0.85}>

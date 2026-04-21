@@ -49,7 +49,27 @@ export interface ServerCustomerDisplay {
   showGst: boolean;
 }
 
+/**
+ * v2.7.26 — server-pushed identity block so the More page + receipts can
+ * render Merchant / Location / Device without extra lookups. Populated on
+ * the current backend; may be null against older server builds.
+ */
+export interface ServerIdentity {
+  orgId: string;
+  orgName: string | null;
+  locationId: string;
+  locationName: string | null;
+  locationPhone: string | null;
+  locationAddress1: string | null;
+  locationAddress2: string | null;
+  deviceId: string;
+  deviceLabel: string | null;
+  deviceRole: string;
+  registerId: string | null;
+}
+
 interface DeviceConfig {
+  identity?: ServerIdentity | null;
   terminal: ServerTerminalConfig | null;
   networkPrinters: {
     receipt: ServerNetworkPrinter | null;
@@ -131,4 +151,21 @@ export function getServerOrderPrinter(): ServerNetworkPrinter | null {
 /** Returns the customer display settings from the dashboard. */
 export function getServerCustomerDisplay(): ServerCustomerDisplay {
   return useDeviceSettings.getState().config?.customerDisplay ?? DEFAULT_DISPLAY;
+}
+
+/** Returns the server-pushed identity (merchant / location / device). */
+export function getServerIdentity(): ServerIdentity | null {
+  return useDeviceSettings.getState().config?.identity ?? null;
+}
+
+/**
+ * True when the backend has explicitly assigned a payment terminal to
+ * THIS device. A null terminal means the dashboard hasn't set up a
+ * terminal for the device yet; the POS should NOT silently borrow
+ * another device's terminal (that's what v2.7.25 and earlier did,
+ * causing device B to pick up device A's terminal config).
+ */
+export function hasAssignedTerminal(): boolean {
+  return useDeviceSettings.getState().config?.terminal !== null &&
+         useDeviceSettings.getState().config?.terminal !== undefined;
 }

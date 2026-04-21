@@ -387,6 +387,16 @@ export async function deviceRoutes(app: FastifyInstance) {
     });
     if (!device) return reply.status(401).send({ title: 'Device not found or revoked', status: 401 });
 
+    // ── Location details (for the POS More page / receipt header) ─────────
+    const location = await db.query.locations.findFirst({
+      where: and(eq(schema.locations.id, device.locationId), eq(schema.locations.orgId, device.orgId)),
+    });
+
+    // ── Organisation details (for the receipt header — business name, ABN)
+    const organisation = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, device.orgId),
+    });
+
     // ── Network printers (receipt + order) for the device's location ─────
     const printerRows = await db.query.printers.findMany({
       where: and(
@@ -433,10 +443,26 @@ export async function deviceRoutes(app: FastifyInstance) {
           Array.isArray(credsData) ? credsData : (credsData as { data?: unknown[] }).data ?? []
         ) as Record<string, unknown>[];
 
-        // Use the device-specific credential, or fall back to the first active one
+        // v2.7.26 — per-device credential isolation.
+        //
+        // Previously this code fell back to the first active credential in
+        // the org whenever the device's credentialId was null or couldn't
+        // be resolved. That was wrong: it caused every un-configured device
+        // in a multi-device shop to pick up the FIRST device's terminal
+        // config (same IP, same integrator), so a brand-new register would
+        // try to talk to the register-1 terminal across the LAN.
+        //
+        // New rule:
+        //   • credentialId set AND matching active credential exists → use it.
+        //   • credentialId set but not found (stale / revoked)         → return null.
+        //   • credentialId not set (device not yet assigned)           → return null.
+        //
+        // The mobile POS will see `terminal: null` and surface a "No
+        // terminal assigned to this device — ask your admin" banner rather
+        // than silently using someone else's terminal.
         const credential = credentialId
-          ? (creds.find((c) => c['id'] === credentialId && c['isActive']) ?? creds.find((c) => !!c['isActive']))
-          : creds.find((c) => !!c['isActive']);
+          ? creds.find((c) => c['id'] === credentialId && c['isActive'])
+          : undefined;
 
         if (credential) {
           const meta = (credential['metadata'] as Record<string, unknown>) ?? {};
@@ -477,8 +503,35 @@ export async function deviceRoutes(app: FastifyInstance) {
       showGst:        (deviceSettings['showGst']        as boolean) ?? true,
     };
 
+    // ── Identity block — so the POS can render "Merchant / Location /
+    // Device" in More without needing a separate lookup. Also feeds the
+    // receipt header with address/phone for the business.
+    const locationAddress = (location?.address as Record<string, unknown> | null) ?? null;
+    const merchantAddressLine1 =
+      locationAddress
+        ? [locationAddress['line1'], locationAddress['line2']].filter(Boolean).join(' ')
+        : null;
+    const merchantAddressLine2 =
+      locationAddress
+        ? [locationAddress['city'], locationAddress['state'], locationAddress['postcode']].filter(Boolean).join(' ')
+        : null;
+
     return reply.send({
       data: {
+        /** v2.7.26 — human-readable identity, safe to surface in the More page + receipt header. */
+        identity: {
+          orgId:        device.orgId,
+          orgName:      organisation?.name ?? null,
+          locationId:   device.locationId,
+          locationName: location?.name ?? null,
+          locationPhone: location?.phone ?? null,
+          locationAddress1: merchantAddressLine1,
+          locationAddress2: merchantAddressLine2,
+          deviceId:     device.id,
+          deviceLabel:  device.label ?? null,
+          deviceRole:   device.role,
+          registerId:   device.registerId ?? null,
+        },
         terminal,
         networkPrinters: {
           receipt: receiptPrinter
