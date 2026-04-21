@@ -10,6 +10,7 @@ import { useDeviceSettings } from '../../store/device-settings';
 import { AnzBridgeProvider } from '../../components/AnzBridgeHost';
 import { useAnzStore } from '../../store/anz';
 import { useTillStore } from '../../store/till';
+import { useReceiptPrefs } from '../../store/receipt-prefs';
 
 interface NavItem {
   /** File-system route (without (pos) group, since expo-router strips groups from pathname). */
@@ -30,14 +31,17 @@ export default function PosLayout() {
   const hydrateTill = useTillStore((s) => s.hydrate);
   const tillOpen    = useTillStore((s) => s.isOpen);
   const tillReady   = useTillStore((s) => s.ready);
+  const hydrateReceiptPrefs = useReceiptPrefs((s) => s.hydrate);
 
   // Hydrate sidebar preferences on mount. Also hydrate the ANZ + till
   // stores here so the bridge provider can read terminal IP / till state
-  // from the very first render.
+  // from the very first render. Receipt print prefs are hydrated here too
+  // so the first sale after app launch respects the merchant's settings.
   React.useEffect(() => {
     hydrateSidebar();
     hydrateAnz();
     hydrateTill();
+    hydrateReceiptPrefs();
   }, []);
 
   // Re-fetch device settings whenever the app comes to the foreground so

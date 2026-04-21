@@ -26,6 +26,7 @@ import { useSidebarStore, ALL_SIDEBAR_ITEMS } from '../../store/sidebar';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
 import { useTillStore } from '../../store/till';
+import { useReceiptPrefs, type EftposAttach } from '../../store/receipt-prefs';
 import { catalogApiFetch } from '../../lib/catalog-api';
 import {
   connectPrinter,
@@ -81,6 +82,12 @@ function formatShiftDuration(clockInAt: string): string {
 function truncate(str: string | null | undefined, len = 16): string {
   if (!str) return '—';
   return str.length > len ? `${str.slice(0, len)}...` : str;
+}
+
+function segLabel(opt: EftposAttach): string {
+  if (opt === 'off') return 'Off';
+  if (opt === 'attached') return 'Attached';
+  return 'Standalone';
 }
 
 /* ------------------------------------------------------------------ */
@@ -157,6 +164,14 @@ export default function MoreScreen() {
   const tillOpenedAt = useTillStore((s) => s.openedAt);
   const hydrateTill = useTillStore((s) => s.hydrate);
 
+  // ── Receipt print prefs ──────────────────────────────────────────
+  const printStoreReceipt    = useReceiptPrefs((s) => s.printStoreReceipt);
+  const printCustomerReceipt = useReceiptPrefs((s) => s.printCustomerReceipt);
+  const eftposStoreAttach    = useReceiptPrefs((s) => s.eftposStoreAttach);
+  const eftposCustomerAttach = useReceiptPrefs((s) => s.eftposCustomerAttach);
+  const hydrateReceiptPrefs  = useReceiptPrefs((s) => s.hydrate);
+  const setReceiptPref       = useReceiptPrefs((s) => s.setPrint);
+
   /* ── Effects ──────────────────────────────────────────────────── */
 
   // Hydrate stores on mount
@@ -167,6 +182,7 @@ export default function MoreScreen() {
     checkForUpdate();
     hydrateSidebar();
     hydrateTill();
+    hydrateReceiptPrefs();
   }, []);
 
   // Shift timer
@@ -959,6 +975,99 @@ export default function MoreScreen() {
               <Ionicons name="chevron-forward" size={18} color="#444" />
             </View>
           </TouchableOpacity>
+        </View>
+
+        {/* ═══════ Receipts ═══════ */}
+        <Text style={[s.sectionTitle, { marginTop: 32 }]}>Receipts</Text>
+        <Text style={[s.valueSmall, { paddingHorizontal: 4, marginTop: -10, marginBottom: 8 }]}>
+          Choose what prints on every sale. Attached = ANZ receipt at the bottom of the POS receipt; standalone = separate cut receipt.
+        </Text>
+
+        <View style={s.card}>
+          {/* Print store (merchant) POS receipt */}
+          <View style={s.row}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={s.label}>Print store receipt</Text>
+              <Text style={[s.valueSmall, { marginTop: 2 }]}>
+                Merchant copy of the POS receipt
+              </Text>
+            </View>
+            <Switch
+              value={printStoreReceipt}
+              onValueChange={(v) => setReceiptPref({ printStoreReceipt: v })}
+              trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
+              thumbColor={printStoreReceipt ? '#6366f1' : '#555'}
+            />
+          </View>
+          <View style={s.divider} />
+
+          {/* Print EFTPOS store receipt (3-way) */}
+          <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+            <Text style={s.label}>Print EFTPOS store receipt</Text>
+            <Text style={[s.valueSmall, { marginTop: 2, marginBottom: 10 }]}>
+              ANZ terminal merchant copy
+            </Text>
+            <View style={s.segRow}>
+              {(['off', 'attached', 'standalone'] as EftposAttach[]).map((opt) => {
+                const selected = eftposStoreAttach === opt;
+                return (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[s.segBtn, selected && s.segBtnActive]}
+                    onPress={() => setReceiptPref({ eftposStoreAttach: opt })}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[s.segBtnText, selected && s.segBtnTextActive]}>
+                      {segLabel(opt)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+          <View style={s.divider} />
+
+          {/* Print customer POS receipt */}
+          <View style={s.row}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={s.label}>Print customer receipt</Text>
+              <Text style={[s.valueSmall, { marginTop: 2 }]}>
+                Customer copy of the POS receipt
+              </Text>
+            </View>
+            <Switch
+              value={printCustomerReceipt}
+              onValueChange={(v) => setReceiptPref({ printCustomerReceipt: v })}
+              trackColor={{ false: '#2a2a3a', true: '#6366f180' }}
+              thumbColor={printCustomerReceipt ? '#6366f1' : '#555'}
+            />
+          </View>
+          <View style={s.divider} />
+
+          {/* Print EFTPOS customer receipt (3-way) */}
+          <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+            <Text style={s.label}>Print EFTPOS customer receipt</Text>
+            <Text style={[s.valueSmall, { marginTop: 2, marginBottom: 10 }]}>
+              ANZ terminal customer copy
+            </Text>
+            <View style={s.segRow}>
+              {(['off', 'attached', 'standalone'] as EftposAttach[]).map((opt) => {
+                const selected = eftposCustomerAttach === opt;
+                return (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[s.segBtn, selected && s.segBtnActive]}
+                    onPress={() => setReceiptPref({ eftposCustomerAttach: opt })}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[s.segBtnText, selected && s.segBtnTextActive]}>
+                      {segLabel(opt)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
         </View>
 
         {/* ═══════ Printer Settings ═══════ */}
@@ -2053,6 +2162,28 @@ const s = StyleSheet.create({
   typeBtnActive: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
   typeBtnText: { fontSize: 13, fontWeight: '600', color: '#888' },
   typeBtnTextActive: { color: '#fff' },
+
+  /* ── Segmented control (3-way switch for receipt prefs) ── */
+  segRow: {
+    flexDirection: 'row',
+    gap: 6,
+    backgroundColor: '#0d0d14',
+    padding: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+  },
+  segBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#1e1e2e',
+  },
+  segBtnActive: { backgroundColor: '#6366f1' },
+  segBtnText: { fontSize: 13, fontWeight: '600', color: '#888' },
+  segBtnTextActive: { color: '#fff' },
   switchRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -4,6 +4,7 @@
  */
 import { Platform, Alert } from 'react-native';
 import { usePrinterStore, type PrinterConnectionType } from '../store/printers';
+import { useReceiptPrefs } from '../store/receipt-prefs';
 
 // ── Android Bluetooth runtime permissions ────────────────────────────────────
 // Android 12+ (API 31+) introduced BLUETOOTH_SCAN and BLUETOOTH_CONNECT as
@@ -388,6 +389,10 @@ export interface PrintReceiptOpts {
  */
 function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   const w = paperWidth === 58 ? 32 : 48;
+  // Double-width ESC/POS tags (<CM>, <M>, <D>) render each glyph as 2
+  // physical columns. Any string wrapped in these tags therefore has to be
+  // clipped to `bigW` = floor(w/2) or the line wraps. See v2.7.22 notes.
+  const bigW = Math.floor(w / 2);
   const line = '='.repeat(w);
   const dash = '-'.repeat(w);
 
@@ -408,7 +413,8 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   function centre(s: string): string {
     // Let the native printer center if the control tags are honoured; also
     // fall back to manual padding so the layout is stable on cheap drivers.
-    return `<C>${s}</C>`;
+    // Caller is responsible for clipping `s` to `w` first.
+    return `<C>${clip(s, w)}</C>`;
   }
 
   const copy: ReceiptCopy = opts.copy ?? 'customer';
@@ -423,19 +429,27 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   // Store name — large (CM = centred + medium). <CM> is honoured by the
   // react-native-thermal-receipt-printer tag dialect; cheap drivers fall
   // back to normal text, which is still readable.
+  // NOTE: <CM> prints at 2× width so clip to bigW, not w.
   r += line + '\n';
-  r += `<CM>${clip(opts.store.name, w)}</CM>\n`;
-  if (opts.store.address1) r += centre(clip(opts.store.address1, w)) + '\n';
-  if (opts.store.address2) r += centre(clip(opts.store.address2, w)) + '\n';
-  if (opts.store.phone)    r += centre(clip(opts.store.phone, w)) + '\n';
-  if (opts.store.email)    r += centre(clip(opts.store.email, w)) + '\n';
-  if (opts.store.abn)      r += centre(clip(`ABN ${opts.store.abn}`, w)) + '\n';
+  r += `<CM>${clip(opts.store.name, bigW)}</CM>\n`;
+  if (opts.store.address1) r += centre(opts.store.address1) + '\n';
+  if (opts.store.address2) r += centre(opts.store.address2) + '\n';
+  if (opts.store.phone)    r += centre(opts.store.phone) + '\n';
+  if (opts.store.email)    r += centre(opts.store.email) + '\n';
+  if (opts.store.abn)      r += centre(`ABN ${opts.store.abn}`) + '\n';
   r += line + '\n';
 
   // ── Branch + device line ─────────────────────────────────────────
   if (opts.store.branch || opts.store.device) {
-    const branchStr = opts.store.branch ? `  Branch: ${opts.store.branch}` : '';
-    const deviceStr = opts.store.device ? `Device: ${opts.store.device}  ` : '';
+    // Defensive clip — the combined length of branch + device could
+    // otherwise exceed `w` and wrap. Give each side half the paper.
+    const half = Math.max(1, Math.floor(w / 2) - 2);
+    const branchStr = opts.store.branch
+      ? clip(`  Branch: ${opts.store.branch}`, half)
+      : '';
+    const deviceStr = opts.store.device
+      ? clip(`Device: ${opts.store.device}  `, half)
+      : '';
     r += pad(branchStr, deviceStr) + '\n';
     r += line + '\n';
   }
@@ -443,7 +457,9 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   // ── Big order number (short mode) ────────────────────────────────
   const mode = opts.order.orderNumberMode ?? 'full';
   if (mode === 'short' && opts.order.shortOrderNumber) {
-    r += `<CM>ORDER #${opts.order.shortOrderNumber}</CM>\n`;
+    // <CM> = 2× width, so clip to bigW minus the length of the "ORDER #" prefix.
+    const label = `ORDER #${opts.order.shortOrderNumber}`;
+    r += `<CM>${clip(label, bigW)}</CM>\n`;
     r += line + '\n';
   } else if (opts.order.orderNumber) {
     r += centre(`Order #${opts.order.orderNumber}`) + '\n';
@@ -453,10 +469,10 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   // ── Date left, time right ────────────────────────────────────────
   r += pad(`  ${date}`, `${time}  `) + '\n';
   if (opts.order.cashierName) {
-    r += `  Staff: ${clip(opts.order.cashierName, w - 9)}\n`;
+    r += clip(`  Staff: ${opts.order.cashierName}`, w) + '\n';
   }
   if (opts.order.customerName) {
-    r += `  Customer: ${clip(opts.order.customerName, w - 12)}\n`;
+    r += clip(`  Customer: ${opts.order.customerName}`, w) + '\n';
   }
   if (opts.order.tableNumber !== undefined && opts.order.tableNumber !== null && opts.order.tableNumber !== '') {
     const seatsStr = opts.order.covers ? `Covers ${opts.order.covers}  ` : '';
@@ -617,10 +633,19 @@ export async function printReceipt(opts: PrintReceiptOpts | LegacyReceiptOpts): 
 }
 
 /**
- * Convenience for card sales: prints a customer copy (with the ANZ
- * customer receipt appended) followed by a merchant copy (with the
- * ANZ merchant receipt appended). Falls back to a single customer
- * copy when there is no ANZ merchant receipt (cash sales).
+ * Convenience for card sales: prints the POS customer copy, the POS
+ * merchant copy, and any ANZ terminal receipts per the merchant's
+ * print preferences (see `useReceiptPrefs`).
+ *
+ * Four toggles drive the flow:
+ *   - `printCustomerReceipt`     (bool)  — POS customer copy on/off
+ *   - `printStoreReceipt`        (bool)  — POS merchant copy on/off
+ *   - `eftposCustomerAttach`     (enum)  — off / attached / standalone
+ *   - `eftposStoreAttach`        (enum)  — off / attached / standalone
+ *
+ * `attached` means the ANZ receipt is appended to the bottom of the
+ * corresponding POS receipt (historical default). `standalone` prints
+ * it as its own cut receipt after the POS receipt.
  */
 export async function printSaleReceipts(
   opts: Omit<PrintReceiptOpts, 'copy' | 'anzReceiptText'> & {
@@ -629,21 +654,81 @@ export async function printSaleReceipts(
   },
 ): Promise<void> {
   const { anzMerchantReceipt, anzCustomerReceipt, ...base } = opts;
+  const prefs = useReceiptPrefs.getState();
 
-  // Customer copy first — that is the one the punter walks away with.
-  await printReceipt({
-    ...base,
-    copy: 'customer',
-    anzReceiptText: anzCustomerReceipt,
-  });
+  const customerAnz = anzCustomerReceipt && anzCustomerReceipt.trim().length > 0
+    ? anzCustomerReceipt
+    : undefined;
+  const merchantAnz = anzMerchantReceipt && anzMerchantReceipt.trim().length > 0
+    ? anzMerchantReceipt
+    : undefined;
 
-  // Merchant copy only when the ANZ terminal produced one.
-  if (anzMerchantReceipt && anzMerchantReceipt.trim().length > 0) {
+  // ── Customer POS receipt ─────────────────────────────────────────
+  if (prefs.printCustomerReceipt) {
+    const anzAttached = prefs.eftposCustomerAttach === 'attached'
+      ? customerAnz
+      : undefined;
+    await printReceipt({
+      ...base,
+      copy: 'customer',
+      anzReceiptText: anzAttached,
+    });
+  }
+
+  // ── Standalone ANZ customer receipt ──────────────────────────────
+  if (prefs.eftposCustomerAttach === 'standalone' && customerAnz) {
+    await printRawAnzReceipt(customerAnz, 'customer');
+  }
+
+  // ── Merchant POS receipt ─────────────────────────────────────────
+  if (prefs.printStoreReceipt) {
+    const anzAttached = prefs.eftposStoreAttach === 'attached'
+      ? merchantAnz
+      : undefined;
     await printReceipt({
       ...base,
       copy: 'merchant',
-      anzReceiptText: anzMerchantReceipt,
+      anzReceiptText: anzAttached,
     });
+  }
+
+  // ── Standalone ANZ merchant receipt ──────────────────────────────
+  if (prefs.eftposStoreAttach === 'standalone' && merchantAnz) {
+    await printRawAnzReceipt(merchantAnz, 'merchant');
+  }
+}
+
+/**
+ * Print the raw ANZ terminal receipt verbatim as its own cut receipt.
+ * Wraps the ANZ text in a minimal POS header/footer so staff can see
+ * which copy it is, without re-printing the full itemised POS receipt.
+ */
+export async function printRawAnzReceipt(
+  text: string,
+  copy: ReceiptCopy,
+): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+  const { type, paperWidth } = usePrinterStore.getState().config;
+  const printer = getPrinter(type);
+  if (!printer) throw new Error('No printer configured');
+  if (!connected) await connectPrinter();
+
+  const w = paperWidth === 58 ? 32 : 48;
+  const line = '='.repeat(w);
+
+  let body = '';
+  body += line + '\n';
+  body += `<C><B>${copy === 'merchant' ? '* MERCHANT COPY *' : '* CUSTOMER COPY *'}</B></C>\n`;
+  body += line + '\n';
+  body += '\n' + text.trim() + '\n';
+  body += line + '\n';
+  body += '<C>Powered by ElevatedPOS</C>\n';
+  body += '\n\n\n';
+
+  try {
+    await printer.printText(body, { cut: true });
+  } catch (e: any) {
+    throw new Error('ANZ receipt print failed: ' + (e?.message ?? 'unknown'));
   }
 }
 

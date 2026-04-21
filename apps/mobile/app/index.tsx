@@ -2,11 +2,15 @@ import { Redirect, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useDeviceStore } from '../store/device';
+import { useAuthStore } from '../store/auth';
 
 const ROLE_LOCK = process.env['EXPO_PUBLIC_ROLE_LOCK'] as 'pos' | 'kds' | 'kiosk' | 'dashboard' | 'display' | undefined;
 
 export default function Index() {
   const { identity, ready } = useDeviceStore();
+  // Employee state is in-memory only (no persisted hydration), so there's
+  // no "authReady" flag to wait on — null means no login yet.
+  const employee = useAuthStore((s) => s.employee);
 
   // Dashboard app — requires a paired device identity before entering
   if (ROLE_LOCK === 'dashboard') {
@@ -41,9 +45,16 @@ export default function Index() {
 
   const role = ROLE_LOCK ?? identity.role;
 
-  // POS requires employee login before access
+  // POS requires employee login before access. Bug fix (v2.7.22): this
+  // route used to redirect to /employee-login unconditionally, so every
+  // tap on the Sell sidebar item (which navigates to `/`) bounced a
+  // logged-in operator back to the PIN screen — looked exactly like
+  // being logged out. Now we only route to login when no employee is
+  // present; otherwise we enter the POS group (which shows the Sell
+  // screen at `(pos)/index.tsx`).
   if (role === 'pos') {
-    return <Redirect href="/employee-login" />;
+    if (!employee) return <Redirect href="/employee-login" />;
+    return <Redirect href="/(pos)" />;
   }
   if (role === 'dashboard') return <Redirect href="/login" />;
   if (role === 'kds') return <Redirect href="/(kds)" />;
