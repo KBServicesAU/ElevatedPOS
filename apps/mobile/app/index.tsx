@@ -49,12 +49,17 @@ export default function Index() {
   // route used to redirect to /employee-login unconditionally, so every
   // tap on the Sell sidebar item (which navigates to `/`) bounced a
   // logged-in operator back to the PIN screen — looked exactly like
-  // being logged out. Now we only route to login when no employee is
-  // present; otherwise we enter the POS group (which shows the Sell
-  // screen at `(pos)/index.tsx`).
+  // being logged out.
+  //
+  // v2.7.23 — target `/sell` instead of `/(pos)`. The `/` URL used to
+  // resolve BOTH to this root router AND to `(pos)/index.tsx`; depending
+  // on nav state expo-router sometimes unmounted (pos)/_layout.tsx on
+  // every Sell tap, which tore down AnzBridgeProvider and disconnected
+  // the ANZ terminal. The Sell screen now lives at its own URL so there
+  // is only one route candidate per URL.
   if (role === 'pos') {
     if (!employee) return <Redirect href="/employee-login" />;
-    return <Redirect href="/(pos)" />;
+    return <Redirect href="/sell" />;
   }
   if (role === 'dashboard') return <Redirect href="/login" />;
   if (role === 'kds') return <Redirect href="/(kds)" />;

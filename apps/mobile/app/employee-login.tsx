@@ -200,7 +200,7 @@ export default function EmployeeLoginScreen() {
       if (role === 'dashboard') {
         router.replace('/(dashboard)');
       } else {
-        router.replace('/(pos)');
+        router.replace('/sell');
       }
     } catch {
       setPin('');

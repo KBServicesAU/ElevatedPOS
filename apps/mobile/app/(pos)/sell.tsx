@@ -40,6 +40,7 @@ import {
   AnzPaymentModal,
   type AnzPaymentResult,
 } from '../../components/AnzPaymentModal';
+import { useAnzBridge } from '../../components/AnzBridgeHost';
 import {
   StripePaymentModal,
   type StripePaymentResult,
@@ -149,6 +150,10 @@ export default function PosSellScreen() {
   const [showAnzModal, setShowAnzModal] = useState(false);
   const [anzAmount, setAnzAmount] = useState(0);
   const [anzRefId, setAnzRefId] = useState('');
+  // v2.7.23 — read the real ANZ terminal capability bits (set after
+  // activateCompleted) so the Card button can surface "(Surcharge applies)"
+  // based on the acquirer-level merchant config, not a stale local toggle.
+  const anzCapabilities = useAnzBridge().capabilities;
   // Server-managed terminal config (replaces local anz/eftpos stores)
   const serverSettingsLoaded = useDeviceSettings((s) => s.loaded);
 
@@ -1353,7 +1358,18 @@ export default function PosSellScreen() {
                   onPress={handlePayCard}
                 >
                   <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>
-                    Card / EFTPOS{tyroConfig.enableSurcharge ? ' (Surcharge applies)' : ''}
+                    Card / EFTPOS{(() => {
+                      // v2.7.23 — show "(Surcharge applies)" based on the
+                      // active payment provider:
+                      //   Tyro  → the local enableSurcharge toggle
+                      //   ANZ   → the terminal-reported capability bit
+                      //           (set after activateCompleted)
+                      const anzActive = !!getServerAnzConfig();
+                      const surchargeOn = anzActive
+                        ? !!anzCapabilities?.canSurcharge
+                        : tyroConfig.enableSurcharge;
+                      return surchargeOn ? ' (Surcharge applies)' : '';
+                    })()}
                   </Text>
                   {tyroConfig.cashoutEnabled && parseFloat(cashoutDollars) > 0 && (
                     <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff', opacity: 0.85, marginTop: 2 }}>

@@ -16,12 +16,16 @@ export interface AnzConfig {
   terminalId: string;
   merchantName: string;
   environment: 'production' | 'development';
-  enableSurcharge: boolean;
-  enableTipping: boolean;
   /** IPv4 address of the EFTPOS terminal on the local network */
   terminalIp: string;
   /** TIM API port (SIXml WebSocket) the terminal listens on — default 7784 */
   terminalPort: number;
+  // NOTE: v2.7.23 — `enableSurcharge` and `enableTipping` used to live here
+  // but were cosmetic toggles that nothing read. Real surcharge/tip
+  // capability is reported by the Terminal after activation
+  // (see AnzBridgeHost.capabilities / terminal.canSurcharge()).
+  // Persisted payloads that still carry those fields load cleanly — the
+  // hydrator discards unknown keys via the Partial<AnzConfig> spread.
 }
 
 interface AnzStore {
@@ -37,8 +41,6 @@ const DEFAULTS: AnzConfig = {
   terminalId: '',
   merchantName: '',
   environment: 'production',
-  enableSurcharge: false,
-  enableTipping: false,
   terminalIp: '',
   terminalPort: 7784,
 };
@@ -51,8 +53,22 @@ export const useAnzStore = create<AnzStore>((set, get) => ({
     try {
       const raw = await SecureStore.getItemAsync(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as Partial<AnzConfig>;
-        set({ config: { ...DEFAULTS, ...parsed }, ready: true });
+        // Parse permissively — older payloads carry deprecated fields
+        // (enableSurcharge, enableTipping) that we now strip so the in-memory
+        // shape matches AnzConfig exactly.
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const clean: AnzConfig = {
+          merchantId:    typeof parsed['merchantId']    === 'string' ? parsed['merchantId']    : DEFAULTS.merchantId,
+          terminalId:    typeof parsed['terminalId']    === 'string' ? parsed['terminalId']    : DEFAULTS.terminalId,
+          merchantName:  typeof parsed['merchantName']  === 'string' ? parsed['merchantName']  : DEFAULTS.merchantName,
+          environment:
+            parsed['environment'] === 'development' || parsed['environment'] === 'production'
+              ? parsed['environment']
+              : DEFAULTS.environment,
+          terminalIp:    typeof parsed['terminalIp']    === 'string' ? parsed['terminalIp']    : DEFAULTS.terminalIp,
+          terminalPort:  typeof parsed['terminalPort']  === 'number' ? parsed['terminalPort']  : DEFAULTS.terminalPort,
+        };
+        set({ config: clean, ready: true });
       } else {
         set({ ready: true });
       }

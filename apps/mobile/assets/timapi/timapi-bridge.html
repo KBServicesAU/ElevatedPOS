@@ -310,7 +310,25 @@
             terminal.activateAsync();
           });
         }).then(function () {
-          rn({ type: 'till_opened', requestId: reqId });
+          // v2.7.23 — read the real capability bits from the Terminal after
+          // activation. These are set by the acquirer-level merchant config
+          // on the ANZ side; surfacing them lets the POS reflect the true
+          // state of the terminal (e.g. is surcharging enabled?) instead of
+          // relying on a local toggle that nothing actually reads.
+          var capabilities = {
+            canSurcharge: false,
+            canTip: false,
+            canCashback: false,
+            canReservation: false,
+            canReceiptRequest: false,
+            maxAmount: null
+          };
+          try { if (typeof terminal.canSurcharge === 'function') capabilities.canSurcharge = !!terminal.canSurcharge(); } catch (_) {}
+          try { if (typeof terminal.canTip       === 'function') capabilities.canTip       = !!terminal.canTip(); } catch (_) {}
+          try { if (typeof terminal.canCashback  === 'function') capabilities.canCashback  = !!terminal.canCashback(); } catch (_) {}
+          try { if (typeof terminal.canReservation === 'function') capabilities.canReservation = !!terminal.canReservation(); } catch (_) {}
+          try { if (typeof terminal.canReceiptRequest === 'function') capabilities.canReceiptRequest = !!terminal.canReceiptRequest(); } catch (_) {}
+          rn({ type: 'till_opened', requestId: reqId, capabilities: capabilities });
           // Keep the terminal alive for subsequent transactions.
         }).catch(function (err) {
           var errMsg = (err && err.message) || String(err);

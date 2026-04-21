@@ -12,7 +12,7 @@
  *     visible={open}
  *     onClose={() => setOpen(false)}
  *     items={[
- *       { id: 'sell', label: 'Sell', icon: 'cart', section: 'Screens', onSelect: () => router.push('/(pos)') },
+ *       { id: 'sell', label: 'Sell', icon: 'cart', section: 'Screens', onSelect: () => router.push('/sell') },
  *       ...
  *     ]}
  *   />

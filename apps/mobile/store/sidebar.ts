@@ -16,7 +16,7 @@ export interface SidebarItem {
 }
 
 export const ALL_SIDEBAR_ITEMS: SidebarItem[] = [
-  { id: 'sell',       route: '/',                    label: 'Sell',     icon: 'cart',     permanent: true },
+  { id: 'sell',       route: '/sell',                 label: 'Sell',     icon: 'cart',     permanent: true },
   { id: 'orders',     route: '/orders',               label: 'Orders',   icon: 'receipt' },
   { id: 'customers',  route: '/customers',            label: 'Customers',icon: 'people' },
   { id: 'quick-sale', route: '/(pos)/quick-sale',     label: 'Quick',    icon: 'flash' },

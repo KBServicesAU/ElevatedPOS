@@ -168,7 +168,7 @@ export default function FloorPlanScreen() {
     await setStatus(t.id, 'seated');
     setCustomer(`table:${t.id}`, `Table ${t.label}`);
     setTableSheet(null);
-    router.push('/(pos)' as never);
+    router.push('/sell' as never);
   }
 
   async function handleClearTable(t: FloorTable) {

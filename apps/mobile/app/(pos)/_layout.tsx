@@ -85,14 +85,22 @@ export default function PosLayout() {
     if (tillOpen) return;
     if (lastPromptedEmployeeRef.current === employee.id) return;
     lastPromptedEmployeeRef.current = employee.id;
-    const isLanding = pathname === '/' || pathname === '';
+    // v2.7.23 — the Sell screen now lives at `/sell`, but we still
+    // treat a transient `/` (root) as "landing" because the root router
+    // briefly resolves to `/` before redirecting to `/sell`. Firing the
+    // auto-open-till redirect on either path keeps the UX identical.
+    const isLanding = pathname === '/' || pathname === '' || pathname === '/sell';
     if (!isLanding) return;
     router.replace('/(pos)/open-till' as never);
   }, [employee, tillReady, tillOpen, pathname, router]);
 
   function isActive(route: string) {
-    if (route === '/') {
-      return pathname === '/' || pathname === '';
+    // v2.7.23 — the Sell URL is now `/sell`. Treat a transient `/` as
+    // also active so the Sell nav item highlights during the brief
+    // moment the root redirect is running (avoids a flicker where no
+    // nav item is selected).
+    if (route === '/sell') {
+      return pathname === '/sell' || pathname === '/';
     }
     return pathname === route || pathname.startsWith(route + '/');
   }
@@ -107,7 +115,7 @@ export default function PosLayout() {
       iconColor: '#6366f1',
       section: 'Navigate',
       shortcut: '⌘1',
-      onSelect: () => router.push('/' as never),
+      onSelect: () => router.push('/sell' as never),
     },
     {
       id: 'orders',

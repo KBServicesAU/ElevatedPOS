@@ -44,8 +44,24 @@ export interface AnzTransactionResult {
   customerReceipt: string | null;
 }
 
+/**
+ * Terminal capability bits, as reported by the TIM API Terminal after
+ * activation. These are acquirer-level merchant config flags — e.g. ANZ
+ * decides whether a merchant is allowed to surcharge, tip, cashback, etc.
+ * null until the till is opened (we don't know the answer yet).
+ */
+export interface AnzCapabilities {
+  canSurcharge: boolean;
+  canTip: boolean;
+  canCashback: boolean;
+  canReservation: boolean;
+  canReceiptRequest: boolean;
+}
+
 export interface AnzBridgeApi {
   state: AnzBridgeState;
+  /** Null until the till is opened. Read-only — set by the terminal, not the POS. */
+  capabilities: AnzCapabilities | null;
   openTill: () => Promise<void>;
   closeTill: () => Promise<void>;
   transaction: (amountCents: number, referenceId?: string) => Promise<AnzTransactionResult>;
@@ -73,7 +89,7 @@ interface PendingRequest {
 type BridgeMessage =
   | { type: 'sdk_ready' }
   | { type: 'status'; message?: string }
-  | { type: 'till_opened'; requestId?: string }
+  | { type: 'till_opened'; requestId?: string; capabilities?: Partial<AnzCapabilities> & Record<string, unknown> }
   | { type: 'till_closed'; requestId?: string }
   | {
       type: 'approved';
@@ -112,6 +128,7 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
   const maybeAutoReopenTillRef = useRef<(() => Promise<void>) | null>(null);
 
   const [state, setState] = useState<AnzBridgeState>('idle');
+  const [capabilities, setCapabilities] = useState<AnzCapabilities | null>(null);
 
   const terminalIp   = useAnzStore((s) => s.config.terminalIp);
   const terminalPort = useAnzStore((s) => s.config.terminalPort);
@@ -177,6 +194,28 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
             pending.resolve(undefined);
           }
         }
+        // v2.7.23 — capture the capability bits reported by the terminal
+        // after activateCompleted. The bridge HTML always sends this
+        // object now, but older cached bundles might not; fall back to
+        // all-false so the UI still renders sensibly.
+        if (msg.capabilities && typeof msg.capabilities === 'object') {
+          const c = msg.capabilities;
+          setCapabilities({
+            canSurcharge:      !!c.canSurcharge,
+            canTip:            !!c.canTip,
+            canCashback:       !!c.canCashback,
+            canReservation:    !!c.canReservation,
+            canReceiptRequest: !!c.canReceiptRequest,
+          });
+        } else {
+          setCapabilities({
+            canSurcharge: false,
+            canTip: false,
+            canCashback: false,
+            canReservation: false,
+            canReceiptRequest: false,
+          });
+        }
         setState('open');
         return;
       }
@@ -190,6 +229,7 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
             pending.resolve(undefined);
           }
         }
+        setCapabilities(null);
         setState('idle');
         return;
       }
@@ -386,6 +426,7 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
     // Drop any in-flight promises so callers don't wait on a ghost.
     rejectAll('Bridge was force-reset by the operator.');
     inflightOpenRef.current = null;
+    setCapabilities(null);
     setState('idle');
   }, [sendRaw, rejectAll]);
 
@@ -398,13 +439,14 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
 
   const api = useMemo<AnzBridgeApi>(() => ({
     state,
+    capabilities,
     openTill,
     closeTill,
     transaction,
     cancel,
     onStatus,
     forceReset,
-  }), [state, openTill, closeTill, transaction, cancel, onStatus, forceReset]);
+  }), [state, capabilities, openTill, closeTill, transaction, cancel, onStatus, forceReset]);
 
   return (
     <AnzBridgeContext.Provider value={api}>

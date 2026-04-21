@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -13,7 +12,60 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
 import { useAnzStore, type AnzConfig } from '../../store/anz';
+import { useAnzBridge, type AnzCapabilities } from '../../components/AnzBridgeHost';
 import { confirm, toast } from '../../components/ui';
+
+/* ------------------------------------------------------------------ */
+/* Capability row — read-only informational row                        */
+/* ------------------------------------------------------------------ */
+
+function CapabilityRow({
+  label,
+  hint,
+  capabilities,
+  flag,
+}: {
+  label: string;
+  hint: string;
+  capabilities: AnzCapabilities | null;
+  flag: keyof AnzCapabilities;
+}) {
+  // Three states:
+  //   null (till not open yet)    → show em-dash + "Available after opening the till"
+  //   capabilities[flag] === true → green check + "Enabled by ANZ"
+  //   capabilities[flag] === false→ grey dash + "Not configured"
+  let statusIcon: keyof typeof Ionicons.glyphMap;
+  let statusColor: string;
+  let statusText: string;
+  if (capabilities === null) {
+    statusIcon = 'remove-outline';
+    statusColor = '#555';
+    statusText = 'Available after opening the till';
+  } else if (capabilities[flag]) {
+    statusIcon = 'checkmark-circle';
+    statusColor = '#22c55e';
+    statusText = 'Enabled by ANZ';
+  } else {
+    statusIcon = 'remove-circle-outline';
+    statusColor = '#555';
+    statusText = 'Not configured';
+  }
+
+  return (
+    <View style={styles.toggleRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.toggleLabel}>{label}</Text>
+        <Text style={styles.toggleHint}>{hint}</Text>
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 160 }}>
+        <Ionicons name={statusIcon} size={16} color={statusColor} />
+        <Text style={[styles.capabilityStatus, { color: statusColor }]} numberOfLines={2}>
+          {statusText}
+        </Text>
+      </View>
+    </View>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* Screen                                                              */
@@ -24,6 +76,12 @@ export default function ANZSettingsScreen() {
   const [local, setLocal] = useState<AnzConfig>(config);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+
+  // v2.7.23 — real terminal capability bits. Null until the till is
+  // opened; thereafter reflects what the acquirer-level merchant config
+  // allows (surcharging, tipping, cashback). Replaces the old local
+  // zustand toggle that nothing read.
+  const bridgeCapabilities = useAnzBridge().capabilities;
 
   useEffect(() => {
     hydrate();
@@ -96,7 +154,7 @@ export default function ANZSettingsScreen() {
     });
     if (!ok) return;
     await clearConfig();
-    setLocal({ merchantId: '', terminalId: '', merchantName: '', environment: 'production', enableSurcharge: false, enableTipping: false, terminalIp: '', terminalPort: 7784 });
+    setLocal({ merchantId: '', terminalId: '', merchantName: '', environment: 'production', terminalIp: '', terminalPort: 7784 });
     toast.success('Cleared', 'ANZ Worldline settings removed.');
   }
 
@@ -285,38 +343,37 @@ export default function ANZSettingsScreen() {
           ))}
         </View>
 
-        {/* ─── Transaction Options ─────────────────── */}
-        <Text style={styles.sectionTitle}>Transaction Options</Text>
+        {/* ─── Terminal Capabilities ──────────────── */}
+        {/*
+          v2.7.23 — these rows are read-only. The TIM API Terminal reports
+          canSurcharge / canTip / canCashback via capability bits after
+          `activateCompleted`, driven by the acquirer-level merchant
+          config on ANZ's side. Previously this section held Switch
+          toggles that wrote to a local zustand store but nothing read
+          them — cosmetic only. Now they reflect the true terminal state.
+        */}
+        <Text style={styles.sectionTitle}>Terminal Capabilities</Text>
         <View style={styles.card}>
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.toggleLabel}>Surcharging</Text>
-              <Text style={styles.toggleHint}>
-                Apply the merchant's configured surcharge to card payments.
-              </Text>
-            </View>
-            <Switch
-              value={local.enableSurcharge}
-              onValueChange={(v) => update({ enableSurcharge: v })}
-              trackColor={{ true: '#6366f1', false: '#2a2a3a' }}
-              thumbColor="#fff"
-            />
-          </View>
+          <CapabilityRow
+            label="Surcharging"
+            hint="Apply the merchant's configured surcharge to card payments."
+            capabilities={bridgeCapabilities}
+            flag="canSurcharge"
+          />
           <View style={styles.divider} />
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.toggleLabel}>Tipping</Text>
-              <Text style={styles.toggleHint}>
-                Prompt for a tip on the terminal during a purchase.
-              </Text>
-            </View>
-            <Switch
-              value={local.enableTipping}
-              onValueChange={(v) => update({ enableTipping: v })}
-              trackColor={{ true: '#6366f1', false: '#2a2a3a' }}
-              thumbColor="#fff"
-            />
-          </View>
+          <CapabilityRow
+            label="Tipping"
+            hint="Prompt for a tip on the terminal during a purchase."
+            capabilities={bridgeCapabilities}
+            flag="canTip"
+          />
+          <View style={styles.divider} />
+          <CapabilityRow
+            label="Cashback"
+            hint="Allow the cardholder to withdraw cash with their purchase."
+            capabilities={bridgeCapabilities}
+            flag="canCashback"
+          />
         </View>
 
         {/* ─── Save ───────────────────────────────── */}
@@ -409,6 +466,7 @@ const styles = StyleSheet.create({
   toggleRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 12 },
   toggleLabel: { color: '#fff', fontSize: 14, fontWeight: '700' },
   toggleHint: { color: '#666', fontSize: 11, marginTop: 2 },
+  capabilityStatus: { fontSize: 11, fontWeight: '700', textAlign: 'right' },
   primaryBtn: {
     marginTop: 24,
     backgroundColor: '#6366f1',
