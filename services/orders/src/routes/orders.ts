@@ -11,7 +11,11 @@ const lineSchema = z.object({
   productId: z.string().uuid(),
   variantId: z.string().uuid().optional(),
   name: z.string(),
-  sku: z.string(),
+  // `sku` is required in the DB but the mobile POS's cart-item shape currently
+  // doesn't carry one. Accept missing/empty here and default to '' in the
+  // handler so existing mobile builds keep working. Real SKU plumbing is a
+  // mobile-side fix tracked separately.
+  sku: z.string().optional().default(''),
   quantity: z.number().positive(),
   unitPrice: z.number().min(0),
   costPrice: z.number().min(0).default(0),
@@ -25,7 +29,12 @@ const lineSchema = z.object({
 
 const createOrderSchema = z.object({
   locationId: z.string().uuid(),
-  registerId: z.string().uuid(),
+  // `registerId` is required in the DB but devices paired without an explicit
+  // register (single-device merchants, brand-new pairs) don't have one. Accept
+  // missing here and the handler falls back to `locationId` as a deterministic
+  // per-location implicit register UUID. Same shape the existing dashboards
+  // already group by, so reports continue to work.
+  registerId: z.string().uuid().optional(),
   channel: z.enum(['pos', 'online', 'kiosk', 'qr', 'marketplace', 'delivery', 'phone']).default('pos'),
   orderType: z.enum(['retail', 'dine_in', 'takeaway', 'delivery', 'pickup', 'layby', 'quote']).default('retail'),
   customerId: z.string().uuid().optional(),
@@ -139,7 +148,10 @@ export async function orderRoutes(app: FastifyInstance) {
       orgId,
       employeeId,
       locationId: orderData.locationId,
-      registerId: orderData.registerId,
+      // Fall back to locationId as a deterministic per-location implicit
+      // register UUID. Devices paired without an explicit register still
+      // produce orders, and reports group consistently per location.
+      registerId: orderData.registerId ?? orderData.locationId,
       orderNumber: generateOrderNumber(),
       channel: orderData.channel,
       orderType: orderData.orderType,

@@ -42,7 +42,10 @@ const updateQuoteSchema = z.object({
 
 const convertQuoteSchema = z.object({
   locationId: z.string().uuid(),
-  registerId: z.string().uuid(),
+  // Same fallback policy as createOrderSchema — devices paired without an
+  // explicit register can still convert quotes; missing registerId becomes
+  // locationId at the DB layer.
+  registerId: z.string().uuid().optional(),
   channel: z.enum(['pos', 'online', 'kiosk', 'qr', 'marketplace', 'delivery', 'phone']).default('pos'),
 });
 
@@ -242,7 +245,7 @@ export async function quoteRoutes(app: FastifyInstance) {
     const orderRows = await db.insert(schema.orders).values({
       orgId,
       locationId: body.data.locationId,
-      registerId: body.data.registerId,
+      registerId: body.data.registerId ?? body.data.locationId,
       orderNumber: generateOrderNumber('QUO'),
       channel: body.data.channel,
       orderType: 'quote',
