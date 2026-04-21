@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import { getRedisClient } from '@nexus/config';
 import { initClickHouseTables } from './clickhouse.js';
 import { ingestOrder } from './ingest.js';
+import { startKafkaConsumer } from './consumer.js';
 import {
   querySalesSummary,
   queryTopProducts,
@@ -229,6 +230,14 @@ async function start() {
     await initClickHouseTables();
   } catch (err) {
     app.log.warn({ err }, '[reporting] ClickHouse init warning — continuing without analytics tables');
+  }
+
+  // Start the Kafka consumer that drives live sales ingestion into ClickHouse.
+  // Non-fatal if Kafka is unavailable — HTTP routes and the /ingest/order fallback still work.
+  try {
+    await startKafkaConsumer();
+  } catch (err) {
+    app.log.warn({ err }, '[reporting] Kafka consumer failed to start — live sales ingestion disabled');
   }
 
   const port = Number(process.env['PORT'] ?? 4014);
