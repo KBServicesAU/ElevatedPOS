@@ -59,8 +59,24 @@
       } else if (msg.type === 'close_till') {
         closeTill(msg);
       } else if (msg.type === 'cancel') {
+        // The TIM API SDK exposes `terminal.cancel()` (synchronous, no
+        // Async suffix). Previous versions of this bridge called
+        // `cancelAsync()` which doesn't exist on the Terminal prototype —
+        // the undefined-is-not-a-function error was caught and silently
+        // ignored, so the terminal kept showing the amount. Defensive:
+        // try both names in case a future SDK build adds Async back.
         if (terminal) {
-          try { terminal.cancelAsync(); } catch (e) { /* ignore */ }
+          var attempted = '';
+          var names = ['cancel', 'cancelAsync', 'abort', 'abortAsync'];
+          for (var i = 0; i < names.length; i++) {
+            var fn = terminal[names[i]];
+            if (typeof fn === 'function') {
+              try { fn.call(terminal); attempted = names[i]; break; } catch (_) { /* try next */ }
+            }
+          }
+          rn({ type: 'status', message: attempted ? ('Cancel sent (' + attempted + ')') : 'Cancel not supported by SDK' });
+        } else {
+          rn({ type: 'status', message: 'Cancel ignored — no active terminal' });
         }
       }
     }
