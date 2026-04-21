@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import {
   Smartphone, Plus, Trash2, RefreshCw, Monitor, ChefHat,
   Tablet, Clock, Wifi, WifiOff, Copy, Check, Settings2,
   CreditCard, Banknote, Gift, Users, Package, Wallet,
   Save, ChevronDown, ChevronUp,
   Monitor as DisplayIcon, Image, Eye, RotateCcw, PowerOff,
+  CheckCircle2, AlertTriangle, ExternalLink,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
@@ -48,6 +50,15 @@ interface DevicePaymentConfig {
   terminalCredentialId: string | null;
 }
 
+interface TerminalCredential {
+  id:           string;
+  provider:     string;
+  label:        string | null;
+  terminalIp:   string | null;
+  terminalPort: number | null;
+  isActive:     boolean;
+}
+
 interface CustomerDisplaySettings {
   welcomeMessage:  string;
   thankYouMessage: string;
@@ -75,6 +86,30 @@ const DEFAULT_METHODS: Record<string, string[]> = {
   dashboard:          [],
   display:            [],
 };
+
+// ─── Terminal credential formatting ───────────────────────────────────────────
+
+const PROVIDER_LABEL: Record<string, string> = {
+  anz:     'ANZ Worldline',
+  tyro:    'Tyro',
+  stripe:  'Stripe Terminal',
+  windcave:'Windcave',
+};
+
+function formatCredentialName(c: TerminalCredential): string {
+  if (c.label && c.label.trim()) return c.label.trim();
+  return PROVIDER_LABEL[c.provider] ?? c.provider.toUpperCase();
+}
+
+/** Short one-line summary of a terminal for the device row and dropdown. */
+function formatCredentialSummary(c: TerminalCredential): string {
+  const name = formatCredentialName(c);
+  if (c.terminalIp) {
+    const portSuffix = c.terminalPort ? `:${c.terminalPort}` : '';
+    return `${name} (${c.terminalIp}${portSuffix})`;
+  }
+  return name;
+}
 
 // ─── Health indicator ─────────────────────────────────────────────────────────
 
@@ -165,6 +200,9 @@ export default function DevicesClient() {
   const [savingConfig,     setSavingConfig]    = useState(false);
   const [configError,      setConfigError]     = useState<string | null>(null);
 
+  // — terminal credentials (for per-device assignment) —
+  const [terminalCredentials, setTerminalCredentials] = useState<TerminalCredential[]>([]);
+
   // — customer display config state —
   const [displayConfiguringId, setDisplayConfiguringId] = useState<string | null>(null);
   const [draftDisplay, setDraftDisplay] = useState<CustomerDisplaySettings>({
@@ -195,9 +233,35 @@ export default function DevicesClient() {
     } catch { /**/ }
   }, []);
 
+  const loadTerminalCredentials = useCallback(async () => {
+    try {
+      const r = await apiFetch<{
+        data?: Array<{
+          id:            string;
+          provider:      string;
+          label?:        string | null;
+          terminalIp?:   string | null;
+          terminalPort?: number | null;
+          isActive?:     boolean;
+        }>;
+      }>('terminal/credentials');
+      const rows = (r.data ?? [])
+        .filter((c) => c.isActive !== false)
+        .map((c): TerminalCredential => ({
+          id:           c.id,
+          provider:     c.provider,
+          label:        c.label ?? null,
+          terminalIp:   c.terminalIp ?? null,
+          terminalPort: c.terminalPort ?? null,
+          isActive:     c.isActive !== false,
+        }));
+      setTerminalCredentials(rows);
+    } catch { /* silent — dialog will render the empty state */ }
+  }, []);
+
   useEffect(() => {
     setLoading(true);
-    Promise.all([loadDevices(), loadCodes(), loadLocations(), loadDeviceConfigs()])
+    Promise.all([loadDevices(), loadCodes(), loadLocations(), loadDeviceConfigs(), loadTerminalCredentials()])
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -344,7 +408,7 @@ export default function DevicesClient() {
           </div>
         </div>
         <button
-          onClick={() => { void loadDevices(); void loadCodes(); void loadDeviceConfigs(); }}
+          onClick={() => { void loadDevices(); void loadCodes(); void loadDeviceConfigs(); void loadTerminalCredentials(); }}
           className="flex items-center gap-1.5 rounded-xl bg-gray-100 dark:bg-[#2a2a3a] px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
         >
           <RefreshCw className="h-3.5 w-3.5" />Refresh
@@ -393,6 +457,14 @@ export default function DevicesClient() {
                 const isRestarting = restarting === device.id;
                 const confirmingRestart = confirmRestartId === device.id;
 
+                // Terminal assignment indicator — only meaningful for devices that take card payments
+                const cfg             = deviceConfigs[device.id];
+                const cardEnabled     = cfg?.enabledMethods?.includes('card') ?? false;
+                const assignedCred    = cfg?.terminalCredentialId
+                  ? terminalCredentials.find((t) => t.id === cfg.terminalCredentialId)
+                  : null;
+                const showTerminalBadge = canConfig && cardEnabled;
+
                 return (
                   <div key={device.id} className="rounded-xl overflow-hidden border border-transparent hover:border-gray-200 dark:hover:border-[#2a2a3a] transition-colors">
                     {/* Device row */}
@@ -417,6 +489,30 @@ export default function DevicesClient() {
                               <span className="text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-full px-2 py-0.5">
                                 Custom payments
                               </span>
+                            )}
+                            {showTerminalBadge && (
+                              assignedCred ? (
+                                <span
+                                  title={`Assigned: ${formatCredentialSummary(assignedCred)}`}
+                                  className="inline-flex items-center gap-1 text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-full px-2 py-0.5"
+                                >
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  Assigned — {formatCredentialName(assignedCred)}
+                                  {assignedCred.terminalIp && (
+                                    <span className="font-mono text-green-600 dark:text-green-400">
+                                      ({assignedCred.terminalIp})
+                                    </span>
+                                  )}
+                                </span>
+                              ) : (
+                                <span
+                                  title="No EFTPOS terminal assigned to this device"
+                                  className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-full px-2 py-0.5"
+                                >
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Not assigned
+                                </span>
+                              )
                             )}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5">
@@ -675,6 +771,56 @@ export default function DevicesClient() {
                             );
                           })}
                         </div>
+
+                        {/* Terminal credential assignment — only shown when card payments are enabled */}
+                        {draftConfig.enabledMethods.includes('card') && (
+                          <div className="mb-5 rounded-xl border border-gray-200 dark:border-[#2a2a3a] bg-white dark:bg-[#1e1e2e] p-4">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <label className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                                <CreditCard className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                                EFTPOS Terminal
+                              </label>
+                              <Link
+                                href="/dashboard/payments"
+                                className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 inline-flex items-center gap-1"
+                              >
+                                Manage terminals <ExternalLink className="h-3 w-3" />
+                              </Link>
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-500 mb-3">
+                              Pick which physical EFTPOS terminal this device should pair with. Each device can only use one terminal at a time.
+                            </p>
+
+                            {terminalCredentials.length === 0 ? (
+                              <div className="rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 px-3 py-2.5 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <p className="font-semibold">No terminal credentials configured.</p>
+                                  <p className="mt-0.5">
+                                    Add an EFTPOS terminal first, then return here to assign it.{' '}
+                                    <Link href="/dashboard/payments" className="underline font-medium hover:text-amber-600 dark:hover:text-amber-200">
+                                      Go to Payments settings →
+                                    </Link>
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <select
+                                value={draftConfig.terminalCredentialId ?? ''}
+                                onChange={(e) => setDraftConfig({
+                                  ...draftConfig,
+                                  terminalCredentialId: e.target.value === '' ? null : e.target.value,
+                                })}
+                                className="w-full rounded-xl bg-white dark:bg-[#2a2a3a] px-3 py-2.5 text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
+                              >
+                                <option value="">Not assigned — don&apos;t route card payments to a terminal</option>
+                                {terminalCredentials.map((c) => (
+                                  <option key={c.id} value={c.id}>{formatCredentialSummary(c)}</option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+                        )}
 
                         {/* Error */}
                         {configError && (

@@ -17,6 +17,8 @@
   Supported commands from React Native:
     { type: 'open_till',   requestId, terminalIp, terminalPort, integratorId? }
     { type: 'transaction', requestId, amountCents, referenceId? }
+    { type: 'refund',      requestId, amountCents, referenceId? }
+    { type: 'reversal',    requestId, originalTransactionRef? }
     { type: 'reconcile',   requestId }
     { type: 'close_till',  requestId }
     { type: 'cancel' }
@@ -57,6 +59,10 @@
         openTill(msg);
       } else if (msg.type === 'transaction') {
         runTransaction(msg);
+      } else if (msg.type === 'refund') {
+        runRefund(msg);
+      } else if (msg.type === 'reversal') {
+        runReversal(msg);
       } else if (msg.type === 'reconcile') {
         runReconciliation(msg);
       } else if (msg.type === 'close_till') {
@@ -403,6 +409,139 @@
           if (ctx) ctx.pendingReceipts = null;
           // Transaction failures are NOT fatal to the till session — the
           // terminal stays alive so the operator can retry.
+          var errMsg = (err && err.message) || String(err);
+          rn({ type: 'error', requestId: reqId, message: errMsg });
+        });
+      } catch (e) {
+        rn({ type: 'error', requestId: reqId, message: (e && e.message) || String(e) });
+      }
+    }
+
+    // ── Refund (requires open till) ────────────────────────────────────────
+    // Runs a standalone refund via TransactionType.credit. The SDK's
+    // "credit" enum value IS the TIM API refund primitive — running
+    // `transactionAsync(credit, amount)` credits the cardholder's card
+    // with the given amount and prints both merchant + customer receipts.
+    // Callers typically guard with isRefundable() on the order first.
+    function runRefund(msg) {
+      var reqId = msg.requestId;
+      if (!terminal || !ctx) {
+        rn({ type: 'error', requestId: reqId, message: 'Till is not open' });
+        return;
+      }
+
+      // Reset receipt buffer for this transaction so receiptGenerated events
+      // from a previous tx don't bleed in.
+      ctx.pendingReceipts = [];
+
+      try {
+        rn({ type: 'status', message: 'Present card\u2026' });
+        runStep(ctx, 'Refund', 180000, function (done) {
+          ctx.txResolver = done;
+          terminal.transactionAsync(
+            timapi.constants.TransactionType.credit,
+            new timapi.Amount(msg.amountCents, timapi.constants.Currency.AUD),
+            (msg.referenceId && typeof msg.referenceId === 'string') ? msg.referenceId : undefined
+          );
+        }).then(function (wrapper) {
+          var data = wrapper && wrapper.data;
+          try { terminal.commitAsync(); } catch (_) { /* non-fatal */ }
+
+          var receipts = extractReceipts(data);
+          var pending = ctx.pendingReceipts || [];
+          for (var i = 0; i < pending.length; i++) {
+            receipts = mergeReceipts(receipts, pending[i]);
+          }
+          ctx.pendingReceipts = null;
+
+          rn({
+            type:            'approved',
+            requestId:       reqId,
+            transactionRef:  (data && data.transactionReference) || null,
+            authCode:        (data && data.authorisationCode)    || null,
+            maskedPan:       (data && data.maskedPan)            || null,
+            cardType:        (data && data.cardType)             || null,
+            rrn:             (data && data.rrn)                  || null,
+            merchantReceipt: receipts.merchant,
+            customerReceipt: receipts.customer,
+          });
+        }).catch(function (err) {
+          if (ctx) ctx.pendingReceipts = null;
+          var errMsg = (err && err.message) || String(err);
+          rn({ type: 'error', requestId: reqId, message: errMsg });
+        });
+      } catch (e) {
+        rn({ type: 'error', requestId: reqId, message: (e && e.message) || String(e) });
+      }
+    }
+
+    // ── Reversal (requires open till) ──────────────────────────────────────
+    // The TIM API treats a reversal as `transactionAsync(reversal, amount)`
+    // — the terminal looks up the last transaction matching that amount in
+    // its local history and reverses it. There is NO separate
+    // `reversalAsync()` method on the Terminal class (verified by
+    // enumerating Terminal.prototype). If the current SDK build doesn't
+    // carry the 'reversal' enum (very old bundles), we respond with a
+    // graceful error instead of crashing.
+    function runReversal(msg) {
+      var reqId = msg.requestId;
+      if (!terminal || !ctx) {
+        rn({ type: 'error', requestId: reqId, message: 'Till is not open' });
+        return;
+      }
+      var reversalEnum = null;
+      try {
+        reversalEnum = timapi
+          && timapi.constants
+          && timapi.constants.TransactionType
+          && timapi.constants.TransactionType.reversal;
+      } catch (_) { /* ignore */ }
+      if (!reversalEnum) {
+        rn({ type: 'error', requestId: reqId, message: 'Reversal not supported by terminal' });
+        return;
+      }
+
+      ctx.pendingReceipts = [];
+      try {
+        rn({ type: 'status', message: 'Reversing\u2026' });
+        runStep(ctx, 'Reversal', 120000, function (done) {
+          ctx.txResolver = done;
+          // The TIM API Reversal takes the original amount as the anchor for
+          // the terminal to find the transaction in its local batch. The
+          // originalTransactionRef (if supplied) is passed as the reference
+          // string so the terminal can cross-check.
+          var amount = new timapi.Amount(
+            typeof msg.amountCents === 'number' ? msg.amountCents : 0,
+            timapi.constants.Currency.AUD,
+          );
+          var ref = (msg.originalTransactionRef && typeof msg.originalTransactionRef === 'string')
+            ? msg.originalTransactionRef
+            : undefined;
+          terminal.transactionAsync(reversalEnum, amount, ref);
+        }).then(function (wrapper) {
+          var data = wrapper && wrapper.data;
+          try { terminal.commitAsync(); } catch (_) { /* non-fatal */ }
+
+          var receipts = extractReceipts(data);
+          var pending = ctx.pendingReceipts || [];
+          for (var i = 0; i < pending.length; i++) {
+            receipts = mergeReceipts(receipts, pending[i]);
+          }
+          ctx.pendingReceipts = null;
+
+          rn({
+            type:            'approved',
+            requestId:       reqId,
+            transactionRef:  (data && data.transactionReference) || null,
+            authCode:        (data && data.authorisationCode)    || null,
+            maskedPan:       (data && data.maskedPan)            || null,
+            cardType:        (data && data.cardType)             || null,
+            rrn:             (data && data.rrn)                  || null,
+            merchantReceipt: receipts.merchant,
+            customerReceipt: receipts.customer,
+          });
+        }).catch(function (err) {
+          if (ctx) ctx.pendingReceipts = null;
           var errMsg = (err && err.message) || String(err);
           rn({ type: 'error', requestId: reqId, message: errMsg });
         });

@@ -222,6 +222,92 @@ function getPrinter(type: PrinterConnectionType | null) {
   return null;
 }
 
+/* ------------------------------------------------------------------ */
+/* ESC/POS raw-byte helpers                                            */
+/* ------------------------------------------------------------------ */
+/*
+ * The printer library (react-native-thermal-receipt-printer@1.2) only
+ * exposes `printText` and `printBill`. `printText` feeds the string
+ * through an EPToolkit pre-processor that handles `<C>/<B>` tags and
+ * then iconv-encodes the remaining characters. iconv-UTF-8 preserves
+ * ASCII bytes 0-127 as single bytes, so we CAN embed raw ESC/POS
+ * commands as a string of char-codes, provided:
+ *   1. No byte is 0x3C (the '<' — would be interpreted as a tag).
+ *   2. No byte is 0x0A (the '\n' — would trigger a reset flush).
+ * Barcode + QR commands use bytes like 0x1D, 0x6B, 0x49, etc. — all
+ * below 128 and neither 0x3C nor 0x0A. The payloads we pass in
+ * (order numbers / URLs) are restricted to alphanumerics + dashes
+ * below so the reserved chars never appear.
+ */
+
+const ESC = '\x1B';
+const GS  = '\x1D';
+
+/** Strip reserved ESC/POS chars to keep the command stream safe. */
+function sanitiseAscii(s: string): string {
+  // Printable ASCII only (32-126). '<' and '\n' removed implicitly.
+  return s.replace(/[^\x20-\x7E]/g, '').replace(/</g, '');
+}
+
+/**
+ * Build an ESC/POS block that prints a Code128 barcode centred on the
+ * paper, with the HRI (human-readable interpretation) rendered below.
+ * Called from `buildReceiptText` — the result is a string that slots
+ * into the normal receipt body.
+ *
+ * NOTE — the barcode bytes must NOT be interrupted by a newline in the
+ * receipt text (the printer lib flushes + resets on `\n`), so the whole
+ * command sequence is emitted as a SINGLE line then a trailing '\n' for
+ * the reset.
+ */
+function escPosBarcode128(data: string): string {
+  const clean = sanitiseAscii(data);
+  if (!clean) return '';
+  const len = Math.min(clean.length, 255);
+  const payload = clean.slice(0, len);
+  // Module width 2 (narrow), height 80 dots, HRI below, font A.
+  // GS w 2 / GS h 80 / GS H 2 / GS f 0
+  const config =
+    GS + 'w' + String.fromCharCode(2) +
+    GS + 'h' + String.fromCharCode(80) +
+    GS + 'H' + String.fromCharCode(2) +
+    GS + 'f' + String.fromCharCode(0);
+  // GS k 73 n d1..dn   (Code128)
+  const barcode =
+    GS + 'k' + String.fromCharCode(73, len) + payload;
+  // ESC a 1 = centre alignment; ESC a 0 = left (applied by the printer lib's
+  // reset_bytes on the trailing \n we append in buildReceiptText anyway).
+  return ESC + 'a' + String.fromCharCode(1) + config + barcode;
+}
+
+/**
+ * Build an ESC/POS QR Code block. See ESC/POS programming guide § GS ( k.
+ * `size` is the module size 1..16 (default 5, larger = bigger code).
+ */
+function escPosQrCode(data: string, size = 6): string {
+  const clean = sanitiseAscii(data);
+  if (!clean) return '';
+  const lenPlus3 = clean.length + 3;
+  const pL = lenPlus3 & 0xFF;
+  const pH = (lenPlus3 >> 8) & 0xFF;
+  // Select model 2: GS ( k 4 0 49 65 50 0
+  const model =
+    GS + '(' + 'k' + String.fromCharCode(4, 0, 49, 65, 50, 0);
+  // Module size: GS ( k 3 0 49 67 n
+  const moduleSize =
+    GS + '(' + 'k' + String.fromCharCode(3, 0, 49, 67, Math.max(1, Math.min(16, size)));
+  // Error correction level M (49): GS ( k 3 0 49 69 49
+  const ecc =
+    GS + '(' + 'k' + String.fromCharCode(3, 0, 49, 69, 49);
+  // Store data: GS ( k pL pH 49 80 48 <data>
+  const storeData =
+    GS + '(' + 'k' + String.fromCharCode(pL, pH, 49, 80, 48) + clean;
+  // Print: GS ( k 3 0 49 81 48
+  const print =
+    GS + '(' + 'k' + String.fromCharCode(3, 0, 49, 81, 48);
+  return ESC + 'a' + String.fromCharCode(1) + model + moduleSize + ecc + storeData + print;
+}
+
 export async function printText(text: string): Promise<void> {
   if (!loadPrinterModules()) throw new Error('Printer module not available.');
   const { type } = usePrinterStore.getState().config;
@@ -335,6 +421,13 @@ export interface PrintReceiptOpts {
     tableNumber?: string | number;
     covers?: number;
     orderedAt: Date;
+    /**
+     * When true, print "*** REPRINT ***" centred below the date row so
+     * staff and customers can see the receipt has already been issued
+     * at least once. Does not change totals, refund eligibility, or
+     * anything else — purely a visual marker on the POS receipt.
+     */
+    reprint?: boolean;
   };
   items: ReceiptLine[];
   totals: {
@@ -468,6 +561,9 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
 
   // ── Date left, time right ────────────────────────────────────────
   r += pad(`  ${date}`, `${time}  `) + '\n';
+  if (opts.order.reprint) {
+    r += `<C><B>*** REPRINT ***</B></C>\n`;
+  }
   if (opts.order.cashierName) {
     r += clip(`  Staff: ${opts.order.cashierName}`, w) + '\n';
   }
@@ -574,25 +670,24 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
     r += line + '\n';
   }
 
-  // ── Feedback QR placeholder ──────────────────────────────────────
-  // Rendering a real QR requires raw ESC/POS GS ( k bytes which the
-  // current library's printText() does not expose. For now print a
-  // human-readable placeholder line so staff and customers can still see
-  // the payload. TODO v2.7.21 — wire a real QR via a raw-bytes path.
+  // ── Feedback QR (real ESC/POS) ────────────────────────────────────
   if (opts.store.qrPayload) {
-    r += centre('Scan this QR to leave feedback:') + '\n';
-    r += centre(clip(`[QR: ${opts.store.qrPayload}]`, w)) + '\n';
+    r += centre('Scan for feedback') + '\n';
+    // Raw ESC/POS — see escPosQrCode() for the byte layout + caveats.
+    r += escPosQrCode(opts.store.qrPayload, 6) + '\n';
     if (opts.store.qrMessage) {
       r += centre(clip(opts.store.qrMessage, w)) + '\n';
     }
     r += line + '\n';
   }
 
-  // ── Order ref for refund (big readable) ──────────────────────────
+  // ── Order barcode (scannable Code128) + human-readable ref ───────
+  // Staff can scan this at the orders-detail page to jump straight to
+  // the order / refund flow without typing the number.
   if (opts.order.orderNumber) {
-    r += centre('Order ref for refund:') + '\n';
-    r += `<C><B>#${clip(opts.order.orderNumber, w - 4)}</B></C>\n`;
-    r += centre('(scan-ready barcode in next release)') + '\n';
+    r += centre('Order #') + '\n';
+    r += escPosBarcode128(opts.order.orderNumber) + '\n';
+    r += `<C><B>${clip(opts.order.orderNumber, w - 2)}</B></C>\n`;
     r += line + '\n';
   }
 
@@ -999,6 +1094,97 @@ export async function printRefundReceipt(opts: {
     await printer.printText(receipt, { cut: true });
   } catch (e: any) {
     throw new Error('Refund receipt print failed: ' + (e?.message ?? 'unknown'));
+  }
+}
+
+/**
+ * Detailed refund receipt (v2.7.27).
+ *
+ * Reuses the rich sale-receipt layout so an itemised refund slip has the
+ * same store header, items block, totals table, and ANZ receipt tail as
+ * the original sale — just with "*** REFUND ***" banners and negated
+ * totals. Unlike {@link printRefundReceipt} (which takes a minimal
+ * storeName + orderNumber shape), this one expects the full
+ * {@link PrintReceiptOpts} plus the original order number and the
+ * refunded amount, and prints both the customer + merchant copies per
+ * the merchant's receipt-prefs toggles.
+ */
+export async function printRefundReceiptDetailed(
+  opts: Omit<PrintReceiptOpts, 'copy' | 'anzReceiptText'> & {
+    originalOrderNumber: string;
+    refundAmount: number;
+    anzMerchantReceipt?: string;
+    anzCustomerReceipt?: string;
+  },
+): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+  const { type, paperWidth } = usePrinterStore.getState().config;
+  const printer = getPrinter(type);
+  if (!printer) throw new Error('No printer configured');
+  if (!connected) await connectPrinter();
+
+  const { anzMerchantReceipt, anzCustomerReceipt, originalOrderNumber, refundAmount, ...base } = opts;
+  const prefs = useReceiptPrefs.getState();
+
+  const customerAnz = anzCustomerReceipt && anzCustomerReceipt.trim().length > 0
+    ? anzCustomerReceipt
+    : undefined;
+  const merchantAnz = anzMerchantReceipt && anzMerchantReceipt.trim().length > 0
+    ? anzMerchantReceipt
+    : undefined;
+
+  const w = paperWidth === 58 ? 32 : 48;
+  const line = '='.repeat(w);
+
+  function buildRefundText(copy: ReceiptCopy, anzReceiptText?: string): string {
+    // Delegate to the standard rich builder so header / items / totals all
+    // stay consistent with a sale receipt. We then inject the "REFUND"
+    // banner + refunded-amount summary after the standard body.
+    const core = buildReceiptText(
+      { ...(base as PrintReceiptOpts), copy, anzReceiptText },
+      paperWidth,
+    );
+    // Prepend a big centred REFUND banner + original-order ref so the
+    // customer immediately sees this isn't a sale receipt.
+    let banner = '';
+    banner += line + '\n';
+    banner += `<C><B>*** REFUND ***</B></C>\n`;
+    banner += `<C>Original Order: #${originalOrderNumber}</C>\n`;
+    banner += `<C><B>Refunded: -$${refundAmount.toFixed(2)}</B></C>\n`;
+    banner += line + '\n';
+    return banner + core;
+  }
+
+  // ── Customer POS refund receipt ──────────────────────────────────────
+  if (prefs.printCustomerReceipt) {
+    const anzAttached = prefs.eftposCustomerAttach === 'attached' ? customerAnz : undefined;
+    const text = buildRefundText('customer', anzAttached);
+    try {
+      await printer.printText(text, { cut: true });
+    } catch (e: any) {
+      throw new Error('Refund receipt print failed: ' + (e?.message ?? 'unknown'));
+    }
+  }
+
+  // ── Standalone ANZ customer receipt ──────────────────────────────────
+  if (prefs.eftposCustomerAttach === 'standalone' && customerAnz) {
+    await printRawAnzReceipt(customerAnz, 'customer');
+  }
+
+  // ── Merchant POS refund receipt ──────────────────────────────────────
+  if (prefs.printStoreReceipt) {
+    const anzAttached = prefs.eftposStoreAttach === 'attached' ? merchantAnz : undefined;
+    const text = buildRefundText('merchant', anzAttached);
+    try {
+      await printer.printText(text, { cut: true });
+    } catch (e: any) {
+      throw new Error('Refund receipt print failed: ' + (e?.message ?? 'unknown'));
+    }
+  }
+
+  // ── Standalone ANZ merchant receipt ──────────────────────────────────
+  if (prefs.eftposStoreAttach === 'standalone' && merchantAnz) {
+    await printRawAnzReceipt(merchantAnz, 'merchant');
   }
 }
 

@@ -380,6 +380,42 @@ export async function orderRoutes(app: FastifyInstance) {
     return reply.status(201).send({ data: created });
   });
 
+  // PATCH /api/v1/orders/:id
+  //
+  // Partial-update an order. Supports internal notes + (future) channel /
+  // customer rebinding. Scoped by JWT orgId — can't touch other orgs'
+  // rows.
+  app.patch('/:id', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+    const body = z.object({
+      notes: z.string().max(4000).optional(),
+    }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: body.error.message,
+      });
+    }
+
+    const existing = await db.query.orders.findFirst({
+      where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)),
+    });
+    if (!existing) return reply.status(404).send({ title: 'Order not found', status: 404 });
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (body.data.notes !== undefined) updates['notes'] = body.data.notes;
+
+    const rows = await db.update(schema.orders)
+      .set(updates)
+      .where(and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)))
+      .returning();
+
+    return reply.send({ data: rows[0]! });
+  });
+
   // POST /api/v1/orders/:id/complete
   app.post('/:id/complete', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };

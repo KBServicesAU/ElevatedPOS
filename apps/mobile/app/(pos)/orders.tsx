@@ -1,9 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Modal,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -12,18 +10,22 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
-import { toast } from '../../components/ui';
-import { isTyroInitialized, tyroRefund } from '../../modules/tyro-tta';
-import { printRefundReceipt, isConnected as isPrinterConnected, connectPrinter } from '../../lib/printer';
-import { usePrinterStore } from '../../store/printers';
-import { useTyroStore } from '../../store/tyro';
-import {
-  TyroTransactionModal,
-  type TyroTransactionOutcome,
-} from '../../components/TyroTransactionModal';
-import { getServerAnzConfig } from '../../store/device-settings';
+
+/**
+ * Orders list (v2.7.27).
+ *
+ * Merchant-requested overhaul:
+ *   - Tap a row to open the full-order detail page (`/orders/[id]`) where
+ *     refund / reversal / reprint / notes live.
+ *   - Search bar across the top with 300ms debounce. Matches order number
+ *     (contains), customer name (contains), or an exact dollar amount.
+ *   - Date filter chips: Today / Yesterday / 7 days / All. These send
+ *     ISO `from`/`to` query params; the backend falls back to returning
+ *     the full window if the params aren't wired and we filter client-side.
+ */
 
 // In local dev, orders service runs on EXPO_PUBLIC_ORDERS_API_URL (default port 4004).
 // In production, EXPO_PUBLIC_API_URL points at the nginx gateway which routes
@@ -36,28 +38,61 @@ const API_BASE =
 interface Order {
   id: string;
   orderNumber: string;
-  total: number;
+  total: number | string;
   status: string;
   channel: string;
   createdAt: string;
-  lines?: { name: string; quantity: number; unitPrice: number }[];
+  /** May be absent on the list endpoint — present on detail only. */
+  customerName?: string | null;
+  lines?: { name: string; quantity: number | string; unitPrice: number | string }[];
+}
+
+type DateRangeKey = 'today' | 'yesterday' | 'last7' | 'all';
+
+function startOfDay(d: Date): Date {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function computeRange(key: DateRangeKey): { from: Date | null; to: Date | null } {
+  const now = new Date();
+  if (key === 'all') return { from: null, to: null };
+  if (key === 'today') {
+    return { from: startOfDay(now), to: null };
+  }
+  if (key === 'yesterday') {
+    const y = startOfDay(now);
+    y.setDate(y.getDate() - 1);
+    const end = new Date(y);
+    end.setDate(end.getDate() + 1);
+    return { from: y, to: end };
+  }
+  // last7 — from 7 days ago (start of that day) to now
+  const d = startOfDay(now);
+  d.setDate(d.getDate() - 6);
+  return { from: d, to: null };
 }
 
 export default function OrdersScreen() {
+  const router = useRouter();
   const identity = useDeviceStore((s) => s.identity);
   const employeeToken = useAuthStore((s) => s.employeeToken);
-  const tyroConfig = useTyroStore((s) => s.config);
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<DateRangeKey>('today');
 
-  // Refund state
-  const [showRefund, setShowRefund] = useState(false);
-  const [refundOrder, setRefundOrder] = useState<Order | null>(null);
-  const [refundAmount, setRefundAmount] = useState('');
-  const [showTyroModal, setShowTyroModal] = useState(false);
-  const [tyroAmount, setTyroAmount] = useState(0);
-  const [anzRefunding, setAnzRefunding] = useState(false);
+  // Raw vs. debounced search so we don't re-render the list on every
+  // keystroke — the debounce is small (300ms) but enough to keep the
+  // scroll smooth on low-end Android tablets.
+  const [searchRaw, setSearchRaw] = useState('');
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchRaw.trim().toLowerCase()), 300);
+    return () => clearTimeout(t);
+  }, [searchRaw]);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -65,7 +100,14 @@ export default function OrdersScreen() {
     const token = employeeToken ?? identity?.deviceToken ?? '';
     try {
       const locationId = identity?.locationId ?? '';
-      const res = await fetch(`${API_BASE}/api/v1/orders?limit=50&locationId=${locationId}`, {
+      const params = new URLSearchParams();
+      params.set('limit', '50');
+      if (locationId) params.set('locationId', locationId);
+      const { from, to } = computeRange(dateRange);
+      if (from) params.set('from', from.toISOString());
+      if (to) params.set('to', to.toISOString());
+
+      const res = await fetch(`${API_BASE}/api/v1/orders?${params.toString()}`, {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
@@ -86,258 +128,49 @@ export default function OrdersScreen() {
     } finally {
       setLoading(false);
     }
-  }, [employeeToken, identity]);
+  }, [employeeToken, identity, dateRange]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
+  // Client-side filter — applied regardless of whether the backend
+  // honoured the date params, so the UI is stable even against an older
+  // server. Also gives us the fuzzy contains-match for the search box.
+  const filtered = useMemo(() => {
+    const range = computeRange(dateRange);
+    const exactDollarMatch = (() => {
+      const n = Number(search);
+      return !Number.isNaN(n) && search.length > 0 ? n : null;
+    })();
+
+    return orders.filter((o) => {
+      // Date range (client-side fallback)
+      if (range.from || range.to) {
+        const when = new Date(o.createdAt);
+        if (range.from && when < range.from) return false;
+        if (range.to   && when >= range.to)  return false;
+      }
+
+      if (!search) return true;
+
+      const num = String(o.orderNumber ?? '').toLowerCase();
+      const cust = String(o.customerName ?? '').toLowerCase();
+      const total = typeof o.total === 'number' ? o.total : Number(o.total) || 0;
+
+      if (num.includes(search)) return true;
+      if (cust && cust.includes(search)) return true;
+      if (exactDollarMatch !== null && Math.abs(total - exactDollarMatch) < 0.01) return true;
+      return false;
+    });
+  }, [orders, search, dateRange]);
+
   function statusColor(status: string) {
     if (status === 'completed' || status === 'paid') return '#22c55e';
-    if (status === 'pending') return '#f59e0b';
-    if (status === 'cancelled' || status === 'refunded') return '#ef4444';
+    if (status === 'partially_refunded') return '#f59e0b';
+    if (status === 'pending' || status === 'open') return '#f59e0b';
+    if (status === 'cancelled' || status === 'refunded' || status === 'reversed') return '#ef4444';
     return '#888';
-  }
-
-  function openRefund(order: Order) {
-    setRefundOrder(order);
-    const totalNum = typeof order.total === 'number' ? order.total : Number(order.total) || 0;
-    setRefundAmount(totalNum.toFixed(2));
-    setShowRefund(true);
-  }
-
-  async function startRefund() {
-    if (!refundOrder) return;
-    const dollars = parseFloat(refundAmount) || 0;
-    if (dollars <= 0) {
-      toast.warning('Invalid amount', 'Refund amount must be greater than zero.');
-      return;
-    }
-
-    // ── Tyro refund ──────────────────────────────────────────────────
-    if (isTyroInitialized()) {
-      setShowRefund(false);
-      setTyroAmount(dollars);
-      setShowTyroModal(true);
-
-      const amountCents = String(Math.round(dollars * 100));
-      try {
-        tyroRefund(amountCents, {
-          integratedReceipt: tyroConfig.integratedReceipts,
-          transactionId: `POS-REFUND-${refundOrder.orderNumber}-${Date.now()}`,
-        });
-      } catch (err) {
-        setShowTyroModal(false);
-        toast.error(
-          'Refund Failed',
-          err instanceof Error ? err.message : 'Failed to start the refund on the terminal.',
-        );
-      }
-      return;
-    }
-
-    // ── ANZ Worldline TIM refund (direct HTTP to terminal) ───────────
-    const serverAnz = getServerAnzConfig();
-    if (serverAnz) {
-      setShowRefund(false);
-      setAnzRefunding(true);
-      const token = employeeToken ?? identity?.deviceToken ?? '';
-      const amountCents = Math.round(dollars * 100);
-      const ip = (serverAnz.terminalIp ?? '').trim();
-      const port = serverAnz.terminalPort ?? 8080;
-      const refId = `POS-REFUND-${refundOrder.orderNumber}-${Date.now()}`;
-
-      try {
-        // Try to get the original acquirer transaction ID from the backend
-        let originalTransactionId: string | undefined;
-        try {
-          const paymentsRes = await fetch(
-            `${API_BASE}/api/v1/payments?orderId=${refundOrder.id}&limit=1`,
-            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) },
-          );
-          if (paymentsRes.ok) {
-            const paymentsData = await paymentsRes.json();
-            const firstPayment = (paymentsData.data ?? [])[0] as { acquirerTransactionId?: string } | undefined;
-            originalTransactionId = firstPayment?.acquirerTransactionId;
-          }
-        } catch {
-          // Continue without originalTransactionId — terminal handles standalone refund
-        }
-
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 90_000);
-        const res = await fetch(`http://${ip}:${port}/v1/refunds`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            transactionType: 'refund',
-            amount: amountCents,
-            referenceId: refId,
-            ...(originalTransactionId ? { originalTransactionId } : {}),
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timer);
-
-        let data: Record<string, unknown> = {};
-        const text = await res.text().catch(() => '');
-        try { data = JSON.parse(text); } catch { /* use empty */ }
-
-        const responseCode = (data['responseCode'] as string) ?? String(res.status);
-        const approved = responseCode === '00';
-
-        if (approved) {
-          // Record the refund on the backend (best-effort)
-          try {
-            const lines = refundOrder.lines && refundOrder.lines.length > 0
-              ? refundOrder.lines.map((l) => ({
-                  orderLineId: (l as { id?: string; orderLineId?: string }).id
-                    ?? (l as { id?: string; orderLineId?: string }).orderLineId
-                    ?? '',
-                  quantity: l.quantity,
-                  amount: Number(l.unitPrice) * l.quantity,
-                })).filter((l) => l.orderLineId)
-              : [{ orderLineId: refundOrder.id, quantity: 1, amount: dollars }];
-            await fetch(`${API_BASE}/api/v1/orders/${refundOrder.id}/refund`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({
-                reason: `Card refund via ANZ Worldline — ref: ${(data['transactionId'] as string) ?? refId}`,
-                refundMethod: 'original',
-                lines,
-              }),
-              signal: AbortSignal.timeout(5000),
-            });
-          } catch { /* offline — treat as success locally */ }
-
-          // Auto-print refund receipt if printer is configured
-          const printerConfig = usePrinterStore.getState().config;
-          if (printerConfig.autoPrint && printerConfig.type) {
-            try {
-              if (!isPrinterConnected()) await connectPrinter();
-              await printRefundReceipt({
-                storeName: 'ElevatedPOS',
-                orderNumber: refundOrder.orderNumber,
-                items: refundOrder.lines?.map((l) => ({ name: l.name, qty: l.quantity, price: Number(l.unitPrice) })) ?? [],
-                refundAmount: dollars,
-                reason: `Card refund via ANZ — ref: ${(data['transactionId'] as string) ?? refId}`,
-              });
-            } catch {
-              // Print failed — don't block the refund success
-            }
-          }
-
-          toast.success('Refund Approved', `$${dollars.toFixed(2)} refunded via ANZ.`);
-          setRefundOrder(null);
-          setRefundAmount('');
-          fetchOrders();
-        } else {
-          toast.error(
-            'Refund Declined',
-            (data['responseText'] as string) ?? `Terminal declined (${responseCode})`,
-          );
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        toast.error('Refund Failed', msg.includes('abort') ? 'Refund timed out — check the terminal.' : msg);
-      } finally {
-        setAnzRefunding(false);
-      }
-      return;
-    }
-
-    toast.warning(
-      'No EFTPOS Configured',
-      'Configure Tyro or ANZ Worldline in Settings before processing refunds.',
-    );
-  }
-
-  async function handleTyroComplete(outcomeEvent: TyroTransactionOutcome) {
-    setShowTyroModal(false);
-    const result = outcomeEvent.result;
-    const outcome = String(result.result || 'UNKNOWN').toUpperCase();
-
-    if (outcome === 'APPROVED') {
-      // Best-effort: update the order status on the server using the correct refund schema.
-      const token = employeeToken ?? identity?.deviceToken ?? '';
-      if (refundOrder) {
-        try {
-          const refundDollars = parseFloat(refundAmount) || 0;
-          // Build lines array from the order's lines; fall back to a single synthetic line
-          const lines = refundOrder.lines && refundOrder.lines.length > 0
-            ? refundOrder.lines.map((l) => ({
-                orderLineId: (l as { id?: string; orderLineId?: string }).id ?? (l as { id?: string; orderLineId?: string }).orderLineId ?? '',
-                quantity: l.quantity,
-                amount: Number(l.unitPrice) * l.quantity,
-              })).filter((l) => l.orderLineId)
-            : [{
-                orderLineId: refundOrder.id, // fallback — server will validate
-                quantity: 1,
-                amount: refundDollars,
-              }];
-          await fetch(`${API_BASE}/api/v1/orders/${refundOrder.id}/refund`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              reason: `Card refund via Tyro — ref: ${result.transactionReference ?? 'N/A'}`,
-              refundMethod: 'original',
-              lines,
-            }),
-            signal: AbortSignal.timeout(5000),
-          });
-        } catch {
-          // Offline — still treat as success locally.
-        }
-      }
-      // Auto-print refund receipt if printer is configured
-      const printerConfig = usePrinterStore.getState().config;
-      if (printerConfig.autoPrint && printerConfig.type && refundOrder) {
-        try {
-          if (!isPrinterConnected()) await connectPrinter();
-          await printRefundReceipt({
-            storeName: 'ElevatedPOS',
-            orderNumber: refundOrder.orderNumber,
-            items: refundOrder.lines?.map((l) => ({ name: l.name, qty: l.quantity, price: Number(l.unitPrice) })) ?? [],
-            refundAmount: parseFloat(refundAmount) || 0,
-            reason: `Card refund via Tyro — ref: ${result.transactionReference ?? 'N/A'}`,
-          });
-        } catch {
-          // Print failed — don't block the refund success
-        }
-      }
-
-      toast.success(
-        'Refund Approved',
-        `$${(parseFloat(refundAmount) || 0).toFixed(2)} refunded successfully.`,
-      );
-      setRefundOrder(null);
-      setRefundAmount('');
-      fetchOrders();
-      return;
-    }
-
-    if (outcome === 'CANCELLED') {
-      toast.warning('Refund Cancelled', 'The refund was cancelled on the terminal.');
-      return;
-    }
-    if (outcome === 'DECLINED') {
-      toast.error('Refund Declined', 'The refund was declined.');
-      return;
-    }
-    if (outcome === 'SYSTEM ERROR') {
-      toast.error(
-        'Refund Error',
-        result.errorMessage || 'The terminal reported a system error during the refund.',
-      );
-      return;
-    }
-    toast.warning(
-      'Refund Incomplete',
-      `Ended with status "${result.result}". Verify on the terminal before retrying.`,
-    );
   }
 
   function renderOrder({ item }: { item: Order }) {
@@ -349,17 +182,21 @@ export default function OrdersScreen() {
       day: '2-digit',
       month: 'short',
     });
-    const total =
-      typeof item.total === 'number' ? item.total.toFixed(2) : (Number(item.total) || 0).toFixed(2);
-    const isRefundable = item.status === 'completed' || item.status === 'paid';
+    const totalNum = typeof item.total === 'number' ? item.total : Number(item.total) || 0;
+    const total = totalNum.toFixed(2);
 
     return (
-      <View style={s.orderCard}>
+      <TouchableOpacity
+        style={s.orderCard}
+        activeOpacity={0.85}
+        onPress={() => router.push(`/(pos)/orders/${item.id}` as never)}
+      >
         <View style={s.orderRow}>
           <View style={{ flex: 1 }}>
             <Text style={s.orderNumber}>#{item.orderNumber}</Text>
             <Text style={s.orderTime}>
               {date} {time}
+              {item.customerName ? `  ·  ${item.customerName}` : ''}
             </Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
@@ -383,7 +220,7 @@ export default function OrdersScreen() {
           <View style={s.linesWrap}>
             {item.lines.slice(0, 3).map((line, i) => (
               <Text key={i} style={s.lineText}>
-                {line.quantity}x {line.name}
+                {typeof line.quantity === 'number' ? line.quantity : Number(line.quantity)}x {line.name}
               </Text>
             ))}
             {item.lines.length > 3 && (
@@ -391,19 +228,11 @@ export default function OrdersScreen() {
             )}
           </View>
         )}
-        {isRefundable && (
-          <View style={s.actionRow}>
-            <TouchableOpacity
-              style={s.refundBtn}
-              onPress={() => openRefund(item)}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="return-up-back" size={14} color="#ef4444" />
-              <Text style={s.refundBtnText}>Refund</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
+        <View style={s.chevronRow}>
+          <Text style={s.chevronHint}>View details</Text>
+          <Ionicons name="chevron-forward" size={16} color="#666" />
+        </View>
+      </TouchableOpacity>
     );
   }
 
@@ -420,6 +249,47 @@ export default function OrdersScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* ── Search ────────────────────────────────── */}
+      <View style={s.searchWrap}>
+        <Ionicons name="search" size={16} color="#555" style={{ marginRight: 6 }} />
+        <TextInput
+          style={s.searchInput}
+          value={searchRaw}
+          onChangeText={setSearchRaw}
+          placeholder="Search by order #, customer or amount"
+          placeholderTextColor="#444"
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
+        />
+        {searchRaw.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchRaw('')}>
+            <Ionicons name="close-circle" size={16} color="#555" />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* ── Date range chips ──────────────────────── */}
+      <View style={s.chipsRow}>
+        {(['today', 'yesterday', 'last7', 'all'] as DateRangeKey[]).map((k) => {
+          const label = k === 'today' ? 'Today'
+            : k === 'yesterday' ? 'Yesterday'
+            : k === 'last7' ? 'Last 7 days'
+            : 'All';
+          const active = dateRange === k;
+          return (
+            <TouchableOpacity
+              key={k}
+              onPress={() => setDateRange(k)}
+              style={[s.chip, active && s.chipActive]}
+              activeOpacity={0.85}
+            >
+              <Text style={[s.chipText, active && s.chipTextActive]}>{label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       {error ? (
         <View style={s.center}>
           <Ionicons name="alert-circle" size={36} color="#ef4444" />
@@ -428,14 +298,16 @@ export default function OrdersScreen() {
             <Text style={s.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
-      ) : orders.length === 0 && !loading ? (
+      ) : filtered.length === 0 && !loading ? (
         <View style={s.center}>
           <Ionicons name="receipt-outline" size={36} color="#444" />
-          <Text style={s.emptyText}>No orders yet</Text>
+          <Text style={s.emptyText}>
+            {search ? 'No orders match your search' : 'No orders in this range'}
+          </Text>
         </View>
       ) : (
         <FlatList
-          data={orders}
+          data={filtered}
           keyExtractor={(o) => o.id}
           renderItem={renderOrder}
           contentContainerStyle={{ padding: 12, paddingBottom: 20 }}
@@ -443,61 +315,6 @@ export default function OrdersScreen() {
           onRefresh={fetchOrders}
         />
       )}
-
-      {/* ─── Refund prompt ─────────────────────────────── */}
-      <Modal
-        visible={showRefund}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowRefund(false)}
-      >
-        <Pressable style={s.modalBackdrop} onPress={() => setShowRefund(false)}>
-          <Pressable style={s.modalCard} onPress={() => {}}>
-            <Text style={s.modalTitle}>Refund Order</Text>
-            {refundOrder && (
-              <Text style={s.modalSubtitle}>#{refundOrder.orderNumber}</Text>
-            )}
-            <Text style={s.modalLabel}>Amount to refund</Text>
-            <TextInput
-              style={s.modalInput}
-              value={refundAmount}
-              onChangeText={setRefundAmount}
-              keyboardType="decimal-pad"
-              placeholder="0.00"
-              placeholderTextColor="#444"
-            />
-            <Text style={s.modalHint}>
-              The refund will be processed on the EFTPOS terminal. The customer must present
-              the same card used for the original purchase.
-            </Text>
-            <TouchableOpacity
-              style={[s.modalPrimaryBtn, anzRefunding && { opacity: 0.6 }]}
-              onPress={startRefund}
-              disabled={anzRefunding}
-            >
-              <Ionicons name="return-up-back" size={16} color="#fff" />
-              <Text style={s.modalPrimaryText}>
-                {anzRefunding ? 'Processing…' : 'Start Refund'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={s.modalSecondaryBtn}
-              onPress={() => setShowRefund(false)}
-            >
-              <Text style={s.modalSecondaryText}>Cancel</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* ─── Tyro transaction modal for the actual refund ── */}
-      <TyroTransactionModal
-        visible={showTyroModal}
-        amount={tyroAmount}
-        title="Refund"
-        onComplete={handleTyroComplete}
-        onClose={() => setShowTyroModal(false)}
-      />
     </SafeAreaView>
   );
 }
@@ -525,6 +342,49 @@ const s = StyleSheet.create({
     marginTop: 8,
   },
   retryText: { color: '#fff', fontWeight: '700' },
+
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#141425',
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+    borderRadius: 12,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    padding: 0,
+  },
+
+  chipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+    backgroundColor: '#141425',
+  },
+  chipActive: {
+    backgroundColor: '#6366f1',
+    borderColor: '#6366f1',
+  },
+  chipText: { color: '#94a3b8', fontSize: 12, fontWeight: '700' },
+  chipTextActive: { color: '#fff' },
+
   orderCard: {
     backgroundColor: '#141425',
     borderRadius: 12,
@@ -552,76 +412,15 @@ const s = StyleSheet.create({
     borderTopColor: '#1e1e2e',
   },
   lineText: { fontSize: 12, color: '#888', lineHeight: 18 },
-  actionRow: {
+  chevronRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'flex-end',
     marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: '#1e1e2e',
-    gap: 6,
+    gap: 4,
   },
-  refundBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ef444488',
-  },
-  refundBtnText: { color: '#ef4444', fontSize: 12, fontWeight: '700' },
-
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 380,
-    backgroundColor: '#1a1a2e',
-    borderRadius: 18,
-    padding: 22,
-    borderWidth: 1,
-    borderColor: '#2a2a3a',
-  },
-  modalTitle: { color: '#fff', fontSize: 18, fontWeight: '800', marginBottom: 2 },
-  modalSubtitle: { color: '#888', fontSize: 13, marginBottom: 18 },
-  modalLabel: {
-    color: '#888',
-    fontSize: 11,
-    textTransform: 'uppercase',
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    marginBottom: 6,
-  },
-  modalInput: {
-    backgroundColor: '#0d0d14',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 20,
-    color: '#fff',
-    textAlign: 'center',
-    borderWidth: 1,
-    borderColor: '#2a2a3a',
-    marginBottom: 12,
-  },
-  modalHint: { color: '#555', fontSize: 11, marginBottom: 14, lineHeight: 16 },
-  modalPrimaryBtn: {
-    backgroundColor: '#ef4444',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  modalPrimaryText: { color: '#fff', fontWeight: '800', fontSize: 15 },
-  modalSecondaryBtn: { alignItems: 'center', paddingVertical: 12, marginTop: 4 },
-  modalSecondaryText: { color: '#888', fontSize: 13 },
+  chevronHint: { color: '#555', fontSize: 11, fontWeight: '700' },
 });

@@ -66,6 +66,19 @@ export interface AnzBridgeApi {
   closeTill: () => Promise<void>;
   transaction: (amountCents: number, referenceId?: string) => Promise<AnzTransactionResult>;
   /**
+   * Refund `amountCents` to whichever card is presented on the terminal.
+   * Internally runs the TIM API credit (refund) primitive. Same response
+   * shape as `transaction()` — including the merchant + customer receipts
+   * to be re-printed alongside the POS refund slip.
+   */
+  refund: (amountCents: number, referenceId?: string) => Promise<AnzTransactionResult>;
+  /**
+   * Reverse the most recent card transaction for the same amount. Used
+   * to undo a card-present sale when the card is still in hand. Callers
+   * should guard on same-shift + card-paid before invoking this.
+   */
+  reverse: (amountCents: number, originalTransactionRef?: string | null) => Promise<AnzTransactionResult>;
+  /**
    * Trigger an EOD reconciliation (bank settlement) on the terminal.
    * The ANZ Worldline SDK runs `reconciliationAsync()` which clears the
    * terminal's batch and returns a printable settlement receipt. If the
@@ -92,7 +105,7 @@ interface PendingRequest {
   resolve: (value: any) => void;
   reject: (error: Error) => void;
   /** Kind of request — used to map response types back to the right promise. */
-  kind: 'open' | 'close' | 'transaction' | 'reconcile';
+  kind: 'open' | 'close' | 'transaction' | 'refund' | 'reversal' | 'reconcile';
 }
 
 type BridgeMessage =
@@ -308,6 +321,8 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
               if (pending.kind === 'open')        return 'idle';
               if (pending.kind === 'close')       return 'open';
               if (pending.kind === 'transaction') return 'open';
+              if (pending.kind === 'refund')      return 'open';
+              if (pending.kind === 'reversal')    return 'open';
               if (pending.kind === 'reconcile')   return prev;
               return prev;
             });
@@ -427,6 +442,90 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
     [makeRequestId, sendRaw, state, openTill],
   );
 
+  /**
+   * Deduped refund — a second call while one is in flight waits on the
+   * existing promise instead of firing a second refund command at the
+   * terminal. Mirrors openTill/reconcile so an accidental double-tap on
+   * the Refund button can't double-credit the cardholder.
+   */
+  const inflightRefundRef = useRef<Promise<AnzTransactionResult> | null>(null);
+  const refund = useCallback<AnzBridgeApi['refund']>(
+    async (amountCents, referenceId) => {
+      if (inflightRefundRef.current) return inflightRefundRef.current;
+
+      // Self-heal: same as transaction() — if we're mid-shift but the
+      // bridge has no live terminal, re-open first so the refund doesn't
+      // fail with "Till is not open".
+      const storeOpen = useTillStore.getState().isOpen;
+      if (storeOpen && state !== 'open' && state !== 'transacting') {
+        try {
+          await openTill();
+        } catch (err) {
+          throw err instanceof Error
+            ? err
+            : new Error('Could not re-open terminal: ' + String(err));
+        }
+      }
+
+      const p = new Promise<AnzTransactionResult>((resolve, reject) => {
+        const requestId = makeRequestId();
+        pendingRef.current.set(requestId, { resolve, reject, kind: 'refund' });
+        setState('transacting');
+        const payload: Record<string, unknown> = {
+          type: 'refund',
+          requestId,
+          amountCents: Math.round(amountCents),
+        };
+        if (referenceId) payload['referenceId'] = referenceId;
+        sendRaw(JSON.stringify(payload));
+      });
+      inflightRefundRef.current = p;
+      p.finally(() => { inflightRefundRef.current = null; });
+      return p;
+    },
+    [makeRequestId, sendRaw, state, openTill],
+  );
+
+  /**
+   * Deduped reverse — same pattern as refund. Reverses the last card
+   * transaction matching `amountCents` in the terminal's local batch.
+   * Callers should guard on shift + card-paid before invoking.
+   */
+  const inflightReverseRef = useRef<Promise<AnzTransactionResult> | null>(null);
+  const reverse = useCallback<AnzBridgeApi['reverse']>(
+    async (amountCents, originalTransactionRef) => {
+      if (inflightReverseRef.current) return inflightReverseRef.current;
+
+      const storeOpen = useTillStore.getState().isOpen;
+      if (storeOpen && state !== 'open' && state !== 'transacting') {
+        try {
+          await openTill();
+        } catch (err) {
+          throw err instanceof Error
+            ? err
+            : new Error('Could not re-open terminal: ' + String(err));
+        }
+      }
+
+      const p = new Promise<AnzTransactionResult>((resolve, reject) => {
+        const requestId = makeRequestId();
+        pendingRef.current.set(requestId, { resolve, reject, kind: 'reversal' });
+        setState('transacting');
+        const payload: Record<string, unknown> = {
+          type: 'reversal',
+          requestId,
+          amountCents: Math.round(amountCents),
+        };
+        if (originalTransactionRef) payload['originalTransactionRef'] = originalTransactionRef;
+        sendRaw(JSON.stringify(payload));
+      });
+      inflightReverseRef.current = p;
+      p.finally(() => { inflightReverseRef.current = null; });
+      return p;
+    },
+    [makeRequestId, sendRaw, state, openTill],
+  );
+
   // Wire the auto-reopen that fires on sdk_ready above. We need access to
   // openTill + state, which are defined after the sdk_ready handler, so we
   // stash a reference and call it indirectly.
@@ -487,11 +586,13 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
     openTill,
     closeTill,
     transaction,
+    refund,
+    reverse,
     reconcile,
     cancel,
     onStatus,
     forceReset,
-  }), [state, capabilities, openTill, closeTill, transaction, reconcile, cancel, onStatus, forceReset]);
+  }), [state, capabilities, openTill, closeTill, transaction, refund, reverse, reconcile, cancel, onStatus, forceReset]);
 
   return (
     <AnzBridgeContext.Provider value={api}>
