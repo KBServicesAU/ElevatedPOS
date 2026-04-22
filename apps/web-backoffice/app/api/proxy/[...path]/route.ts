@@ -60,6 +60,15 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
     prefix: '/api/v1/roles',
   },
+  // v2.7.38 — display signage CMS routes. Without these, the
+  // /dashboard/display page 404s on every call because its apiFetch
+  // goes through /api/proxy/<service>/<rest> and <service>='display'
+  // wasn't in the map. The routes live on the auth service which
+  // already owns the `devices` table.
+  display: {
+    base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
+    prefix: '/api/v1/display',
+  },
   customers: {
     base: process.env.CUSTOMERS_API_URL ?? 'http://localhost:4006',
     prefix: '/api/v1/customers',

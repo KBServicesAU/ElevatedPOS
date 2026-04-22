@@ -7,6 +7,14 @@ import {
   Columns2, Columns3, Eye, Upload, Tv,
   RefreshCw, CheckCircle, AlertCircle,
 } from 'lucide-react';
+// v2.7.38 — route through the shared apiFetch / /api/proxy so the
+// session cookie gets converted to a Bearer token server-side. Before
+// this, the local apiFetch hit the backend services directly with just
+// cookies, which the services reject (they use request.jwtVerify()).
+// That's why /dashboard/display showed "No display screens" even after
+// adding the ingress rule in v2.7.36 — the ingress only helped if the
+// request had an Authorization header, which the direct fetch didn't.
+import { apiFetch as proxyApiFetch } from '@/lib/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -79,21 +87,11 @@ function defaultContent(): DisplayContent {
   };
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
-
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  // Reads session cookie automatically (same-origin)
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as { message?: string }).message ?? `HTTP ${res.status}`);
-  }
-  return res.json() as Promise<T>;
-}
+// v2.7.38 — local apiFetch removed in favour of the shared
+// `proxyApiFetch` imported above. The local one called the backend
+// services directly with just the session cookie, but the services
+// only accept Bearer JWTs (request.jwtVerify()). The /api/proxy/*
+// route handler converts cookie → Bearer server-side.
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return 'Never';
@@ -545,8 +543,10 @@ export default function DisplayEditorClient() {
     (async () => {
       try {
         const [screensData, catsData] = await Promise.all([
-          apiFetch<{ data: DisplayScreen[] }>('/api/v1/display/screens'),
-          apiFetch<{ data: Category[] }>('/api/v1/categories'),
+          // v2.7.38 — `display` + `categories` go through /api/proxy so the
+          // session cookie is exchanged for a Bearer token server-side.
+          proxyApiFetch<{ data: DisplayScreen[] }>('display/screens'),
+          proxyApiFetch<{ data: Category[] }>('categories'),
         ]);
         setScreens(screensData.data ?? []);
         setCategories(catsData.data ?? []);
@@ -566,8 +566,9 @@ export default function DisplayEditorClient() {
     );
     for (const section of menuSections) {
       if (!menuItems[section.categoryId]) {
-        apiFetch<{ data: MenuItem[] }>(
-          `/api/v1/products?categoryId=${section.categoryId}&limit=50&isActive=true`,
+        // v2.7.38 — proxy path.
+        proxyApiFetch<{ data: MenuItem[] }>(
+          `products?categoryId=${section.categoryId}&limit=50&isActive=true`,
         )
           .then((res) =>
             setMenuItems((prev) => ({ ...prev, [section.categoryId]: res.data ?? [] })),
@@ -647,7 +648,8 @@ export default function DisplayEditorClient() {
     setPublishError(null);
     setPublishSuccess(false);
     try {
-      await apiFetch(`/api/v1/display/screens/${selectedScreenId}/content`, {
+      // v2.7.38 — proxy path.
+      await proxyApiFetch(`display/screens/${selectedScreenId}/content`, {
         method: 'PUT',
         body: JSON.stringify({ content }),
       });
