@@ -254,6 +254,14 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.NOTIFICATIONS_API_URL ?? 'http://localhost:4009',
     prefix: '/api/v1/alerts',
   },
+  // v2.7.41 — alert rules live in the automations service (Postgres-backed).
+  // Replaces the v2.7.40 in-memory Next.js shadow under /api/proxy/alerts/rules
+  // that lost its data on every server restart. Dashboard Alex Center calls
+  // `alerts-rules` via apiFetch and this routes to the real service.
+  'alerts-rules': {
+    base: process.env.AUTOMATIONS_API_URL ?? 'http://localhost:4011',
+    prefix: '/api/v1/automations/alerts/rules',
+  },
   // EFTPOS terminal credentials + per-device payment config
   terminal: {
     base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',

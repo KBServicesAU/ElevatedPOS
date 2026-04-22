@@ -104,7 +104,7 @@ function AddRuleModal({ onClose, onSaved }: AddRuleModalProps) {
     if (channels.length === 0) { setError('Select at least one notification channel.'); return; }
     setSaving(true); setError(null);
     try {
-      const res = await apiFetch<{ data: AlertRule }>('alerts/rules', {
+      const res = await apiFetch<{ data: AlertRule }>('alerts-rules', {
         method: 'POST',
         body: JSON.stringify({
           trigger,
@@ -252,7 +252,7 @@ function AlertRulesPanel() {
   const loadRules = useCallback(async () => {
     setLoadingRules(true);
     try {
-      const res = await apiFetch<{ data: AlertRule[] }>('alerts/rules');
+      const res = await apiFetch<{ data: AlertRule[] }>('alerts-rules');
       setRules(res.data ?? []);
     } catch {
       setRules([]);
@@ -264,7 +264,7 @@ function AlertRulesPanel() {
   async function toggleRule(rule: AlertRule) {
     setTogglingId(rule.id);
     try {
-      await apiFetch(`alerts/rules/${rule.id}`, {
+      await apiFetch(`alerts-rules/${rule.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ enabled: !rule.enabled }),
       });
@@ -277,7 +277,7 @@ function AlertRulesPanel() {
   async function deleteRule(id: string) {
     setDeletingId(id);
     try {
-      await apiFetch(`alerts/rules/${id}`, { method: 'DELETE' });
+      await apiFetch(`alerts-rules/${id}`, { method: 'DELETE' });
       setRules((prev) => prev.filter((r) => r.id !== id));
       toast({ title: 'Rule deleted', variant: 'success' });
     } catch (err) {

@@ -150,50 +150,6 @@ export function kdsOrderToStored(
   };
 }
 
-// ─── Alert rules store ────────────────────────────────────────────────────────
-// v2.7.40 — Alex Center "Alert Rules" ship without a backing service.
-// The dashboard posts to /api/proxy/alerts/rules which resolves to the
-// notifications service — but that service has no alerts handler, so
-// every rule create 404'd. Store rules in-memory at the Next.js layer
-// until a real notifications alerts route lands (requires a DB table).
-
-export interface AlertRule {
-  id: string;
-  trigger: string;
-  threshold?: number;
-  channels: string[];
-  recipients?: string;
-  enabled: boolean;
-  createdAt: string;
-}
-
-const _alertRules: AlertRule[] = [];
-
-export const alertRulesStore = {
-  all(): AlertRule[] { return [..._alertRules]; },
-  add(rule: Omit<AlertRule, 'id' | 'createdAt' | 'enabled'> & { enabled?: boolean }): AlertRule {
-    const created: AlertRule = {
-      id: `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      createdAt: new Date().toISOString(),
-      enabled: rule.enabled ?? true,
-      trigger: rule.trigger,
-      ...(rule.threshold !== undefined ? { threshold: rule.threshold } : {}),
-      channels: rule.channels,
-      ...(rule.recipients !== undefined ? { recipients: rule.recipients } : {}),
-    };
-    _alertRules.unshift(created);
-    return created;
-  },
-  update(id: string, patch: Partial<AlertRule>): AlertRule | undefined {
-    const r = _alertRules.find((x) => x.id === id);
-    if (!r) return undefined;
-    Object.assign(r, patch);
-    return r;
-  },
-  remove(id: string): boolean {
-    const idx = _alertRules.findIndex((x) => x.id === id);
-    if (idx < 0) return false;
-    _alertRules.splice(idx, 1);
-    return true;
-  },
-};
+// v2.7.41 — the in-memory `alertRulesStore` that lived here through v2.7.40
+// has been removed. Alert rules now live in the automations service's
+// `alert_rules` table and are reached through /api/proxy/alerts-rules.
