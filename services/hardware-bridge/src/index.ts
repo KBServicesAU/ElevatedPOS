@@ -176,6 +176,7 @@ app.get('/health', (_req, res) => {
         ? `${TERMINAL_TARGET_HOST}:${TERMINAL_TARGET_PORT}`
         : null,
       transport: TERMINAL_PROXY_ENABLED ? TERMINAL_TRANSPORT : null,
+      namespaceRewrite: TERMINAL_PROXY_ENABLED ? TERMINAL_NAMESPACE_REWRITE : false,
       activeConnections: proxyWss.clients.size,
     },
   });
@@ -387,13 +388,128 @@ function relayClientToWebSocket(clientWs: WsWebSocket, release: () => void): voi
   });
 }
 
+// ─── SIXml namespace rewriting ───────────────────────────────────────────────
+// SIX/Worldline published two URI branding variants for the same protocol:
+//   • http://www.six-payment-services.com/  (legacy, pre-rebrand)
+//   • http://www.worldline.com/              (current, post-rebrand)
+// The newer TIM SDK (v26-01) emits the Worldline URI, but some Castles terminals
+// ship with firmware that only parses the legacy SIX URI and silently drops
+// messages in the other namespace. When TERMINAL_NAMESPACE_REWRITE=true we
+// transparently rewrite the XML namespace attribute on every SIXml frame in
+// each direction and patch the 2-byte length header to reflect the new
+// payload size. Callers above/below this layer are unaffected.
+const TERMINAL_NAMESPACE_REWRITE = (process.env['TERMINAL_NAMESPACE_REWRITE'] ?? 'false') === 'true';
+const TERMINAL_DEBUG_BYTES = (process.env['TERMINAL_DEBUG_BYTES'] ?? 'false') === 'true';
+
+function logBytes(direction: string, buf: Buffer): void {
+  if (!TERMINAL_DEBUG_BYTES) return;
+  const hex = buf.subarray(0, Math.min(buf.length, 48)).toString('hex');
+  const xmlIdx = buf.indexOf('<?xml');
+  const xmlPreview = xmlIdx >= 0
+    ? buf.subarray(xmlIdx, Math.min(buf.length, xmlIdx + 200)).toString('utf8').replace(/\s+/g, ' ')
+    : '(no xml)';
+  console.log(`[TerminalProxy] [bytes][${direction}] len=${buf.length} hex=${hex}${buf.length > 48 ? '...' : ''}`);
+  console.log(`[TerminalProxy] [bytes][${direction}] xml=${xmlPreview}`);
+}
+
+const NS_WORLDLINE = Buffer.from('http://www.worldline.com/');
+const NS_SIX_LEGACY = Buffer.from('http://www.six-payment-services.com/');
+
+/**
+ * Wire-format of a SIXml frame (empirically derived from a live Castles S1F2):
+ *   [0..4]  "SIXml" magic (5 bytes)
+ *   [5]     version byte (0x02 on v1 firmware)
+ *   [6..7]  payload length in bytes (big-endian) — counts everything after the length field
+ *   [8..]   message payload (1-byte type flag + XML document)
+ *
+ * The 2-byte length field allows payloads up to 65535 bytes.
+ */
+const SIXML_MAGIC = Buffer.from('SIXml');
+const SIXML_HEADER_SIZE = 8; // 5 magic + 1 version + 2 length
+
+/**
+ * Transform a buffered stream of SIXml frames, swapping the XML namespace URI
+ * in each frame. Accepts possibly-partial input and returns { output, leftover }
+ * so callers can re-feed the leftover on the next chunk.
+ *
+ * For simplicity we do not split individual SIXml frames across TCP packets —
+ * if a partial frame arrives we stash the unread tail in `leftover`.
+ */
+function rewriteSixmlStream(
+  input: Buffer,
+  from: Buffer,
+  to: Buffer,
+): { output: Buffer; leftover: Buffer } {
+  const outChunks: Buffer[] = [];
+  let cursor = 0;
+
+  while (cursor < input.length) {
+    // Look for the next "SIXml" magic. Everything before it is non-frame bytes
+    // that we pass through unchanged (should be empty in practice).
+    const magicIdx = input.indexOf(SIXML_MAGIC, cursor);
+    if (magicIdx === -1) {
+      // No more frames in this buffer — keep the tail as leftover.
+      return { output: Buffer.concat(outChunks), leftover: input.subarray(cursor) };
+    }
+    if (magicIdx > cursor) {
+      // Emit non-frame bytes verbatim.
+      outChunks.push(input.subarray(cursor, magicIdx));
+      cursor = magicIdx;
+    }
+
+    // Need at least 8 bytes for the header.
+    if (input.length - cursor < SIXML_HEADER_SIZE) {
+      return { output: Buffer.concat(outChunks), leftover: input.subarray(cursor) };
+    }
+
+    const payloadLen = input.readUInt16BE(cursor + 6);
+    const frameEnd = cursor + SIXML_HEADER_SIZE + payloadLen;
+    if (frameEnd > input.length) {
+      // Incomplete frame — stash and wait for more bytes.
+      return { output: Buffer.concat(outChunks), leftover: input.subarray(cursor) };
+    }
+
+    const version = input[cursor + 5];
+    const payload = input.subarray(cursor + SIXML_HEADER_SIZE, frameEnd);
+
+    // Swap the namespace URI across every occurrence (usually once per frame).
+    let newPayload = payload;
+    if (payload.includes(from)) {
+      // Buffer.replaceAll doesn't exist — loop manually.
+      const pieces: Buffer[] = [];
+      let i = 0;
+      while (i < payload.length) {
+        const hit = payload.indexOf(from, i);
+        if (hit === -1) {
+          pieces.push(payload.subarray(i));
+          break;
+        }
+        pieces.push(payload.subarray(i, hit));
+        pieces.push(to);
+        i = hit + from.length;
+      }
+      newPayload = Buffer.concat(pieces);
+    }
+
+    const newHeader = Buffer.alloc(SIXML_HEADER_SIZE);
+    SIXML_MAGIC.copy(newHeader, 0);
+    newHeader[5] = version ?? 0x02;
+    newHeader.writeUInt16BE(newPayload.length, 6);
+
+    outChunks.push(newHeader, newPayload);
+    cursor = frameEnd;
+  }
+
+  return { output: Buffer.concat(outChunks), leftover: Buffer.alloc(0) };
+}
+
 // ── Transport: WebSocket → raw TCP (EftSimulator, TCP-only firmware) ──
 // Browser's TIM SDK sends each SIXml message as a WebSocket frame whose
 // payload is the raw SIXml bytes (already length-prefixed per the SIXml wire
 // format).  We pipe those bytes straight into a TCP socket; the terminal's
-// response bytes are wrapped back into WebSocket binary frames.  No SIXml
-// parsing happens here — the bridge is a pure byte relay, so it's
-// provider-agnostic.
+// response bytes are wrapped back into WebSocket binary frames.  When the
+// namespace rewriter is enabled we additionally swap SIX-legacy ↔ Worldline
+// URIs in both directions for firmware that only speaks one dialect.
 function relayClientToRawTcp(clientWs: WsWebSocket, release: () => void): void {
   const targetHost = TERMINAL_TARGET_HOST;
   const targetPort = TERMINAL_TARGET_PORT;
@@ -405,6 +521,18 @@ function relayClientToRawTcp(clientWs: WsWebSocket, release: () => void): void {
   let clientAlive = true;
   let sockAlive = false;
 
+  // Per-direction buffer for partial SIXml frames when namespace rewriting
+  // is enabled. TCP does not preserve frame boundaries so we may receive
+  // half a SIXml frame and need to stitch it to the next chunk.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let clientToTermLeftover: Buffer = Buffer.alloc(0) as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let termToClientLeftover: Buffer = Buffer.alloc(0) as any;
+
+  if (TERMINAL_NAMESPACE_REWRITE) {
+    console.log('[TerminalProxy] [tcp] Namespace rewriting ENABLED (worldline ↔ six-legacy)');
+  }
+
   sock.on('connect', () => {
     sockAlive = true;
     console.log(`[TerminalProxy] [tcp] Connected to terminal ${targetHost}:${targetPort}`);
@@ -413,18 +541,40 @@ function relayClientToRawTcp(clientWs: WsWebSocket, release: () => void): void {
   clientWs.on('message', (data, _isBinary) => {
     if (!sockAlive || sock.destroyed) return;
     // ws gives us Buffer | ArrayBuffer | Buffer[] — normalise to Buffer.
-    const buf = Array.isArray(data)
+    let buf = Array.isArray(data)
       ? Buffer.concat(data)
       : data instanceof ArrayBuffer
         ? Buffer.from(data)
         : (data as Buffer);
-    sock.write(buf);
+
+    logBytes('CLIENT->RAW', buf);
+    if (TERMINAL_NAMESPACE_REWRITE) {
+      // SDK speaks Worldline URI; terminal expects legacy SIX URI.
+      const combined = Buffer.concat([clientToTermLeftover, buf]);
+      const { output, leftover } = rewriteSixmlStream(combined, NS_WORLDLINE, NS_SIX_LEGACY);
+      clientToTermLeftover = leftover;
+      buf = output;
+      logBytes('CLIENT->TERM (rewritten)', buf);
+    }
+
+    if (buf.length > 0) sock.write(buf);
   });
 
   sock.on('data', (chunk: Buffer) => {
-    if (clientAlive && clientWs.readyState === WsWebSocket.OPEN) {
-      clientWs.send(chunk, { binary: true });
+    if (!(clientAlive && clientWs.readyState === WsWebSocket.OPEN)) return;
+
+    logBytes('TERM->RAW', chunk);
+    let out: Buffer = chunk;
+    if (TERMINAL_NAMESPACE_REWRITE) {
+      // Terminal speaks legacy SIX URI; SDK expects Worldline URI.
+      const combined = Buffer.concat([termToClientLeftover, chunk]);
+      const { output, leftover } = rewriteSixmlStream(combined, NS_SIX_LEGACY, NS_WORLDLINE);
+      termToClientLeftover = leftover;
+      out = output;
+      logBytes('TERM->CLIENT (rewritten)', out);
     }
+
+    if (out.length > 0) clientWs.send(out, { binary: true });
   });
 
   clientWs.on('close', (code) => {

@@ -1,0 +1,170 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>TIM SDK bridge test</title>
+  <style>
+    body { font: 14px ui-monospace, Menlo, Consolas, monospace; padding: 20px; background: #0c0f14; color: #cfd6df; }
+    h1 { font-size: 16px; margin: 0 0 6px; color: #8ab4ff; }
+    .row { margin: 4px 0; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 4px; background: #1b2330; border: 1px solid #2a3445; margin-right: 6px; }
+    .ok   { color: #7cd992; }
+    .err  { color: #ff8c8c; }
+    .warn { color: #ffc46b; }
+    .note { color: #8a95a8; }
+    #log { white-space: pre-wrap; margin-top: 10px; background: #0b0e12; padding: 10px; border-radius: 6px; border: 1px solid #222a38; max-height: 70vh; overflow: auto; }
+    button { padding: 8px 14px; background: #2b4cff; color: white; border: 0; border-radius: 4px; cursor: pointer; font: inherit; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <h1>TIM SDK bridge test — pairing flow</h1>
+  <div class="row">
+    <span class="pill">bridge <span id="bridgeStatus">?</span></span>
+    <span class="pill">sdk <span id="sdkStatus">?</span></span>
+    <span class="pill">ws <span id="wsStatus">?</span></span>
+  </div>
+  <div class="row">
+    <button id="runBtn" disabled>Run pairing flow</button>
+    <span class="note">connects to ws://127.0.0.1:9999/SIXml (the bridge)</span>
+  </div>
+  <div id="log"></div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    const results = { events: [], errors: [], done: false, success: null };
+    window.__testResults = results;
+
+    function log(kind, ...args) {
+      const t = new Date().toISOString().slice(11, 23);
+      const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a, null, 2)).join(' ');
+      const cls = kind === 'err' ? 'err' : kind === 'ok' ? 'ok' : kind === 'warn' ? 'warn' : '';
+      logEl.innerHTML += `<span class="${cls}">[${t}] ${msg}</span>\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(`[${kind}]`, ...args);
+      results.events.push({ t, kind, msg });
+      if (kind === 'err') results.errors.push(msg);
+    }
+
+    async function checkBridge() {
+      try {
+        const res = await fetch('http://127.0.0.1:9999/health');
+        const data = await res.json();
+        document.getElementById('bridgeStatus').textContent = data.terminalProxy.enabled
+          ? `ok (${data.terminalProxy.transport} → ${data.terminalProxy.target})`
+          : 'disabled';
+        log('ok', 'bridge /health:', data);
+        return data.terminalProxy.enabled;
+      } catch (e) {
+        document.getElementById('bridgeStatus').textContent = 'unreachable';
+        log('err', 'bridge /health failed:', e.message);
+        return false;
+      }
+    }
+
+    // Load timapi.js dynamically after setting the onTimApiReady hook
+    window.onTimApiReady = () => {
+      document.getElementById('sdkStatus').textContent = 'ready';
+      log('ok', 'TIM SDK ready (WASM loaded)');
+      document.getElementById('runBtn').disabled = false;
+    };
+
+    document.getElementById('runBtn').addEventListener('click', runPairing);
+
+    function runPairing() {
+      document.getElementById('runBtn').disabled = true;
+      document.getElementById('wsStatus').textContent = 'connecting';
+      log('', 'Configuring TIM settings…');
+
+      const settings = new timapi.TerminalSettings();
+      settings.connectionIPString = '127.0.0.1';
+      settings.connectionIPPort   = 9999;          // the bridge
+      settings.integratorId       = 'd23f66c0-546b-482f-b8b6-cb351f94fd31';
+      settings.autoCommit         = true;
+      settings.fetchBrands        = true;
+      settings.dcc                = false;
+
+      log('', 'settings:', {
+        ip: settings.connectionIPString,
+        port: settings.connectionIPPort,
+        integratorId: settings.integratorId,
+      });
+
+      const terminal = new timapi.Terminal(settings);
+      window.__terminal = terminal;
+      terminal.setPosId('1');
+      terminal.setUserId(1);
+
+      const ecrInfo = new timapi.EcrInfo();
+      ecrInfo.type = timapi.constants.EcrInfoType.ecrApplication;
+      ecrInfo.name = 'BridgeTest';
+      ecrInfo.manufacturerName = 'ElevatedPOS';
+      ecrInfo.version = '1.0';
+      terminal.addEcrData(ecrInfo);
+
+      const listener = new timapi.DefaultTerminalListener();
+      listener.connectCompleted = (event) => {
+        document.getElementById('wsStatus').textContent = 'connected';
+        log('ok', 'connectCompleted', { exception: event?.exception?.message ?? null });
+      };
+      listener.loginCompleted = (event) => {
+        log('ok', 'loginCompleted', { exception: event?.exception?.message ?? null });
+      };
+      listener.activateCompleted = (event, data) => {
+        const ok = !event?.exception;
+        log(ok ? 'ok' : 'err', 'activateCompleted',
+          { exception: event?.exception?.message ?? null, terminalId: data?.terminalId ?? null });
+        results.done = true;
+        results.success = ok;
+      };
+      listener.errorOccurred = (event) => {
+        log('err', 'errorOccurred', { exception: event?.exception?.message ?? null });
+      };
+      listener.transactionCompleted = (event, data) => {
+        log('', 'transactionCompleted', {
+          exception: event?.exception?.message ?? null,
+          data: data ? Object.keys(data) : null,
+        });
+      };
+
+      terminal.addListener(listener);
+
+      log('', 'calling terminal.connectAsync()…');
+      terminal.connectAsync();
+
+      // After 2.5s, trigger login; after 5s, activate.  (In v26 these can be
+      // chained explicitly or piggy-backed on transactionAsync.)
+      setTimeout(() => {
+        log('', 'calling terminal.loginAsync()…');
+        try { terminal.loginAsync(); } catch (e) { log('err', 'loginAsync threw:', e.message); }
+      }, 2500);
+
+      setTimeout(() => {
+        log('', 'calling terminal.activateAsync()…');
+        try { terminal.activateAsync(); } catch (e) { log('err', 'activateAsync threw:', e.message); }
+      }, 5000);
+
+      // Safety stop
+      setTimeout(() => {
+        if (!results.done) {
+          log('warn', 'no activateCompleted within 15s — stopping');
+          try { terminal.disconnectAsync(); } catch {}
+          results.done = true;
+          results.success = false;
+        }
+      }, 15000);
+    }
+
+    // Load the SDK last (synchronous, but sets globals + fires onTimApiReady)
+    (async () => {
+      const ready = await checkBridge();
+      if (!ready) log('warn', 'Bridge is not ready — SDK will fail to connect.');
+      const s = document.createElement('script');
+      s.src = '/timapi.js';
+      s.onerror = () => log('err', 'Failed to load /timapi.js');
+      document.body.appendChild(s);
+      document.getElementById('sdkStatus').textContent = 'loading';
+    })();
+  </script>
+</body>
+</html>

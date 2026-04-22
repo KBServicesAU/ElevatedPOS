@@ -341,6 +341,14 @@
       ],
       "port": 53113,
       "autoPort": false
+    },
+    {
+      "name": "tim-browser-test",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": ["serve.mjs"],
+      "cwd": "services/hardware-bridge/browser-test",
+      "port": 8099,
+      "autoPort": false
     }
   ]
 }
