@@ -27,7 +27,10 @@ function ProgramModal({ program, onClose, onSaved }: ProgramModalProps) {
   const { toast } = useToast();
   const isEdit = !!program;
   const [name, setName] = useState(program?.name ?? '');
-  const [earnRate, setEarnRate] = useState(String(program?.earnRate ?? '1'));
+  // v2.7.40 — field flipped from "points per $1 spent" to "dollars per point".
+  const [dollarsPerPoint, setDollarsPerPoint] = useState(
+    String(program?.dollarsPerPoint ?? program?.earnRate ?? '1'),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -36,7 +39,8 @@ function ProgramModal({ program, onClose, onSaved }: ProgramModalProps) {
     setError('');
     setSaving(true);
     try {
-      const body = JSON.stringify({ name: name.trim(), earnRate: Math.round(parseFloat(earnRate)) || 1, active: true });
+      const normalised = Math.max(1, Math.round(parseFloat(dollarsPerPoint)) || 1);
+      const body = JSON.stringify({ name: name.trim(), dollarsPerPoint: normalised, active: true });
       if (isEdit && program) {
         await apiFetch(`programs/${program.id}`, {
           method: 'PATCH',
@@ -92,16 +96,19 @@ function ProgramModal({ program, onClose, onSaved }: ProgramModalProps) {
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Points earned per $1 spent
+              Dollars required to earn 1 point
             </label>
             <input
               type="number"
-              min="0.1"
-              step="0.1"
-              value={earnRate}
-              onChange={(e) => setEarnRate(e.target.value)}
+              min="1"
+              step="1"
+              value={dollarsPerPoint}
+              onChange={(e) => setDollarsPerPoint(e.target.value)}
               className="w-32 rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             />
+            <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              Customers earn 1 point for every ${dollarsPerPoint || '1'} spent.
+            </p>
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button
@@ -213,7 +220,9 @@ export function LoyaltyClient() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-white">{program.name}</h3>
-            <p className="mt-0.5 text-sm text-gray-500">Earn {program.earnRate} pts per $1 spent</p>
+            <p className="mt-0.5 text-sm text-gray-500">
+              Earn 1 point per ${program.dollarsPerPoint ?? program.earnRate} spent
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <span
@@ -257,7 +266,7 @@ export function LoyaltyClient() {
         {[
           { label: 'Total Members', value: totalMembers.toLocaleString(), icon: Users, color: 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' },
           { label: 'Tiers Configured', value: tiers.length.toString(), icon: Star, color: 'bg-yellow-50 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400' },
-          { label: 'Earn Rate', value: `${program.earnRate} pts/$`, icon: Gift, color: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' },
+          { label: 'Earn Rate', value: `$${program.dollarsPerPoint ?? program.earnRate} / point`, icon: Gift, color: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' },
           { label: 'Top Tier', value: tiers[tiers.length - 1]?.name ?? '—', icon: TrendingUp, color: 'bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400' },
         ].map((stat) => (
           <div key={stat.label} className="flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">

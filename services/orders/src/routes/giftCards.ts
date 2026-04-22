@@ -272,6 +272,86 @@ export async function giftCardRoutes(app: FastifyInstance) {
     return reply.status(200).send({ data: updated });
   });
 
+  // POST /api/v1/gift-cards/:id/send-email — email the gift card code to a recipient.
+  // v2.7.40 — the dashboard "Send email" action was failing because this
+  // route didn't exist. Posts a branded email via the notifications service
+  // following the same pattern as /orders/:id/send-receipt.
+  app.post('/:id/send-email', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+    const body = z.object({ email: z.string().email() }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: body.error.message,
+      });
+    }
+
+    // Look up the gift card — accept either the UUID or the code so the
+    // dashboard can call this with whatever identifier it has on hand.
+    let card = await db.query.giftCards.findFirst({
+      where: and(eq(schema.giftCards.id, id), eq(schema.giftCards.orgId, orgId)),
+    });
+    if (!card) {
+      card = await db.query.giftCards.findFirst({
+        where: and(eq(schema.giftCards.code, id.toUpperCase()), eq(schema.giftCards.orgId, orgId)),
+      });
+    }
+    if (!card) return reply.status(404).send({ title: 'Not Found', status: 404 });
+
+    const balance = Number(card.currentBalance);
+    const currency = card.currency ?? 'AUD';
+    const formattedBalance = balance.toFixed(2);
+
+    const notificationsUrl = process.env['NOTIFICATIONS_SERVICE_URL'] ?? 'http://notifications:4009';
+    const authHeader = request.headers.authorization ?? '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return reply.status(401).send({ type: 'about:blank', title: 'Unauthorized', status: 401 });
+    }
+
+    try {
+      const res = await fetch(`${notificationsUrl}/api/v1/notifications/email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({
+          to: body.data.email,
+          subject: `You have a gift card — ${currency} $${formattedBalance}`,
+          template: 'gift_card',
+          orgId,
+          data: {
+            code: card.code,
+            balance: formattedBalance,
+            currency,
+            expiresAt: card.expiresAt?.toISOString() ?? null,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({})) as { detail?: string; title?: string };
+        return reply.status(502).send({
+          type: 'about:blank',
+          title: 'Email Send Failed',
+          status: 502,
+          detail: errBody.detail ?? errBody.title ?? `Notifications service returned ${res.status}`,
+        });
+      }
+      return reply.status(200).send({ data: { email: body.data.email, giftCardId: card.id } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(502).send({
+        type: 'about:blank',
+        title: 'Email Send Failed',
+        status: 502,
+        detail: message,
+      });
+    }
+  });
+
   // GET /api/v1/gift-cards — list gift cards for org
   app.get('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };

@@ -330,6 +330,14 @@ export async function connectExtendedRoutes(app: FastifyInstance) {
   // ── POST /connect/invoices/:invoiceId/send-email ──────────────────────────────
   // Sends a branded ElevatedPOS invoice email to the customer via the
   // notifications service. Requires a valid JWT (orgId extracted from token).
+  //
+  // v2.7.40 — previously this route required a live Stripe call to
+  // retrieve the invoice + customer. In sandboxed / partially-onboarded
+  // Connect accounts this silently threw (dashboard showed "sent" but no
+  // email actually went out). We now fall back to the locally-stored
+  // stripeInvoices row (which we populate at invoice-creation time) when
+  // Stripe is unavailable, so the email always gets posted to the
+  // notifications service.
   app.post('/connect/invoices/:invoiceId/send-email', {
     preHandler: app.authenticate,
   }, async (request, reply) => {
@@ -337,43 +345,61 @@ export async function connectExtendedRoutes(app: FastifyInstance) {
     const { orgId } = request.user as { orgId: string };
 
     try {
-      // Resolve Stripe connected account for this org
+      // Resolve Stripe connected account for this org (for branding only)
       const accountRows = await db.select().from(stripeConnectAccounts)
         .where(eq(stripeConnectAccounts.orgId, orgId)).limit(1);
-      if (accountRows.length === 0) {
-        return reply.status(404).send({ error: 'Connect account not found for this org' });
+      const stripeAccountId = accountRows[0]?.stripeAccountId ?? null;
+      const businessLabel = accountRows[0]?.businessName ?? 'Your Business';
+
+      // Always load the local invoice row first — this is our source of truth
+      const localRows = await db.select().from(stripeInvoices)
+        .where(eq(stripeInvoices.stripeInvoiceId, invoiceId)).limit(1);
+      const localInvoice = localRows[0];
+      if (!localInvoice) {
+        return reply.status(404).send({ error: 'Invoice not found in ElevatedPOS' });
       }
-      const { stripeAccountId, businessName } = accountRows[0]!;
-      const businessLabel = businessName ?? 'Your Business';
+      const localMeta = (localInvoice.metadata as { customerEmail?: string; customerName?: string } | null) ?? {};
 
-      // Fetch invoice from Stripe connected account
-      const invoice = await stripe.invoices.retrieve(invoiceId, {}, { stripeAccount: stripeAccountId });
+      // Try Stripe for up-to-date customer info; fall back to local meta
+      let customerEmail: string | null = localMeta.customerEmail ?? null;
+      let invoiceNumber: string = invoiceId;
+      let amountDueCents: number = Number(localInvoice.amountDue ?? 0);
+      let currency: string = (localInvoice.currency ?? 'aud').toUpperCase();
+      let dueDateTs: number | null = localInvoice.dueDate
+        ? Math.floor(new Date(localInvoice.dueDate).getTime() / 1000)
+        : null;
 
-      // Resolve customer email
-      let customerEmail = invoice.customer_email ?? null;
-      if (!customerEmail && invoice.customer) {
-        const customerId = typeof invoice.customer === 'string'
-          ? invoice.customer
-          : (invoice.customer as Stripe.Customer).id;
-        const customer = await stripe.customers.retrieve(customerId, {}, { stripeAccount: stripeAccountId });
-        if (!customer.deleted && (customer as Stripe.Customer).email) {
-          customerEmail = (customer as Stripe.Customer).email ?? null;
+      if (stripeAccountId) {
+        try {
+          const invoice = await stripe.invoices.retrieve(invoiceId, {}, { stripeAccount: stripeAccountId });
+          if (invoice.customer_email) customerEmail = invoice.customer_email;
+          if (!customerEmail && invoice.customer) {
+            const customerId = typeof invoice.customer === 'string'
+              ? invoice.customer
+              : (invoice.customer as Stripe.Customer).id;
+            const customer = await stripe.customers.retrieve(customerId, {}, { stripeAccount: stripeAccountId });
+            if (!customer.deleted && (customer as Stripe.Customer).email) {
+              customerEmail = (customer as Stripe.Customer).email ?? null;
+            }
+          }
+          if (invoice.number) invoiceNumber = invoice.number;
+          if (typeof invoice.amount_due === 'number') amountDueCents = invoice.amount_due;
+          if (invoice.currency) currency = invoice.currency.toUpperCase();
+          if (invoice.due_date) dueDateTs = invoice.due_date;
+        } catch (err) {
+          app.log.warn({ err, invoiceId }, '[invoices/send-email] Stripe retrieve failed — falling back to local row');
         }
       }
+
       if (!customerEmail) {
         return reply.status(422).send({ error: 'No customer email found on this invoice' });
       }
 
-      // Invoice details
-      const invoiceNumber = invoice.number ?? invoiceId;
-      const amountDue = invoice.amount_due;
-      const currency = (invoice.currency ?? 'aud').toUpperCase();
-      const dueDateTs = invoice.due_date;
       const dueDateLabel = dueDateTs
         ? new Date(dueDateTs * 1000).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
         : 'On receipt';
-      const formattedAmount = (amountDue / 100).toFixed(2);
-      const payUrl = `https://pay.elevatedpos.com.au/invoice/${invoiceId}`;
+      const formattedAmount = (amountDueCents / 100).toFixed(2);
+      const payUrl = localInvoice.invoiceUrl ?? `https://pay.elevatedpos.com.au/invoice/${invoiceId}`;
 
       const htmlBody = `<!DOCTYPE html>
 <html lang="en">
@@ -444,13 +470,24 @@ export async function connectExtendedRoutes(app: FastifyInstance) {
         { expiresIn: '5m' },
       );
 
+      // v2.7.40 — the notifications service requires `template` + `data`
+      // (see services/notifications/src/routes/email.ts). Previously we sent
+      // `htmlBody` directly which failed zod validation (422) and the email
+      // silently never went out. We now use the "custom" template and pass
+      // the prebuilt HTML as data.body.
       const notifRes = await fetch(`${NOTIFICATIONS_API_URL}/api/v1/notifications/email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${internalToken}`,
         },
-        body: JSON.stringify({ to: customerEmail, subject, htmlBody, orgId }),
+        body: JSON.stringify({
+          to: customerEmail,
+          subject,
+          orgId,
+          template: 'custom',
+          data: { body: htmlBody },
+        }),
       });
 
       if (!notifRes.ok) {

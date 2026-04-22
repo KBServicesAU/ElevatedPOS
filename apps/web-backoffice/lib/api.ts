@@ -45,7 +45,23 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     throw new ApiError(res.status, 'API_ERROR', message);
   }
 
-  return res.json() as Promise<T>;
+  // v2.7.40 — Null-body statuses (204/205/304) cannot carry a JSON body;
+  // calling res.json() on them throws "Unexpected end of JSON input" which
+  // was silently breaking every DELETE path (campaigns, automations, locations,
+  // etc.) because handlers return 204 No Content on success.
+  if (res.status === 204 || res.status === 205 || res.status === 304) {
+    return undefined as T;
+  }
+
+  // Guard against empty-body 200s as well (some services return 200 with no body)
+  const text = await res.text();
+  if (!text) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Non-JSON body — return the raw text so callers with string return types still work
+    return text as unknown as T;
+  }
 }
 
 // ─── Orders ──────────────────────────────────────────────────────────────────
@@ -304,6 +320,10 @@ export function fetchEmployees(): Promise<{ data: Employee[] }> {
 export interface LoyaltyProgram {
   id: string;
   name: string;
+  /** v2.7.40 — dollars a customer must spend to earn 1 point (inverted from the
+   *  legacy meaning of "points per $1 spent"). The server still populates
+   *  `earnRate` with the same number for backwards-compat. */
+  dollarsPerPoint?: number;
   earnRate: number;
   active: boolean;
   tiers?: LoyaltyTier[];

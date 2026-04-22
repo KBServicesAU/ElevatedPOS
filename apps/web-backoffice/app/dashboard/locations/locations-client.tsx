@@ -201,45 +201,60 @@ export function LocationsClient() {
   const [saving, setSaving] = useState(false);
   const [detailLocation, setDetailLocation] = useState<Location | null>(null);
 
-  useEffect(() => {
+  // v2.7.40 — extracted load() so it can be called after POST to ensure the
+  // new location shows the server-assigned ID and isActive state. Previously
+  // the client built an optimistic Location with form data, so a new location
+  // appeared to add successfully but "disappeared" after refresh because the
+  // local object could not be reconciled with the server's row.
+  const reload = async () => {
     setIsLoading(true);
-    apiFetch<{ data?: unknown[] } | unknown[]>('locations')
-      .then((json) => {
-        const raw: unknown[] = Array.isArray(json) ? json : (json as { data?: unknown[] }).data ?? [];
-        const data: Location[] = raw.map((item) => {
-          const r = item as Record<string, unknown>;
-          // API may return address as a nested object or a flat string
-          const addr = r['address'];
-          const street = typeof addr === 'object' && addr !== null
-            ? String((addr as Record<string, unknown>)['street'] ?? '')
-            : String(addr ?? '');
-          const suburb = typeof addr === 'object' && addr !== null
-            ? String((addr as Record<string, unknown>)['suburb'] ?? '')
-            : String(r['suburb'] ?? '');
-          const state = typeof addr === 'object' && addr !== null
-            ? String((addr as Record<string, unknown>)['state'] ?? '')
-            : String(r['state'] ?? '');
-          const postcode = typeof addr === 'object' && addr !== null
-            ? String((addr as Record<string, unknown>)['postcode'] ?? '')
-            : String(r['postcode'] ?? '');
-          return {
-            id: String(r['id'] ?? ''),
-            name: String(r['name'] ?? ''),
-            address: street,
-            suburb,
-            state,
-            postcode,
-            phone: String(r['phone'] ?? ''),
-            managerName: String(r['managerName'] ?? r['manager_name'] ?? ''),
-            managerEmail: String(r['managerEmail'] ?? r['manager_email'] ?? ''),
-            status: (r['status'] === 'inactive' ? 'inactive' : 'active') as Location['status'],
-            revenueToday: Number(r['revenueToday'] ?? r['revenue_today'] ?? 0),
-          };
-        });
-        setLocations(data);
-      })
-      .catch(() => setLocations([]))
-      .finally(() => setIsLoading(false));
+    try {
+      const json = await apiFetch<{ data?: unknown[] } | unknown[]>('locations');
+      const raw: unknown[] = Array.isArray(json) ? json : (json as { data?: unknown[] }).data ?? [];
+      const data: Location[] = raw.map((item) => {
+        const r = item as Record<string, unknown>;
+        const addr = r['address'];
+        const street = typeof addr === 'object' && addr !== null
+          ? String((addr as Record<string, unknown>)['street'] ?? '')
+          : String(addr ?? '');
+        const suburb = typeof addr === 'object' && addr !== null
+          ? String((addr as Record<string, unknown>)['suburb'] ?? '')
+          : String(r['suburb'] ?? '');
+        const state = typeof addr === 'object' && addr !== null
+          ? String((addr as Record<string, unknown>)['state'] ?? '')
+          : String(r['state'] ?? '');
+        const postcode = typeof addr === 'object' && addr !== null
+          ? String((addr as Record<string, unknown>)['postcode'] ?? '')
+          : String(r['postcode'] ?? '');
+        // Backend stores `isActive: boolean`, not a string status — map both shapes.
+        const isActive = r['isActive'] !== undefined ? Boolean(r['isActive']) :
+          r['is_active'] !== undefined ? Boolean(r['is_active']) :
+          r['status'] !== 'inactive';
+        return {
+          id: String(r['id'] ?? ''),
+          name: String(r['name'] ?? ''),
+          address: street,
+          suburb,
+          state,
+          postcode,
+          phone: String(r['phone'] ?? ''),
+          managerName: String(r['managerName'] ?? r['manager_name'] ?? ''),
+          managerEmail: String(r['managerEmail'] ?? r['manager_email'] ?? ''),
+          status: (isActive ? 'active' : 'inactive') as Location['status'],
+          revenueToday: Number(r['revenueToday'] ?? r['revenue_today'] ?? 0),
+        };
+      });
+      setLocations(data);
+    } catch {
+      setLocations([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const totalRevenue = locations.reduce((s, l) => s + l.revenueToday, 0);
@@ -304,47 +319,21 @@ export function LocationsClient() {
           method: 'PATCH',
           body: JSON.stringify(form),
         });
-        setLocations((prev) =>
-          prev.map((l) =>
-            l.id === editTarget.id
-              ? { ...l, ...form }
-              : l,
-          ),
-        );
         toast({ title: 'Location updated', description: `"${form.name}" has been updated.`, variant: 'success' });
-        setShowModal(false);
       } else {
-        const created = await apiFetch<Location>('locations', {
+        await apiFetch('locations', {
           method: 'POST',
           body: JSON.stringify(form),
         });
-        // Normalise response — API may return address as nested object
-        const addr = (created as unknown as Record<string, unknown>)['address'];
-        const normalisedLocation: Location = {
-          id: String((created as unknown as Record<string, unknown>)['id'] ?? Date.now()),
-          name: created.name ?? form.name,
-          address: typeof addr === 'object' && addr !== null
-            ? String((addr as Record<string, unknown>)['street'] ?? form.address)
-            : String(addr ?? form.address),
-          suburb: typeof addr === 'object' && addr !== null
-            ? String((addr as Record<string, unknown>)['suburb'] ?? form.suburb)
-            : (created.suburb ?? form.suburb),
-          state: typeof addr === 'object' && addr !== null
-            ? String((addr as Record<string, unknown>)['state'] ?? form.state)
-            : (created.state ?? form.state),
-          postcode: typeof addr === 'object' && addr !== null
-            ? String((addr as Record<string, unknown>)['postcode'] ?? form.postcode)
-            : (created.postcode ?? form.postcode),
-          phone: created.phone ?? form.phone,
-          managerName: created.managerName ?? form.managerName,
-          managerEmail: created.managerEmail ?? form.managerEmail,
-          status: created.status ?? 'active',
-          revenueToday: created.revenueToday ?? 0,
-        };
-        setLocations((prev) => [...prev, normalisedLocation]);
         toast({ title: 'Location added', description: `"${form.name}" has been added.`, variant: 'success' });
-        setShowModal(false);
       }
+      setShowModal(false);
+      // v2.7.40 — always reload from server so the displayed row has the
+      // real server-assigned id. Previously we built a local Location using
+      // form fields and a fallback `Date.now()` id, which caused the new
+      // location to "disappear" after a real page refresh because its local
+      // id never matched a DB row.
+      await reload();
     } catch (err) {
       const msg = getErrorMessage(err);
       toast({ title: editTarget ? 'Failed to update location' : 'Failed to add location', description: msg, variant: 'destructive' });

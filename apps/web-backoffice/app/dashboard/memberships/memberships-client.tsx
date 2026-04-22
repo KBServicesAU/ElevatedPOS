@@ -147,20 +147,24 @@ export default function MembershipsClient() {
     };
     try {
       if (editingPlan) {
-        await apiFetch(`membership-plans/${editingPlan.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-        setPlans((prev) => prev.map((p) => p.id === editingPlan.id ? { ...p, ...payload } : p));
+        // v2.7.40 — backend only exposes PATCH, not PUT. PUT was 404'ing silently.
+        await apiFetch(`membership-plans/${editingPlan.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
         toast({ title: 'Plan updated', description: `"${payload.name}" has been saved.`, variant: 'success' });
       } else {
         await apiFetch('membership-plans', { method: 'POST', body: JSON.stringify(payload) });
-        const newPlan: MembershipPlan = { id: `plan${Date.now()}`, memberCount: 0, ...payload };
-        setPlans((prev) => [...prev, newPlan]);
         toast({ title: 'Plan created', description: `"${payload.name}" has been created.`, variant: 'success' });
       }
+      setShowPlanModal(false);
+      // v2.7.40 — refetch from server so we pick up the real server-assigned ID.
+      // Previously we used a local fake `plan${Date.now()}` id, which meant the
+      // subsequent toggle call POSTed to a non-existent plan (silent failure)
+      // and the first plan could "disappear" on refresh if a later POST raced.
+      await load();
     } catch (err) {
       const msg = getErrorMessage(err);
       toast({ title: editingPlan ? 'Failed to update plan' : 'Failed to create plan', description: msg, variant: 'destructive' });
+      // Modal stays open on error so the merchant can correct and retry
     } finally {
-      setShowPlanModal(false);
       setSaving(false);
     }
   }

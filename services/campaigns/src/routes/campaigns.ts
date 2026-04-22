@@ -165,6 +165,42 @@ export async function campaignRoutes(app: FastifyInstance) {
     return reply.status(200).send({ data: updated });
   });
 
+  // DELETE /campaigns/:id — delete campaign. v2.7.40 — merchant reported
+  // the UI's Delete button returning an error because this route didn't
+  // exist. Delete is allowed from any status; completed/cancelled drafts
+  // can be tidied up by the operator.
+  app.delete('/:id', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+
+    const existing = await db.query.campaigns.findFirst({
+      where: and(eq(schema.campaigns.id, id), eq(schema.campaigns.orgId, orgId)),
+    });
+    if (!existing) {
+      return reply.status(404).send({
+        type: 'https://elevatedpos.com/errors/not-found',
+        title: 'Not Found',
+        status: 404,
+        detail: `Campaign ${id} not found`,
+      });
+    }
+
+    // Delete dependent message rows first (no FK cascade on campaign_messages)
+    // so we don't hit a foreign-key violation. Best-effort — if the messages
+    // table isn't present for this org the delete is a no-op.
+    try {
+      await db.delete(schema.campaignMessages).where(eq(schema.campaignMessages.campaignId, id));
+    } catch {
+      // ignore — table may not exist in some environments
+    }
+
+    await db
+      .delete(schema.campaigns)
+      .where(and(eq(schema.campaigns.id, id), eq(schema.campaigns.orgId, orgId)));
+
+    return reply.status(204).send();
+  });
+
   // POST /campaigns/:id/cancel — cancel campaign
   app.post('/:id/cancel', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
