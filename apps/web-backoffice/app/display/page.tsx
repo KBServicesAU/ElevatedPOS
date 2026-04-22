@@ -47,10 +47,14 @@ interface MenuItem {
 }
 
 const STORAGE_KEY = 'elevatedpos_display_token';
-const API_BASE =
-  typeof window !== 'undefined'
-    ? (process.env.NEXT_PUBLIC_API_URL ?? 'https://api.elevatedpos.com.au')
-    : 'https://api.elevatedpos.com.au';
+// v2.7.34+ — default to same-origin so the request hits whatever
+// hostname serves the display page. The previous default of
+// `https://api.elevatedpos.com.au` failed because that subdomain isn't
+// in the ingress (only `app.elevatedpos.com.au` is, and `/api/v1/*`
+// routes on that host are mapped to the backend services directly).
+// Browsers surfaced this as the uninformative "Failed to fetch" on
+// the pair screen.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 const CODE_LENGTH = 6;
 
