@@ -76,6 +76,7 @@ const nav: NavItem[] = [
   { href: '/dashboard/tables',              icon: LayoutGrid,      label: 'Tables',            roles: OPS,   feature: 'tableManagement' },
   { href: '/dashboard/reservations',        icon: CalendarCheck,   label: 'Reservations',      roles: OPS,   feature: 'reservations' },
   { href: '/dashboard/quotes',              icon: FileText,        label: 'Quotes',            roles: OPS },
+  { href: '/dashboard/click-and-collect',   icon: ShoppingCart,    label: 'Click & Collect',   roles: OPS },
   { href: '/dashboard/fulfillment',         icon: Truck,           label: 'Fulfillment',       roles: OPS },
 
   // ── Catalog & Pricing ─────────────────────────────────────────────────────

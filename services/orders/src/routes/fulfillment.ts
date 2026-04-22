@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, schema } from '../db';
+import { generateOrderNumber } from '../lib/orderNumber';
 
 const createFulfillmentSchema = z.object({
   orderId: z.string().uuid(),
@@ -22,8 +23,230 @@ const clickAndCollectSchema = z.object({
   estimatedPickupAt: z.string().datetime().optional(),
 });
 
+// v2.7.40 — quick-create path used by the dashboard Click & Collect form.
+// Dashboard doesn't have catalog-linked items (like POS does), it sends
+// free-form line items (same shape as the quotes form: productName/qty/unitPrice).
+// This creates an online channel order + click-and-collect fulfillment request
+// in one call so merchants can take a phone/in-person C&C order without
+// going through POS.
+const quickCollectItemSchema = z.object({
+  productName: z.string().min(1),
+  qty: z.number().positive(),
+  unitPrice: z.number().min(0),
+});
+
+const quickCollectSchema = z.object({
+  customerName: z.string().min(1),
+  customerEmail: z.string().email().optional().or(z.literal('')),
+  customerPhone: z.string().optional(),
+  pickupLocationId: z.string().uuid().optional(),
+  items: z.array(quickCollectItemSchema).min(1),
+  notes: z.string().optional(),
+  // ISO datetime — when the merchant expects to have it ready.
+  pickupReadyAt: z.string().optional(),
+});
+
 export async function fulfillmentRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
+
+  // POST /api/v1/fulfillment/click-and-collect/quick — create an ad-hoc
+  // click-and-collect order from the dashboard form.
+  //
+  // Creates an `online` channel order + `click_and_collect` fulfillment
+  // request in a single transaction so merchants can take phone/online
+  // C&C orders without going through POS. Items are free-form (no catalog
+  // link needed) and customer details are stored inline on the order/line
+  // notes — no customers row is created.
+  app.post('/click-and-collect/quick', async (request, reply) => {
+    const { orgId, sub: employeeId } = request.user as { orgId: string; sub: string };
+    const body = quickCollectSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: body.error.message,
+      });
+    }
+
+    // Resolve pickup location: caller-supplied wins; otherwise fall back to
+    // the most recent order's locationId for this org (same pattern the
+    // quotes endpoint uses for ad-hoc creation).
+    let pickupLocationId = body.data.pickupLocationId ?? null;
+    if (!pickupLocationId) {
+      const lastOrder = await db.query.orders.findFirst({
+        where: eq(schema.orders.orgId, orgId),
+        orderBy: [desc(schema.orders.createdAt)],
+        columns: { locationId: true },
+      });
+      pickupLocationId = lastOrder?.locationId ?? null;
+    }
+    if (!pickupLocationId) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'No pickup location found',
+        status: 422,
+        detail: 'Supply pickupLocationId or create any order first.',
+      });
+    }
+
+    // Totals — inc-GST, same treatment as POS orders but simpler (no taxRate
+    // on free-form items; it's an ad-hoc quick path, merchant can reconcile
+    // via the full order editor if needed).
+    const subtotalCents = body.data.items.reduce((sum, it) => {
+      return sum + Math.round(it.qty * it.unitPrice * 100);
+    }, 0);
+    const subtotal = (subtotalCents / 100).toFixed(2);
+
+    // Contact metadata is kept on the order's `notes` so it survives round-
+    // trip without a schema change. Format is deliberately parseable.
+    const customerLines = [
+      `Customer: ${body.data.customerName}`,
+      body.data.customerEmail ? `Email: ${body.data.customerEmail}` : null,
+      body.data.customerPhone ? `Phone: ${body.data.customerPhone}` : null,
+      body.data.pickupReadyAt ? `Pickup ready: ${body.data.pickupReadyAt}` : null,
+      body.data.notes ? `Notes: ${body.data.notes}` : null,
+    ].filter(Boolean).join('\n');
+
+    const orderRows = await db.insert(schema.orders).values({
+      orgId,
+      employeeId,
+      locationId: pickupLocationId,
+      registerId: pickupLocationId,
+      orderNumber: generateOrderNumber('CNC'),
+      channel: 'online',
+      orderType: 'pickup',
+      status: 'open',
+      subtotal,
+      discountTotal: '0.00',
+      taxTotal: '0.00',
+      total: subtotal,
+      notes: customerLines,
+    }).returning();
+    const order = orderRows[0]!;
+
+    // Insert line items. Placeholder UUID for productId since these are
+    // free-form — the column is NOT NULL. Real catalog linking happens in
+    // POS; this is just an ad-hoc slip.
+    await db.insert(schema.orderLines).values(body.data.items.map((it) => {
+      const lineTotalCents = Math.round(it.qty * it.unitPrice * 100);
+      return {
+        orderId: order.id,
+        productId: '00000000-0000-0000-0000-000000000000',
+        name: it.productName,
+        sku: '',
+        quantity: String(it.qty),
+        unitPrice: String(it.unitPrice),
+        costPrice: '0',
+        taxRate: '0',
+        taxAmount: '0.00',
+        discountAmount: '0',
+        lineTotal: (lineTotalCents / 100).toFixed(2),
+        modifiers: [],
+      };
+    }));
+
+    // Build the fulfillment request notes (structured so the list view can
+    // surface customer name + pickup time without a JOIN).
+    const fulfillmentNotes = [
+      `Customer: ${body.data.customerName}`,
+      body.data.customerEmail ? `Email: ${body.data.customerEmail}` : null,
+      body.data.customerPhone ? `Phone: ${body.data.customerPhone}` : null,
+      body.data.pickupReadyAt ? `Pickup ready: ${body.data.pickupReadyAt}` : null,
+      body.data.notes ? `Notes: ${body.data.notes}` : null,
+    ].filter(Boolean).join('\n');
+
+    const fulfillmentRows = await db.insert(schema.fulfillmentRequests).values({
+      orgId,
+      orderId: order.id,
+      type: 'click_and_collect',
+      sourceLocationId: pickupLocationId,
+      notes: fulfillmentNotes,
+    }).returning();
+    const fulfillment = fulfillmentRows[0]!;
+
+    return reply.status(201).send({ data: { order, fulfillment } });
+  });
+
+  // GET /api/v1/fulfillment/click-and-collect/list — list C&C fulfillment
+  // requests with order + customer context attached. Returns the exact
+  // shape the dashboard needs — orderNumber, customer name, items
+  // summary, status, readyAt — so the client doesn't have to JOIN.
+  app.get('/click-and-collect/list', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const q = request.query as { limit?: string };
+    const limit = Math.min(Number(q.limit ?? 100), 200);
+
+    const requests = await db.query.fulfillmentRequests.findMany({
+      where: and(
+        eq(schema.fulfillmentRequests.orgId, orgId),
+        eq(schema.fulfillmentRequests.type, 'click_and_collect'),
+      ),
+      orderBy: [desc(schema.fulfillmentRequests.createdAt)],
+      limit,
+    });
+
+    if (requests.length === 0) {
+      return reply.status(200).send({ data: [], meta: { totalCount: 0 } });
+    }
+
+    // Parallel-fetch the referenced orders + their lines.
+    const orderIds = [...new Set(requests.map((r) => r.orderId))];
+    const [orders, lines] = await Promise.all([
+      db.query.orders.findMany({
+        where: and(eq(schema.orders.orgId, orgId), inArray(schema.orders.id, orderIds)),
+      }),
+      db.query.orderLines.findMany({
+        where: inArray(schema.orderLines.orderId, orderIds),
+      }),
+    ]);
+    const orderById = new Map(orders.map((o) => [o.id, o]));
+    const linesByOrder = new Map<string, typeof lines>();
+    for (const l of lines) {
+      const existing = linesByOrder.get(l.orderId);
+      if (existing) existing.push(l);
+      else linesByOrder.set(l.orderId, [l]);
+    }
+
+    // Parse customer name + pickup ready time from the fulfillment notes
+    // (structured in the quick-create handler above).
+    function parseNotes(notes: string | null): { customerName: string; pickupReadyAt: string | null } {
+      if (!notes) return { customerName: 'Unknown', pickupReadyAt: null };
+      const nameMatch = notes.match(/^Customer:\s*(.+)$/m);
+      const pickupMatch = notes.match(/^Pickup ready:\s*(.+)$/m);
+      return {
+        customerName: nameMatch?.[1]?.trim() ?? 'Unknown',
+        pickupReadyAt: pickupMatch?.[1]?.trim() ?? null,
+      };
+    }
+
+    const data = requests.map((r) => {
+      const order = orderById.get(r.orderId);
+      const orderLines = linesByOrder.get(r.orderId) ?? [];
+      const { customerName, pickupReadyAt } = parseNotes(r.notes);
+      const itemsSummary = orderLines
+        .map((l) => `${l.name}${Number(l.quantity) > 1 ? ` ×${Number(l.quantity)}` : ''}`)
+        .join(', ');
+      return {
+        id: r.id,
+        fulfillmentId: r.id,
+        orderId: r.orderId,
+        orderNumber: order?.orderNumber ?? '-',
+        customerName,
+        status: r.status,
+        itemCount: orderLines.length,
+        itemsSummary: itemsSummary || '—',
+        total: order?.total ?? '0.00',
+        sourceLocationId: r.sourceLocationId,
+        pickupReadyAt,
+        notes: r.notes,
+        readyAt: r.readyAt,
+        createdAt: r.createdAt,
+      };
+    });
+
+    return reply.status(200).send({ data, meta: { totalCount: data.length } });
+  });
 
   // POST /api/v1/fulfillment/click-and-collect — create a click-and-collect fulfillment request
   app.post('/click-and-collect', async (request, reply) => {
