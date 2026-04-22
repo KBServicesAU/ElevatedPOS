@@ -9,7 +9,6 @@ const ROUTE_LABELS: Record<string, string> = {
   '/dashboard/tables': 'Tables',
   '/dashboard/reservations': 'Reservations',
   '/dashboard/quotes': 'Quotes',
-  '/dashboard/fulfillment': 'Fulfillment',
   '/dashboard/catalog': 'Catalog',
   '/dashboard/catalog/categories': 'Categories',
   '/dashboard/price-lists': 'Price Lists',
