@@ -96,6 +96,18 @@ spec:
                 name: auth
                 port:
                   number: 4001
+          # v2.7.36 — display management routes (display/screens,
+          # display/screens/:id/content, display/content) are served
+          # by the auth service. Missing from the ingress before this
+          # release, which is why /dashboard/display showed
+          # "No display screens" even when a display was paired.
+          - path: /api/v1/display
+            pathType: Prefix
+            backend:
+              service:
+                name: auth
+                port:
+                  number: 4001
           - path: /api/v1/catalog
             pathType: Prefix
             backend:

@@ -451,7 +451,13 @@ export default function DevicesClient() {
                 const isPayOpen    = configuringId === device.id;
                 const isDispOpen   = displayConfiguringId === device.id;
                 const hasConfig    = Boolean(deviceConfigs[device.id]);
-                const canConfig    = device.role !== 'kds' && device.role !== 'customer-display';
+                // v2.7.36 — whitelist the roles that actually accept
+                // payments. Before this was blacklist-style
+                // (`!== 'kds' && !== 'customer-display'`) which failed
+                // open — a paired 'display' (signage) or 'dashboard'
+                // device got a Payments config button even though they
+                // never take card. Only POS and Kiosk tender money.
+                const canConfig    = device.role === 'pos' || device.role === 'kiosk';
                 const isDisplay    = device.role === 'customer-display';
                 const health       = healthDot(device.lastSeenAt);
                 const isRestarting = restarting === device.id;
