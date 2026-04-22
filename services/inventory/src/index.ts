@@ -10,6 +10,7 @@ import { purchaseOrderRoutes } from './routes/purchaseOrders';
 import { transferRoutes } from './routes/transfers';
 import { serialTrackingRoutes } from './routes/serialTracking';
 import { lotTrackingRoutes } from './routes/lotTracking';
+import { stocktakeRoutes } from './routes/stocktakes';
 import { startConsumers } from './consumers';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
@@ -44,6 +45,7 @@ async function start() {
   await app.register(transferRoutes, { prefix: '/api/v1/transfers' });
   await app.register(serialTrackingRoutes, { prefix: '/api/v1/serials' });
   await app.register(lotTrackingRoutes, { prefix: '/api/v1/lots' });
+  await app.register(stocktakeRoutes, { prefix: '/api/v1/stocktakes' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'inventory' }));
   const port = Number(process.env['PORT'] ?? 4003);

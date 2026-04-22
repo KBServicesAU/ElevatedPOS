@@ -846,11 +846,14 @@ function CreateSegmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
     if (conds.length === 0) { setPreviewCount(null); return; }
     setPreviewLoading(true);
     try {
-      // v2.7.40 — segments live on the campaigns service, proxy prefix
-      // `segments` (not `customers/segments`). The preview endpoint
-      // doesn't exist yet, so we just skip the network call and rely on
-      // the create call's validation for feedback.
-      setPreviewCount(null);
+      // v2.7.40 — segments live on the campaigns service via the `segments`
+      // proxy entry (/api/v1/segments). The previous `customers/segments`
+      // path 404'd because the customers service has no segments route.
+      const data = await apiFetch<{ count: number }>('segments/preview', {
+        method: 'POST',
+        body: JSON.stringify({ conditions: conds }),
+      });
+      setPreviewCount(data.count);
     } catch {
       setPreviewCount(null);
     } finally {
@@ -870,10 +873,8 @@ function CreateSegmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
     if (!name.trim()) { setError('Segment name is required'); return; }
     setSaving(true);
     try {
-      // v2.7.40 — segments are owned by the campaigns service; the proxy
-      // prefix is `segments`, not `customers/segments`. The server now
-      // accepts both `filters` (POS shape) and `conditions` (dashboard
-      // shape), so no payload reshape is needed here.
+      // v2.7.40 — segments live on the campaigns service; the `segments`
+      // proxy entry maps to /api/v1/segments on campaigns.
       await apiFetch('segments', {
         method: 'POST',
         body: JSON.stringify({ name: name.trim(), description: description.trim() || undefined, conditions }),
@@ -1035,9 +1036,8 @@ function SegmentCard({ segment, onDeleted }: { segment: Segment; onDeleted: () =
   async function handleDelete() {
     setDeleting(true);
     try {
-      // v2.7.40 — segments routed via campaigns service's `segments` prefix.
-      const res = await fetch(`/api/proxy/segments/${segment.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // v2.7.40 — use the `segments` proxy entry on the campaigns service.
+      await apiFetch(`segments/${segment.id}`, { method: 'DELETE' });
       toast({ title: 'Segment deleted', description: `"${segment.name}" has been removed.`, variant: 'success' });
       onDeleted();
     } catch (err) {
@@ -1115,11 +1115,10 @@ function SegmentsTab() {
   const loadSegments = useCallback(async () => {
     setLoading(true);
     try {
-      // v2.7.40 — segments are served by the campaigns service via the
-      // `segments` proxy prefix.
-      const res = await fetch('/api/proxy/segments');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { data: Segment[] };
+      // v2.7.40 — segments live on the campaigns service via the `segments`
+      // proxy entry (/api/v1/segments). The previous `customers/segments`
+      // path 404'd because the customers service has no segments route.
+      const data = await apiFetch<{ data: Segment[] }>('segments');
       setSegments(data.data ?? []);
     } catch (err) {
       toast({ title: 'Failed to load segments', description: getErrorMessage(err), variant: 'destructive' });

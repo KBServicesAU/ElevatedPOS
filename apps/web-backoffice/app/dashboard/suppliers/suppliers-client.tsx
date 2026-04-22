@@ -6,6 +6,10 @@ import {
   CalendarDays, Pencil, ChevronRight, Truck, Trash2,
 } from 'lucide-react';
 import { formatDollars, formatDate } from '@/lib/formatting';
+// v2.7.40 — route through the shared apiFetch / /api/proxy so the
+// session cookie is exchanged for a Bearer token server-side. The
+// proxy route handler handles this transparently (/api/proxy/[...path]).
+import { apiFetch } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +64,23 @@ interface SupplierModalProps {
   onSave: (supplier: Supplier) => void;
 }
 
+// v2.7.40 — the inventory service stores `address` as a JSONB object
+// (`{raw: "123 King St"}`). Rendering it directly in JSX crashes React
+// with "Objects are not valid as a React child" — which is why the
+// Supplier edit modal and detail slide-in threw "This page ran into
+// an error". Coerce to a string for display/form use.
+function addressToString(address: unknown): string {
+  if (typeof address === 'string') return address;
+  if (address && typeof address === 'object') {
+    const obj = address as Record<string, unknown>;
+    if (typeof obj.raw === 'string') return obj.raw;
+    const parts = [obj.street, obj.suburb, obj.state, obj.postcode]
+      .filter((p): p is string => typeof p === 'string' && p.length > 0);
+    return parts.join(', ');
+  }
+  return '';
+}
+
 function SupplierModal({ existing, onClose, onSave }: SupplierModalProps) {
   const [form, setForm] = useState<Omit<Supplier, 'id' | 'productCount' | 'lastOrderDate'>>({
     name: existing?.name ?? '',
@@ -67,7 +88,7 @@ function SupplierModal({ existing, onClose, onSave }: SupplierModalProps) {
     email: existing?.email ?? '',
     phone: existing?.phone ?? '',
     website: existing?.website ?? '',
-    address: existing?.address ?? '',
+    address: addressToString(existing?.address),
     paymentTerms: existing?.paymentTerms ?? 'Net30',
     leadTimeDays: existing?.leadTimeDays ?? 7,
     notes: existing?.notes ?? '',
@@ -83,19 +104,12 @@ function SupplierModal({ existing, onClose, onSave }: SupplierModalProps) {
     setError('');
     setSaving(true);
     try {
-      const url = existing ? `/api/proxy/suppliers/${existing.id}` : '/api/proxy/suppliers';
+      const path = existing ? `suppliers/${existing.id}` : 'suppliers';
       const method = existing ? 'PATCH' : 'POST';
-      const res = await fetch(url, {
+      const json = await apiFetch<{ data?: Supplier } | Supplier>(path, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        try { const b = await res.json(); msg = b.message ?? b.error ?? b.detail ?? msg; } catch { /* ignore */ }
-        throw new Error(msg);
-      }
-      const json = await res.json() as { data?: Supplier } | Supplier;
       const saved: Supplier = ('data' in json && json.data) ? json.data : json as Supplier;
       onSave({
         id: saved.id ?? existing?.id ?? `sup-${Date.now()}`,
@@ -281,16 +295,14 @@ function SupplierDetail({ supplier, onClose, onEdit, onDelete }: SupplierDetailP
   useEffect(() => {
     if (tab === 'orders' && recentOrders.length === 0) {
       setOrdersLoading(true);
-      fetch(`/api/proxy/purchase-orders?supplierId=${supplier.id}`)
-        .then((r) => r.ok ? r.json() : { data: [] })
+      apiFetch<{ data?: RecentOrder[] } | RecentOrder[]>(`purchase-orders?supplierId=${supplier.id}`)
         .then((json) => setRecentOrders(Array.isArray(json) ? json : (json.data ?? [])))
         .catch(() => setRecentOrders([]))
         .finally(() => setOrdersLoading(false));
     }
     if (tab === 'products' && products.length === 0) {
       setProductsLoading(true);
-      fetch(`/api/proxy/products?supplierId=${supplier.id}`)
-        .then((r) => r.ok ? r.json() : { data: [] })
+      apiFetch<{ data?: SupplierProduct[] } | SupplierProduct[]>(`products?supplierId=${supplier.id}`)
         .then((json) => setProducts(Array.isArray(json) ? json : (json.data ?? [])))
         .catch(() => setProducts([]))
         .finally(() => setProductsLoading(false));
@@ -395,7 +407,7 @@ function SupplierDetail({ supplier, onClose, onEdit, onDelete }: SupplierDetailP
                 <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-400" />
                 <div>
                   <dt className="text-xs text-gray-500">Address</dt>
-                  <dd className="text-sm font-medium text-gray-900 dark:text-white">{supplier.address || '—'}</dd>
+                  <dd className="text-sm font-medium text-gray-900 dark:text-white">{addressToString(supplier.address) || '—'}</dd>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -537,13 +549,8 @@ export function SuppliersClient() {
 
   async function loadSuppliers() {
     try {
-      const res = await fetch('/api/proxy/suppliers');
-      if (res.ok) {
-        const json = await res.json();
-        setSuppliers(json.data ?? []);
-      } else {
-        setSuppliers([]);
-      }
+      const json = await apiFetch<{ data?: Supplier[] }>('suppliers');
+      setSuppliers(json.data ?? []);
     } catch {
       setSuppliers([]);
     } finally {
@@ -582,12 +589,7 @@ export function SuppliersClient() {
     setDeletingIds((prev) => new Set(prev).add(supplier.id));
     setDetailTarget(null);
     try {
-      const res = await fetch(`/api/proxy/suppliers/${supplier.id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        try { const b = await res.json(); msg = b.message ?? b.error ?? msg; } catch { /* ignore */ }
-        throw new Error(msg);
-      }
+      await apiFetch(`suppliers/${supplier.id}`, { method: 'DELETE' });
       setSuppliers((prev) => prev.filter((s) => s.id !== supplier.id));
     } catch (err) {
       // Re-open the detail panel so the user can retry; show error via alert

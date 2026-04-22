@@ -1,12 +1,18 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import {
   Plus, ChevronDown, ChevronRight, MoreVertical, Tag,
   Search, X, Check, Pencil, Trash2,
 } from 'lucide-react';
 import { formatCurrency, getErrorMessage } from '@/lib/formatting';
 import { useToast } from '@/lib/use-toast';
+// v2.7.40 — route through the shared apiFetch / /api/proxy so the session
+// cookie is exchanged for a Bearer token server-side before hitting the
+// catalog service (which enforces request.jwtVerify()). Fragments in the
+// table are also keyed now so expanding a price list row doesn't crash
+// React ("This page ran into an error" on clicking a row).
+import { apiFetch } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -260,9 +266,8 @@ function AddOverrideModal({ priceListId, onClose, onAdd }: AddOverrideModalProps
     debounceRef.current = setTimeout(() => {
       setSearchLoading(true);
       const qs = productSearch ? `?search=${encodeURIComponent(productSearch)}&limit=10` : '?limit=10';
-      fetch(`/api/proxy/catalog/products${qs}`)
-        .then((r) => r.ok ? r.json() : { data: [] })
-        .then((json: { data?: ApiProduct[] } | ApiProduct[]) => {
+      apiFetch<{ data?: ApiProduct[] } | ApiProduct[]>(`products${qs}`)
+        .then((json) => {
           const items = Array.isArray(json) ? json : (json.data ?? []);
           setProducts(items);
         })
@@ -411,13 +416,8 @@ export function PriceListsClient() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch('/api/proxy/price-lists');
-        if (res.ok) {
-          const json = await res.json();
-          setPriceLists(json.data ?? []);
-        } else {
-          setPriceLists([]);
-        }
+        const json = await apiFetch<{ data?: PriceList[] }>('price-lists');
+        setPriceLists(json.data ?? []);
       } catch {
         setPriceLists([]);
       } finally {
@@ -439,9 +439,8 @@ export function PriceListsClient() {
   const handleCreate = async (data: Omit<PriceList, 'id' | 'productCount' | 'overrides'>) => {
     let id = `pl-${Date.now()}`;
     try {
-      const res = await fetch('/api/proxy/price-lists', {
+      const json = await apiFetch<{ data?: { id?: string }; id?: string }>('price-lists', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: data.name,
           type: data.type,
@@ -455,10 +454,7 @@ export function PriceListsClient() {
           locationIds: data.locationIds ?? [],
         }),
       });
-      if (res.ok) {
-        const json = await res.json() as { data?: { id?: string }; id?: string };
-        id = json.data?.id ?? json.id ?? id;
-      }
+      id = json.data?.id ?? json.id ?? id;
     } catch {
       // network error — keep local id
     }
@@ -470,11 +466,10 @@ export function PriceListsClient() {
     priceListId: string,
     override: Omit<ProductOverride, 'id'>,
   ) => {
-    // Persist to API (POST /api/proxy/price-lists/:id/entries)
+    // Persist to API (POST price-lists/:id/entries) via /api/proxy
     try {
-      await fetch(`/api/proxy/price-lists/${priceListId}/entries`, {
+      await apiFetch(`price-lists/${priceListId}/entries`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify([{ productId: override.productId, price: override.overridePrice }]),
       });
     } catch {
@@ -498,12 +493,10 @@ export function PriceListsClient() {
       prev.map((pl) => (pl.id === id ? { ...pl, ...data } : pl)),
     );
     try {
-      const res = await fetch(`/api/proxy/price-lists/${id}`, {
+      await apiFetch(`price-lists/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       toast({ title: 'Price list updated', variant: 'success' });
     } catch (err) {
       if (backup) setPriceLists((prev) => prev.map((pl) => (pl.id === id ? backup : pl)));
@@ -516,8 +509,7 @@ export function PriceListsClient() {
     setConfirmDeleteId(null);
     setPriceLists((prev) => prev.filter((pl) => pl.id !== id));
     try {
-      const res = await fetch(`/api/proxy/price-lists/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await apiFetch(`price-lists/${id}`, { method: 'DELETE' });
       toast({ title: 'Price list deleted', variant: 'success' });
     } catch (err) {
       if (backup) setPriceLists((prev) => [...prev, backup]);
@@ -569,10 +561,13 @@ export function PriceListsClient() {
                 ))
               : priceLists.map((pl) => {
                   const isExpanded = expandedIds.has(pl.id);
+                  // v2.7.40 — Fragment must be keyed because it's the root
+                  // element of a .map() iteration. An unkeyed `<>` here
+                  // caused React to throw on row expand (the user reported
+                  // "This page ran into an error" when clicking a row).
                   return (
-                    <>
+                    <Fragment key={pl.id}>
                       <tr
-                        key={pl.id}
                         className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
                         onClick={() => toggleExpand(pl.id)}
                       >
@@ -647,7 +642,7 @@ export function PriceListsClient() {
 
                       {/* Expanded row — product overrides */}
                       {isExpanded && (
-                        <tr key={`${pl.id}-expanded`}>
+                        <tr>
                           <td colSpan={6} className="bg-gray-50 px-5 py-4 dark:bg-gray-800/50">
                             <div className="space-y-3">
                               <div className="flex items-center justify-between">
@@ -718,7 +713,7 @@ export function PriceListsClient() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
             {!loading && priceLists.length === 0 && (
