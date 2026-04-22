@@ -1227,13 +1227,20 @@ function AddShiftModal({ onClose, employees }: { onClose: () => void; employees:
           <button
             onClick={async () => {
               try {
-                const res = await fetch('/api/proxy/schedules/shifts', {
+                // v2.7.40 — previous code POSTed to `/api/proxy/schedules/shifts`
+                // which resolves to the time-clock service, but time-clock only
+                // exposes GET /shifts. The POST handler lives on the roster
+                // service at /api/v1/roster/shifts, and expects separate
+                // `date` (YYYY-MM-DD) + `startTime` / `endTime` (HH:MM) fields.
+                // Reshape the form data accordingly.
+                const res = await fetch('/api/proxy/roster/shifts', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     employeeId: form.employeeId,
-                    startTime: form.date && form.startTime ? `${form.date}T${form.startTime}:00.000Z` : undefined,
-                    endTime: form.date && form.endTime ? `${form.date}T${form.endTime}:00.000Z` : undefined,
+                    date: form.date || undefined,
+                    startTime: form.startTime || undefined,
+                    endTime: form.endTime || undefined,
                     notes: form.notes || undefined,
                   }),
                 });

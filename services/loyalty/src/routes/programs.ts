@@ -3,9 +3,14 @@ import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 
+// v2.7.40 — the dashboard loyalty form lets the user type a decimal earn
+// rate (input `min="0.1" step="0.1"`). The JS rounds it before sending
+// but edge cases (negatives, NaN) used to trip the `min(1)` validator.
+// We accept any non-negative number and coerce to a 1-based integer at
+// insert time so the NOT NULL integer column is satisfied.
 const createProgramSchema = z.object({
   name: z.string().min(1).max(255),
-  earnRate: z.number().int().min(1).default(10),
+  earnRate: z.number().min(0).default(10),
   active: z.boolean().default(true),
 });
 
@@ -33,9 +38,11 @@ export async function programRoutes(app: FastifyInstance) {
         detail: parsed.error.message,
       });
     }
+    // v2.7.40 — coerce the earn rate to a positive int for the DB column.
+    const earnRate = Math.max(1, Math.round(parsed.data.earnRate));
     const [created] = await db
       .insert(schema.loyaltyPrograms)
-      .values({ orgId, ...parsed.data })
+      .values({ orgId, ...parsed.data, earnRate })
       .returning();
     return reply.status(201).send({ data: created });
   });

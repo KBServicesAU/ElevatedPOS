@@ -4,13 +4,20 @@ import { eq, and, asc, or, ilike } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { hashPassword, hashPin } from '../lib/tokens';
 
+// v2.7.40 — the dashboard "Add Employee" form leaves the role dropdown
+// as "Select role…" when no roles have been created yet, and the client
+// sends `roleId: undefined` in that case. Before this change the strict
+// schema rejected the payload with HTTP 422 ("Failed to add employee").
+// The employees table allows roleId to be null, so treat the field as
+// optional here. PIN/password are also optional so managers can invite
+// the person to set their own credentials.
 const createEmployeeSchema = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   email: z.string().email(),
   password: z.string().min(8).optional(),
   pin: z.string().min(4).max(8).optional(),
-  roleId: z.string().uuid(),
+  roleId: z.string().uuid().optional(),
   locationIds: z.array(z.string().uuid()).default([]),
   employmentType: z.enum(['full_time', 'part_time', 'casual']).default('full_time'),
   startDate: z.string().datetime().optional(),

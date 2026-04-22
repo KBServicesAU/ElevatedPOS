@@ -27,13 +27,19 @@ const channelColors: Record<string, string> = {
   marketplace: 'bg-pink-50 text-pink-600 dark:bg-pink-900/20 dark:text-pink-400',
 };
 
+// v2.7.40 — previously the filter tabs advertised statuses ('pending',
+// 'processing') that don't exist in the orders service enum
+// ('open', 'held', 'completed', 'cancelled', 'refunded',
+// 'partially_refunded'). Clicking those tabs pushed a status value the
+// server couldn't match, so the list went empty and the filter
+// appeared to "do nothing". Align the tabs to the real enum.
 const STATUS_TABS = [
   { key: '', label: 'All' },
   { key: 'open', label: 'Open' },
-  { key: 'pending', label: 'Pending' },
-  { key: 'processing', label: 'Processing' },
+  { key: 'held', label: 'Held' },
   { key: 'completed', label: 'Completed' },
   { key: 'refunded', label: 'Refunded' },
+  { key: 'partially_refunded', label: 'Partially Refunded' },
   { key: 'cancelled', label: 'Cancelled' },
 ];
 

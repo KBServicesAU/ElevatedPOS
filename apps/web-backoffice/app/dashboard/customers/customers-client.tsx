@@ -846,17 +846,11 @@ function CreateSegmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
     if (conds.length === 0) { setPreviewCount(null); return; }
     setPreviewLoading(true);
     try {
-      const res = await fetch('/api/proxy/customers/segments/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conditions: conds }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { count: number };
-        setPreviewCount(data.count);
-      } else {
-        setPreviewCount(null);
-      }
+      // v2.7.40 — segments live on the campaigns service, proxy prefix
+      // `segments` (not `customers/segments`). The preview endpoint
+      // doesn't exist yet, so we just skip the network call and rely on
+      // the create call's validation for feedback.
+      setPreviewCount(null);
     } catch {
       setPreviewCount(null);
     } finally {
@@ -876,7 +870,11 @@ function CreateSegmentModal({ onClose, onSaved }: { onClose: () => void; onSaved
     if (!name.trim()) { setError('Segment name is required'); return; }
     setSaving(true);
     try {
-      await apiFetch('customers/segments', {
+      // v2.7.40 — segments are owned by the campaigns service; the proxy
+      // prefix is `segments`, not `customers/segments`. The server now
+      // accepts both `filters` (POS shape) and `conditions` (dashboard
+      // shape), so no payload reshape is needed here.
+      await apiFetch('segments', {
         method: 'POST',
         body: JSON.stringify({ name: name.trim(), description: description.trim() || undefined, conditions }),
       });
@@ -1037,7 +1035,8 @@ function SegmentCard({ segment, onDeleted }: { segment: Segment; onDeleted: () =
   async function handleDelete() {
     setDeleting(true);
     try {
-      const res = await fetch(`/api/proxy/customers/segments/${segment.id}`, { method: 'DELETE' });
+      // v2.7.40 — segments routed via campaigns service's `segments` prefix.
+      const res = await fetch(`/api/proxy/segments/${segment.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       toast({ title: 'Segment deleted', description: `"${segment.name}" has been removed.`, variant: 'success' });
       onDeleted();
@@ -1116,7 +1115,9 @@ function SegmentsTab() {
   const loadSegments = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/proxy/customers/segments');
+      // v2.7.40 — segments are served by the campaigns service via the
+      // `segments` proxy prefix.
+      const res = await fetch('/api/proxy/segments');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { data: Segment[] };
       setSegments(data.data ?? []);

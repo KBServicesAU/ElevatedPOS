@@ -14,11 +14,20 @@ const createGroupSchema = z.object({
   isActive: z.boolean().default(true),
 });
 
+// v2.7.40 — the dashboard "Add Franchise Location" modal asks the
+// merchant to paste raw UUIDs for `locationId` / `franchiseeOrgId`.
+// A strict `.uuid()` validator rejected typos with HTTP 422 and the
+// client surfaced a bare "Failed to add location" with no hint about
+// which field was wrong. Accept any non-empty string here and defer
+// UUID shape checks to the DB insert, which returns a clearer error
+// when the value is malformed. Both columns are `uuid NOT NULL` in the
+// table, so Postgres rejects non-uuid strings with a readable message
+// that bubbles up to the toast.
 const addLocationSchema = z.object({
-  locationId: z.string().uuid(),
-  franchiseeOrgId: z.string().uuid(),
+  locationId: z.string().min(1),
+  franchiseeOrgId: z.string().min(1),
   franchiseeContactName: z.string().optional(),
-  franchiseeEmail: z.string().email().optional(),
+  franchiseeEmail: z.string().email().optional().or(z.literal('')),
   status: z.enum(['active', 'suspended', 'terminated']).default('active'),
 });
 
