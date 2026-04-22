@@ -4,6 +4,234 @@ import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { generateOrderNumber } from '../lib/orderNumber';
 
+const CUSTOMERS_URL = process.env['CUSTOMERS_SERVICE_URL'] ?? 'http://customers:4006';
+const NOTIFICATIONS_URL = process.env['NOTIFICATIONS_SERVICE_URL'] ?? 'http://notifications:4009';
+
+/**
+ * Resolve a customer for an ad-hoc click-and-collect order.
+ *
+ * v2.7.41 — when the merchant takes a phone/in-person C&C order without
+ * selecting an existing customer, we now mint (or reuse) a real row in
+ * the customers service so the order is properly linked for loyalty,
+ * RFM, store credit, etc. Prior to this the contact details were only
+ * stored in `order.notes` — which kept the DB clean but left the order
+ * orphaned from the customer record.
+ *
+ * Strategy:
+ *   1. If email present → search `GET /customers?search=<email>` and
+ *      match exactly on `email` (ilike search may return fuzzy hits).
+ *   2. If no match → POST `/customers` to create one.
+ *   3. Return the resolved/created customerId, or null if the customers
+ *      service is unreachable (caller continues — non-fatal, matches
+ *      the existing loyalty + royalties graceful-degradation pattern).
+ *
+ * The caller's JWT is forwarded so auth stays in the user's context —
+ * the customers service requires `iss: 'elevatedpos-auth'` on the token
+ * so we can't use an internal service token with a different issuer.
+ */
+async function resolveOrCreateCustomer(opts: {
+  orgId: string;
+  authHeader: string;
+  firstName: string;
+  lastName: string;
+  email?: string | undefined;
+  phone?: string | undefined;
+}): Promise<string | null> {
+  const { authHeader, email, phone, firstName, lastName } = opts;
+  const headers = { 'Content-Type': 'application/json', Authorization: authHeader };
+
+  // 1. Look up by email — the customers search endpoint does ilike on
+  // email so we match the returned row exactly below.
+  if (email) {
+    try {
+      const res = await fetch(
+        `${CUSTOMERS_URL}/api/v1/customers?search=${encodeURIComponent(email)}&limit=5`,
+        { headers, signal: AbortSignal.timeout(3000) },
+      );
+      if (res.ok) {
+        const body = (await res.json()) as { data?: Array<{ id: string; email: string | null }> };
+        const hit = body.data?.find((c) => (c.email ?? '').toLowerCase() === email.toLowerCase());
+        if (hit) return hit.id;
+      }
+    } catch {
+      // Customers service unreachable — fall through to null (non-fatal)
+      return null;
+    }
+  }
+
+  // 2. No existing match — create one. Source = 'online' reflects the
+  // C&C origin; merchant can re-tag later in the dashboard.
+  try {
+    const res = await fetch(`${CUSTOMERS_URL}/api/v1/customers`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        firstName,
+        lastName,
+        ...(email && { email }),
+        ...(phone && { phone }),
+        source: 'online',
+      }),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { data?: { id?: string } };
+      return body.data?.id ?? null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Split a free-form "First Last" name into parts for the customers create
+ * endpoint (which requires both). If only one word is supplied, use it as
+ * the firstName and leave lastName empty but non-null.
+ */
+function splitName(full: string): { firstName: string; lastName: string } {
+  const parts = full.trim().split(/\s+/);
+  if (parts.length === 0 || !parts[0]) return { firstName: 'Customer', lastName: '' };
+  const firstName = parts[0];
+  const lastName = parts.slice(1).join(' ') || '-';
+  return { firstName, lastName };
+}
+
+/**
+ * Parse the customer name/phone that the quick-create handler stashed in
+ * a fulfillment's notes. Falls back to empty strings when a field is
+ * missing (e.g. fulfillment created via the generic POST path without
+ * our structured notes block).
+ */
+function parseFulfillmentContact(notes: string | null): { name: string; phone: string | null } {
+  if (!notes) return { name: '', phone: null };
+  const nameMatch = notes.match(/^Customer:\s*(.+)$/m);
+  const phoneMatch = notes.match(/^Phone:\s*(.+)$/m);
+  return {
+    name: nameMatch?.[1]?.trim() ?? '',
+    phone: phoneMatch?.[1]?.trim() ?? null,
+  };
+}
+
+/**
+ * Fire the "ready for pickup" notification for a C&C fulfillment that
+ * just transitioned into `ready`. Best-effort — every step is wrapped
+ * and swallowed so the status transition's 200 is never blocked.
+ *
+ * Resolution order for the customer's email:
+ *   1. `order.customerId` → `GET /customers/:id` from the customers
+ *      service (fresh, authoritative).
+ *   2. Fall back to an email string embedded in the fulfillment's
+ *      structured notes (the quick-create handler writes it there).
+ *
+ * SMS is sent alongside the email when a phone is available — the
+ * notifications service has a mock-Twilio SMS route wired since v1,
+ * so this works in dev without any carrier credentials.
+ */
+async function sendPickupReadyNotification(opts: {
+  orgId: string;
+  fulfillmentId: string;
+  orderId: string;
+  authHeader: string;
+}): Promise<void> {
+  const { orgId, fulfillmentId, orderId, authHeader } = opts;
+  if (!authHeader.startsWith('Bearer ')) return;
+
+  try {
+    // Re-fetch the order + fulfillment so we have the freshest contact
+    // info (customerId may have been written after the row was created).
+    const [order, fulfillment] = await Promise.all([
+      db.query.orders.findFirst({
+        where: and(eq(schema.orders.id, orderId), eq(schema.orders.orgId, orgId)),
+      }),
+      db.query.fulfillmentRequests.findFirst({
+        where: and(
+          eq(schema.fulfillmentRequests.id, fulfillmentId),
+          eq(schema.fulfillmentRequests.orgId, orgId),
+        ),
+      }),
+    ]);
+    if (!order || !fulfillment) return;
+
+    const contact = parseFulfillmentContact(fulfillment.notes);
+
+    let email: string | null = null;
+    let customerName = contact.name || 'Customer';
+    let phone: string | null = contact.phone;
+
+    // Prefer the customers-service record when available. Falls back
+    // to whatever was stashed in notes if the service is unreachable.
+    if (order.customerId) {
+      try {
+        const res = await fetch(`${CUSTOMERS_URL}/api/v1/customers/${order.customerId}`, {
+          headers: { Authorization: authHeader },
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const body = (await res.json()) as {
+            data?: { email?: string | null; phone?: string | null; firstName?: string; lastName?: string };
+          };
+          if (body.data) {
+            email = body.data.email ?? null;
+            phone = body.data.phone ?? phone;
+            const fn = (body.data.firstName ?? '').trim();
+            const ln = (body.data.lastName ?? '').trim();
+            if (fn || ln) customerName = `${fn} ${ln}`.trim() || customerName;
+          }
+        }
+      } catch {
+        // Fall through to notes-only fallback
+      }
+    }
+
+    // If we still have no email, try pulling one out of the notes block.
+    if (!email && fulfillment.notes) {
+      const em = fulfillment.notes.match(/^Email:\s*(.+)$/m);
+      if (em?.[1]) email = em[1].trim();
+    }
+
+    if (!email) return; // nothing to send
+
+    const subject = `Your order ${order.orderNumber} is ready for pickup`;
+    const message = `Hi ${customerName}, your order ${order.orderNumber} is ready to collect. See you soon!`;
+
+    // Email — use the `custom` template (no purpose-built one exists
+    // and spec says don't add one unless needed). Body is HTML.
+    void fetch(`${NOTIFICATIONS_URL}/api/v1/notifications/email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authHeader },
+      body: JSON.stringify({
+        to: email,
+        subject,
+        template: 'pickup_ready',
+        orgId,
+        data: {
+          customerName,
+          orderNumber: order.orderNumber,
+        },
+      }),
+      signal: AbortSignal.timeout(3000),
+    }).catch((err) => {
+      console.error('[fulfillment] pickup-ready email failed', err instanceof Error ? err.message : err);
+    });
+
+    // SMS — best-effort, only when a phone is on file. Notifications
+    // service has SMS plumbed (mock-Twilio) since v1.
+    if (phone) {
+      void fetch(`${NOTIFICATIONS_URL}/api/v1/notifications/sms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: authHeader },
+        body: JSON.stringify({ to: phone, message, orgId }),
+        signal: AbortSignal.timeout(3000),
+      }).catch((err) => {
+        console.error('[fulfillment] pickup-ready sms failed', err instanceof Error ? err.message : err);
+      });
+    }
+  } catch (err) {
+    console.error('[fulfillment] pickup-ready notification error', err instanceof Error ? err.message : err);
+  }
+}
+
 const createFulfillmentSchema = z.object({
   orderId: z.string().uuid(),
   type: z.enum(['click_and_collect', 'ship_from_store', 'endless_aisle']),
@@ -108,6 +336,27 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       body.data.notes ? `Notes: ${body.data.notes}` : null,
     ].filter(Boolean).join('\n');
 
+    // v2.7.41 — when the merchant hasn't pre-linked a customer, try to
+    // resolve/create one in the customers service so loyalty/RFM/store-
+    // credit actually see this order. Non-fatal: if the customers
+    // service is down or the lookup fails we fall back to the legacy
+    // notes-only behaviour so the slip still gets created.
+    const authHeader = request.headers.authorization ?? '';
+    const { firstName, lastName } = splitName(body.data.customerName);
+    const emailClean = body.data.customerEmail && body.data.customerEmail.length > 0
+      ? body.data.customerEmail
+      : undefined;
+    const resolvedCustomerId = authHeader.startsWith('Bearer ')
+      ? await resolveOrCreateCustomer({
+          orgId,
+          authHeader,
+          firstName,
+          lastName,
+          email: emailClean,
+          phone: body.data.customerPhone,
+        })
+      : null;
+
     const orderRows = await db.insert(schema.orders).values({
       orgId,
       employeeId,
@@ -117,6 +366,7 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       channel: 'online',
       orderType: 'pickup',
       status: 'open',
+      ...(resolvedCustomerId !== null && { customerId: resolvedCustomerId }),
       subtotal,
       discountTotal: '0.00',
       taxTotal: '0.00',
@@ -461,6 +711,18 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       .where(and(eq(schema.fulfillmentRequests.id, id), eq(schema.fulfillmentRequests.orgId, orgId)))
       .returning();
     const updatedReady = readyRows[0]!;
+
+    // v2.7.41 — on transition to 'ready', fire a best-effort pickup-ready
+    // email (and SMS if a phone is on file). Non-fatal: if the order has
+    // no customer, the customer has no email, or the notifications/
+    // customers service is unreachable, we log and return 200 as
+    // before. The state transition has already been committed.
+    void sendPickupReadyNotification({
+      orgId,
+      fulfillmentId: updatedReady.id,
+      orderId: updatedReady.orderId,
+      authHeader: request.headers.authorization ?? '',
+    });
 
     return reply.status(200).send({ data: updatedReady });
   });
