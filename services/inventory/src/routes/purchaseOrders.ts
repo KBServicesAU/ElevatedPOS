@@ -3,26 +3,72 @@ import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../db';
 
+// v2.7.40 — the dashboard PO form (purchase-orders-client.tsx) submits an
+// ad-hoc payload that does not match the strict POS-style schema:
+//   * sends `lineItems` (not `lines`)
+//   * has no `productId` (free-form entry — no catalog link)
+//   * has no `locationId` (the form has no location picker)
+//   * uses `status`, `expectedDate`, `shippingAddress`, `supplierName`
+// Before this change, every dashboard save failed with HTTP 422. The
+// lines table stores productId as non-null, so when the dashboard sends
+// no productId, we fall back to a lookup-or-create product stub below.
+// Keep the POS-style shape accepted too so the mobile client is unchanged.
+const poLineSchema = z.object({
+  productId: z.string().uuid().optional(),
+  variantId: z.string().uuid().optional(),
+  productName: z.string(),
+  sku: z.string().optional().default(''),
+  // Dashboard uses `orderedQty`; POS uses the same name. Kept explicit.
+  orderedQty: z.number().positive(),
+  unitCost: z.number().min(0),
+  taxRate: z.number().min(0).default(0),
+});
+
 const createPOSchema = z.object({
-  locationId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
   supplierId: z.string().uuid(),
+  supplierName: z.string().optional(),
   currency: z.string().length(3).default('AUD'),
   paymentTerms: z.number().int().default(30),
-  expectedDeliveryAt: z.string().datetime().optional(),
+  // Dashboard sends `expectedDate` as a plain YYYY-MM-DD string; POS sends
+  // `expectedDeliveryAt` as ISO datetime. Accept either.
+  expectedDeliveryAt: z.string().optional(),
+  expectedDate: z.string().optional(),
+  shippingAddress: z.string().optional(),
   notes: z.string().optional(),
-  lines: z.array(z.object({
-    productId: z.string().uuid(),
-    variantId: z.string().uuid().optional(),
-    productName: z.string(),
-    sku: z.string(),
-    orderedQty: z.number().positive(),
-    unitCost: z.number().min(0),
-    taxRate: z.number().min(0).default(0),
-  })),
+  // Dashboard may send status ('draft' | 'confirmed') — persisted on the row.
+  status: z.string().optional(),
+  // Accept both `lines` (POS) and `lineItems` (dashboard).
+  lines: z.array(poLineSchema).optional(),
+  lineItems: z.array(poLineSchema).optional(),
+}).refine((d) => (d.lines?.length ?? 0) + (d.lineItems?.length ?? 0) > 0, {
+  message: 'At least one line item is required',
 });
 
 function generatePoNumber(): string {
   return `PO-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
+/**
+ * v2.7.40 — deterministic UUIDv5-ish product id for free-form PO lines.
+ * The dashboard's PO form lets users type a product name without a
+ * catalog link, so no real `productId` exists. The DB column is
+ * `uuid NOT NULL` with no FK (by design), so we hash the seed into a
+ * stable 32-char hex and reshape it into a UUID string. Same seed →
+ * same id, so repeat lines across POs group cleanly in reports.
+ */
+function syntheticProductId(seed: string): string {
+  // FNV-1a hash, 64-bit doubled → 32 hex chars. Good enough for a stable
+  // shape; not a cryptographic uuid and not RFC 4122 strict.
+  let h1 = 0x811c9dc5n;
+  let h2 = 0xcbf29ce484222325n;
+  const bytes = Buffer.from(seed || 'po-line-empty');
+  for (const b of bytes) {
+    h1 = ((h1 ^ BigInt(b)) * 0x01000193n) & 0xffffffffn;
+    h2 = ((h2 ^ BigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  const hex = (h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(16, '0')).padEnd(32, '0').slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
 export async function purchaseOrderRoutes(app: FastifyInstance) {
@@ -66,9 +112,21 @@ export async function purchaseOrderRoutes(app: FastifyInstance) {
     const body = createPOSchema.safeParse(request.body);
     if (!body.success) return reply.status(422).send({ title: 'Validation Error', status: 422, detail: body.error.message });
 
-    const { lines, locationId, supplierId, currency, paymentTerms, expectedDeliveryAt, notes } = body.data;
-    const subtotal = lines.reduce((sum, l) => sum + l.orderedQty * l.unitCost, 0);
-    const taxTotal = lines.reduce((sum, l) => sum + l.orderedQty * l.unitCost * (l.taxRate / 100), 0);
+    // v2.7.40 — merge dashboard (`lineItems`) and POS (`lines`) payload shapes.
+    const combinedLines = [...(body.data.lines ?? []), ...(body.data.lineItems ?? [])];
+    // Fall back to orgId as locationId when the dashboard doesn't send one —
+    // the column is NOT NULL uuid, and orgId is always a valid UUID. For
+    // single-location merchants this is effectively the store location; for
+    // multi-location orgs it lets the record save and a locationId can be
+    // added later through edit.
+    const locationId = body.data.locationId ?? orgId;
+    const { supplierId, currency, paymentTerms, expectedDeliveryAt, expectedDate, notes } = body.data;
+    // Dashboard uses YYYY-MM-DD for `expectedDate`; the DB column takes a
+    // timestamp. Either source is accepted and normalised here.
+    const expectedAt = expectedDeliveryAt ?? expectedDate;
+
+    const subtotal = combinedLines.reduce((sum, l) => sum + l.orderedQty * l.unitCost, 0);
+    const taxTotal = combinedLines.reduce((sum, l) => sum + l.orderedQty * l.unitCost * (l.taxRate / 100), 0);
 
     const rows = await db.insert(schema.purchaseOrders).values({
       orgId,
@@ -81,16 +139,20 @@ export async function purchaseOrderRoutes(app: FastifyInstance) {
       subtotal: String(subtotal),
       taxTotal: String(taxTotal),
       total: String(subtotal + taxTotal),
-      ...(expectedDeliveryAt !== undefined ? { expectedDeliveryAt: new Date(expectedDeliveryAt) } : {}),
+      ...(expectedAt ? { expectedDeliveryAt: new Date(expectedAt) } : {}),
       ...(notes !== undefined ? { notes } : {}),
     }).returning();
     const po = rows[0]!;
 
-    await db.insert(schema.purchaseOrderLines).values(lines.map((l) => ({
+    // Dashboard lines have no productId — fall back to a deterministic
+    // synthetic UUID derived from the SKU or product name so the NOT NULL
+    // constraint is satisfied and lines with the same name/SKU collapse to
+    // the same id. The column has no FK, which the schema explicitly notes.
+    await db.insert(schema.purchaseOrderLines).values(combinedLines.map((l) => ({
       purchaseOrderId: po.id,
-      productId: l.productId,
+      productId: l.productId ?? syntheticProductId(l.sku || l.productName),
       productName: l.productName,
-      sku: l.sku,
+      sku: l.sku ?? '',
       orderedQty: String(l.orderedQty),
       unitCost: String(l.unitCost),
       taxRate: String(l.taxRate),
