@@ -494,28 +494,30 @@ export async function orderRoutes(app: FastifyInstance) {
       }
     }
 
-    // Broadcast to connected KDS clients for this location
+    // Broadcast to connected KDS clients for this location.
+    //
+    // v2.7.40 — message envelope MUST match the shape the KDS mobile app
+    // listens for (`type: 'ticket_created'`, `ticket: {...}`). Earlier
+    // releases emitted `type: 'new_order'` / `order: {...}` which the
+    // KDS app silently dropped in its `ws.onmessage` switch — the POS
+    // created orders, the WS delivered them, but nothing rendered.
+    // See `apps/mobile/app/(kds)/index.tsx` connect() → KdsTicket shape.
     if (created) {
       broadcastToKDS(created.locationId, {
-        type: 'new_order',
-        order: {
-          orderId: created.id,
+        type: 'ticket_created',
+        ticket: {
+          id: created.id,
           orderNumber: created.orderNumber,
-          orderType: created.orderType,
           channel: created.channel,
-          tableId: created.tableId,
-          locationId: created.locationId,
-          lines: created.lines.map((l) => ({
+          items: created.lines.map((l) => ({
             name: l.name,
             qty: Number(l.quantity),
             modifiers: (l.modifiers as { name: string }[]).map((m) => m.name),
             notes: l.notes ?? undefined,
-            seatNumber: l.seatNumber,
-            course: l.course,
-            kdsDestination: l.kdsDestination ?? undefined,
+            station: l.kdsDestination ?? undefined,
           })),
           createdAt: created.createdAt.toISOString(),
-          status: 'new',
+          status: 'pending' as const,
         },
       });
     }
@@ -636,6 +638,16 @@ export async function orderRoutes(app: FastifyInstance) {
     } catch (err) {
       console.error('[orders] Failed to publish order.completed event', err);
     }
+
+    // v2.7.40 — tell any connected KDS the ticket has been closed so it
+    // doesn't linger on screen for the remainder of its lifetime. Safe
+    // no-op when no KDS client is connected for this location.
+    broadcastToKDS(updated.locationId, {
+      type: 'ticket_bumped',
+      ticketId: updated.id,
+      locationId: updated.locationId,
+      timestamp: new Date().toISOString(),
+    });
 
     return reply.status(200).send({ data: updated });
   });

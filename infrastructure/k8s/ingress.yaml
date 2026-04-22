@@ -5,8 +5,17 @@ metadata:
   namespace: elevatedpos
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # v2.7.40 — previously both read/send timeouts were 60s, which killed
+    # long-lived WebSocket connections (POS → KDS live broadcast, kiosk
+    # display stream, etc.) after 60s of idle with no message, forcing
+    # the client into a reconnect loop and silently dropping any order
+    # that arrived during the reconnect gap. Bumped to 3600s. ingress-nginx
+    # supports WebSocket upgrades natively (Connection/Upgrade headers are
+    # forwarded automatically), so the only pin we need to raise is the
+    # idle timeout. If you need finer-grained control, move WS paths to
+    # a separate Ingress with their own annotations.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
     nginx.ingress.kubernetes.io/use-regex: "true"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
