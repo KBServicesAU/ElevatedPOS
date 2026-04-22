@@ -12,26 +12,83 @@ function generateQuoteNumber(): string {
   return `QUO-${year}-${seq}`;
 }
 
+// v2.7.37 — the dashboard quote form is ad-hoc: it captures customer
+// name/email/phone, free-form line items (productName / qty / unitPrice,
+// no catalog link), and `discountPct` rather than `discountPercent`.
+// Before this change the Zod schema required `productId`, `sku`,
+// `lineTotal`, `locationId`, and `discountPercent` — all of which the
+// dashboard didn't send, so every save failed with HTTP 422
+// "Validation Error". The quotes table stores items as JSONB so the
+// flexibility is fine at the storage layer; just need to accept both
+// shapes here.
 const quoteItemSchema = z.object({
-  productId: z.string().uuid(),
+  // Catalog-linked (POS path) OR free-form (dashboard path) — either works.
+  productId: z.string().uuid().optional(),
   variantId: z.string().uuid().optional(),
-  name: z.string(),
-  sku: z.string(),
-  quantity: z.number().positive(),
+  // Dashboard sends `productName`; POS sends `name`. Accept either.
+  name: z.string().optional(),
+  productName: z.string().optional(),
+  sku: z.string().optional(),
+  // Dashboard uses `qty`; POS uses `quantity`. Accept either (normalized below).
+  quantity: z.number().positive().optional(),
+  qty: z.number().positive().optional(),
   unitPrice: z.number().min(0),
   taxRate: z.number().min(0).default(0),
   discountAmount: z.number().min(0).default(0),
-  lineTotal: z.number().min(0),
+  lineTotal: z.number().min(0).optional(),
+}).refine((i) => !!(i.name ?? i.productName), {
+  message: 'Item requires a name or productName',
+}).refine((i) => i.quantity !== undefined || i.qty !== undefined, {
+  message: 'Item requires quantity (or qty)',
 });
 
 const createQuoteSchema = z.object({
-  locationId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
   customerId: z.string().uuid().optional(),
+  // Dashboard sends customerName/email/phone for ad-hoc quotes.
+  // Stored verbatim as metadata inside the items JSONB — no DB migration.
+  customerName: z.string().optional(),
+  customerEmail: z.string().email().optional().or(z.literal('')),
+  customerPhone: z.string().optional(),
   items: z.array(quoteItemSchema).min(1),
+  // Accept both the dashboard's `discountPct` and the POS's `discountPercent`.
   discountPercent: z.number().min(0).max(100).optional(),
+  discountPct:     z.number().min(0).max(100).optional(),
   notes: z.string().optional(),
-  validUntil: z.string(),
+  // Dashboard can send '' when the user leaves the field blank; treat that
+  // as "no expiry chosen" and fall back to 30 days from today so the quote
+  // still has a validUntil on the row.
+  validUntil: z.string().optional(),
+  status: z.enum(['draft', 'sent']).optional(),
 });
+
+/** Normalize the two dashboard/POS shapes into a single POS-style shape. */
+function normalizeItem(raw: z.infer<typeof quoteItemSchema>): {
+  productId?: string;
+  name: string;
+  sku: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number;
+  discountAmount: number;
+  lineTotal: number;
+} {
+  const quantity = (raw.quantity ?? raw.qty ?? 0) as number;
+  const unitPrice = raw.unitPrice;
+  const discountAmount = raw.discountAmount ?? 0;
+  const lineTotal = raw.lineTotal ?? (quantity * unitPrice - discountAmount);
+  const name = (raw.name ?? raw.productName ?? 'Item') as string;
+  return {
+    ...(raw.productId !== undefined && { productId: raw.productId }),
+    name,
+    sku: raw.sku ?? '',
+    quantity,
+    unitPrice,
+    taxRate: raw.taxRate ?? 0,
+    discountAmount,
+    lineTotal,
+  };
+}
 
 const updateQuoteSchema = z.object({
   items: z.array(quoteItemSchema).min(1).optional(),
@@ -50,13 +107,21 @@ const convertQuoteSchema = z.object({
 });
 
 function calcTotals(items: z.infer<typeof quoteItemSchema>[], discountPercent?: number | null) {
-  const subtotal = items.reduce((sum, l) => sum + l.quantity * l.unitPrice - l.discountAmount, 0);
-  const discountTotal = items.reduce((sum, l) => sum + l.discountAmount, 0);
+  // v2.7.37 — both `quantity` (POS) and `qty` (dashboard) are accepted,
+  // so pick whichever is present. Same for discountAmount/taxRate which
+  // have defaults baked into the schema.
+  const qtyOf = (l: z.infer<typeof quoteItemSchema>) =>
+    (l.quantity ?? l.qty ?? 0);
+  const subtotal = items.reduce(
+    (sum, l) => sum + qtyOf(l) * l.unitPrice - (l.discountAmount ?? 0),
+    0,
+  );
+  const discountTotal = items.reduce((sum, l) => sum + (l.discountAmount ?? 0), 0);
   const percentDiscount = discountPercent ? subtotal * (discountPercent / 100) : 0;
   const taxableBase = subtotal - percentDiscount;
   const taxTotal = items.reduce((sum, l) => {
-    const lineBase = l.quantity * l.unitPrice - l.discountAmount;
-    return sum + lineBase * (l.taxRate / 100);
+    const lineBase = qtyOf(l) * l.unitPrice - (l.discountAmount ?? 0);
+    return sum + lineBase * ((l.taxRate ?? 0) / 100);
   }, 0);
   const total = taxableBase + taxTotal;
   return { subtotal, discountTotal: discountTotal + percentDiscount, taxTotal, total };
@@ -73,22 +138,87 @@ export async function quoteRoutes(app: FastifyInstance) {
       return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
-    const { subtotal, discountTotal, taxTotal, total } = calcTotals(body.data.items, body.data.discountPercent);
+    // v2.7.37 — locationId defaults
+    // Dashboard ad-hoc quote form doesn't collect a location; POS always
+    // sends one. When the dashboard omits it, fall back to the most
+    // recent order's locationId for this org — cheaper than a cross-
+    // service call into the auth service's locations table, and it's
+    // guaranteed to be a real location the org operates at.
+    let locationId = body.data.locationId ?? null;
+    if (!locationId) {
+      const lastOrder = await db.query.orders.findFirst({
+        where: eq(schema.orders.orgId, orgId),
+        orderBy: [desc(schema.orders.createdAt)],
+        columns: { locationId: true },
+      });
+      locationId = lastOrder?.locationId ?? null;
+    }
+    if (!locationId) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'No location found',
+        status: 422,
+        detail: 'Create an order at any location first, or supply locationId in the quote payload.',
+      });
+    }
+
+    // v2.7.37 — accept both `discountPct` (dashboard) and `discountPercent` (POS)
+    const discountPct = body.data.discountPercent ?? body.data.discountPct ?? null;
+
+    // Normalize items so calcTotals sees a consistent shape regardless of
+    // whether the caller used POS-style or dashboard-style field names.
+    const normalizedItems = body.data.items.map(normalizeItem);
+    const { subtotal, discountTotal, taxTotal, total } = calcTotals(
+      normalizedItems.map((n) => ({
+        // Adapter back to the Zod item shape calcTotals expects.
+        productId: n.productId,
+        name: n.name,
+        sku: n.sku,
+        quantity: n.quantity,
+        unitPrice: n.unitPrice,
+        taxRate: n.taxRate,
+        discountAmount: n.discountAmount,
+        lineTotal: n.lineTotal,
+      } as z.infer<typeof quoteItemSchema>)),
+      discountPct,
+    );
+
+    // Default validUntil to 30 days from now if the caller omitted or sent empty string.
+    const validUntilDate = body.data.validUntil
+      ? new Date(body.data.validUntil)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // Requested status: dashboard sends 'sent' to mean "email it"; both shapes
+    // can just persist the status, we don't actually email here yet.
+    const requestedStatus = body.data.status ?? 'draft';
 
     const quoteRows = await db.insert(schema.quotes).values({
       orgId,
-      locationId: body.data.locationId,
+      locationId,
       customerId: body.data.customerId ?? null,
       quoteNumber: generateQuoteNumber(),
-      status: 'draft',
-      items: body.data.items,
+      status: requestedStatus,
+      // Preserve the caller's item shape in JSONB + stash ad-hoc customer
+      // metadata in a sibling key so it round-trips on GET.
+      items: {
+        lineItems: normalizedItems,
+        customer: body.data.customerId
+          ? null
+          : (body.data.customerName
+            ? {
+                name:  body.data.customerName,
+                email: body.data.customerEmail || null,
+                phone: body.data.customerPhone || null,
+              }
+            : null),
+      } as unknown as object,
       subtotal: String(subtotal.toFixed(4)),
       discountTotal: String(discountTotal.toFixed(4)),
       taxTotal: String(taxTotal.toFixed(4)),
       total: String(total.toFixed(4)),
-      discountPercent: body.data.discountPercent != null ? String(body.data.discountPercent) : null,
+      discountPercent: discountPct != null ? String(discountPct) : null,
       notes: body.data.notes ?? null,
-      validUntil: new Date(body.data.validUntil),
+      validUntil: validUntilDate,
       createdBy,
     }).returning();
     const quote = quoteRows[0]!;

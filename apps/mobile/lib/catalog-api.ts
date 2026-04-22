@@ -1,5 +1,6 @@
 import { useDeviceStore } from '../store/device';
 import { useAuthStore } from '../store/auth';
+import { getDeviceJwt, refreshDeviceJwt } from './device-jwt';
 
 /**
  * Authenticated fetch wrapper for the Catalog service.
@@ -25,16 +26,39 @@ function resolveUrl(path: string): string {
   return `${API_BASE}${path.replace('/api/v1/', '/api/v1/catalog/')}`;
 }
 
-/** Get the best available auth token: prefer employee JWT, fall back to device token */
-function getToken(): string | null {
-  return useAuthStore.getState().employeeToken
-    ?? useDeviceStore.getState().identity?.deviceToken
-    ?? null;
+/**
+ * Get the best available auth token for downstream (catalog/orders/...)
+ * services.
+ *
+ * Preference order:
+ *   1. Employee JWT — minted on PIN login, carries employee claims.
+ *      Available in the POS; kiosks never have one.
+ *   2. Device JWT — minted on demand from the device token via the
+ *      auth service's access-token exchange (v2.7.37). Required for
+ *      unattended devices (kiosk / signage / KDS) whose only identity
+ *      is the paired device token.
+ *
+ * v2.7.37 — previously this fell back to the raw device token, which
+ * downstream services rejected because they use `request.jwtVerify()`.
+ * The kiosk would fail every catalog call with "Unauthorized — please
+ * log in again" even though it had no PIN login flow at all.
+ */
+async function getToken(): Promise<string | null> {
+  const employeeToken = useAuthStore.getState().employeeToken;
+  if (employeeToken) return employeeToken;
+  return getDeviceJwt();
+}
+
+/** Synchronous variant — returns the employee JWT only. Caller handles
+ *  device JWT via the async `getToken()`. Kept because a few callers
+ *  (catalogApiPost) were synchronous and don't need device auth. */
+function getEmployeeTokenSync(): string | null {
+  return useAuthStore.getState().employeeToken ?? null;
 }
 
 /** POST / PATCH helper for mutating catalog resources */
 export async function catalogApiPost<T = unknown>(path: string, body: unknown, method = 'POST'): Promise<T> {
-  const token = getToken();
+  const token = await getToken();
   const url = resolveUrl(path);
   const res = await fetch(url, {
     method,
@@ -52,7 +76,7 @@ export async function catalogApiPost<T = unknown>(path: string, body: unknown, m
 }
 
 export async function catalogApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = getToken();
+  const token = await getToken();
   const url = resolveUrl(path);
   const res = await fetch(url, {
     ...init,
@@ -64,18 +88,23 @@ export async function catalogApiFetch<T>(path: string, init?: RequestInit): Prom
   });
 
   if (res.status === 401) {
-    // Try once more with device token if employee token was stale
-    const deviceToken = useDeviceStore.getState().identity?.deviceToken;
-    if (deviceToken && token !== deviceToken) {
-      const retry = await fetch(url, {
-        ...init,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${deviceToken}`,
-          ...((init?.headers as Record<string, string>) ?? {}),
-        },
-      });
-      if (retry.ok) return retry.json() as Promise<T>;
+    // v2.7.37 — token might be a stale device JWT; force a refresh and
+    // retry once. If we were using an employee token and it's stale,
+    // the caller (POS) will already prompt for re-login elsewhere.
+    const employeeToken = getEmployeeTokenSync();
+    if (!employeeToken) {
+      const fresh = await refreshDeviceJwt();
+      if (fresh && fresh !== token) {
+        const retry = await fetch(url, {
+          ...init,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${fresh}`,
+            ...((init?.headers as Record<string, string>) ?? {}),
+          },
+        });
+        if (retry.ok) return retry.json() as Promise<T>;
+      }
     }
     throw new Error('Unauthorized — please log in again.');
   }

@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useKioskStore, t } from '../../store/kiosk';
 import { useDeviceStore } from '../../store/device';
+import { getDeviceJwt } from '../../lib/device-jwt';
 
 type PaymentMethod = 'card' | 'cash' | 'qr';
 
@@ -55,7 +56,16 @@ export default function PaymentScreen() {
         process.env['EXPO_PUBLIC_API_URL'] ??
         process.env['EXPO_PUBLIC_ORDERS_API_URL'] ??
         '';
-      const token = identity?.deviceToken ?? '';
+      // v2.7.37 — kiosks have no employee PIN login, so the only
+      // identity is the device token. The orders service uses
+      // `request.jwtVerify()` which doesn't accept the opaque device
+      // token — we exchange it for a short-lived JWT via
+      // /api/v1/devices/access-token. Before this change, every
+      // kiosk checkout failed with "Unauthorized — please log in again".
+      const token = await getDeviceJwt();
+      if (!token) {
+        throw new Error('Could not authenticate with server. Check network and pairing.');
+      }
       const res = await fetch(`${apiBase}/api/v1/orders`, {
         method: 'POST',
         headers: {
@@ -63,7 +73,7 @@ export default function PaymentScreen() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(orderPayload),
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) {
         let msg = `Order creation failed (${res.status})`;

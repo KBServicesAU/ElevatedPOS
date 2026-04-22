@@ -222,6 +222,62 @@ export async function deviceRoutes(app: FastifyInstance) {
     });
   });
 
+  // POST /api/v1/devices/access-token
+  // v2.7.37 — exchange an opaque device token (issued at pair time) for a
+  // short-lived JWT that the catalog / orders / etc. services accept via
+  // `request.jwtVerify()`. Without this, unattended devices (kiosk,
+  // signage, KDS) with no employee PIN login fail every API call with
+  // "Unauthorized" because opaque device tokens aren't JWTs and the
+  // downstream services don't know how to validate them.
+  //
+  // The returned JWT carries `sub: device:<deviceId>`, `orgId`,
+  // `locationId`, `role: device-<role>` so the services can still do
+  // org-isolation and basic RBAC. Expiry is short (15m) so a revoked
+  // device can't keep a stale JWT for long; the client refreshes by
+  // presenting the (still valid) device token again.
+  app.post('/access-token', async (request, reply) => {
+    const header = request.headers['authorization'];
+    if (!header?.startsWith('Bearer ')) return reply.status(401).send({ title: 'Unauthorized', status: 401 });
+    const token = header.slice(7);
+    const tokenHash = hashToken(token);
+
+    const device = await db.query.devices.findFirst({
+      where: and(eq(schema.devices.tokenHash, tokenHash), eq(schema.devices.status, 'active')),
+    });
+    if (!device) return reply.status(401).send({ title: 'Device not found or revoked', status: 401 });
+
+    // Same secret as employee JWTs — other services validate it with
+    // request.jwtVerify() the same way. The `sub` prefix makes it obvious
+    // in logs that the caller is a device rather than a human employee.
+    const accessToken = app.jwt.sign(
+      {
+        sub:        `device:${device.id}`,
+        orgId:      device.orgId,
+        locationId: device.locationId ?? undefined,
+        registerId: device.registerId ?? undefined,
+        role:       `device-${device.role}`,
+        deviceId:   device.id,
+      },
+      { expiresIn: '15m' },
+    );
+
+    // Heartbeat while we're here — saves the kiosk an extra call on boot.
+    await db.update(schema.devices)
+      .set({ lastSeenAt: new Date() })
+      .where(eq(schema.devices.id, device.id));
+
+    return reply.send({
+      data: {
+        accessToken,
+        expiresIn: 15 * 60, // seconds
+        deviceId: device.id,
+        role: device.role,
+        orgId: device.orgId,
+        locationId: device.locationId,
+      },
+    });
+  });
+
   // GET /api/v1/devices — list paired devices (staff auth)
   app.get('/', { onRequest: [app.authenticate] }, async (request, reply) => {
     const user = request.user as { orgId: string };
