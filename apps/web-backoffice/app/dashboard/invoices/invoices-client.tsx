@@ -201,7 +201,19 @@ export default function InvoicesClient() {
   async function handleSend(stripeInvoiceId: string) {
     setUpdatingId(stripeInvoiceId);
     try {
-      await apiFetch(`connect/invoices/${stripeInvoiceId}/send`, { method: 'POST' });
+      // v2.7.40 — previously only called /connect/invoices/:id/send which
+      // asks Stripe to email the hosted invoice. That flow silently fails
+      // when the Connect account isn't fully onboarded. We now also trigger
+      // /send-email which sends a branded ElevatedPOS email via our
+      // notifications service, so the customer always receives something.
+      try {
+        await apiFetch(`connect/invoices/${stripeInvoiceId}/send`, { method: 'POST' });
+      } catch (stripeErr) {
+        // Stripe send may fail on sandbox / unfinished Connect — that's OK,
+        // the notifications-service path below is our reliable fallback.
+        console.warn('[invoices] Stripe send failed, falling back to notifications email', stripeErr);
+      }
+      await apiFetch(`connect/invoices/${stripeInvoiceId}/send-email`, { method: 'POST' });
       toast({ title: 'Invoice sent', variant: 'success' });
       if (orgId) await load(orgId);
     } catch (err) {
