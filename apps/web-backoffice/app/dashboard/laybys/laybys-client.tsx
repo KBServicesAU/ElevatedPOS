@@ -429,7 +429,18 @@ export default function LaybysClient() {
     setError(null);
     try {
       const res = await apiFetch<LaybysResponse>('laybys');
-      setItems(res.data ?? []);
+      // v2.7.40 — the orders service returns laybyAgreements with `totalAmount`
+      // and `balanceOwing` (both strings) rather than the `total` / `paid`
+      // numbers the UI expects. Coerce so `.toFixed()` below never crashes.
+      // Schema reconciliation is a separate concern.
+      const normalised = (res.data ?? []).map((lb) => {
+        const anyLb = lb as unknown as Record<string, unknown>;
+        const total = Number(anyLb.total ?? anyLb.totalAmount ?? 0);
+        const balanceOwing = Number(anyLb.balanceOwing ?? 0);
+        const paid = Number(anyLb.paid ?? (total - balanceOwing)) || 0;
+        return { ...lb, total, paid } as Layby;
+      });
+      setItems(normalised);
     } catch {
       setItems([]);
     } finally {
