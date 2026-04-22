@@ -5,7 +5,7 @@ import { db, schema } from '../db/index.js';
 import { sendEmail } from '../lib/channels/email.js';
 import { rosterEmail } from '../lib/templates/roster.js';
 
-const TEMPLATES = ['receipt', 'layby_statement', 'gift_card', 'campaign', 'roster', 'custom'] as const;
+const TEMPLATES = ['receipt', 'layby_statement', 'gift_card', 'campaign', 'roster', 'pickup_ready', 'custom'] as const;
 
 const emailSchema = z.object({
   to: z.string().email(),
@@ -162,6 +162,28 @@ function renderTemplate(
         htmlBody: result.html,
         textBody: `Hi ${employeeName},\n\nYour roster for ${weekLabel}:\n${textShifts}\n\nIf anything doesn't look right, please reach out to your manager.`,
       };
+    }
+
+    case 'pickup_ready': {
+      // v2.7.41 — click-and-collect fulfillment transitioned to 'ready'.
+      // Minimal purpose-built template so the email carries a
+      // recognisable subject + body without callers having to build
+      // HTML themselves (unlike `custom`). Orders service calls this
+      // from the `/fulfillment/:id/ready` handler.
+      const customerName = String(data['customerName'] ?? 'Customer');
+      const orderNumber = String(data['orderNumber'] ?? '');
+      const pickupLocation = String(data['pickupLocation'] ?? '');
+      const resolvedSubject = subject || `Your order ${orderNumber} is ready for pickup`;
+      const html = `<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
+<h2 style="color:#0a7d2a;">Ready for pickup</h2>
+<p>Hi ${customerName},</p>
+<p>Great news — your order <strong>${orderNumber}</strong> is ready to collect${pickupLocation ? ` at <strong>${pickupLocation}</strong>` : ''}.</p>
+<p>Please bring a copy of this email (or just quote the order number) when you come in.</p>
+<p>Thanks,<br>The team</p>
+</body></html>`;
+      const text = `Hi ${customerName},\n\nYour order ${orderNumber} is ready to collect${pickupLocation ? ` at ${pickupLocation}` : ''}.\n\nPlease bring this email (or quote the order number) when you come in.\n\nThanks,\nThe team`;
+      return { resolvedSubject, htmlBody: html, textBody: text };
     }
 
     case 'custom':

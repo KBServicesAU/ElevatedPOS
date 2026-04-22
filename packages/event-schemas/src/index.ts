@@ -58,8 +58,24 @@ export interface OrderCompletedReceiptPayload {
   customerName?: string;
   /** Display name of the store/location — for the email subject and header */
   storeName?: string;
-  /** Itemised receipt lines suitable for email rendering */
-  items?: Array<{ name: string; qty: number; price: number }>;
+  /**
+   * Itemised receipt lines suitable for email rendering and
+   * downstream analytics ingestion (ClickHouse `order_lines_fact`).
+   *
+   * v2.7.41 — `productId`, `costPrice` and `categoryId` are optional
+   * enrichment fields so the reporting consumer can populate the
+   * "Top Products" dashboard card from the live event stream.
+   * All three must remain OPTIONAL so legacy producers / consumers
+   * keep working.
+   */
+  items?: Array<{
+    name: string;
+    qty: number;
+    price: number;
+    productId?: string;
+    costPrice?: number;
+    categoryId?: string;
+  }>;
   /** Subtotal excluding GST */
   subtotal?: number;
   /** GST component */

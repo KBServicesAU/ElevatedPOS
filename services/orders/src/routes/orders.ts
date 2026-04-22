@@ -626,10 +626,18 @@ export async function orderRoutes(app: FastifyInstance) {
             ...(body.data.paymentMethod !== undefined && { paymentMethod: body.data.paymentMethod }),
             subtotal,
             gst,
+            // v2.7.41 — carry `productId` + `costPrice` through so the
+            // reporting consumer can populate `order_lines_fact` (powers
+            // the "Top Products" dashboard card and margin reports).
+            // categoryId isn't on the orders DB — a future enrichment
+            // pass can add it by joining to catalog; the schema accepts
+            // it so it can be filled in later without another bump.
             items: (withLines?.lines ?? []).map((l) => ({
               name: l.name,
               qty: Number(l.quantity),
               price: Number(l.unitPrice),
+              productId: l.productId,
+              costPrice: Number(l.costPrice),
             })),
           },
           { locationId: updated.locationId },

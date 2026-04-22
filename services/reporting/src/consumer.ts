@@ -27,6 +27,37 @@ function mapOrderCompleted(env: Record<string, unknown>): Parameters<typeof inge
   // The live envelope omits channel/orderType/discount/createdAt/customerId/employeeId.
   // Use sensible POS defaults so dashboard aggregates (salesToday, totalRevenue,
   // revenueByHour/Channel/Day) populate; a later backfill job can enrich history.
+
+  // v2.7.41 — `items` on order.completed now optionally carries `productId`,
+  // `costPrice` and `categoryId` (orders service added these in the same
+  // release). When `productId` is present we map lines into the shape
+  // `ingestOrder` expects so `order_lines_fact` gets populated and the
+  // "Top Products" dashboard card works from the live stream. Lines
+  // without productId (legacy producers, ad-hoc C&C slips) are dropped
+  // for the lines table — the sales_fact row still goes through.
+  const rawItems = Array.isArray(payload['items']) ? (payload['items'] as Array<Record<string, unknown>>) : [];
+  const mappedLines = rawItems
+    .filter((it) => typeof it['productId'] === 'string' && (it['productId'] as string).length > 0)
+    .map((it, idx) => {
+      const qty = Number(it['qty'] ?? it['quantity'] ?? 0);
+      const unitPrice = Number(it['price'] ?? it['unitPrice'] ?? 0);
+      const lineTotal = Number(it['lineTotal'] ?? qty * unitPrice);
+      return {
+        // No stable per-line id on the wire — synthesise one deterministically
+        // from orderId+index. order_lines_fact is keyed by line_id; the
+        // synthetic id is stable for replays of the same event.
+        id: `${orderId}:${idx}`,
+        productId: it['productId'] as string,
+        productName: String(it['name'] ?? ''),
+        ...(typeof it['categoryId'] === 'string' && { categoryId: it['categoryId'] as string }),
+        quantity: qty,
+        unitPrice,
+        costPrice: Number(it['costPrice'] ?? 0),
+        lineTotal,
+        discountAmount: Number(it['discountAmount'] ?? 0),
+      };
+    });
+
   return {
     id: orderId,
     orgId,
@@ -41,9 +72,7 @@ function mapOrderCompleted(env: Record<string, unknown>): Parameters<typeof inge
     total,
     completedAt,
     createdAt: String(payload['createdAt'] ?? completedAt),
-    // `items` in the event only has {name, qty, price}; without productId we
-    // cannot populate order_lines_fact reliably, so we skip it. Top-products
-    // will stay empty from the live stream until orders publishes richer lines.
+    ...(mappedLines.length > 0 && { lines: mappedLines }),
   };
 }
 
