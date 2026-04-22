@@ -237,6 +237,128 @@ export async function orderRoutes(app: FastifyInstance) {
     return reply.status(200).send({ data: order });
   });
 
+  // GET /api/v1/orders/:id/items
+  // v2.7.34 — dashboard line-items panel calls this dedicated endpoint
+  // instead of unpacking the full order payload. Shape matches the
+  // `OrderLineItem` type in apps/web-backoffice/lib/api.ts so the UI
+  // can render columns (Item / Qty / Unit Price / Subtotal) without
+  // extra mapping. Before v2.7.34 this endpoint did not exist, so the
+  // dashboard saw 404 and rendered "Line items unavailable".
+  app.get('/:id/items', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+
+    const order = await db.query.orders.findFirst({
+      where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)),
+      columns: { id: true },
+    });
+    if (!order) return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404 });
+
+    const lines = await db.query.orderLines.findMany({
+      where: eq(schema.orderLines.orderId, id),
+    });
+
+    const items = lines.map((l) => ({
+      id: l.id,
+      productId: l.productId,
+      productName: l.name,
+      sku: l.sku ?? undefined,
+      qty: Number(l.quantity),
+      unitPrice: Number(l.unitPrice),
+      discountTotal: Number(l.discountAmount ?? 0),
+      taxTotal: Number(l.taxAmount ?? 0),
+      lineTotal: Number(l.lineTotal),
+    }));
+
+    return reply.status(200).send({ data: items });
+  });
+
+  // POST /api/v1/orders/:id/send-receipt
+  // v2.7.34 — dashboard order-detail → Email Receipt button calls this.
+  // Looks up the order, renders the standard `receipt` email template via
+  // the notifications service, and returns success/failure so the UI can
+  // toast. No-op if the notifications service is unreachable; callers see
+  // an error rather than a silent failure.
+  app.post('/:id/send-receipt', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const { id } = request.params as { id: string };
+    const body = z.object({ email: z.string().email() }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: body.error.message,
+      });
+    }
+
+    const order = await db.query.orders.findFirst({
+      where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)),
+      with: { lines: true },
+    });
+    if (!order) return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404 });
+
+    // Build the receipt payload shape the notifications service expects.
+    const total = Number(order.total);
+    const items = (order.lines ?? []).map((l) => ({
+      name: l.name,
+      quantity: Number(l.quantity),
+      unitPrice: Number(l.unitPrice),
+    }));
+
+    const notificationsUrl = process.env['NOTIFICATIONS_SERVICE_URL'] ?? 'http://notifications:4009';
+    // Forward the caller's JWT so the notifications service accepts the
+    // request under the same auth context. Both services share JWT_SECRET
+    // so the token validates on either side.
+    const authHeader = request.headers.authorization ?? '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return reply.status(401).send({ type: 'about:blank', title: 'Unauthorized', status: 401 });
+    }
+
+    try {
+      const res = await fetch(`${notificationsUrl}/api/v1/notifications/email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({
+          to: body.data.email,
+          subject: `Receipt — Order ${order.orderNumber}`,
+          template: 'receipt',
+          orgId,
+          data: {
+            orderId: order.orderNumber,
+            items,
+            total,
+            currency: 'AUD',
+            date: (order.completedAt ?? order.createdAt).toISOString(),
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({})) as { detail?: string; title?: string };
+        return reply.status(502).send({
+          type: 'about:blank',
+          title: 'Email Send Failed',
+          status: 502,
+          detail: errBody.detail ?? errBody.title ?? `Notifications service returned ${res.status}`,
+        });
+      }
+
+      return reply.status(200).send({ data: { email: body.data.email, orderId: order.id } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(502).send({
+        type: 'about:blank',
+        title: 'Email Send Failed',
+        status: 502,
+        detail: message,
+      });
+    }
+  });
+
   // POST /api/v1/orders
   app.post('/', async (request, reply) => {
     const { orgId, sub: employeeId } = request.user as { orgId: string; sub: string };
