@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,13 +11,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useKioskStore, t } from '../../store/kiosk';
 import { useDeviceStore } from '../../store/device';
+import { useTillStore } from '../../store/till';
 import { getDeviceJwt } from '../../lib/device-jwt';
+import { AnzPaymentModal, type AnzPaymentResult } from '../../components/AnzPaymentModal';
 
 type PaymentMethod = 'card' | 'cash' | 'qr';
 
 export default function PaymentScreen() {
   const router = useRouter();
   const { cartItems, clearCart, setOrderNumber, setEarnedPoints, orderType, tableNumber, loyaltyAccount, language } = useKioskStore();
+  const tillOpen = useTillStore((s) => s.isOpen);
 
   const METHODS: { id: PaymentMethod; label: string; icon: string; subtitle: string }[] = [
     { id: 'card', label: t(language, 'cardLabel'), icon: '💳', subtitle: t(language, 'cardSub') },
@@ -26,19 +29,62 @@ export default function PaymentScreen() {
   ];
   const [selected, setSelected] = useState<PaymentMethod>('card');
   const [processing, setProcessing] = useState(false);
+  // v2.7.40 — ANZ Worldline TIM card payment modal state. The kiosk
+  // reuses the same <AnzPaymentModal> the POS uses; the bridge lives
+  // at the kiosk layout level (AnzBridgeProvider) so the terminal
+  // stays activated across attract → cart → payment transitions.
+  const [showAnzModal, setShowAnzModal] = useState(false);
+  const [anzAmount, setAnzAmount] = useState(0);
+  const [anzRefId, setAnzRefId] = useState('');
+  // Stash card-payment extras (receipts, card brand/last4, auth code)
+  // captured from the ANZ result so they can ride along with the order
+  // POST + /complete call. The kiosk has no printer today, so we just
+  // attach them to the order metadata for later reconciliation.
+  const cardExtrasRef = useRef<{
+    cardType?: string;
+    cardLast4?: string;
+    authCode?: string;
+    rrn?: string;
+    anzCustomerReceipt?: string;
+    anzMerchantReceipt?: string;
+  } | null>(null);
 
   const total = cartItems.reduce((sum, i) => sum + i.price * i.qty, 0);
   const gstIncluded = total / 11;
 
-  async function handlePay() {
+  async function postOrderAndComplete(method: PaymentMethod) {
     setProcessing(true);
     const identity = useDeviceStore.getState().identity;
+
+    // v2.7.40 — when a card payment has run on the ANZ terminal we
+    // attach the merchant + customer receipts to the order `notes`
+    // so staff can reprint from the orders screen. Keeps the field
+    // optional for cash / QR paths.
+    const extras = cardExtrasRef.current;
+    const tableNote = orderType === 'dine_in' && tableNumber ? `Table ${tableNumber}` : null;
+    const noteParts: string[] = [];
+    if (tableNote) noteParts.push(tableNote);
+    if (extras?.cardType || extras?.cardLast4) {
+      const cardDesc = [
+        extras.cardType,
+        extras.cardLast4 ? `••••${extras.cardLast4}` : null,
+      ].filter(Boolean).join(' ');
+      if (cardDesc) noteParts.push(`Card: ${cardDesc}`);
+    }
+    if (extras?.authCode) noteParts.push(`Auth: ${extras.authCode}`);
+    if (extras?.rrn) noteParts.push(`RRN: ${extras.rrn}`);
+    if (extras?.anzMerchantReceipt) {
+      noteParts.push(`--- Merchant Receipt ---\n${extras.anzMerchantReceipt}`);
+    }
+    if (extras?.anzCustomerReceipt) {
+      noteParts.push(`--- Customer Receipt ---\n${extras.anzCustomerReceipt}`);
+    }
 
     const orderPayload = {
       locationId: identity?.locationId,
       registerId: identity?.registerId || undefined,
       channel: 'kiosk' as const,
-      paymentMethod: selected,
+      paymentMethod: method,
       orderType: orderType === 'dine_in' ? 'dine_in' : 'takeaway',
       lines: cartItems.map((i) => ({
         productId: i.id,
@@ -48,7 +94,7 @@ export default function PaymentScreen() {
         costPrice: 0,
         taxRate: 10,
       })),
-      ...(orderType === 'dine_in' && tableNumber ? { notes: `Table ${tableNumber}` } : {}),
+      ...(noteParts.length > 0 ? { notes: noteParts.join('\n') } : {}),
     };
 
     try {
@@ -107,7 +153,7 @@ export default function PaymentScreen() {
         body: JSON.stringify({
           paidTotal,
           changeGiven: 0,
-          paymentMethod: selected === 'card' ? 'Card' : selected === 'cash' ? 'Cash' : 'QR',
+          paymentMethod: method === 'card' ? 'Card' : method === 'cash' ? 'Cash' : 'QR',
         }),
         signal: AbortSignal.timeout(15000),
       });
@@ -133,8 +179,77 @@ export default function PaymentScreen() {
     }
 
     clearCart();
+    cardExtrasRef.current = null;
     setProcessing(false);
     router.replace('/(kiosk)/confirmation');
+  }
+
+  async function handlePay() {
+    // v2.7.40 — Card payments now drive the ANZ Worldline TIM API via
+    // the shared AnzPaymentModal. Kiosks typically share a till with
+    // staff on-site; card-present transactions require the till to be
+    // open (the bridge rejects otherwise) so we bail with a friendly
+    // staff-facing message if it isn't.
+    if (selected === 'card') {
+      if (!tillOpen) {
+        Alert.alert(
+          'Till Not Open',
+          'Staff: please open the till before taking card payments.',
+          [{ text: 'OK' }],
+        );
+        return;
+      }
+      setAnzAmount(total);
+      setAnzRefId(`KIOSK-${Date.now()}`);
+      setShowAnzModal(true);
+      return;
+    }
+
+    // Cash / QR — legacy stub flow (no terminal involved).
+    cardExtrasRef.current = null;
+    await postOrderAndComplete(selected);
+  }
+
+  // ── ANZ payment modal result handlers ───────────────────────────
+  function handleAnzApproved(result: AnzPaymentResult) {
+    setShowAnzModal(false);
+    cardExtrasRef.current = {
+      cardType:           result.cardType,
+      cardLast4:          result.cardLast4,
+      authCode:           result.authCode,
+      rrn:                result.rrn,
+      anzCustomerReceipt: result.customerReceipt,
+      anzMerchantReceipt: result.merchantReceipt,
+    };
+    // Fire-and-forget — postOrderAndComplete already manages its own
+    // processing state + error UI.
+    void postOrderAndComplete('card');
+  }
+
+  function handleAnzDeclined(result: AnzPaymentResult) {
+    setShowAnzModal(false);
+    cardExtrasRef.current = null;
+    Alert.alert(
+      'Card Declined',
+      result.declineReason || 'The card was declined by the bank. Please try another payment method.',
+      [{ text: 'OK' }],
+    );
+  }
+
+  function handleAnzCancelled() {
+    setShowAnzModal(false);
+    cardExtrasRef.current = null;
+    // Quiet return to picker — cancellation is expected user behavior.
+  }
+
+  function handleAnzError(message: string) {
+    setShowAnzModal(false);
+    cardExtrasRef.current = null;
+    Alert.alert(
+      'EFTPOS Error',
+      message || 'Unable to process the card payment. Please try again or choose another method.',
+      [{ text: 'OK' }],
+    );
   }
 
   const orderTypeBadge =
@@ -203,6 +318,18 @@ export default function PaymentScreen() {
           <Text style={styles.payButtonText}>{t(language, 'payFmt', { amount: total.toFixed(2) })}</Text>
         )}
       </TouchableOpacity>
+
+      {/* ═══ ANZ Worldline TIM Payment Modal ═══ */}
+      <AnzPaymentModal
+        visible={showAnzModal}
+        amount={anzAmount}
+        referenceId={anzRefId}
+        title="Card Payment"
+        onApproved={handleAnzApproved}
+        onDeclined={handleAnzDeclined}
+        onCancelled={handleAnzCancelled}
+        onError={handleAnzError}
+      />
     </SafeAreaView>
   );
 }
