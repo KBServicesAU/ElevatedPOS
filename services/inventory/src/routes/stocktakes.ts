@@ -3,15 +3,14 @@ import { z } from 'zod';
 import { eq, and, desc, gte, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 
-// v2.7.40 — the dashboard stocktake form uses a FALLBACK_LOCATIONS list
-// with non-UUID ids ('main-store', 'cold-room', etc.) when the real
-// locations endpoint fails, and also supports picking a real location
-// UUID when available. It additionally sends a `type` field ('full' |
-// 'cycle' | 'spot') that the POS-style schema did not accept. Before
-// this change, clicking "Start Count" always failed with HTTP 422
-// ("Failed to start stocktake"). Relax here; non-UUID locations fall
-// back to the org's uuid at insert time so the NOT NULL constraint is
-// still satisfied.
+// v2.7.40/v2.7.41 — the dashboard stocktake form now requires a real
+// location UUID fetched from the locations service and disables "Start
+// Count" when none are available, so multi-location orgs no longer bucket
+// every count under the org. The permissive non-UUID coercion below is
+// retained as a safety net for the mobile client and legacy callers —
+// single-location merchants will still see counts filed under the org
+// UUID, which maps to their only store. For multi-location orgs a real
+// location UUID is expected.
 const createStocktakeSchema = z.object({
   locationId: z.string().optional(),
   name: z.string().optional(),

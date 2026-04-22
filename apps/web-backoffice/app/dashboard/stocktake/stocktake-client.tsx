@@ -92,16 +92,16 @@ interface NewStocktakeModalProps {
   locations: { id: string; name: string }[];
 }
 
-const FALLBACK_LOCATIONS = [
-  { id: 'main-store', name: 'Main Store' },
-  { id: 'cold-room', name: 'Cold Room' },
-  { id: 'dry-storage', name: 'Dry Storage' },
-  { id: 'cellar', name: 'Cellar' },
-];
+// v2.7.41 — removed the FALLBACK_LOCATIONS constant. The previous non-UUID
+// ids ('main-store', 'cold-room') were coerced server-side to orgId, which
+// filed every stocktake under the org rather than the real store location,
+// breaking per-location reports on multi-site accounts. When the locations
+// API fails to load we now require the user to retry rather than silently
+// pick a bogus id.
 
 function NewStocktakeModal({ onClose, onCreate, locations }: NewStocktakeModalProps) {
   const [type, setType] = useState<StocktakeType>('cycle');
-  const locationOptions = locations.length > 0 ? locations : FALLBACK_LOCATIONS;
+  const locationOptions = locations;
   const [locationId, setLocationId] = useState(locationOptions[0]?.id ?? '');
   const [frequency, setFrequency] = useState<CycleFrequency>('weekly');
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -175,16 +175,22 @@ function NewStocktakeModal({ onClose, onCreate, locations }: NewStocktakeModalPr
             >
               Location
             </label>
-            <select
-              id={`${idPrefix}-location`}
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            >
-              {locationOptions.map((loc) => (
-                <option key={loc.id} value={loc.id}>{loc.name}</option>
-              ))}
-            </select>
+            {locationOptions.length === 0 ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-300">
+                No locations available. Add a location under Settings &gt; Locations before starting a count.
+              </div>
+            ) : (
+              <select
+                id={`${idPrefix}-location`}
+                value={locationId}
+                onChange={(e) => setLocationId(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              >
+                {locationOptions.map((loc) => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Cycle Count scheduling fields */}
@@ -243,7 +249,9 @@ function NewStocktakeModal({ onClose, onCreate, locations }: NewStocktakeModalPr
           </button>
           <button
             onClick={handleCreate}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            disabled={locationOptions.length === 0 || !locationId}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            title={locationOptions.length === 0 ? 'Add a location first' : undefined}
           >
             <ClipboardList className="h-4 w-4" />
             {type === 'cycle' ? 'Schedule & Start' : 'Start Count'}
@@ -819,8 +827,15 @@ export function StocktakeClient({ currentUserName = 'Unknown' }: { currentUserNa
       try {
         const json = await apiFetch<{ data: { id: string; name: string }[] }>('locations');
         setLocations(json.data ?? []);
-      } catch {
-        // Use fallbacks defined in the modal
+      } catch (err) {
+        // v2.7.41 — no silent fallback. The modal disables "Start Count" when
+        // the list is empty so multi-location orgs don't accidentally file
+        // every count under the org with a coerced locationId.
+        toast({
+          title: 'Could not load locations',
+          description: getErrorMessage(err, 'Retry from the New Stocktake dialog.'),
+          variant: 'destructive',
+        });
       }
     }
 
