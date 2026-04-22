@@ -83,10 +83,41 @@ export default function PaymentScreen() {
         } catch { /* ignore parse error */ }
         throw new Error(msg);
       }
-      const data = await res.json() as { orderNumber?: string; pointsEarned?: number };
-      if (!data?.orderNumber) {
+      const data = await res.json() as { id?: string; orderNumber?: string; pointsEarned?: number };
+      if (!data?.orderNumber || !data.id) {
         throw new Error('No order number returned from server');
       }
+
+      // v2.7.39 — mark the order as completed so it flips from 'open'
+      // to 'completed' in Postgres, fires the Kafka order.completed
+      // event for dashboard revenue + ClickHouse ingestion, and shows
+      // up in Close Till / EOD. Before v2.7.39 the kiosk just created
+      // the order and moved on; every kiosk order stayed 'open' until
+      // someone manually clicked "Mark as Paid" on the detail screen.
+      const paidTotal = orderPayload.lines.reduce(
+        (sum, l) => sum + l.quantity * l.unitPrice,
+        0,
+      );
+      const completeRes = await fetch(`${apiBase}/api/v1/orders/${data.id}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          paidTotal,
+          changeGiven: 0,
+          paymentMethod: selected === 'card' ? 'Card' : selected === 'cash' ? 'Cash' : 'QR',
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!completeRes.ok && completeRes.status !== 409) {
+        // Log but don't fail the UX — the kiosk customer is about to see
+        // the confirmation screen and walk away. Staff can reconcile from
+        // the orders page if this keeps happening.
+        console.error('[Kiosk] /complete failed:', completeRes.status, await completeRes.text().catch(() => ''));
+      }
+
       setOrderNumber(data.orderNumber);
       if (loyaltyAccount && data.pointsEarned != null) {
         setEarnedPoints(data.pointsEarned);

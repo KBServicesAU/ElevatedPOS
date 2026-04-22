@@ -106,7 +106,7 @@ export default function QuickSaleScreen() {
     }
   }, [tyroConfig.apiKey, tyroConfig.environment, tyroConfig.autoInit]);
 
-  async function saveOrderToServer(): Promise<string> {
+  async function saveOrderToServer(): Promise<{ orderNumber: string; orderId: string }> {
     const base = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
     const token = authToken ?? identity?.deviceToken ?? '';
     const label = description.trim() || 'Quick Sale';
@@ -135,7 +135,7 @@ export default function QuickSaleScreen() {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) {
       throw new Error(`Order creation failed with status ${res.status}`);
@@ -144,7 +144,50 @@ export default function QuickSaleScreen() {
     if (!data?.orderNumber) {
       throw new Error('No order number returned from server');
     }
-    return data.orderNumber as string;
+    return { orderNumber: data.orderNumber as string, orderId: data.id as string };
+  }
+
+  /**
+   * v2.7.39 — mark the freshly-created order as completed on the server
+   * so it stops appearing as 'open' in the orders list and counts
+   * towards dashboard revenue + EOD. Before this fix Quick Sale just
+   * called POST /orders and never called /complete, so every Quick
+   * Sale order stayed 'open' until someone manually flipped it via
+   * the Mark as Paid button.
+   *
+   * Mirrors the retry + error-visibility pattern in sell.tsx's
+   * handleCharge so a transient blip doesn't silently leave the order
+   * open — the operator gets a toast telling them to reconcile.
+   */
+  async function markOrderCompleted(
+    orderId: string,
+    paidTotal: number,
+    changeGiven: number,
+    paymentMethod: string,
+    token: string,
+    base: string,
+  ): Promise<boolean> {
+    const body = JSON.stringify({ paidTotal, changeGiven, paymentMethod });
+    let completeErr: string | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(`${base}/api/v1/orders/${orderId}/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body,
+          signal: AbortSignal.timeout(15000),
+        });
+        if (res.ok) return true;
+        // 409 — already completed (double-submit) — treat as success.
+        if (res.status === 409) return true;
+        const errBody = await res.json().catch(() => ({})) as { detail?: string; message?: string; title?: string };
+        completeErr = errBody.detail ?? errBody.message ?? errBody.title ?? `HTTP ${res.status}`;
+      } catch (err) {
+        completeErr = err instanceof Error ? err.message : String(err);
+      }
+    }
+    if (completeErr) console.error('[QuickSale] /complete failed:', orderId, completeErr);
+    return false;
   }
 
   async function printReceiptIfConfigured(
@@ -197,7 +240,27 @@ export default function QuickSaleScreen() {
   async function finalise(paymentMethod: string, changeDue: number = 0, tendered?: number) {
     setCharging(true);
     try {
-      const orderNumber = await saveOrderToServer();
+      const { orderNumber, orderId } = await saveOrderToServer();
+
+      // v2.7.39 — mark completed so it counts towards dashboard revenue
+      // + EOD and stops showing as 'open' in the orders list.
+      const base = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
+      const token = authToken ?? identity?.deviceToken ?? '';
+      const completed = await markOrderCompleted(
+        orderId,
+        amount,
+        changeDue,
+        paymentMethod,
+        token,
+        base,
+      );
+      if (!completed) {
+        toast.warning(
+          'Order still open',
+          'Sale was recorded but the server did not mark it complete. Go to Orders to reconcile.',
+        );
+      }
+
       await printReceiptIfConfigured(orderNumber, paymentMethod, changeDue, tendered);
       const msg =
         changeDue > 0
