@@ -36,6 +36,23 @@ export const automationRules = pgTable('automation_rules', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// v2.7.41 — alert_rules replaces the in-memory shadow that used to live
+// at apps/web-backoffice/app/api/proxy/alerts/rules. `condition` holds
+// trigger-specific config (threshold, channels array, recipients list, etc.)
+// so we can evolve the shape without another migration.
+export const alertRules = pgTable('alert_rules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  channel: text('channel').notNull(),
+  condition: jsonb('condition').notNull().default({}),
+  enabled: boolean('enabled').notNull().default(true),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const automationExecutions = pgTable('automation_executions', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').notNull(),

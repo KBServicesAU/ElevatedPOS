@@ -5,6 +5,7 @@ import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { automationRoutes } from './routes/automations.js';
+import { alertRulesRoutes } from './routes/alert-rules.js';
 import { startWorker } from './temporal/worker.js';
 import { startEventConsumer } from './lib/eventConsumer.js';
 
@@ -53,6 +54,9 @@ async function start() {
   );
 
   await app.register(automationRoutes, { prefix: '/api/v1/automations' });
+  // v2.7.41 — alert rules persisted to DB. Replaces the in-memory shadow
+  // that lived in the web-backoffice Next.js layer until v2.7.40.
+  await app.register(alertRulesRoutes, { prefix: '/api/v1/automations/alerts/rules' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'automations' }));
 
