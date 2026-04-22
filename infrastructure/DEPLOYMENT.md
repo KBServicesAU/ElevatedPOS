@@ -147,3 +147,80 @@ With enterprise/adhoc provisioning:
 ## 8. SSL Certificate Renewal
 
 ACM certificates auto-renew. No action required as long as the DNS validation records remain in Route53 (Terraform manages these — do not delete them).
+
+---
+
+## 9. Transactional Email (Resend + DKIM/SPF/DMARC)
+
+Order confirmations, receipts, pickup-ready notifications, password-reset links and invoice emails all go through [Resend](https://resend.com). Before a fresh environment can actually deliver email you need to complete **four** setup steps in order.
+
+### Step 1 — Verify the sending domain in Resend
+
+1. Sign in to Resend → **Domains → Add Domain**.
+2. Enter the sending subdomain: `email.<your-domain>` (production: `email.elevatedpos.com.au`). Sending from the bare domain is possible but reserving it for transactional mail keeps the rest of your DNS clean.
+3. Resend shows:
+   - **1× SPF TXT** record on `email.<your-domain>`
+   - **3× DKIM CNAME** records on `<selector>._domainkey.email.<your-domain>` — each has its own selector name + target like `<hash>.dkim.amazonses.com`
+   - **1× DMARC TXT** on `_dmarc.email.<your-domain>` (optional — we publish a policy from terraform)
+4. Copy each DKIM record's **selector name** and **CNAME target**. You'll feed these into the terraform variables in step 3.
+
+### Step 2 — Populate the secret
+
+`RESEND_API_KEY` lives in `infrastructure/k8s/secrets.yaml` (the real file, NOT `secrets.yaml.template`):
+
+```yaml
+RESEND_API_KEY: "re_XXXXXXXXXXXXXXXXXXXX"
+```
+
+Apply: `kubectl apply -f infrastructure/k8s/secrets.yaml`. The `notifications` and `integrations` deployments pick this up via `envFrom: secretRef`.
+
+### Step 3 — Fill in DKIM selectors in terraform
+
+`infrastructure/terraform/dns.tf` carries variables for the three Resend-issued DKIM selectors + their CNAME targets. They default to empty — the `local.email_dns_enabled` flag skips creating the records until all six variables are non-empty, so `terraform apply` on a fresh clone won't try to make broken DNS.
+
+Create a `terraform.tfvars` (or per-env `prod.tfvars`, gitignored):
+
+```hcl
+resend_dkim_selector_1 = "resend1"                     # example — use the real selector name
+resend_dkim_cname_1    = "abc123.dkim.amazonses.com"   # example — use the real CNAME target
+resend_dkim_selector_2 = "resend2"
+resend_dkim_cname_2    = "def456.dkim.amazonses.com"
+resend_dkim_selector_3 = "resend3"
+resend_dkim_cname_3    = "ghi789.dkim.amazonses.com"
+```
+
+Then `terraform apply` from `infrastructure/terraform/`. The TF will create:
+
+- `email.<domain>`                             — SPF TXT (`v=spf1 include:amazonses.com ~all`)
+- `<selector1>._domainkey.email.<domain>`      — DKIM CNAME
+- `<selector2>._domainkey.email.<domain>`      — DKIM CNAME
+- `<selector3>._domainkey.email.<domain>`      — DKIM CNAME
+- `_dmarc.email.<domain>`                      — DMARC TXT (starts at `p=none`; bump to `p=quarantine` after 2 weeks)
+- `email.<domain>`                             — MX → `feedback-smtp.ap-southeast-2.amazonses.com` (quiet drop of replies)
+
+### Step 4 — Verify in Resend + observe
+
+1. Back in Resend → **Domains → <your subdomain>** click **Verify**. All four records (SPF + 3× DKIM) should flip to green within a few minutes. DMARC is a separate signal and isn't required for verification but helps deliverability.
+2. Send a test: from the notifications service pod, `curl -X POST http://notifications:4009/api/v1/notifications/email -H 'Authorization: Bearer <dev-jwt>' -d '{"to":"you@example.com","subject":"test","template":"custom","data":{"body":"<p>hi</p>"},"orgId":"<your org>"}'`.
+3. Check Resend dashboard → **Emails** tab. Status should be `delivered`.
+4. If it's `bounced` or `complained`, the DNS records likely haven't propagated. Wait 10 minutes and retry.
+
+### What the symptoms look like when DKIM/SPF is missing
+
+- Resend accepts the send but Gmail/Outlook quietly drop it into spam
+- Some inboxes may return a `550 Message rejected due to unauthenticated sender` bounce that surfaces in Resend's **Bounces** tab
+- `services/notifications/notification_logs` will record `status='sent'` because the Resend API returned 202 — the delivery failure happens downstream
+- v2.7.41+ email helper now retries transient `rate_limit` / `internal_server_error` errors 3× with exponential backoff, but it can't fix authentication failures — those need the DNS above.
+
+### Quick sanity check from any workstation
+
+```bash
+dig TXT email.elevatedpos.com.au +short
+# expect: "v=spf1 include:amazonses.com ~all"
+
+dig TXT _dmarc.email.elevatedpos.com.au +short
+# expect: "v=DMARC1; p=none; rua=mailto:dmarc@elevatedpos.com.au; ..."
+
+dig CNAME resend1._domainkey.email.elevatedpos.com.au +short
+# expect: some-hash.dkim.amazonses.com.   (trailing dot expected)
+```

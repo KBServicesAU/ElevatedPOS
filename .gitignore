@@ -85,6 +85,24 @@ tool-results/
 .secrets.*
 .claude/settings.local.json
 
+# Claude Code local scratch — logs, screenshots, runtime locks, agent worktrees.
+# The tracked .claude/ entries (launch.json, plans/, commands/, skills/) stay
+# tracked because they're shared team config. Everything below is local-only.
+.claude/apk-test/
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/tool-results/
+.claude/*.log
+.claude/*.tmp
+
+# ANZ TIM API scratch — large SDK dumps + PDF transcriptions we keep locally
+# for reference while working on the terminal integration. The REAL SDK files
+# live under apps/mobile/assets/timapi/ and services/hardware-bridge/browser-test/
+# — those ARE committed.
+.anz-pdf-dump.txt
+.anz-sdk-new/
+.anz-sdk-old/
+
 # Root-level temp/tool files
 /*.json
 /*.crt

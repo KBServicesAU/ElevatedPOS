@@ -172,6 +172,156 @@ resource "aws_route53_record" "reseller" {
   }
 }
 
+# ── Email sending DNS (Resend on email.elevatedpos.com.au) ────────────────────
+#
+# We send transactional email (order confirmations, receipts, pickup-ready
+# notifications, password resets, etc.) via Resend. Resend requires:
+#
+#   1. SPF — TXT record on the sending subdomain authorising Amazon SES
+#      (Resend's backing mailer for AU region) to send mail for us.
+#   2. DKIM — three CNAME records pointing to DKIM keys Resend publishes
+#      for the sending domain. These must be added in the Resend dashboard
+#      FIRST (Domains → Add Domain → email.elevatedpos.com.au) which shows
+#      the exact record values — then mirrored here so they're tracked in
+#      terraform.
+#   3. DMARC — TXT at _dmarc.<sending subdomain> that tells inboxes what
+#      policy to apply when a message fails SPF/DKIM. Start with p=none
+#      (monitor only) and move to p=quarantine once a few weeks of Resend
+#      reports come back clean.
+#   4. MX — minimal MX so reply-to addresses don't bounce. Points at
+#      Resend's inbound MX which accepts and drops (we don't process
+#      replies yet).
+#
+# Variables below let us check the DKIM selectors into terraform without
+# hardcoding per-environment keys. Populate via tfvars (not committed).
+#
+# Sender address (see k8s/configmap.yaml EMAIL_FROM):
+#   ElevatedPOS <noreply@email.elevatedpos.com.au>
+#
+# After applying these records, run `dig TXT email.elevatedpos.com.au` and
+# the three `dig CNAME <selector>._domainkey.email.elevatedpos.com.au`
+# lookups — values should match Resend's dashboard. Resend's "Verify"
+# button in their UI checks the same records.
+
+variable "resend_dkim_selector_1" {
+  description = "Resend-issued DKIM selector 1 for email.<domain> — get from Resend → Domains → <sending subdomain>"
+  type        = string
+  default     = ""
+}
+
+variable "resend_dkim_cname_1" {
+  description = "Resend-issued DKIM CNAME target for selector 1 — looks like <hash>.dkim.amazonses.com"
+  type        = string
+  default     = ""
+}
+
+variable "resend_dkim_selector_2" {
+  description = "Resend-issued DKIM selector 2"
+  type        = string
+  default     = ""
+}
+
+variable "resend_dkim_cname_2" {
+  description = "Resend-issued DKIM CNAME target for selector 2"
+  type        = string
+  default     = ""
+}
+
+variable "resend_dkim_selector_3" {
+  description = "Resend-issued DKIM selector 3"
+  type        = string
+  default     = ""
+}
+
+variable "resend_dkim_cname_3" {
+  description = "Resend-issued DKIM CNAME target for selector 3"
+  type        = string
+  default     = ""
+}
+
+locals {
+  # Skip the email records entirely if the DKIM selectors haven't been
+  # filled in yet — terraform shouldn't create broken records. The
+  # create/destroy step happens the first time someone runs `terraform
+  # apply` after the Resend domain is verified.
+  email_dns_enabled = (
+    var.resend_dkim_selector_1 != "" &&
+    var.resend_dkim_cname_1    != "" &&
+    var.resend_dkim_selector_2 != "" &&
+    var.resend_dkim_cname_2    != "" &&
+    var.resend_dkim_selector_3 != "" &&
+    var.resend_dkim_cname_3    != ""
+  )
+}
+
+# SPF — TXT on email.<domain>. Resend uses Amazon SES for AU sending.
+resource "aws_route53_record" "email_spf" {
+  count   = local.email_dns_enabled ? 1 : 0
+  zone_id = local.zone_id
+  name    = "email.${var.domain_name}"
+  type    = "TXT"
+  ttl     = 600
+  records = [
+    "v=spf1 include:amazonses.com ~all"
+  ]
+}
+
+# DKIM selectors — three CNAMEs as issued by Resend.
+resource "aws_route53_record" "email_dkim_1" {
+  count   = local.email_dns_enabled ? 1 : 0
+  zone_id = local.zone_id
+  name    = "${var.resend_dkim_selector_1}._domainkey.email.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 600
+  records = [var.resend_dkim_cname_1]
+}
+
+resource "aws_route53_record" "email_dkim_2" {
+  count   = local.email_dns_enabled ? 1 : 0
+  zone_id = local.zone_id
+  name    = "${var.resend_dkim_selector_2}._domainkey.email.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 600
+  records = [var.resend_dkim_cname_2]
+}
+
+resource "aws_route53_record" "email_dkim_3" {
+  count   = local.email_dns_enabled ? 1 : 0
+  zone_id = local.zone_id
+  name    = "${var.resend_dkim_selector_3}._domainkey.email.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 600
+  records = [var.resend_dkim_cname_3]
+}
+
+# DMARC — monitor-only first. Bump to p=quarantine once Resend reports
+# come back clean for ~2 weeks of production traffic.
+resource "aws_route53_record" "email_dmarc" {
+  count   = local.email_dns_enabled ? 1 : 0
+  zone_id = local.zone_id
+  name    = "_dmarc.email.${var.domain_name}"
+  type    = "TXT"
+  ttl     = 600
+  records = [
+    "v=DMARC1; p=none; rua=mailto:dmarc@${var.domain_name}; ruf=mailto:dmarc@${var.domain_name}; fo=1; aspf=r; adkim=r"
+  ]
+}
+
+# MX so replies to noreply@email.<domain> at least get routed somewhere
+# (Resend's bounce handler). If you want real inbound mail routing later,
+# swap this for your own inbound MX — until then this is a "drop quietly"
+# endpoint.
+resource "aws_route53_record" "email_mx" {
+  count   = local.email_dns_enabled ? 1 : 0
+  zone_id = local.zone_id
+  name    = "email.${var.domain_name}"
+  type    = "MX"
+  ttl     = 600
+  records = [
+    "10 feedback-smtp.ap-southeast-2.amazonses.com"
+  ]
+}
+
 output "nameservers" {
   description = "Route53 nameservers — point your domain registrar to these"
   value       = var.create_hosted_zone ? aws_route53_zone.primary[0].name_servers : []
