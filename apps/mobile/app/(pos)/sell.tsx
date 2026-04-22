@@ -368,15 +368,62 @@ export default function PosSellScreen() {
       orderId = data.id;
 
       // Mark order as completed (fires order.completed Kafka event → loyalty points)
-      try {
-        await fetch(`${base}/api/v1/orders/${orderId}/complete`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ paidTotal, changeGiven, tipAmount: tipDollars || undefined, surchargeAmount: surchargeDollars || undefined }),
-          signal: AbortSignal.timeout(15000),
-        });
-      } catch {
-        // Non-fatal — order is created, complete can be retried
+      //
+      // v2.7.33 — fetch() does NOT throw on HTTP 4xx/5xx, so the old
+      // try/catch silently swallowed server errors. Bug symptom: order
+      // created successfully, /complete returns 500, POS shows "Sale
+      // complete", but Postgres order.status stays 'open' forever — no
+      // Kafka event, no ClickHouse row, dashboard shows $0 revenue,
+      // Close-Till shows no sales. We now:
+      //   1. Check res.ok and log the actual status/body
+      //   2. Retry ONCE (cold-start latency or transient DB blip)
+      //   3. Send `paymentMethod` so the EOD summary can split cash/card
+      //   4. Warn the operator if both attempts fail so they know the
+      //      order needs manual reconciliation (but don't refund the
+      //      card — the money was already taken)
+      const completeBody = JSON.stringify({
+        paidTotal,
+        changeGiven,
+        paymentMethod,
+        tipAmount: tipDollars || undefined,
+        surchargeAmount: surchargeDollars || undefined,
+      });
+      let completed = false;
+      let completeErr: string | null = null;
+      for (let attempt = 0; attempt < 2 && !completed; attempt++) {
+        try {
+          const completeRes = await fetch(`${base}/api/v1/orders/${orderId}/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: completeBody,
+            signal: AbortSignal.timeout(15000),
+          });
+          if (completeRes.ok) {
+            completed = true;
+            break;
+          }
+          const errBody = await completeRes.json().catch(() => ({})) as { message?: string; detail?: string; title?: string };
+          completeErr = errBody.detail ?? errBody.message ?? errBody.title ?? `HTTP ${completeRes.status}`;
+          // 409 means the order is already completed (double-submit) —
+          // treat as success, no need to retry.
+          if (completeRes.status === 409) {
+            completed = true;
+            break;
+          }
+        } catch (err) {
+          completeErr = err instanceof Error ? err.message : String(err);
+        }
+      }
+      if (!completed) {
+        // Log for diagnostics and warn the operator. Do NOT abort the
+        // sale flow — the money was already taken on the terminal; the
+        // order just needs to be re-closed server-side. Staff can do
+        // this from Orders → find the open order → Reprint / Complete.
+        console.error('[POS] /complete failed after retries', orderId, completeErr);
+        toast.warning(
+          'Order still open',
+          `Sale was charged but the server did not mark it complete (${completeErr ?? 'unknown'}). Go to Orders to reconcile.`,
+        );
       }
     } catch (err) {
       setCharging(false);

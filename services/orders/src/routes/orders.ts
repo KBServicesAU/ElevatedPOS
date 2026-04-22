@@ -245,26 +245,47 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const { lines, ...orderData } = body.data;
 
-    // Compute totals in integer cents to avoid floating-point rounding errors
-    const subtotalCents = lines.reduce((sum, l) => {
-      const unitCents = Math.round(parseFloat(String(l.unitPrice)) * 100);
-      const discountCents = Math.round(parseFloat(String(l.discountAmount ?? 0)) * 100);
-      return sum + (l.quantity * unitCents - discountCents);
-    }, 0);
+    // Compute totals in integer cents to avoid floating-point rounding errors.
+    //
+    // v2.7.33 — AU retail pricing is GST-INCLUSIVE. The `unitPrice` sent by
+    // the POS (and entered by the merchant in the dashboard catalog) is
+    // already tax-inclusive — it's what the customer sees on the shelf and
+    // what they pay at the till. Previous code treated `unitPrice` as
+    // ex-GST and ADDED taxRate% on top, turning a $3.50 item into $3.85
+    // with "$0.35 GST" — wrong on every axis.
+    //
+    // Correct formula: given an inc-GST price and the rate (10 for 10%):
+    //   tax      = price × rate / (100 + rate)      (GST extraction)
+    //   exGst    = price − tax
+    //   lineTot  = price                            (the advertised price)
+    //
+    // So for $3.50 inc-GST at 10%: tax=$0.32, exGst=$3.18, total=$3.50 ✓
     const discountTotalCents = lines.reduce((sum, l) => {
       return sum + Math.round(parseFloat(String(l.discountAmount ?? 0)) * 100);
     }, 0);
-    const taxTotalCents = lines.reduce((sum, l) => {
+
+    // Per-line breakdown so the same numbers go into orderLines below.
+    const lineBreakdown = lines.map((l) => {
       const unitCents = Math.round(parseFloat(String(l.unitPrice)) * 100);
       const discountCents = Math.round(parseFloat(String(l.discountAmount ?? 0)) * 100);
-      const lineBaseCents = l.quantity * unitCents - discountCents;
-      return sum + Math.round(lineBaseCents * (l.taxRate / 100));
-    }, 0);
-    const totalCents = subtotalCents + taxTotalCents;
-    const subtotal = (subtotalCents / 100).toFixed(2);
+      // Inc-GST subtotal for this line (what the customer pays for it).
+      const lineIncCents = l.quantity * unitCents - discountCents;
+      const rate = Number(l.taxRate) || 0;
+      const taxCents = rate > 0
+        ? Math.round((lineIncCents * rate) / (100 + rate))
+        : 0;
+      const exGstCents = lineIncCents - taxCents;
+      return { unitCents, discountCents, lineIncCents, taxCents, exGstCents };
+    });
+
+    const subtotalCents = lineBreakdown.reduce((s, b) => s + b.exGstCents, 0);
+    const taxTotalCents = lineBreakdown.reduce((s, b) => s + b.taxCents, 0);
+    const totalCents    = lineBreakdown.reduce((s, b) => s + b.lineIncCents, 0);
+
+    const subtotal      = (subtotalCents      / 100).toFixed(2);
     const discountTotal = (discountTotalCents / 100).toFixed(2);
-    const taxTotal = (taxTotalCents / 100).toFixed(2);
-    const total = (totalCents / 100).toFixed(2);
+    const taxTotal      = (taxTotalCents      / 100).toFixed(2);
+    const total         = (totalCents         / 100).toFixed(2);
 
     const orderRows = await db.insert(schema.orders).values({
       orgId,
@@ -288,14 +309,14 @@ export async function orderRoutes(app: FastifyInstance) {
     }).returning();
     const order = orderRows[0]!;
 
-    await db.insert(schema.orderLines).values(lines.map((l) => {
-      const unitCents = Math.round(parseFloat(String(l.unitPrice)) * 100);
-      const discountCents = Math.round(parseFloat(String(l.discountAmount ?? 0)) * 100);
-      const lineBaseCents = l.quantity * unitCents - discountCents;
-      const taxAmountCents = Math.round(lineBaseCents * (l.taxRate / 100));
-      const lineTotalCents = lineBaseCents + taxAmountCents;
-      const taxAmount = (taxAmountCents / 100).toFixed(2);
-      const lineTotal = (lineTotalCents / 100).toFixed(2);
+    await db.insert(schema.orderLines).values(lines.map((l, idx) => {
+      // v2.7.33 — re-use the same inc-GST breakdown computed for the order
+      // totals so the numbers tie. `lineTotal` is what the customer pays
+      // for this line (inc-GST). `taxAmount` is the GST extracted from
+      // that price.
+      const breakdown = lineBreakdown[idx]!;
+      const taxAmount = (breakdown.taxCents    / 100).toFixed(2);
+      const lineTotal = (breakdown.lineIncCents / 100).toFixed(2);
       return {
         orderId: order.id,
         productId: l.productId,

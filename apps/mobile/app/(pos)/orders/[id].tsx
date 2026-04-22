@@ -336,6 +336,52 @@ export default function OrderDetailScreen() {
   }
 
   /* ------------------------------------------------------------------ */
+  /* Mark as Paid (reconcile a stuck 'open' order — v2.7.33)             */
+  /* ------------------------------------------------------------------ */
+  // Before v2.7.33, the POS's /complete call could silently fail (fetch
+  // doesn't throw on 4xx/5xx and we had no res.ok check), leaving the
+  // order stuck in 'open' even though the card was charged. This action
+  // fires /complete again from the detail screen so staff can self-serve
+  // reconcile without touching the DB.
+  const [marking, setMarking] = useState(false);
+  async function markAsPaid() {
+    if (!order) return;
+    if (order.status !== 'open') return;
+    const ok = await confirm({
+      title: 'Mark as Paid',
+      description:
+        'Only use this if the customer was actually charged but the order never closed. It will be added to today\'s sales and EOD.',
+      confirmLabel: 'Mark as Paid',
+    });
+    if (!ok) return;
+    setMarking(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/orders/${order.id}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          paidTotal: toNum(order.total),
+          changeGiven: 0,
+          paymentMethod: 'Unknown',
+        }),
+      });
+      if (res.status === 409) {
+        toast.success('Already completed', 'This order was already closed.');
+      } else if (!res.ok) {
+        const errBody = await res.json().catch(() => ({})) as { message?: string; detail?: string };
+        throw new Error(errBody.detail ?? errBody.message ?? `HTTP ${res.status}`);
+      } else {
+        toast.success('Marked as paid', 'The order now counts towards today\'s sales.');
+      }
+      await loadOrder();
+    } catch (err) {
+      toast.error('Could not complete', err instanceof Error ? err.message : String(err));
+    } finally {
+      setMarking(false);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Refund                                                              */
   /* ------------------------------------------------------------------ */
 
@@ -826,6 +872,28 @@ export default function OrderDetailScreen() {
               : <Ionicons name="print-outline" size={16} color="#6366f1" />}
             <Text style={s.actionText}>Reprint Receipt</Text>
           </TouchableOpacity>
+
+          {/* v2.7.33 — Mark as Paid: self-serve reconcile for orders that
+              got stuck in 'open' because /complete silently failed on a
+              pre-v2.7.33 build. */}
+          {order.status === 'open' && (
+            <>
+              <TouchableOpacity
+                style={[s.actionBtn, marking && { opacity: 0.4 }]}
+                onPress={markAsPaid}
+                disabled={marking}
+                activeOpacity={0.85}
+              >
+                {marking
+                  ? <ActivityIndicator size="small" color="#22c55e" />
+                  : <Ionicons name="checkmark-circle-outline" size={16} color="#22c55e" />}
+                <Text style={[s.actionText, { color: '#22c55e' }]}>Mark as Paid</Text>
+              </TouchableOpacity>
+              <Text style={s.disabledHint}>
+                Use only if the card was already charged but this order is still open.
+              </Text>
+            </>
+          )}
 
           <TouchableOpacity
             style={[s.actionBtn, (!canRefund || anzBusy) && { opacity: 0.4 }]}
