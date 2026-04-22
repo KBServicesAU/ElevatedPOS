@@ -445,4 +445,78 @@ export async function productRoutes(app: FastifyInstance) {
 
   // NOTE: GET /api/v1/products/availability-changes is registered at the top level in index.ts
   // as a public (no-auth) endpoint. Do not add it here in the authenticated plugin.
+
+  // POST /api/v1/products/lookup-or-create — resolve a free-form line to a real product.
+  // v2.7.41 — the dashboard Purchase-Order form lets staff type a product name + SKU
+  // without linking to the catalog. Instead of fabricating a synthetic productId (which
+  // would create orphan stock rows on receive), the inventory service calls this endpoint
+  // from POST /purchase-orders so every PO line ends up pointing at a real catalog row.
+  // Matches on (orgId, sku) first; falls back to (orgId, name). When nothing matches,
+  // creates an inactive draft product tagged 'po-free-form' so staff can later edit
+  // price/category/barcodes without it cluttering the POS menu.
+  app.post('/lookup-or-create', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const body = z.object({
+      sku: z.string().optional(),
+      name: z.string().min(1),
+      costPrice: z.number().min(0).optional(),
+    }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    }
+
+    const { name } = body.data;
+    const sku = body.data.sku?.trim() ?? '';
+
+    // 1) Exact-match SKU when provided (the unique index is on orgId+sku).
+    if (sku) {
+      const existing = await db.query.products.findFirst({
+        where: and(eq(schema.products.orgId, orgId), eq(schema.products.sku, sku)),
+      });
+      if (existing) return reply.status(200).send({ data: existing, meta: { matched: 'sku' } });
+    }
+
+    // 2) Case-insensitive name match within the org as a secondary key.
+    const byName = await db.query.products.findFirst({
+      where: and(eq(schema.products.orgId, orgId), ilike(schema.products.name, name)),
+    });
+    if (byName) return reply.status(200).send({ data: byName, meta: { matched: 'name' } });
+
+    // 3) Create an inactive draft. The schema requires (orgId, sku) unique, so
+    // synthesise one when empty using a timestamp-based suffix — keeps the index happy
+    // and is easy to spot in the catalog UI as a PO-origin stub.
+    const generatedSku = sku || `PO-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const [created] = await db.insert(schema.products).values({
+      orgId,
+      name,
+      sku: generatedSku,
+      isActive: false,
+      isSoldInstore: false,
+      isSoldOnline: false,
+      showOnKiosk: false,
+      trackStock: true,
+      tags: ['po-free-form'],
+      basePrice: '0',
+      costPrice: String(body.data.costPrice ?? 0),
+      notes: 'Auto-created from purchase-order free-form line. Review & activate to sell.',
+    }).returning();
+    const c = created!;
+
+    // Index in Typesense (fire-and-forget) so it shows up in internal searches.
+    indexProduct({
+      id: c.id,
+      orgId: c.orgId,
+      name: c.name,
+      sku: c.sku,
+      barcodes: (c.barcodes as string[]) ?? [],
+      basePrice: Number(c.basePrice),
+      isActive: c.isActive,
+      ...(Array.isArray(c.tags) && (c.tags as string[]).length > 0 ? { tags: c.tags as string[] } : {}),
+    }).catch((err) => request.log.error({ err }, 'Typesense indexProduct failed'));
+
+    // Invalidate list cache for this org
+    await invalidateCache(`products:${orgId}:*`);
+
+    return reply.status(201).send({ data: c, meta: { matched: 'created' } });
+  });
 }

@@ -1,7 +1,9 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../db';
+
+const CATALOG_URL = process.env['CATALOG_SERVICE_URL'] ?? 'http://catalog:4002';
 
 // v2.7.40 — the dashboard PO form (purchase-orders-client.tsx) submits an
 // ad-hoc payload that does not match the strict POS-style schema:
@@ -9,10 +11,9 @@ import { db, schema } from '../db';
 //   * has no `productId` (free-form entry — no catalog link)
 //   * has no `locationId` (the form has no location picker)
 //   * uses `status`, `expectedDate`, `shippingAddress`, `supplierName`
-// Before this change, every dashboard save failed with HTTP 422. The
-// lines table stores productId as non-null, so when the dashboard sends
-// no productId, we fall back to a lookup-or-create product stub below.
-// Keep the POS-style shape accepted too so the mobile client is unchanged.
+// v2.7.41 — resolve every free-form line to a real catalog product via
+// POST /api/v1/products/lookup-or-create so stock receipts don't create
+// orphan stock rows against ids that have no matching products row.
 const poLineSchema = z.object({
   productId: z.string().uuid().optional(),
   variantId: z.string().uuid().optional(),
@@ -50,25 +51,41 @@ function generatePoNumber(): string {
 }
 
 /**
- * v2.7.40 — deterministic UUIDv5-ish product id for free-form PO lines.
- * The dashboard's PO form lets users type a product name without a
- * catalog link, so no real `productId` exists. The DB column is
- * `uuid NOT NULL` with no FK (by design), so we hash the seed into a
- * stable 32-char hex and reshape it into a UUID string. Same seed →
- * same id, so repeat lines across POs group cleanly in reports.
+ * v2.7.41 — resolve a free-form PO line (name + optional SKU, no productId)
+ * to a real catalog product id. Calls the catalog service's lookup-or-create
+ * endpoint, forwarding the caller's Bearer token so the catalog can pull
+ * `orgId` from `request.user` and scope creation correctly. The catalog
+ * returns an existing product when SKU/name matches, or creates an inactive
+ * draft tagged 'po-free-form' that staff can later edit & activate.
+ *
+ * Throws when catalog is unreachable or returns a non-2xx — the PO create
+ * handler surfaces that as HTTP 502 so the dashboard can show a clear error
+ * rather than silently saving an orphan row.
  */
-function syntheticProductId(seed: string): string {
-  // FNV-1a hash, 64-bit doubled → 32 hex chars. Good enough for a stable
-  // shape; not a cryptographic uuid and not RFC 4122 strict.
-  let h1 = 0x811c9dc5n;
-  let h2 = 0xcbf29ce484222325n;
-  const bytes = Buffer.from(seed || 'po-line-empty');
-  for (const b of bytes) {
-    h1 = ((h1 ^ BigInt(b)) * 0x01000193n) & 0xffffffffn;
-    h2 = ((h2 ^ BigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn;
+async function resolveProductId(opts: {
+  request: FastifyRequest;
+  sku: string;
+  name: string;
+  costPrice: number;
+}): Promise<string> {
+  const { request, sku, name, costPrice } = opts;
+  const authHeader = (request.headers['authorization'] as string | undefined) ?? '';
+  if (!authHeader) {
+    throw new Error('missing authorization header when resolving free-form PO product');
   }
-  const hex = (h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(16, '0')).padEnd(32, '0').slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  const res = await fetch(`${CATALOG_URL}/api/v1/products/lookup-or-create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: authHeader },
+    body: JSON.stringify({ sku, name, costPrice }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`catalog lookup-or-create failed: ${res.status} ${detail}`);
+  }
+  const json = (await res.json()) as { data?: { id?: string } };
+  const id = json.data?.id;
+  if (!id) throw new Error('catalog lookup-or-create returned no product id');
+  return id;
 }
 
 export async function purchaseOrderRoutes(app: FastifyInstance) {
@@ -128,6 +145,48 @@ export async function purchaseOrderRoutes(app: FastifyInstance) {
     const subtotal = combinedLines.reduce((sum, l) => sum + l.orderedQty * l.unitCost, 0);
     const taxTotal = combinedLines.reduce((sum, l) => sum + l.orderedQty * l.unitCost * (l.taxRate / 100), 0);
 
+    // v2.7.41 — resolve every free-form line to a real catalog product id
+    // BEFORE inserting the PO row, so a catalog failure aborts the whole
+    // transaction rather than leaving behind a PO with orphan stock rows.
+    const resolvedLines: Array<{
+      productId: string;
+      variantId?: string;
+      productName: string;
+      sku: string;
+      orderedQty: number;
+      unitCost: number;
+      taxRate: number;
+    }> = [];
+    for (const l of combinedLines) {
+      let productId = l.productId;
+      if (!productId) {
+        try {
+          productId = await resolveProductId({
+            request,
+            sku: l.sku ?? '',
+            name: l.productName,
+            costPrice: l.unitCost,
+          });
+        } catch (err) {
+          request.log.error({ err }, 'Failed to resolve free-form PO line to a catalog product');
+          return reply.status(502).send({
+            title: 'Catalog Unavailable',
+            status: 502,
+            detail: 'Could not resolve product name/SKU to a catalog record. Try again, or link the line to an existing product.',
+          });
+        }
+      }
+      resolvedLines.push({
+        productId,
+        productName: l.productName,
+        sku: l.sku ?? '',
+        orderedQty: l.orderedQty,
+        unitCost: l.unitCost,
+        taxRate: l.taxRate,
+        ...(l.variantId !== undefined ? { variantId: l.variantId } : {}),
+      });
+    }
+
     const rows = await db.insert(schema.purchaseOrders).values({
       orgId,
       locationId,
@@ -144,15 +203,11 @@ export async function purchaseOrderRoutes(app: FastifyInstance) {
     }).returning();
     const po = rows[0]!;
 
-    // Dashboard lines have no productId — fall back to a deterministic
-    // synthetic UUID derived from the SKU or product name so the NOT NULL
-    // constraint is satisfied and lines with the same name/SKU collapse to
-    // the same id. The column has no FK, which the schema explicitly notes.
-    await db.insert(schema.purchaseOrderLines).values(combinedLines.map((l) => ({
+    await db.insert(schema.purchaseOrderLines).values(resolvedLines.map((l) => ({
       purchaseOrderId: po.id,
-      productId: l.productId ?? syntheticProductId(l.sku || l.productName),
+      productId: l.productId,
       productName: l.productName,
-      sku: l.sku ?? '',
+      sku: l.sku,
       orderedQty: String(l.orderedQty),
       unitCost: String(l.unitCost),
       taxRate: String(l.taxRate),
