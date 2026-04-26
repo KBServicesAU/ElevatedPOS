@@ -33,12 +33,25 @@ interface RawWS {
 export const kdsConnections = new Map<string, Set<RawWS>>();
 
 export function broadcastToKDS(locationId: string, payload: Record<string, unknown>): void {
+  // v2.7.44 — hardened against a misbehaving WebSocket throwing inside
+  // `ws.send`. Previously this could synchronously throw out of POST
+  // /:id/complete *after* the DB had marked the order completed, causing
+  // the route to 500 even though the work was done. Mobile retries would
+  // then see a 409 (already completed), which we already treat as
+  // success — but per-call try/catch around send is cheap insurance.
   const clients = kdsConnections.get(locationId);
   if (!clients || clients.size === 0) return;
   const message = JSON.stringify(payload);
   for (const ws of clients) {
     if (ws.readyState === 1 /* OPEN */) {
-      ws.send(message);
+      try {
+        ws.send(message);
+      } catch (err) {
+        // Single misbehaving client must not abort the whole broadcast or
+        // (worse) propagate up the synchronous call chain to a request
+        // handler.
+        console.error('[orders] KDS broadcast send failed for', locationId, err);
+      }
     }
   }
 }

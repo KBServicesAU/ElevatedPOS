@@ -112,6 +112,14 @@ export default function PaymentScreen() {
       if (!token) {
         throw new Error('Could not authenticate with server. Check network and pairing.');
       }
+      // v2.7.44 — instrumented order-creation path so the next regression
+      // surfaces in device logs (kiosks run unattended for hours; silent
+      // failures lead to angry merchants and lost revenue).
+      console.log('[POS/complete]', 'kiosk.postOrderAndComplete → POST /orders', {
+        method,
+        orderType: orderPayload.orderType,
+        lines: orderPayload.lines.length,
+      });
       const res = await fetch(`${apiBase}/api/v1/orders`, {
         method: 'POST',
         headers: {
@@ -127,12 +135,15 @@ export default function PaymentScreen() {
           const errBody = await res.json() as { message?: string };
           if (errBody?.message) msg = errBody.message;
         } catch { /* ignore parse error */ }
+        console.error('[POS/complete]', 'kiosk.postOrderAndComplete POST /orders FAILED', res.status, msg);
         throw new Error(msg);
       }
       const data = await res.json() as { id?: string; orderNumber?: string; pointsEarned?: number };
       if (!data?.orderNumber || !data.id) {
+        console.error('[POS/complete]', 'kiosk.postOrderAndComplete missing id/orderNumber in response', data);
         throw new Error('No order number returned from server');
       }
+      console.log('[POS/complete]', 'kiosk.postOrderAndComplete order created', { orderId: data.id, orderNumber: data.orderNumber });
 
       // v2.7.39 — mark the order as completed so it flips from 'open'
       // to 'completed' in Postgres, fires the Kafka order.completed
@@ -144,6 +155,7 @@ export default function PaymentScreen() {
         (sum, l) => sum + l.quantity * l.unitPrice,
         0,
       );
+      console.log('[POS/complete]', 'kiosk.postOrderAndComplete → POST /complete', { orderId: data.id, paidTotal, paymentMethod: method });
       const completeRes = await fetch(`${apiBase}/api/v1/orders/${data.id}/complete`, {
         method: 'POST',
         headers: {
@@ -161,7 +173,9 @@ export default function PaymentScreen() {
         // Log but don't fail the UX — the kiosk customer is about to see
         // the confirmation screen and walk away. Staff can reconcile from
         // the orders page if this keeps happening.
-        console.error('[Kiosk] /complete failed:', completeRes.status, await completeRes.text().catch(() => ''));
+        console.error('[POS/complete]', 'kiosk.postOrderAndComplete /complete FAILED:', completeRes.status, await completeRes.text().catch(() => ''));
+      } else {
+        console.log('[POS/complete]', 'kiosk.postOrderAndComplete /complete OK', { orderId: data.id, status: completeRes.status });
       }
 
       setOrderNumber(data.orderNumber);

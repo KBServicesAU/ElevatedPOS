@@ -50,6 +50,37 @@ const KEYS: string[][] = [
   ['.', '0', '⌫'],
 ];
 
+/**
+ * v2.7.44 — RFC 4122 v4 UUID generated client-side. Quick Sale's synthetic
+ * line items aren't backed by a catalog product, so we mint a random UUID
+ * for `productId` instead of the old `qs-${Date.now()}` string. The orders
+ * service `lineSchema.productId` is `z.string().uuid()` AND the Postgres
+ * `order_lines.product_id` column is `uuid NOT NULL` — passing a non-UUID
+ * caused the POST /orders to 422 silently every time, so Quick Sale orders
+ * were never even created (let alone completed). Using a fresh UUID per
+ * line keeps the wire shape valid and is unique enough for analytics
+ * de-dup in ClickHouse.
+ *
+ * Inline (no `uuid` package dependency in apps/mobile) — uses the
+ * Math.random() fallback because react-native doesn't expose
+ * crypto.randomUUID on all platforms (Hermes < 0.74 lacks it).
+ */
+function quickSaleProductId(): string {
+  // crypto.randomUUID is available in modern Hermes; fall back to a manual
+  // RFC 4122 v4 generator for older runtimes.
+  const g = globalThis as { crypto?: { randomUUID?: () => string } };
+  if (g.crypto && typeof g.crypto.randomUUID === 'function') {
+    return g.crypto.randomUUID();
+  }
+  // Manual v4 — 16 random bytes with version + variant bits set.
+  const bytes = new Array(16);
+  for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+  const hex = bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 const QUICK_AMOUNTS = [5, 10, 20, 50, 100];
 
 /**
@@ -210,6 +241,7 @@ export default function QuickSaleScreen() {
     let completeErr: string | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
+        console.log('[POS/complete]', 'quickSale.markOrderCompleted → POST /complete', { orderId, attempt: attempt + 1, paymentMethod, paidTotal });
         const res = await fetch(`${base}/api/v1/orders/${orderId}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -221,11 +253,13 @@ export default function QuickSaleScreen() {
         if (res.status === 409) return true;
         const errBody = await res.json().catch(() => ({})) as { detail?: string; message?: string; title?: string };
         completeErr = errBody.detail ?? errBody.message ?? errBody.title ?? `HTTP ${res.status}`;
+        console.error('[POS/complete]', 'quickSale.markOrderCompleted non-OK', { orderId, status: res.status, errBody });
       } catch (err) {
         completeErr = err instanceof Error ? err.message : String(err);
+        console.error('[POS/complete]', 'quickSale.markOrderCompleted threw', { orderId, err: completeErr });
       }
     }
-    if (completeErr) console.error('[QuickSale] /complete failed:', orderId, completeErr);
+    if (completeErr) console.error('[POS/complete]', 'quickSale.markOrderCompleted failed after retries:', orderId, completeErr);
     return false;
   }
 
@@ -285,7 +319,21 @@ export default function QuickSaleScreen() {
     let orderNumber: string;
     let orderId: string;
 
+    // v2.7.44 — generate a real UUID for the synthetic Quick Sale line so the
+    // server's strict `lineSchema.productId.uuid()` + `uuid NOT NULL` Postgres
+    // column accept it. Old `qs-${Date.now()}` string failed validation and
+    // every Quick Sale POST /orders 422'd, leaving merchants with no Quick
+    // Sale orders at all (or, if validation were ever loosened, with orders
+    // that would later fail the DB insert).
+    const syntheticProductId = quickSaleProductId();
+
     try {
+      console.log('[POS/complete]', 'quickSale.handleCharge → POST /orders', {
+        paymentMethod,
+        paidTotal,
+        amount,
+        productId: syntheticProductId,
+      });
       const res = await fetch(`${base}/api/v1/orders`, {
         method: 'POST',
         headers: {
@@ -299,7 +347,7 @@ export default function QuickSaleScreen() {
           orderType: 'retail',
           lines: [
             {
-              productId: `qs-${Date.now()}`,
+              productId: syntheticProductId,
               name: label,
               quantity: 1,
               unitPrice: amount,
@@ -315,12 +363,14 @@ export default function QuickSaleScreen() {
         setCharging(false);
         const errBody = await res.json().catch(() => ({})) as { message?: string; detail?: string; title?: string };
         const errMsg = errBody.message ?? errBody.detail ?? errBody.title ?? `Server error (${res.status})`;
+        console.error('[POS/complete]', 'quickSale.handleCharge POST /orders FAILED', res.status, errBody);
         Alert.alert('Order Failed', errMsg);
         return;
       }
       const data = await res.json();
       orderNumber = data.orderNumber;
       orderId = data.id;
+      console.log('[POS/complete]', 'quickSale.handleCharge order created', { orderId, orderNumber });
 
       const completed = await markOrderCompleted(
         orderId,
@@ -332,10 +382,13 @@ export default function QuickSaleScreen() {
         { tipAmount: tipDollars || undefined, surchargeAmount: surchargeDollars || undefined },
       );
       if (!completed) {
+        console.error('[POS/complete]', 'quickSale.handleCharge /complete returned false', { orderId });
         toast.warning(
           'Order still open',
           'Sale was charged but the server did not mark it complete. Go to Orders to reconcile.',
         );
+      } else {
+        console.log('[POS/complete]', 'quickSale.handleCharge /complete OK', { orderId });
       }
     } catch (err) {
       setCharging(false);

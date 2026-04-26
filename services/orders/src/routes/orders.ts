@@ -363,7 +363,12 @@ export async function orderRoutes(app: FastifyInstance) {
   app.post('/', async (request, reply) => {
     const { orgId, sub: employeeId } = request.user as { orgId: string; sub: string };
     const body = createOrderSchema.safeParse(request.body);
-    if (!body.success) return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    if (!body.success) {
+      // v2.7.44 — log validation issues so the next wire-shape regression
+      // is diagnosable from server logs rather than a silent 422.
+      console.error('[orders] POST /orders validation failed', { issues: body.error.issues, bodyKeys: request.body && typeof request.body === 'object' ? Object.keys(request.body as Record<string, unknown>) : null });
+      return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    }
 
     const { lines, ...orderData } = body.data;
 
@@ -576,7 +581,13 @@ export async function orderRoutes(app: FastifyInstance) {
       storeName: z.string().optional(),
       paymentMethod: z.string().optional(),
     }).safeParse(request.body);
-    if (!body.success) return reply.status(422).send({ type: 'about:blank', title: 'Validation Error', status: 422 });
+    if (!body.success) {
+      // v2.7.44 — surface the validation detail so operators can diagnose
+      // a wire-shape regression from logs alone (the silent 422 was the
+      // exact failure mode that hid the v2.7.40/41 regression for days).
+      console.error('[orders]', 'POST /:id/complete validation failed', { id, issues: body.error.issues, body: request.body });
+      return reply.status(422).send({ type: 'about:blank', title: 'Validation Error', status: 422, detail: body.error.message });
+    }
 
     const order = await db.query.orders.findFirst({ where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)) });
     if (!order) return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404 });
@@ -650,13 +661,21 @@ export async function orderRoutes(app: FastifyInstance) {
     // v2.7.40 — tell any connected KDS the ticket has been closed so it
     // doesn't linger on screen for the remainder of its lifetime. Safe
     // no-op when no KDS client is connected for this location.
-    broadcastToKDS(updated.locationId, {
-      type: 'ticket_bumped',
-      ticketId: updated.id,
-      locationId: updated.locationId,
-      timestamp: new Date().toISOString(),
-    });
+    //
+    // v2.7.44 — wrapped in try/catch so a stray WS misbehaviour cannot
+    // take down /complete after the DB transition has already happened.
+    try {
+      broadcastToKDS(updated.locationId, {
+        type: 'ticket_bumped',
+        ticketId: updated.id,
+        locationId: updated.locationId,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[orders] /complete: broadcastToKDS threw (ignored)', err);
+    }
 
+    console.log('[orders] /complete OK', { id, status: 'completed', paymentMethod: body.data.paymentMethod ?? null });
     return reply.status(200).send({ data: updated });
   });
 

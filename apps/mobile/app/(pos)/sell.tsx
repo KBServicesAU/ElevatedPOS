@@ -340,6 +340,15 @@ export default function PosSellScreen() {
     try {
       const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
       const token = authToken ?? identity?.deviceToken ?? '';
+      // v2.7.44 — log every order-creation attempt with the surface-level
+      // payload shape so the next regression (silent /complete drop, schema
+      // mismatch, status-enum drift) is diagnosable from device logs alone.
+      console.log('[POS/complete]', 'sell.handleCharge → POST /orders', {
+        paymentMethod,
+        lines: orderItems.length,
+        total: orderTotal,
+        paidTotal,
+      });
       const res = await fetch(`${base}/api/v1/orders`, {
         method: 'POST',
         headers: {
@@ -360,12 +369,14 @@ export default function PosSellScreen() {
         setCharging(false);
         const errBody = await res.json().catch(() => ({})) as { message?: string; detail?: string; title?: string };
         const errMsg = errBody.message ?? errBody.detail ?? errBody.title ?? `Server error (${res.status})`;
+        console.error('[POS/complete]', 'sell.handleCharge POST /orders FAILED', res.status, errBody);
         Alert.alert('Order Failed', errMsg);
         return;
       }
       const data = await res.json();
       orderNumber = data.orderNumber;
       orderId = data.id;
+      console.log('[POS/complete]', 'sell.handleCharge order created', { orderId, orderNumber });
 
       // Mark order as completed (fires order.completed Kafka event → loyalty points)
       //
@@ -392,6 +403,7 @@ export default function PosSellScreen() {
       let completeErr: string | null = null;
       for (let attempt = 0; attempt < 2 && !completed; attempt++) {
         try {
+          console.log('[POS/complete]', 'sell.handleCharge → POST /complete', { orderId, attempt: attempt + 1, paymentMethod, paidTotal });
           const completeRes = await fetch(`${base}/api/v1/orders/${orderId}/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -400,10 +412,12 @@ export default function PosSellScreen() {
           });
           if (completeRes.ok) {
             completed = true;
+            console.log('[POS/complete]', 'sell.handleCharge /complete OK', { orderId });
             break;
           }
           const errBody = await completeRes.json().catch(() => ({})) as { message?: string; detail?: string; title?: string };
           completeErr = errBody.detail ?? errBody.message ?? errBody.title ?? `HTTP ${completeRes.status}`;
+          console.error('[POS/complete]', 'sell.handleCharge /complete non-OK', { orderId, status: completeRes.status, errBody });
           // 409 means the order is already completed (double-submit) —
           // treat as success, no need to retry.
           if (completeRes.status === 409) {
@@ -412,6 +426,7 @@ export default function PosSellScreen() {
           }
         } catch (err) {
           completeErr = err instanceof Error ? err.message : String(err);
+          console.error('[POS/complete]', 'sell.handleCharge /complete threw', { orderId, err: completeErr });
         }
       }
       if (!completed) {
@@ -419,7 +434,7 @@ export default function PosSellScreen() {
         // sale flow — the money was already taken on the terminal; the
         // order just needs to be re-closed server-side. Staff can do
         // this from Orders → find the open order → Reprint / Complete.
-        console.error('[POS] /complete failed after retries', orderId, completeErr);
+        console.error('[POS/complete]', 'sell.handleCharge /complete failed after retries', orderId, completeErr);
         toast.warning(
           'Order still open',
           `Sale was charged but the server did not mark it complete (${completeErr ?? 'unknown'}). Go to Orders to reconcile.`,
