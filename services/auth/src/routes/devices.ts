@@ -559,6 +559,19 @@ export async function deviceRoutes(app: FastifyInstance) {
       showGst:        (deviceSettings['showGst']        as boolean) ?? true,
     };
 
+    // ── Receipt settings (org-wide, from organisations.receipt_settings) ──
+    // Merchant toggles for printed-receipt rendering. Initial shape:
+    //   { showOrderNumber: boolean }   default true
+    // Kept open-ended so future fields just slot in without a schema bump.
+    const orgReceiptRaw = (organisation?.receiptSettings && typeof organisation.receiptSettings === 'object')
+      ? organisation.receiptSettings as Record<string, unknown>
+      : {};
+    const receiptSettings = {
+      showOrderNumber: typeof orgReceiptRaw['showOrderNumber'] === 'boolean'
+        ? (orgReceiptRaw['showOrderNumber'] as boolean)
+        : true,
+    };
+
     // ── Identity block — so the POS can render "Merchant / Location /
     // Device" in More without needing a separate lookup. Also feeds the
     // receipt header with address/phone for the business.
@@ -598,6 +611,7 @@ export async function deviceRoutes(app: FastifyInstance) {
             : null,
         },
         customerDisplay,
+        receiptSettings,
       },
     });
   });

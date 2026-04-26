@@ -428,6 +428,15 @@ export interface PrintReceiptOpts {
      * anything else — purely a visual marker on the POS receipt.
      */
     reprint?: boolean;
+    /**
+     * v2.7.44 — merchant-controlled toggle from
+     * `getReceiptSettings().showOrderNumber`. When `false`, suppresses
+     * BOTH the textual "Order #..." line under the header AND the
+     * scannable Code128 barcode + ref block at the foot of the
+     * receipt. Defaults to `true` (legacy behaviour) so any caller
+     * that hasn't been updated yet still prints the order number.
+     */
+    showOrderNumber?: boolean;
   };
   items: ReceiptLine[];
   totals: {
@@ -562,19 +571,25 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   }
 
   // ── Big order number (short mode) ────────────────────────────────
+  // v2.7.44 — merchant can hide the order number entirely via the
+  // dashboard receipt-settings toggle. Default true to preserve
+  // pre-v2.7.44 behaviour for callers that don't pass the field.
+  const showOrderNumber = opts.order.showOrderNumber ?? true;
   const mode = opts.order.orderNumberMode ?? 'full';
-  if (mode === 'short' && opts.order.shortOrderNumber) {
-    // <CM> = 2× width, so clip to bigW minus the length of the "ORDER #" prefix.
-    const label = `ORDER #${opts.order.shortOrderNumber}`;
-    r += `<CM>${clip(label, bigW)}</CM>\n`;
-    // bigLine instead of line: the `===` separator immediately follows
-    // a `</CM>` line, where cheap firmware can leak the 2× width state
-    // past the implicit reset on '\n'. bigW × 2 = w, so this fits either
-    // way. See v2.7.44 notes.
-    r += `<C>${bigLine}</C>\n`;
-  } else if (opts.order.orderNumber) {
-    r += centre(`Order #${opts.order.orderNumber}`) + '\n';
-    r += line + '\n';
+  if (showOrderNumber) {
+    if (mode === 'short' && opts.order.shortOrderNumber) {
+      // <CM> = 2× width, so clip to bigW minus the length of the "ORDER #" prefix.
+      const label = `ORDER #${opts.order.shortOrderNumber}`;
+      r += `<CM>${clip(label, bigW)}</CM>\n`;
+      // bigLine instead of `line` here: the `===` separator immediately
+      // follows a `</CM>` line, where cheap firmware can leak the 2×
+      // width state past the implicit reset on '\n'. bigW × 2 = w, so
+      // this fills the paper either way (v2.7.44 Agent S notes).
+      r += `<C>${bigLine}</C>\n`;
+    } else if (opts.order.orderNumber) {
+      r += centre(`Order #${opts.order.orderNumber}`) + '\n';
+      r += line + '\n';
+    }
   }
 
   // ── Date left, time right ────────────────────────────────────────
@@ -702,7 +717,9 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   // ── Order barcode (scannable Code128) + human-readable ref ───────
   // Staff can scan this at the orders-detail page to jump straight to
   // the order / refund flow without typing the number.
-  if (opts.order.orderNumber) {
+  // v2.7.44 — also gated on the merchant's showOrderNumber toggle so a
+  // shop that hides the order number doesn't get a barcode either.
+  if (showOrderNumber && opts.order.orderNumber) {
     r += centre('Order #') + '\n';
     r += escPosBarcode128(opts.order.orderNumber) + '\n';
     r += `<C><B>${clip(opts.order.orderNumber, w - 2)}</B></C>\n`;

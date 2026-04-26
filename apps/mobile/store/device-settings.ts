@@ -50,6 +50,16 @@ export interface ServerCustomerDisplay {
 }
 
 /**
+ * v2.7.44 — org-wide receipt rendering preferences pushed by the
+ * dashboard's Receipts settings tab. Currently the only field is
+ * `showOrderNumber` (default true) but the type is open-ended so
+ * future flags can be added on the server without a mobile schema bump.
+ */
+export interface ServerReceiptSettings {
+  showOrderNumber: boolean;
+}
+
+/**
  * v2.7.26 — server-pushed identity block so the More page + receipts can
  * render Merchant / Location / Device without extra lookups. Populated on
  * the current backend; may be null against older server builds.
@@ -76,6 +86,8 @@ interface DeviceConfig {
     order: ServerNetworkPrinter | null;
   };
   customerDisplay: ServerCustomerDisplay;
+  /** v2.7.44 — receipt-rendering toggles (org-wide). May be missing on older backends. */
+  receiptSettings?: ServerReceiptSettings;
 }
 
 interface DeviceSettingsState {
@@ -93,6 +105,10 @@ const DEFAULT_DISPLAY: ServerCustomerDisplay = {
   showLogo: false,
   showLineItems: true,
   showGst: true,
+};
+
+const DEFAULT_RECEIPT_SETTINGS: ServerReceiptSettings = {
+  showOrderNumber: true,
 };
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -151,6 +167,22 @@ export function getServerOrderPrinter(): ServerNetworkPrinter | null {
 /** Returns the customer display settings from the dashboard. */
 export function getServerCustomerDisplay(): ServerCustomerDisplay {
   return useDeviceSettings.getState().config?.customerDisplay ?? DEFAULT_DISPLAY;
+}
+
+/**
+ * Returns the org-wide receipt-rendering settings from the dashboard.
+ *
+ * v2.7.44 — initial shape `{ showOrderNumber: boolean }` (default true).
+ * Falls back to the defaults when the backend doesn't yet return this
+ * key (older auth-service builds), so the POS keeps printing as before.
+ */
+export function getReceiptSettings(): ServerReceiptSettings {
+  const cfg = useDeviceSettings.getState().config?.receiptSettings;
+  return {
+    showOrderNumber: typeof cfg?.showOrderNumber === 'boolean'
+      ? cfg.showOrderNumber
+      : DEFAULT_RECEIPT_SETTINGS.showOrderNumber,
+  };
 }
 
 /** Returns the server-pushed identity (merchant / location / device). */

@@ -30,7 +30,7 @@ import {
   TyroTransactionModal,
   type TyroTransactionOutcome,
 } from '../../components/TyroTransactionModal';
-import { useDeviceSettings, getServerAnzConfig } from '../../store/device-settings';
+import { useDeviceSettings, getServerAnzConfig, getReceiptSettings } from '../../store/device-settings';
 import {
   AnzPaymentModal,
   type AnzPaymentResult,
@@ -372,6 +372,7 @@ export default function QuickSaleScreen() {
               : undefined,
             customerName: customerName ?? undefined,
             orderedAt: new Date(),
+            showOrderNumber: getReceiptSettings().showOrderNumber,
           },
           items: [
             {
