@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { usePosStore } from '../../store/pos';
@@ -25,6 +27,13 @@ const API_BASE =
   process.env['EXPO_PUBLIC_API_URL'] ??
   'http://localhost:4006';
 
+// Orders service base — used for the order-history fetch on the detail panel.
+// In production both services share the gateway under EXPO_PUBLIC_API_URL.
+const ORDERS_API_BASE =
+  process.env['EXPO_PUBLIC_ORDERS_API_URL'] ??
+  process.env['EXPO_PUBLIC_API_URL'] ??
+  'http://localhost:4004';
+
 interface Customer {
   id: string;
   firstName: string;
@@ -36,7 +45,48 @@ interface Customer {
   visitCount?: number;
 }
 
+// Detail shape — populated from GET /customers/:id which returns more fields
+// than the list endpoint (address, lifetime value, store-credit account, etc).
+interface CustomerDetail extends Customer {
+  addressLine1?: string | null;
+  suburb?: string | null;
+  state?: string | null;
+  postcode?: string | null;
+  country?: string | null;
+  lifetimeValue?: number | string | null;
+  lastPurchaseAt?: string | null;
+  rfmScore?: string | null;
+  storeCreditAccount?: { balance?: number | string | null } | null;
+}
+
+// Slim subset of OrderDetail returned by GET /orders?customerId=…
+interface OrderRow {
+  id: string;
+  orderNumber: string;
+  status: string;
+  total: number | string;
+  createdAt: string;
+}
+
+function money(n: number | string | null | undefined): string {
+  const v = typeof n === 'number' ? n : Number(n ?? 0);
+  return `$${(Number.isFinite(v) ? v : 0).toFixed(2)}`;
+}
+
+function toNum(n: number | string | null | undefined): number {
+  const v = typeof n === 'number' ? n : Number(n ?? 0);
+  return Number.isFinite(v) ? v : 0;
+}
+
+function statusColour(status: string): string {
+  if (status === 'completed' || status === 'paid') return '#22c55e';
+  if (status === 'partially_refunded' || status === 'pending' || status === 'open') return '#f59e0b';
+  if (status === 'cancelled' || status === 'refunded' || status === 'reversed') return '#ef4444';
+  return '#888';
+}
+
 export default function CustomersScreen() {
+  const router = useRouter();
   const identity = useDeviceStore((s) => s.identity);
   const employeeToken = useAuthStore((s) => s.employeeToken);
   const setCustomer = usePosStore((s) => s.setCustomer);
@@ -49,6 +99,18 @@ export default function CustomersScreen() {
   const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // ── Customer detail modal state ──────────────────────────────
+  // Kept as a modal (rather than a dedicated /customers/[id] route) so the
+  // operator stays in the Customers screen flow — they can View → close →
+  // continue browsing without losing their search/scroll position. Tapping
+  // an order row in the table navigates away to /orders/[id] which already
+  // owns the heavyweight order-detail UI (refund, reprint, reversal).
+  const [viewing, setViewing] = useState<Customer | null>(null);
+  const [detail, setDetail] = useState<CustomerDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
@@ -74,6 +136,86 @@ export default function CustomersScreen() {
     toast.success('Customer Selected', `${c.firstName} ${c.lastName} attached to the current order.`);
   }
 
+  // Open the detail modal and fetch the full customer record + order history
+  // in parallel. Both calls are best-effort — if either fails we still show
+  // what we have so the operator isn't blocked.
+  const openDetail = useCallback(async (c: Customer) => {
+    setViewing(c);
+    setDetail(null);
+    setOrders([]);
+    setDetailLoading(true);
+    setOrdersLoading(true);
+    const token = employeeToken ?? identity?.deviceToken ?? '';
+
+    // Customer detail (extra fields like address + storeCreditAccount)
+    fetch(`${API_BASE}/api/v1/customers/${c.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          setDetail((data.data ?? null) as CustomerDetail | null);
+        } else {
+          setDetail(c as CustomerDetail);
+        }
+      })
+      .catch(() => setDetail(c as CustomerDetail))
+      .finally(() => setDetailLoading(false));
+
+    // Order history — uses the existing list endpoint with customerId filter.
+    // We pull a generous window (200 most-recent) so lifetime metrics are
+    // representative without needing a server-side aggregation endpoint.
+    fetch(`${ORDERS_API_BASE}/api/v1/orders?customerId=${c.id}&limit=200`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10000),
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          setOrders((data.data ?? []) as OrderRow[]);
+        }
+      })
+      .catch(() => { /* keep empty */ })
+      .finally(() => setOrdersLoading(false));
+  }, [employeeToken, identity]);
+
+  function closeDetail() {
+    setViewing(null);
+    setDetail(null);
+    setOrders([]);
+  }
+
+  // Derived lifetime metrics. We prefer the server-side `lifetimeValue` /
+  // `visitCount` if they're present (the customers service maintains these
+  // off Kafka), but fall back to summing the order-history rows so the panel
+  // is useful even on a fresh customer record where the rollup hasn't run.
+  const metrics = useMemo(() => {
+    const completed = orders.filter(
+      (o) => o.status === 'completed' || o.status === 'paid' || o.status === 'partially_refunded',
+    );
+    const totalFromOrders = completed.reduce((s, o) => s + toNum(o.total), 0);
+    const orderCount = completed.length;
+    const avg = orderCount > 0 ? totalFromOrders / orderCount : 0;
+
+    // Most-recent createdAt of any order (regardless of status).
+    let lastOrderAt: string | null = null;
+    for (const o of orders) {
+      if (!lastOrderAt || new Date(o.createdAt).getTime() > new Date(lastOrderAt).getTime()) {
+        lastOrderAt = o.createdAt;
+      }
+    }
+
+    const ltv = detail?.lifetimeValue != null ? toNum(detail.lifetimeValue) : totalFromOrders;
+    const visits = detail?.visitCount ?? orderCount;
+    return {
+      lifetimeValue: ltv,
+      orderCount: visits || orderCount,
+      avgOrderValue: avg,
+      lastOrderAt: lastOrderAt ?? detail?.lastPurchaseAt ?? null,
+    };
+  }, [orders, detail]);
+
   function renderCustomer({ item }: { item: Customer }) {
     return (
       <TouchableOpacity style={s.card} onPress={() => handleSelect(item)} activeOpacity={0.7}>
@@ -93,7 +235,19 @@ export default function CustomersScreen() {
           {item.visitCount != null && (
             <Text style={s.visits}>{item.visitCount} visits</Text>
           )}
-          <Ionicons name="add-circle-outline" size={22} color="#6366f1" />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {/* View button — eye icon. stopPropagation by not bubbling: the
+                outer card's onPress fires for taps on the avatar / name, the
+                inner button captures taps on itself. */}
+            <TouchableOpacity
+              hitSlop={8}
+              accessibilityLabel={`View ${item.firstName} ${item.lastName}`}
+              onPress={(e) => { e.stopPropagation?.(); openDetail(item); }}
+            >
+              <Ionicons name="eye-outline" size={22} color="#94a3b8" />
+            </TouchableOpacity>
+            <Ionicons name="add-circle-outline" size={22} color="#6366f1" />
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -121,6 +275,17 @@ export default function CustomersScreen() {
       }
     } catch { toast.error('Error', 'Network error'); }
     finally { setSaving(false); }
+  }
+
+  // Combined address line — only shown if at least one segment is populated.
+  function fullAddress(d: CustomerDetail | null): string | null {
+    if (!d) return null;
+    const parts = [
+      d.addressLine1,
+      [d.suburb, d.state, d.postcode].filter(Boolean).join(' '),
+      d.country && d.country !== 'AU' ? d.country : null,
+    ].filter(Boolean) as string[];
+    return parts.length > 0 ? parts.join(', ') : null;
   }
 
   return (
@@ -187,7 +352,185 @@ export default function CustomersScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ── Customer Detail Modal (v2.7.44) ─────────────────────────
+          View-only — surfaces contact info, lifetime metrics, loyalty,
+          and order history so a barista can answer "have they been in
+          before?" without diving into the dashboard. */}
+      <Modal visible={!!viewing} transparent animationType="fade" onRequestClose={closeDetail}>
+        <Pressable style={s.detailBackdrop} onPress={closeDetail}>
+          <Pressable style={s.detailCard} onPress={() => {}}>
+            {/* Header */}
+            <View style={s.detailHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.detailName} numberOfLines={1}>
+                  {viewing ? `${viewing.firstName} ${viewing.lastName}` : ''}
+                </Text>
+                {detail?.rfmScore && (
+                  <Text style={s.detailSubtle}>RFM · {detail.rfmScore}</Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={closeDetail} hitSlop={8} accessibilityLabel="Close">
+                <Ionicons name="close" size={22} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 4 }}>
+              {/* Contact card */}
+              <View style={s.detailSection}>
+                <Text style={s.sectionTitle}>Contact</Text>
+                <Row label="Email" value={detail?.email ?? viewing?.email ?? '—'} />
+                <Row label="Phone" value={detail?.phone ?? viewing?.phone ?? '—'} />
+                <Row label="Address" value={fullAddress(detail) ?? '—'} />
+              </View>
+
+              {/* Lifetime metrics */}
+              <View style={s.detailSection}>
+                <Text style={s.sectionTitle}>Lifetime</Text>
+                <View style={s.metricsGrid}>
+                  <Metric label="Total spent" value={money(metrics.lifetimeValue)} />
+                  <Metric label="Orders" value={String(metrics.orderCount)} />
+                  <Metric label="Avg. order" value={money(metrics.avgOrderValue)} />
+                  <Metric
+                    label="Last order"
+                    value={
+                      metrics.lastOrderAt
+                        ? new Date(metrics.lastOrderAt).toLocaleDateString('en-AU', {
+                            day: '2-digit', month: 'short', year: 'numeric',
+                          })
+                        : '—'
+                    }
+                  />
+                </View>
+              </View>
+
+              {/* Loyalty / store credit — only render when present so the
+                  panel doesn't show an empty section on plain customers. */}
+              {(viewing?.loyaltyTier || (detail?.storeCreditAccount?.balance != null && toNum(detail.storeCreditAccount.balance) > 0)) && (
+                <View style={s.detailSection}>
+                  <Text style={s.sectionTitle}>Loyalty</Text>
+                  {viewing?.loyaltyTier && (
+                    <Row label="Tier" value={viewing.loyaltyTier} />
+                  )}
+                  {detail?.storeCreditAccount?.balance != null && (
+                    <Row
+                      label="Store credit"
+                      value={money(detail.storeCreditAccount.balance)}
+                    />
+                  )}
+                </View>
+              )}
+
+              {/* Order history table */}
+              <View style={s.detailSection}>
+                <View style={s.notesHeader}>
+                  <Text style={s.sectionTitle}>Order history</Text>
+                  {ordersLoading && <ActivityIndicator size="small" color="#94a3b8" />}
+                </View>
+
+                {!ordersLoading && orders.length === 0 ? (
+                  <Text style={s.detailSubtle}>No orders yet.</Text>
+                ) : (
+                  <View>
+                    {/* Column header */}
+                    <View style={s.orderHeaderRow}>
+                      <Text style={[s.orderHeaderCell, { flex: 1.4 }]}>Order #</Text>
+                      <Text style={[s.orderHeaderCell, { flex: 1.4 }]}>Date</Text>
+                      <Text style={[s.orderHeaderCell, { flex: 1.2 }]}>Status</Text>
+                      <Text style={[s.orderHeaderCell, { flex: 1, textAlign: 'right' }]}>Total</Text>
+                    </View>
+                    {orders.map((o) => (
+                      <TouchableOpacity
+                        key={o.id}
+                        style={s.orderRow}
+                        activeOpacity={0.85}
+                        onPress={() => {
+                          // Close the modal and open the dedicated order
+                          // detail page (refund, reprint, reversal etc).
+                          closeDetail();
+                          router.push(`/(pos)/orders/${o.id}` as never);
+                        }}
+                      >
+                        <Text style={[s.orderCell, { flex: 1.4 }]}>#{o.orderNumber}</Text>
+                        <Text style={[s.orderCell, { flex: 1.4 }]}>
+                          {new Date(o.createdAt).toLocaleDateString('en-AU', {
+                            day: '2-digit', month: 'short',
+                          })}
+                        </Text>
+                        <View style={{ flex: 1.2 }}>
+                          <View
+                            style={[
+                              s.statusBadge,
+                              {
+                                backgroundColor: `${statusColour(o.status)}20`,
+                                borderColor: `${statusColour(o.status)}40`,
+                              },
+                            ]}
+                          >
+                            <Text style={[s.statusText, { color: statusColour(o.status) }]}>
+                              {o.status}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={[s.orderCell, { flex: 1, textAlign: 'right', fontWeight: '700', color: '#fff' }]}>
+                          {money(o.total)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              {detailLoading && !detail && (
+                <View style={{ padding: 12, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color="#6366f1" />
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Footer actions */}
+            <View style={s.detailFooter}>
+              <TouchableOpacity
+                style={[s.footerBtn, { backgroundColor: '#141425', borderColor: '#2a2a3a' }]}
+                onPress={closeDetail}
+              >
+                <Text style={[s.footerBtnText, { color: '#94a3b8' }]}>Close</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.footerBtn, { backgroundColor: '#6366f1', borderColor: '#6366f1' }]}
+                onPress={() => {
+                  if (viewing) {
+                    handleSelect(viewing);
+                    closeDetail();
+                  }
+                }}
+              >
+                <Ionicons name="cart-outline" size={14} color="#fff" />
+                <Text style={[s.footerBtnText, { color: '#fff' }]}>Attach to sale</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.kvRow}>
+      <Text style={s.kvKey}>{label}</Text>
+      <Text style={s.kvVal} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.metricCell}>
+      <Text style={s.metricValue}>{value}</Text>
+      <Text style={s.metricLabel}>{label}</Text>
+    </View>
   );
 }
 
@@ -206,4 +549,134 @@ const s = StyleSheet.create({
   sub: { fontSize: 12, color: '#888', marginTop: 2 },
   visits: { fontSize: 11, color: '#666', marginBottom: 4 },
   addInput: { backgroundColor: '#0d0d14', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: '#fff', borderWidth: 1, borderColor: '#2a2a3a' },
+
+  // ── Detail modal ──────────────────────────────────
+  detailBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  detailCard: {
+    width: '100%',
+    maxWidth: 560,
+    maxHeight: '90%',
+    backgroundColor: '#1a1a2e',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+    overflow: 'hidden',
+  },
+  detailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e1e2e',
+    gap: 10,
+  },
+  detailName: { fontSize: 18, fontWeight: '800', color: '#fff' },
+  detailSubtle: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
+
+  detailSection: {
+    backgroundColor: '#141425',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+  },
+  sectionTitle: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 10,
+  },
+
+  kvRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    gap: 12,
+  },
+  kvKey: { color: '#94a3b8', fontSize: 12, flex: 1 },
+  kvVal: { color: '#fff', fontSize: 13, fontWeight: '600', flex: 2, textAlign: 'right' },
+
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  metricCell: {
+    width: '50%',
+    paddingVertical: 6,
+  },
+  metricValue: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  metricLabel: { color: '#94a3b8', fontSize: 11, marginTop: 2 },
+
+  notesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+
+  // Order history table
+  orderHeaderRow: {
+    flexDirection: 'row',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e1e2e',
+    marginBottom: 4,
+  },
+  orderHeaderCell: {
+    color: '#666',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  orderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e2e',
+  },
+  orderCell: {
+    color: '#cbd5e1',
+    fontSize: 12,
+  },
+  statusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  statusText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+
+  detailFooter: {
+    flexDirection: 'row',
+    gap: 10,
+    padding: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e2e',
+    backgroundColor: '#1a1a2e',
+  },
+  footerBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  footerBtnText: { fontSize: 13, fontWeight: '700' },
 });
