@@ -17,6 +17,7 @@ import { useDeviceStore } from '../../../store/device';
 import { useAuthStore } from '../../../store/auth';
 import { useTillStore } from '../../../store/till';
 import { usePrinterStore } from '../../../store/printers';
+import { usePosStore } from '../../../store/pos';
 import { toast, confirm } from '../../../components/ui';
 import { useAnzBridge, type AnzTransactionResult } from '../../../components/AnzBridgeHost';
 import {
@@ -51,6 +52,8 @@ const API_BASE =
 
 interface OrderLine {
   id: string;
+  /** v2.7.44 — needed when rehydrating a held order back into the POS cart. */
+  productId?: string;
   name: string;
   sku?: string | null;
   quantity: number | string;
@@ -566,6 +569,74 @@ export default function OrderDetailScreen() {
   }
 
   /* ------------------------------------------------------------------ */
+  /* Resume (v2.7.44) — rehydrate held order back into the POS cart      */
+  /* ------------------------------------------------------------------ */
+
+  const [resuming, setResuming] = useState(false);
+
+  async function handleResume() {
+    if (!order || order.status !== 'held') return;
+    const ok = await confirm({
+      title: 'Resume held order?',
+      description:
+        'The items will be loaded back into the cart and this held order will be cancelled. ' +
+        'A fresh order is created when you press Pay again.',
+      confirmLabel: 'Resume',
+    });
+    if (!ok) return;
+
+    setResuming(true);
+    try {
+      // Rehydrate cart from order lines BEFORE the network call so the
+      // operator still gets their cart back even if cancellation fails.
+      const lines = order.lines.map((l) => ({
+        productId: l.productId ?? l.id,
+        name: l.name,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        notes: l.notes ?? null,
+        seatNumber: l.seatNumber ?? null,
+      }));
+      usePosStore.getState().rehydrateFromOrder(lines);
+      if (order.customerId && order.customerName) {
+        usePosStore.getState().setCustomer(order.customerId, order.customerName);
+      }
+
+      // Cancel the held order on the server. The operator will create a
+      // new order on Pay rather than mutating this one — keeps the audit
+      // trail clean (one order id per checkout).
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/orders/${order.id}/cancel`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ reason: 'Resumed to cart' }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!res.ok && res.status !== 422) {
+          // 422 means the order is no longer cancellable (e.g. someone
+          // else already completed it on a different device). Tell the
+          // operator but still navigate — the cart is already loaded.
+          const body = await res.json().catch(() => ({})) as { detail?: string; message?: string };
+          toast.warning(
+            'Held order not cleared',
+            body.detail ?? body.message ?? `Server returned ${res.status} — cart loaded anyway.`,
+          );
+        }
+      } catch {
+        toast.warning('Offline', 'Cart loaded but the held order could not be cancelled. Reconcile on Orders.');
+      }
+
+      toast.success('Resumed', `Order #${order.orderNumber} loaded into cart.`);
+      router.replace('/(pos)/sell' as never);
+    } finally {
+      setResuming(false);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Render                                                              */
   /* ------------------------------------------------------------------ */
 
@@ -860,6 +931,29 @@ export default function OrderDetailScreen() {
         {/* ── Actions ──────────────────────────────────────── */}
         <View style={s.card}>
           <Text style={s.sectionTitle}>Actions</Text>
+
+          {/* v2.7.44 — Resume a held order: rehydrates the POS cart and
+              cancels the held order on the server. */}
+          {order.status === 'held' && (
+            <>
+              <TouchableOpacity
+                style={[s.actionBtn, resuming && { opacity: 0.4 }, { borderColor: '#3b82f644', backgroundColor: '#3b82f614' }]}
+                onPress={handleResume}
+                disabled={resuming}
+                activeOpacity={0.85}
+              >
+                {resuming
+                  ? <ActivityIndicator size="small" color="#3b82f6" />
+                  : <Ionicons name="play-circle-outline" size={16} color="#3b82f6" />}
+                <Text style={[s.actionText, { color: '#3b82f6' }]}>
+                  {resuming ? 'Resuming…' : 'Resume Order'}
+                </Text>
+              </TouchableOpacity>
+              <Text style={s.disabledHint}>
+                Loads the items back into the Sell cart so you can finish the sale.
+              </Text>
+            </>
+          )}
 
           <TouchableOpacity
             style={[s.actionBtn, reprinting && { opacity: 0.6 }]}

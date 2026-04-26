@@ -36,6 +36,19 @@ interface PosStore {
   setSeatCount: (n: number) => void;
   /** Move a single line to a particular seat (or undefined for shared). */
   assignSeat: (cartKey: string, seat: number | undefined) => void;
+  /**
+   * v2.7.44 — Resume a held order: replace the current cart with lines from
+   * a server-side held order. Caller is expected to also call `setCustomer`
+   * separately if the held order had one.
+   */
+  rehydrateFromOrder: (lines: Array<{
+    productId: string;
+    name: string;
+    quantity: number | string;
+    unitPrice: number | string;
+    notes?: string | null;
+    seatNumber?: number | null;
+  }>) => void;
 }
 
 export const usePosStore = create<PosStore>((set) => ({
@@ -100,4 +113,23 @@ export const usePosStore = create<PosStore>((set) => ({
         i.cartKey === cartKey ? { ...i, seat } : i,
       ),
     })),
+
+  rehydrateFromOrder: (lines) =>
+    set(() => {
+      const now = Date.now();
+      const cart: PosCartItem[] = lines.map((l, idx) => {
+        const qty = typeof l.quantity === 'number' ? l.quantity : Number(l.quantity) || 0;
+        const price = typeof l.unitPrice === 'number' ? l.unitPrice : Number(l.unitPrice) || 0;
+        return {
+          id: l.productId,
+          cartKey: `${l.productId}::${now}::${idx}`,
+          name: l.name,
+          price,
+          qty,
+          ...(l.notes ? { note: l.notes } : {}),
+          ...(l.seatNumber != null ? { seat: l.seatNumber } : {}),
+        };
+      });
+      return { cart };
+    }),
 }));
