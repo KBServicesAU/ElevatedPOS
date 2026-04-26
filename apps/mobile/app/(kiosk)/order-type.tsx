@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   ScrollView,
@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useKioskStore, t } from '../../store/kiosk';
+import { useDeviceSettings } from '../../store/device-settings';
 
 const NUMPAD_ROWS = [
   ['1', '2', '3'],
@@ -21,6 +22,19 @@ const NUMPAD_ROWS = [
 export default function OrderTypeScreen() {
   const router = useRouter();
   const { orderType, setOrderType, tableNumber, setTableNumber, language } = useKioskStore();
+
+  // v2.7.44 — defence in depth: non-hospitality kiosks should never reach
+  // this screen (Attract redirects them straight to the menu), but if a
+  // user lands here via deep link or back-stack restore we silently
+  // tag the order as 'retail' and continue to the menu.
+  const deviceIndustry = useDeviceSettings((s) => s.config?.identity?.industry);
+  const isHospitality = deviceIndustry === 'hospitality';
+  useEffect(() => {
+    if (!isHospitality) {
+      setOrderType('retail');
+      router.replace('/(kiosk)/menu');
+    }
+  }, [isHospitality, router, setOrderType]);
 
   const [localOrderType, setLocalOrderType] = useState<'dine_in' | 'takeaway'>(
     orderType === 'takeaway' ? 'takeaway' : 'dine_in',

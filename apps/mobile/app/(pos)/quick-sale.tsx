@@ -31,6 +31,25 @@ import {
   type TyroTransactionOutcome,
 } from '../../components/TyroTransactionModal';
 import { useDeviceSettings, getServerAnzConfig } from '../../store/device-settings';
+
+/**
+ * v2.7.44 — hospitality order-type picker (mirrors sell.tsx).
+ * Renders only when the merchant's industry is 'hospitality'; everyone
+ * else continues to post `orderType: 'retail'` like before.
+ */
+type HospitalityOrderType = 'dine_in' | 'takeaway' | 'delivery';
+const HOSPITALITY_ORDER_TYPES: { value: HospitalityOrderType; label: string }[] = [
+  { value: 'dine_in',  label: 'Eat In'    },
+  { value: 'takeaway', label: 'Takeaway'  },
+  { value: 'delivery', label: 'Delivery'  },
+];
+function hospitalityOrderTypeLabel(t: HospitalityOrderType): string {
+  switch (t) {
+    case 'dine_in':  return 'Dine In';
+    case 'takeaway': return 'Takeaway';
+    case 'delivery': return 'Delivery';
+  }
+}
 import {
   AnzPaymentModal,
   type AnzPaymentResult,
@@ -116,6 +135,11 @@ export default function QuickSaleScreen() {
   const anzCapabilities = useAnzBridge().capabilities;
   // Server-managed terminal config
   const serverSettingsLoaded = useDeviceSettings((s) => s.loaded);
+
+  // v2.7.44 — hospitality industry gating + order-type picker.
+  const deviceIndustry = useDeviceSettings((s) => s.config?.identity?.industry);
+  const isHospitality = deviceIndustry === 'hospitality';
+  const [hospitalityOrderType, setHospitalityOrderType] = useState<HospitalityOrderType>('dine_in');
 
   // Stripe Terminal (Tap to Pay on Android)
   const [showStripeModal, setShowStripeModal] = useState(false);
@@ -296,7 +320,9 @@ export default function QuickSaleScreen() {
           locationId: identity?.locationId,
           registerId: identity?.registerId || undefined,
           channel: 'pos',
-          orderType: 'retail',
+          // v2.7.44 — hospitality merchants tag the sale with the picker
+          // value (Eat-In / Takeaway / Delivery); everyone else stays on 'retail'.
+          orderType: isHospitality ? hospitalityOrderType : 'retail',
           lines: [
             {
               productId: `qs-${Date.now()}`,
@@ -372,6 +398,10 @@ export default function QuickSaleScreen() {
               : undefined,
             customerName: customerName ?? undefined,
             orderedAt: new Date(),
+            // v2.7.44 — render "Order #1234 · Dine In" on hospitality receipts.
+            orderTypeLabel: isHospitality
+              ? hospitalityOrderTypeLabel(hospitalityOrderType)
+              : undefined,
           },
           items: [
             {
@@ -769,6 +799,30 @@ export default function QuickSaleScreen() {
           ))}
         </View>
 
+        {/* v2.7.44 — hospitality order-type picker (Eat In / Takeaway / Delivery). */}
+        {isHospitality && (
+          <View style={s.orderTypeRow}>
+            {HOSPITALITY_ORDER_TYPES.map((opt) => {
+              const active = hospitalityOrderType === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[s.orderTypeBtn, active && s.orderTypeBtnActive]}
+                  onPress={() => setHospitalityOrderType(opt.value)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Order type: ${opt.label}`}
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text style={[s.orderTypeText, active && s.orderTypeTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
         {/* Description */}
         <View style={s.descBox}>
           <Ionicons name="create-outline" size={16} color="#555" />
@@ -1139,6 +1193,26 @@ const s = StyleSheet.create({
     borderColor: '#2a2a3a',
   },
   presetText: { color: '#ccc', fontSize: 14, fontWeight: '700' },
+
+  /* v2.7.44 — hospitality order-type picker (Eat In / Takeaway / Delivery) */
+  orderTypeRow: {
+    flexDirection: 'row',
+    backgroundColor: '#10101d',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+  },
+  orderTypeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  orderTypeBtnActive: { backgroundColor: '#6366f1' },
+  orderTypeText: { fontSize: 13, fontWeight: '700', color: '#888' },
+  orderTypeTextActive: { color: '#fff' },
 
   descBox: {
     flexDirection: 'row',

@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useKioskStore } from '../../store/kiosk';
+import { useDeviceSettings } from '../../store/device-settings';
 
 const IDLE_TIMEOUT_MS = 90_000;
 
@@ -36,7 +37,12 @@ const LANG_LABELS: Record<string, { label: string; tapText: string; tapSub: stri
 
 export default function AttractScreen() {
   const router = useRouter();
-  const { resetOrder, language, setLanguage } = useKioskStore();
+  const { resetOrder, language, setLanguage, setOrderType } = useKioskStore();
+  // v2.7.44 — only hospitality merchants see the Eat-In/Takeaway prompt.
+  // Retail / pharmacy / services kiosks skip straight to the menu and
+  // the order is tagged 'retail' for the rest of the flow.
+  const deviceIndustry = useDeviceSettings((s) => s.config?.identity?.industry);
+  const isHospitality = deviceIndustry === 'hospitality';
 
   const [gradientIndex, setGradientIndex] = useState(0);
   const gradientAnim = useRef(new Animated.Value(0)).current;
@@ -129,6 +135,16 @@ export default function AttractScreen() {
   function handleTap() {
     resetOrder();
     resetIdleTimer();
+    // v2.7.44 — non-hospitality kiosks skip the Eat-In / Takeaway prompt
+    // entirely and go straight to the menu. We pre-tag the cart as
+    // 'retail' so the eventual /api/v1/orders POST sends the right
+    // orderType. resetOrder() defaulted us to 'dine_in' so we have to
+    // override here AFTER the reset.
+    if (!isHospitality) {
+      setOrderType('retail');
+      router.push('/(kiosk)/menu');
+      return;
+    }
     router.push('/(kiosk)/order-type');
   }
 

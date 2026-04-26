@@ -45,6 +45,10 @@ export async function kdsRoutes(app: FastifyInstance) {
         id: o.id,
         orderNumber: o.orderNumber,
         channel: o.channel,
+        // v2.7.44 — surface orderType (dine_in / takeaway / delivery /
+        // retail) so the KDS mobile app can render the channel pill
+        // next to the order number.
+        orderType: o.orderType,
         items: o.lines.map((l) => ({
           name: l.name,
           qty: Number(l.quantity),
@@ -235,6 +239,8 @@ export async function kdsRoutes(app: FastifyInstance) {
         id: order.id,
         orderNumber: order.orderNumber,
         channel: order.channel,
+        // v2.7.44 — see snapshot block above; same field for parity.
+        orderType: order.orderType,
         items: order.lines.map((l) => ({
           name: l.name,
           qty: Number(l.quantity),

@@ -101,7 +101,11 @@ export async function organisationRoutes(app: FastifyInstance) {
           maxDevices: limits.maxDevices,
           abn: abn ?? null,
           billingEmail: email,
-          industry: industry ?? null,
+          // v2.7.44 — industry is now NOT NULL (default 'retail') so the
+          // hospitality order-type picker can branch on it without nulls.
+          // If the caller didn't pick one yet (pre-onboarding flow), we
+          // store 'retail' as the safe default until they choose.
+          industry: industry ?? 'retail',
           onboardingStep: industry ? 'industry_selected' : 'account_created',
         }).returning();
 

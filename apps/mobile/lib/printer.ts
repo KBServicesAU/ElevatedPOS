@@ -415,6 +415,13 @@ export interface PrintReceiptOpts {
      * 'full'.
      */
     orderNumberMode?: 'full' | 'short';
+    /**
+     * v2.7.44 — hospitality order type label (e.g. "Dine In", "Takeaway",
+     * "Delivery"). Rendered next to the order number in the receipt
+     * header so customers and staff can tell the channel at a glance.
+     * Omitted entirely for retail orders.
+     */
+    orderTypeLabel?: string;
     registerLabel?: string;
     cashierName?: string;
     customerName?: string;
@@ -549,13 +556,19 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
 
   // ── Big order number (short mode) ────────────────────────────────
   const mode = opts.order.orderNumberMode ?? 'full';
+  // v2.7.44 — hospitality merchants pass `orderTypeLabel` ("Dine In" /
+  // "Takeaway" / "Delivery") so we can suffix the order header with the
+  // channel. Retail orders pass nothing and the line stays unchanged.
+  const typeSuffix = opts.order.orderTypeLabel
+    ? ` · ${opts.order.orderTypeLabel}`
+    : '';
   if (mode === 'short' && opts.order.shortOrderNumber) {
     // <CM> = 2× width, so clip to bigW minus the length of the "ORDER #" prefix.
-    const label = `ORDER #${opts.order.shortOrderNumber}`;
+    const label = `ORDER #${opts.order.shortOrderNumber}${typeSuffix}`;
     r += `<CM>${clip(label, bigW)}</CM>\n`;
     r += line + '\n';
   } else if (opts.order.orderNumber) {
-    r += centre(`Order #${opts.order.orderNumber}`) + '\n';
+    r += centre(`Order #${opts.order.orderNumber}${typeSuffix}`) + '\n';
     r += line + '\n';
   }
 
@@ -1191,6 +1204,12 @@ export async function printRefundReceiptDetailed(
 export async function printOrderTicket(opts: {
   orderNumber?: string;
   items: { name: string; qty: number }[];
+  /**
+   * v2.7.44 — hospitality order type label ("Dine In" / "Takeaway" /
+   * "Delivery"). When set, printed in bold under the order number so the
+   * kitchen knows which channel the ticket is for. Omit for retail.
+   */
+  orderTypeLabel?: string;
 }): Promise<void> {
   if (!loadPrinterModules()) throw new Error('Printer module not available.');
   const cfg = usePrinterStore.getState().config;
@@ -1247,6 +1266,9 @@ export async function printOrderTicket(opts: {
   let ticket = '';
   ticket += `<C><B>ORDER TICKET</B></C>\n`;
   if (opts.orderNumber) ticket += `<C>Order #${opts.orderNumber}</C>\n`;
+  // v2.7.44 — surface the channel (Dine In / Takeaway / Delivery) so the
+  // kitchen plates / packs the order correctly.
+  if (opts.orderTypeLabel) ticket += `<C><B>${opts.orderTypeLabel}</B></C>\n`;
   ticket += `<C>${time}</C>\n`;
   ticket += line + '\n';
 

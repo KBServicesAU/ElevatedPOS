@@ -36,6 +36,30 @@ import {
   type TyroTransactionOutcome,
 } from '../../components/TyroTransactionModal';
 import { useDeviceSettings, getServerAnzConfig } from '../../store/device-settings';
+
+/**
+ * v2.7.44 — hospitality order-type picker.
+ *
+ * Hospitality merchants need to tag every sale as Eat-In, Takeaway or
+ * Delivery so the kitchen ticket and receipt show the right channel.
+ * Retail/pharmacy/services merchants don't see the picker at all and
+ * keep posting `orderType: 'retail'` exactly like before.
+ */
+type HospitalityOrderType = 'dine_in' | 'takeaway' | 'delivery';
+const HOSPITALITY_ORDER_TYPES: { value: HospitalityOrderType; label: string }[] = [
+  { value: 'dine_in',  label: 'Eat In'    },
+  { value: 'takeaway', label: 'Takeaway'  },
+  { value: 'delivery', label: 'Delivery'  },
+];
+
+/** Receipt label form ("Dine In" instead of internal `dine_in` snake_case). */
+function hospitalityOrderTypeLabel(t: HospitalityOrderType): string {
+  switch (t) {
+    case 'dine_in':  return 'Dine In';
+    case 'takeaway': return 'Takeaway';
+    case 'delivery': return 'Delivery';
+  }
+}
 import {
   AnzPaymentModal,
   type AnzPaymentResult,
@@ -156,6 +180,15 @@ export default function PosSellScreen() {
   const anzCapabilities = useAnzBridge().capabilities;
   // Server-managed terminal config (replaces local anz/eftpos stores)
   const serverSettingsLoaded = useDeviceSettings((s) => s.loaded);
+
+  // v2.7.44 — hospitality industry gating + order-type picker.
+  // The /api/v1/devices/config response includes an `industry` field on
+  // the identity block; we only render the picker when industry is
+  // explicitly 'hospitality'. Older server builds (or retail merchants)
+  // fall through to the existing `orderType: 'retail'` behaviour.
+  const deviceIndustry = useDeviceSettings((s) => s.config?.identity?.industry);
+  const isHospitality = deviceIndustry === 'hospitality';
+  const [hospitalityOrderType, setHospitalityOrderType] = useState<HospitalityOrderType>('dine_in');
 
   // Stripe Terminal (Tap to Pay on Android)
   const [showStripeModal, setShowStripeModal] = useState(false);
@@ -350,7 +383,9 @@ export default function PosSellScreen() {
           locationId: identity?.locationId,
           registerId: identity?.registerId || undefined,
           channel: 'pos',
-          orderType: 'retail',
+          // v2.7.44 — hospitality merchants pick Eat-In / Takeaway / Delivery
+          // in the cart panel; everyone else still posts 'retail'.
+          orderType: isHospitality ? hospitalityOrderType : 'retail',
           lines: orderItems,
           ...(customerId ? { customerId } : {}),
         }),
@@ -485,6 +520,10 @@ export default function PosSellScreen() {
               : undefined,
             customerName: customerName ?? undefined,
             orderedAt: new Date(),
+            // v2.7.44 — render "Order #1234 · Dine In" on hospitality receipts.
+            orderTypeLabel: isHospitality
+              ? hospitalityOrderTypeLabel(hospitalityOrderType)
+              : undefined,
           },
           items: receiptItems,
           totals: {
@@ -521,6 +560,11 @@ export default function PosSellScreen() {
         await printOrderTicket({
           orderNumber,
           items: cart.map((i) => ({ name: i.name, qty: i.qty })),
+          // v2.7.44 — kitchen sees "Dine In" / "Takeaway" / "Delivery"
+          // banner on the ticket so plating matches the channel.
+          orderTypeLabel: isHospitality
+            ? hospitalityOrderTypeLabel(hospitalityOrderType)
+            : undefined,
         });
       } catch {
         // Order ticket print failed — don't block order
@@ -1260,6 +1304,30 @@ export default function PosSellScreen() {
               </View>
             )}
           </View>
+
+          {/* v2.7.44 — hospitality-only order-type picker (Eat In / Takeaway / Delivery). */}
+          {isHospitality && (
+            <View style={styles.orderTypeRow}>
+              {HOSPITALITY_ORDER_TYPES.map((opt) => {
+                const active = hospitalityOrderType === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.orderTypeBtn, active && styles.orderTypeBtnActive]}
+                    onPress={() => setHospitalityOrderType(opt.value)}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Order type: ${opt.label}`}
+                    accessibilityState={{ selected: active }}
+                  >
+                    <Text style={[styles.orderTypeText, active && styles.orderTypeTextActive]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
 
           {cart.length === 0 ? (
             <View style={styles.cartEmpty}>
@@ -2343,6 +2411,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
   },
   cartBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
+
+  /* v2.7.44 — hospitality order-type picker (Eat In / Takeaway / Delivery) */
+  orderTypeRow: {
+    flexDirection: 'row',
+    backgroundColor: '#10101d',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#1e1e2e',
+  },
+  orderTypeBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  orderTypeBtnActive: { backgroundColor: '#6366f1' },
+  orderTypeText: { fontSize: 12, fontWeight: '700', color: '#888' },
+  orderTypeTextActive: { color: '#fff' },
+
   cartEmpty: {
     flex: 1,
     alignItems: 'center',

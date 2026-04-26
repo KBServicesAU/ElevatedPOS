@@ -155,6 +155,13 @@
       "when": 1712707200000,
       "tag": "0022_account_numbers",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1745625600000,
+      "tag": "0023_industry_default",
+      "breakpoints": true
     }
   ]
 }

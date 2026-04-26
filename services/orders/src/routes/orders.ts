@@ -509,6 +509,9 @@ export async function orderRoutes(app: FastifyInstance) {
           id: created.id,
           orderNumber: created.orderNumber,
           channel: created.channel,
+          // v2.7.44 — broadcast orderType so the KDS app can show
+          // "Dine In", "Takeaway" or "Delivery" on the ticket header.
+          orderType: created.orderType,
           items: created.lines.map((l) => ({
             name: l.name,
             qty: Number(l.quantity),

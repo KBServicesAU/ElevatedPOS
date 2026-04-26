@@ -307,7 +307,15 @@ export interface AppliedDiscount {
   label: string;
 }
 
-type OrderType = 'dine_in' | 'takeaway';
+/**
+ * v2.7.44 — kiosk channel order types.
+ *  - 'dine_in' / 'takeaway' for hospitality merchants (picked on the
+ *     kiosk's order-type screen).
+ *  - 'retail' for non-hospitality merchants — they skip the order-type
+ *     screen entirely and go straight to the menu, so the value is set
+ *     once on app start and never re-prompted.
+ */
+type OrderType = 'dine_in' | 'takeaway' | 'retail';
 
 interface KioskState {
   language: 'en' | 'zh' | 'ar';
@@ -381,6 +389,7 @@ export const useKioskStore = create<KioskState>((set) => ({
   clearCart: () =>
     set({ cartItems: [], orderType: 'dine_in', tableNumber: '', ageVerified: false, pendingAgeRestrictedProductId: null }),
   setOrderType: (orderType) => set({ orderType, dineIn: orderType === 'dine_in' }),
+  /** v2.7.44 — sets the cart back to a retail kiosk after reset. */
   setTableNumber: (tableNumber) => set({ tableNumber }),
   setSpecialInstructions: (specialInstructions) => set({ specialInstructions }),
   setDineIn: (dineIn) => set({ dineIn, orderType: dineIn ? 'dine_in' : 'takeaway' }),

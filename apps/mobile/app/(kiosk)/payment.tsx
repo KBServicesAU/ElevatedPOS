@@ -85,7 +85,11 @@ export default function PaymentScreen() {
       registerId: identity?.registerId || undefined,
       channel: 'kiosk' as const,
       paymentMethod: method,
-      orderType: orderType === 'dine_in' ? 'dine_in' : 'takeaway',
+      // v2.7.44 — non-hospitality merchants skip the order-type screen
+      // and the kiosk store is left at 'retail'. Forward whatever the
+      // store currently holds; the orders service accepts retail / dine_in
+      // / takeaway / delivery / pickup / layby / quote.
+      orderType,
       lines: cartItems.map((i) => ({
         productId: i.id,
         name: i.name,
@@ -252,16 +256,23 @@ export default function PaymentScreen() {
     );
   }
 
+  // v2.7.44 — only render the order-type badge for hospitality merchants.
+  // Retail kiosks never picked an order type, so showing "Dine In" /
+  // "Take Away" would be incorrect. `null` = no badge.
   const orderTypeBadge =
     orderType === 'dine_in'
       ? `🍽️ Dine In${tableNumber ? ` — Table ${tableNumber}` : ''}`
-      : '🥡 Take Away';
+      : orderType === 'takeaway'
+        ? '🥡 Take Away'
+        : null;
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <View style={styles.orderTypeBadge}>
-        <Text style={styles.orderTypeBadgeText}>{orderTypeBadge}</Text>
-      </View>
+      {orderTypeBadge && (
+        <View style={styles.orderTypeBadge}>
+          <Text style={styles.orderTypeBadgeText}>{orderTypeBadge}</Text>
+        </View>
+      )}
       <Text style={styles.title}>{t(language, 'choosePayment')}</Text>
 
       <View style={styles.methods}>
