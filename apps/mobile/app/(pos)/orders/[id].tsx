@@ -19,6 +19,7 @@ import { useTillStore } from '../../../store/till';
 import { usePrinterStore } from '../../../store/printers';
 import { toast, confirm } from '../../../components/ui';
 import { useAnzBridge, type AnzTransactionResult } from '../../../components/AnzBridgeHost';
+import { getReceiptSettings } from '../../../store/device-settings';
 import {
   printSaleReceipts,
   printRefundReceiptDetailed,
@@ -295,6 +296,9 @@ export default function OrderDetailScreen() {
         cashierName: authEmployee ? `${authEmployee.firstName} ${authEmployee.lastName}` : undefined,
         customerName: order.customerName ?? undefined,
         orderedAt: new Date(order.createdAt),
+        // v2.7.44 — honour the merchant's "Show order number on receipt"
+        // toggle for reprints and itemised refund slips alike.
+        showOrderNumber: getReceiptSettings().showOrderNumber,
       },
       items,
       totals: {

@@ -81,6 +81,9 @@ export const organisations = pgTable('organisations', {
   // Stripe SaaS billing
   stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
   settings: jsonb('settings').default({}),
+  // Receipt rendering preferences. Initial shape: { showOrderNumber: boolean }.
+  // Kept as JSONB so future toggles can be added without a migration.
+  receiptSettings: jsonb('receipt_settings').notNull().default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

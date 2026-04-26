@@ -423,17 +423,32 @@ function ReceiptsTab() {
     showGstBreakdown: true,
     showLoyaltyPoints: true,
     invoiceTerms: '',
+    // v2.7.44 — printed receipt toggles stored on
+    // organisations.receipt_settings (separate JSONB column from the
+    // generic settings.* surface). Loaded / saved via the dedicated
+    // /api/v1/organisations/me/receipt-settings endpoint below so the
+    // mobile POS can pick it up via /api/v1/devices/config without
+    // routing through the catch-all settings/:key bucket.
+    showOrderNumber: true,
   });
 
   useEffect(() => {
-    apiFetch('settings/receipts')
-      .then((data) => {
-        if (data) setForm((f) => ({ ...f, ...data }));
-      })
-      .catch(() => {
-        toast({ title: 'Could not load receipt settings', description: 'Showing defaults — save to apply changes.', variant: 'destructive' });
-      })
-      .finally(() => setLoading(false));
+    // Load both the legacy "receipts" bucket (header/footer/etc.) and
+    // the new dedicated receipt-settings endpoint. They live in
+    // different columns server-side; combining them here keeps the UI
+    // a single tab.
+    Promise.all([
+      apiFetch<Record<string, unknown>>('settings/receipts').catch(() => null),
+      apiFetch<{ showOrderNumber?: boolean }>('organisations/me/receipt-settings').catch(() => null),
+    ]).then(([legacy, receipt]) => {
+      setForm((f) => ({
+        ...f,
+        ...(legacy ?? {}),
+        ...(typeof receipt?.showOrderNumber === 'boolean' ? { showOrderNumber: receipt.showOrderNumber } : {}),
+      }));
+    }).catch(() => {
+      toast({ title: 'Could not load receipt settings', description: 'Showing defaults — save to apply changes.', variant: 'destructive' });
+    }).finally(() => setLoading(false));
   }, []);
 
   const set = (k: string, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
@@ -441,10 +456,21 @@ function ReceiptsTab() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await apiFetch('settings/receipts', {
-        method: 'PUT',
-        body: JSON.stringify(form),
-      });
+      // Split the save: the printed-receipt toggles go to the dedicated
+      // PATCH endpoint (so the mobile POS can read them via devices/config),
+      // while the legacy header/footer/loyalty/etc. fields stay on the
+      // generic settings/:key bucket.
+      const { showOrderNumber, ...legacyForm } = form;
+      await Promise.all([
+        apiFetch('settings/receipts', {
+          method: 'PUT',
+          body: JSON.stringify(legacyForm),
+        }),
+        apiFetch('organisations/me/receipt-settings', {
+          method: 'PATCH',
+          body: JSON.stringify({ showOrderNumber }),
+        }),
+      ]);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
       toast({ title: 'Receipt settings saved', description: 'Receipt and document preferences have been updated.', variant: 'success' });
@@ -478,6 +504,13 @@ function ReceiptsTab() {
 
       <div className="space-y-3 rounded-lg border border-gray-100 p-4 dark:border-gray-800">
         <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Show order number on receipt</p>
+            <p className="text-xs text-gray-500">Print the order number line and barcode on each receipt</p>
+          </div>
+          <Toggle checked={form.showOrderNumber} onChange={(v) => set('showOrderNumber', v)} />
+        </div>
+        <div className="flex items-center justify-between border-t border-gray-100 pt-3 dark:border-gray-800">
           <div>
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Show GST breakdown</p>
             <p className="text-xs text-gray-500">Display GST amount separately on receipt</p>

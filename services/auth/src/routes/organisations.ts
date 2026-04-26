@@ -32,6 +32,73 @@ export async function organisationRoutes(app: FastifyInstance) {
     });
   });
 
+  // ── Receipt settings ───────────────────────────────────────────────────────
+  //
+  // GET / PATCH /api/v1/organisations/me/receipt-settings
+  //
+  // Stored on the organisations.receipt_settings JSONB column.  Initial
+  // shape is `{ showOrderNumber: boolean }` (default true) but the column
+  // is intentionally a JSONB blob so future fields (logo position, footer
+  // toggles, paper-width hints, etc.) can be added without a migration.
+  //
+  // PATCH merges the body into the current value, so callers can send a
+  // single key without losing other settings. Unknown keys are dropped
+  // by the Zod whitelist below.
+
+  /** Default values applied when a key has never been written. */
+  const DEFAULT_RECEIPT_SETTINGS = {
+    showOrderNumber: true,
+  };
+
+  /** Merge stored value with defaults, dropping unknown keys for safety. */
+  function readReceiptSettings(raw: unknown): typeof DEFAULT_RECEIPT_SETTINGS {
+    const stored = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
+    return {
+      showOrderNumber: typeof stored['showOrderNumber'] === 'boolean'
+        ? (stored['showOrderNumber'] as boolean)
+        : DEFAULT_RECEIPT_SETTINGS.showOrderNumber,
+    };
+  }
+
+  app.get('/me/receipt-settings', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const org = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, orgId),
+      columns: { receiptSettings: true },
+    });
+    if (!org) return reply.status(404).send({ error: 'Organisation not found' });
+    return reply.send(readReceiptSettings(org.receiptSettings));
+  });
+
+  app.patch('/me/receipt-settings', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+
+    const parsed = z.object({
+      showOrderNumber: z.boolean().optional(),
+    }).strict().safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid body', details: parsed.error.flatten() });
+    }
+
+    const existing = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, orgId),
+      columns: { receiptSettings: true },
+    });
+    if (!existing) return reply.status(404).send({ error: 'Organisation not found' });
+
+    const current = (existing.receiptSettings && typeof existing.receiptSettings === 'object')
+      ? existing.receiptSettings as Record<string, unknown>
+      : {};
+    const merged: Record<string, unknown> = { ...current, ...parsed.data };
+
+    await db.update(schema.organisations)
+      .set({ receiptSettings: merged, updatedAt: new Date() })
+      .where(eq(schema.organisations.id, orgId));
+
+    return reply.send(readReceiptSettings(merged));
+  });
+
   // GET /organisations/by-slug/:slug — public, no auth required
   app.get('/by-slug/:slug', { config: { skipAuth: true } }, async (request, reply) => {
     const { slug } = request.params as { slug: string };
