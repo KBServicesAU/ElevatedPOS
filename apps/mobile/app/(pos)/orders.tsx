@@ -11,20 +11,25 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 
 /**
- * Orders list (v2.7.27).
+ * Orders list (v2.7.44).
  *
  * Merchant-requested overhaul:
  *   - Tap a row to open the full-order detail page (`/orders/[id]`) where
- *     refund / reversal / reprint / notes live.
- *   - Search bar across the top with 300ms debounce. Matches order number
- *     (contains), customer name (contains), or an exact dollar amount.
- *   - Date filter chips: Today / Yesterday / 7 days / All. These send
- *     ISO `from`/`to` query params; the backend falls back to returning
- *     the full window if the params aren't wired and we filter client-side.
+ *     refund / reversal / reprint / notes / resume live.
+ *   - Search bar across the top with 300ms debounce.
+ *   - Date filter chips: Today / Yesterday / 7 days / All.
+ *   - Status filter (v2.7.44): All / Open / Held / Completed / Refunded.
+ *     Sent to the server via `?status=` so the API does the filtering.
+ *   - View mode toggle (v2.7.44): List or Blocks (4-up grid). Persisted via
+ *     SecureStore so the operator's preference survives restarts.
+ *   - Both views surface paid / remaining / total, computed from the
+ *     order.paidTotal field. For an open or held order we treat the entire
+ *     `total` as remaining.
  */
 
 // In local dev, orders service runs on EXPO_PUBLIC_ORDERS_API_URL (default port 4004).
@@ -35,10 +40,14 @@ const API_BASE =
   process.env['EXPO_PUBLIC_API_URL'] ??
   'http://localhost:4004';
 
+const VIEW_MODE_KEY = 'elevatedpos_orders_view_mode';
+
 interface Order {
   id: string;
   orderNumber: string;
   total: number | string;
+  /** v2.7.44 — surfaced in the list so we can show paid / remaining columns. */
+  paidTotal?: number | string | null;
   status: string;
   channel: string;
   createdAt: string;
@@ -48,6 +57,8 @@ interface Order {
 }
 
 type DateRangeKey = 'today' | 'yesterday' | 'last7' | 'all';
+type StatusKey = 'all' | 'open' | 'held' | 'completed' | 'refunded';
+type ViewMode = 'list' | 'blocks';
 
 function startOfDay(d: Date): Date {
   const copy = new Date(d);
@@ -74,6 +85,25 @@ function computeRange(key: DateRangeKey): { from: Date | null; to: Date | null }
   return { from: d, to: null };
 }
 
+function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '';
+  const diff = Math.max(0, Date.now() - then);
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString('en-AU', { day: '2-digit', month: 'short' });
+}
+
+function toNum(n: number | string | null | undefined): number {
+  const v = typeof n === 'number' ? n : Number(n ?? 0);
+  return Number.isFinite(v) ? v : 0;
+}
+
 export default function OrdersScreen() {
   const router = useRouter();
   const identity = useDeviceStore((s) => s.identity);
@@ -83,6 +113,22 @@ export default function OrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRangeKey>('today');
+  const [status, setStatus] = useState<StatusKey>('all');
+
+  // View mode (List vs 4-up Blocks). Defaults to list, hydrates from
+  // SecureStore on mount, persists on every change.
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  useEffect(() => {
+    SecureStore.getItemAsync(VIEW_MODE_KEY)
+      .then((raw) => {
+        if (raw === 'blocks' || raw === 'list') setViewMode(raw);
+      })
+      .catch(() => { /* ignore */ });
+  }, []);
+  const setViewModeAndPersist = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    SecureStore.setItemAsync(VIEW_MODE_KEY, mode).catch(() => { /* ignore */ });
+  }, []);
 
   // Raw vs. debounced search so we don't re-render the list on every
   // keystroke — the debounce is small (300ms) but enough to keep the
@@ -103,6 +149,8 @@ export default function OrdersScreen() {
       const params = new URLSearchParams();
       params.set('limit', '50');
       if (locationId) params.set('locationId', locationId);
+      // Server-side status filter (v2.7.44). 'all' omits the param.
+      if (status !== 'all') params.set('status', status);
       const { from, to } = computeRange(dateRange);
       if (from) params.set('from', from.toISOString());
       if (to) params.set('to', to.toISOString());
@@ -128,7 +176,7 @@ export default function OrdersScreen() {
     } finally {
       setLoading(false);
     }
-  }, [employeeToken, identity, dateRange]);
+  }, [employeeToken, identity, dateRange, status]);
 
   useEffect(() => {
     fetchOrders();
@@ -136,7 +184,9 @@ export default function OrdersScreen() {
 
   // Client-side filter — applied regardless of whether the backend
   // honoured the date params, so the UI is stable even against an older
-  // server. Also gives us the fuzzy contains-match for the search box.
+  // server. Also gives us the fuzzy contains-match for the search box,
+  // and a status fallback when 'refunded' should also surface partial
+  // refunds.
   const filtered = useMemo(() => {
     const range = computeRange(dateRange);
     const exactDollarMatch = (() => {
@@ -145,6 +195,15 @@ export default function OrdersScreen() {
     })();
 
     return orders.filter((o) => {
+      // Status (client-side fallback). 'refunded' also matches partial.
+      if (status !== 'all') {
+        if (status === 'refunded') {
+          if (o.status !== 'refunded' && o.status !== 'partially_refunded') return false;
+        } else if (o.status !== status) {
+          return false;
+        }
+      }
+
       // Date range (client-side fallback)
       if (range.from || range.to) {
         const when = new Date(o.createdAt);
@@ -163,17 +222,31 @@ export default function OrdersScreen() {
       if (exactDollarMatch !== null && Math.abs(total - exactDollarMatch) < 0.01) return true;
       return false;
     });
-  }, [orders, search, dateRange]);
+  }, [orders, search, dateRange, status]);
 
-  function statusColor(status: string) {
-    if (status === 'completed' || status === 'paid') return '#22c55e';
-    if (status === 'partially_refunded') return '#f59e0b';
-    if (status === 'pending' || status === 'open') return '#f59e0b';
-    if (status === 'cancelled' || status === 'refunded' || status === 'reversed') return '#ef4444';
+  function statusColor(st: string) {
+    if (st === 'completed' || st === 'paid') return '#22c55e';
+    if (st === 'partially_refunded') return '#f59e0b';
+    if (st === 'pending' || st === 'open') return '#f59e0b';
+    if (st === 'held') return '#3b82f6';
+    if (st === 'cancelled' || st === 'refunded' || st === 'reversed') return '#ef4444';
     return '#888';
   }
 
-  function renderOrder({ item }: { item: Order }) {
+  // Compute paid / remaining / total numbers for an order. For open or
+  // held orders, paidTotal is typically 0 — show the full total as
+  // "remaining" so staff can see at a glance what's owed.
+  function computeMoney(o: Order) {
+    const total = toNum(o.total);
+    const paid = toNum(o.paidTotal);
+    const isOpenLike = o.status === 'open' || o.status === 'held';
+    const remaining = isOpenLike && paid <= 0
+      ? total
+      : Math.max(0, total - paid);
+    return { total, paid, remaining };
+  }
+
+  function renderListOrder({ item }: { item: Order }) {
     const time = new Date(item.createdAt).toLocaleTimeString('en-AU', {
       hour: '2-digit',
       minute: '2-digit',
@@ -182,8 +255,7 @@ export default function OrdersScreen() {
       day: '2-digit',
       month: 'short',
     });
-    const totalNum = typeof item.total === 'number' ? item.total : Number(item.total) || 0;
-    const total = totalNum.toFixed(2);
+    const money = computeMoney(item);
 
     return (
       <TouchableOpacity
@@ -200,7 +272,7 @@ export default function OrdersScreen() {
             </Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={s.orderTotal}>${total}</Text>
+            <Text style={s.orderTotal}>${money.total.toFixed(2)}</Text>
             <View
               style={[
                 s.statusBadge,
@@ -214,6 +286,25 @@ export default function OrdersScreen() {
                 {item.status}
               </Text>
             </View>
+          </View>
+        </View>
+        {/* Paid / Remaining columns — added in v2.7.44 */}
+        <View style={s.moneyRow}>
+          <View style={s.moneyCell}>
+            <Text style={s.moneyLabel}>Paid</Text>
+            <Text style={[s.moneyValue, { color: money.paid > 0 ? '#22c55e' : '#666' }]}>
+              ${money.paid.toFixed(2)}
+            </Text>
+          </View>
+          <View style={s.moneyCell}>
+            <Text style={s.moneyLabel}>Remaining</Text>
+            <Text style={[s.moneyValue, { color: money.remaining > 0 ? '#f59e0b' : '#666' }]}>
+              ${money.remaining.toFixed(2)}
+            </Text>
+          </View>
+          <View style={s.moneyCell}>
+            <Text style={s.moneyLabel}>Total</Text>
+            <Text style={[s.moneyValue, { color: '#fff' }]}>${money.total.toFixed(2)}</Text>
           </View>
         </View>
         {item.lines && item.lines.length > 0 && (
@@ -236,40 +327,146 @@ export default function OrdersScreen() {
     );
   }
 
+  function renderBlockOrder({ item }: { item: Order }) {
+    const money = computeMoney(item);
+    return (
+      <TouchableOpacity
+        style={s.blockCard}
+        activeOpacity={0.85}
+        onPress={() => router.push(`/(pos)/orders/${item.id}` as never)}
+      >
+        <View style={s.blockHeader}>
+          <Text style={s.blockOrderNum} numberOfLines={1}>#{item.orderNumber}</Text>
+          <View
+            style={[
+              s.statusBadgeSm,
+              {
+                backgroundColor: `${statusColor(item.status)}20`,
+                borderColor: `${statusColor(item.status)}40`,
+              },
+            ]}
+          >
+            <Text style={[s.statusTextSm, { color: statusColor(item.status) }]}>
+              {item.status}
+            </Text>
+          </View>
+        </View>
+        <Text style={s.blockCustomer} numberOfLines={1}>
+          {item.customerName || 'Walk-in'}
+        </Text>
+        <View style={s.blockMoneyWrap}>
+          <View style={s.blockMoneyRow}>
+            <Text style={s.blockMoneyLabel}>Paid</Text>
+            <Text style={[s.blockMoneyValue, { color: money.paid > 0 ? '#22c55e' : '#666' }]}>
+              ${money.paid.toFixed(2)}
+            </Text>
+          </View>
+          <View style={s.blockMoneyRow}>
+            <Text style={s.blockMoneyLabel}>Remaining</Text>
+            <Text style={[s.blockMoneyValue, { color: money.remaining > 0 ? '#f59e0b' : '#666' }]}>
+              ${money.remaining.toFixed(2)}
+            </Text>
+          </View>
+          <View style={[s.blockMoneyRow, s.blockTotalRow]}>
+            <Text style={s.blockTotalLabel}>Total</Text>
+            <Text style={s.blockTotalValue}>${money.total.toFixed(2)}</Text>
+          </View>
+        </View>
+        <Text style={s.blockTime}>{timeAgo(item.createdAt)}</Text>
+      </TouchableOpacity>
+    );
+  }
+
   return (
     <SafeAreaView style={s.container} edges={['bottom']}>
       <View style={s.header}>
         <Text style={s.title}>Orders</Text>
-        <TouchableOpacity onPress={fetchOrders} disabled={loading}>
-          {loading ? (
-            <ActivityIndicator size="small" color="#6366f1" />
-          ) : (
-            <Ionicons name="refresh" size={20} color="#888" />
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* ── Search ────────────────────────────────── */}
-      <View style={s.searchWrap}>
-        <Ionicons name="search" size={16} color="#555" style={{ marginRight: 6 }} />
-        <TextInput
-          style={s.searchInput}
-          value={searchRaw}
-          onChangeText={setSearchRaw}
-          placeholder="Search by order #, customer or amount"
-          placeholderTextColor="#444"
-          autoCorrect={false}
-          autoCapitalize="none"
-          returnKeyType="search"
-        />
-        {searchRaw.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchRaw('')}>
-            <Ionicons name="close-circle" size={16} color="#555" />
+        <View style={s.headerRight}>
+          {/* View mode toggle — list vs 4-up blocks (v2.7.44) */}
+          <View style={s.viewToggle}>
+            <TouchableOpacity
+              onPress={() => setViewModeAndPersist('list')}
+              style={[s.viewToggleBtn, viewMode === 'list' && s.viewToggleBtnActive]}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="list"
+                size={18}
+                color={viewMode === 'list' ? '#fff' : '#94a3b8'}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setViewModeAndPersist('blocks')}
+              style={[s.viewToggleBtn, viewMode === 'blocks' && s.viewToggleBtnActive]}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="grid"
+                size={18}
+                color={viewMode === 'blocks' ? '#fff' : '#94a3b8'}
+              />
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity onPress={fetchOrders} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator size="small" color="#6366f1" />
+            ) : (
+              <Ionicons name="refresh" size={20} color="#888" />
+            )}
           </TouchableOpacity>
-        )}
+        </View>
       </View>
 
-      {/* ── Date range chips ──────────────────────── */}
+      {/* Search + status filter row (v2.7.44) */}
+      <View style={s.searchRow}>
+        <View style={s.searchWrap}>
+          <Ionicons name="search" size={16} color="#555" style={{ marginRight: 6 }} />
+          <TextInput
+            style={s.searchInput}
+            value={searchRaw}
+            onChangeText={setSearchRaw}
+            placeholder="Search by order #, customer or amount"
+            placeholderTextColor="#444"
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
+          {searchRaw.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchRaw('')}>
+              <Ionicons name="close-circle" size={16} color="#555" />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Status filter chips (v2.7.44) — All / Open / Held / Completed / Refunded */}
+      <View style={s.statusChipsRow}>
+        {([
+          { k: 'all',       label: 'All' },
+          { k: 'open',      label: 'Open' },
+          { k: 'held',      label: 'Held' },
+          { k: 'completed', label: 'Completed' },
+          { k: 'refunded',  label: 'Refunded' },
+        ] as { k: StatusKey; label: string }[]).map(({ k, label }) => {
+          const active = status === k;
+          const colour = k === 'all' ? '#6366f1' : statusColor(k);
+          return (
+            <TouchableOpacity
+              key={k}
+              onPress={() => setStatus(k)}
+              style={[
+                s.statusChip,
+                active && { backgroundColor: colour, borderColor: colour },
+              ]}
+              activeOpacity={0.85}
+            >
+              <Text style={[s.statusChipText, active && { color: '#fff' }]}>{label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Date range chips */}
       <View style={s.chipsRow}>
         {(['today', 'yesterday', 'last7', 'all'] as DateRangeKey[]).map((k) => {
           const label = k === 'today' ? 'Today'
@@ -305,11 +502,24 @@ export default function OrdersScreen() {
             {search ? 'No orders match your search' : 'No orders in this range'}
           </Text>
         </View>
+      ) : viewMode === 'blocks' ? (
+        <FlatList
+          key="blocks"
+          data={filtered}
+          numColumns={4}
+          keyExtractor={(o) => o.id}
+          renderItem={renderBlockOrder}
+          contentContainerStyle={{ padding: 8, paddingBottom: 20 }}
+          columnWrapperStyle={{ gap: 8 }}
+          refreshing={loading}
+          onRefresh={fetchOrders}
+        />
       ) : (
         <FlatList
+          key="list"
           data={filtered}
           keyExtractor={(o) => o.id}
-          renderItem={renderOrder}
+          renderItem={renderListOrder}
           contentContainerStyle={{ padding: 12, paddingBottom: 20 }}
           refreshing={loading}
           onRefresh={fetchOrders}
@@ -330,6 +540,11 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#1e1e2e',
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   title: { fontSize: 20, fontWeight: '900', color: '#fff' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   errorText: { color: '#ef4444', fontSize: 14 },
@@ -343,11 +558,33 @@ const s = StyleSheet.create({
   },
   retryText: { color: '#fff', fontWeight: '700' },
 
+  viewToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#141425',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+    overflow: 'hidden',
+  },
+  viewToggleBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  viewToggleBtnActive: {
+    backgroundColor: '#6366f1',
+  },
+
+  searchRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+    marginTop: 10,
+    alignItems: 'center',
+  },
   searchWrap: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 12,
-    marginTop: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: '#141425',
@@ -362,12 +599,29 @@ const s = StyleSheet.create({
     padding: 0,
   },
 
+  statusChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+  },
+  statusChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+    backgroundColor: '#141425',
+  },
+  statusChipText: { color: '#94a3b8', fontSize: 12, fontWeight: '700' },
+
   chipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
     paddingHorizontal: 12,
-    paddingTop: 10,
+    paddingTop: 8,
     paddingBottom: 4,
   },
   chip: {
@@ -405,6 +659,25 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   statusText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+
+  moneyRow: {
+    flexDirection: 'row',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e2e',
+    gap: 4,
+  },
+  moneyCell: { flex: 1 },
+  moneyLabel: {
+    fontSize: 10,
+    color: '#666',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  moneyValue: { fontSize: 13, fontWeight: '800', marginTop: 2 },
+
   linesWrap: {
     marginTop: 8,
     paddingTop: 8,
@@ -423,4 +696,87 @@ const s = StyleSheet.create({
     gap: 4,
   },
   chevronHint: { color: '#555', fontSize: 11, fontWeight: '700' },
+
+  // ── Blocks (4-up grid) ──────────────────────────────────────────
+  blockCard: {
+    flex: 1,
+    aspectRatio: 1,
+    backgroundColor: '#141425',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+    justifyContent: 'space-between',
+  },
+  blockHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  blockOrderNum: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: '#fff',
+    flex: 1,
+  },
+  statusBadgeSm: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  statusTextSm: { fontSize: 8, fontWeight: '800', textTransform: 'uppercase' },
+  blockCustomer: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  blockMoneyWrap: {
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e2e',
+    gap: 2,
+  },
+  blockMoneyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  blockMoneyLabel: {
+    fontSize: 10,
+    color: '#666',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  blockMoneyValue: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  blockTotalRow: {
+    marginTop: 4,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e2e',
+  },
+  blockTotalLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#fff',
+    textTransform: 'uppercase',
+  },
+  blockTotalValue: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#6366f1',
+  },
+  blockTime: {
+    fontSize: 10,
+    color: '#666',
+    fontWeight: '600',
+    textAlign: 'right',
+  },
 });

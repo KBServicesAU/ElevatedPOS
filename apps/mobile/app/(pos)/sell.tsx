@@ -119,6 +119,9 @@ export default function PosSellScreen() {
   const [search, setSearch] = useState('');
   const [charging, setCharging] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // v2.7.44 — Hold flow: park the cart as a held order so the operator can
+  // serve another customer / re-open it later from Orders → Resume.
+  const [holding, setHolding] = useState(false);
 
   // Payment method modal
   const [showPayment, setShowPayment] = useState(false);
@@ -591,6 +594,92 @@ export default function PosSellScreen() {
     if (displaySettings.enabled) showThankYou();
     toast.success('Order Placed', `Order #${orderNumber} — $${paidTotal.toFixed(2)}`);
     setCharging(false);
+  }
+
+  // ── Hold (v2.7.44) ───────────────────────────────────────────────
+  // Creates the order on the server and immediately transitions it to
+  // 'held'. The operator can find it in Orders → Held and Resume it,
+  // which rehydrates the cart for re-checkout.
+  async function handleHold() {
+    if (cart.length === 0 || holding || charging) return;
+    setHolding(true);
+    try {
+      const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
+      const authToken = useAuthStore.getState().employeeToken;
+      const token = authToken ?? identity?.deviceToken ?? '';
+      const lines = cart.map((i) => ({
+        productId: i.id,
+        name: i.name,
+        quantity: i.qty,
+        unitPrice: i.price,
+        costPrice: 0,
+        taxRate: 10,
+        ...(i.note ? { notes: i.note } : {}),
+        ...(i.seat !== undefined ? { seatNumber: i.seat } : {}),
+      }));
+
+      // Step 1 — create the order (status defaults to 'open')
+      const createRes = await fetch(`${base}/api/v1/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          locationId: identity?.locationId,
+          registerId: identity?.registerId || undefined,
+          channel: 'pos',
+          orderType: 'retail',
+          lines,
+          ...(customerId ? { customerId } : {}),
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!createRes.ok) {
+        const errBody = await createRes.json().catch(() => ({})) as { message?: string; detail?: string; title?: string };
+        const errMsg = errBody.message ?? errBody.detail ?? errBody.title ?? `Server error (${createRes.status})`;
+        toast.error('Hold Failed', errMsg);
+        return;
+      }
+      const created = await createRes.json();
+      const orderId: string = created.id;
+      const orderNumber: string = created.orderNumber;
+
+      // Step 2 — flip to 'held'
+      const holdRes = await fetch(`${base}/api/v1/orders/${orderId}/hold`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!holdRes.ok) {
+        const errBody = await holdRes.json().catch(() => ({})) as { message?: string; detail?: string };
+        toast.warning(
+          'Held with warnings',
+          errBody.detail ?? errBody.message ?? `Hold returned ${holdRes.status}; order #${orderNumber} stayed open.`,
+        );
+      }
+
+      // Reset POS state so the next operator/customer starts fresh.
+      clearCart();
+      setOrderDiscountAmount(0);
+      setLoyaltyAccount(null);
+      setCashTendered('');
+
+      toast.success('Held', `#${orderNumber} — open Orders to resume`);
+      // Stay on the Sell home with an empty cart — no router push needed
+      // because we're already here, but if a child route were active we'd
+      // still want the empty cart state. Defensive replace keeps the URL
+      // clean if Expo Router ever stacks anything.
+      router.replace('/(pos)/sell' as never);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error('Hold Failed', msg);
+    } finally {
+      setHolding(false);
+    }
   }
 
   // ── Render product card ──────────────────────────────────────────
@@ -1426,21 +1515,45 @@ export default function PosSellScreen() {
                 Incl. GST ${gst.toFixed(2)}
               </Text>
 
-              <TouchableOpacity
-                style={[
-                  styles.chargeBtn,
-                  (charging || cart.length === 0) && styles.chargeBtnOff,
-                ]}
-                onPress={() => setShowPayment(true)}
-                disabled={charging || cart.length === 0}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.chargeText}>
-                  {charging
-                    ? 'Processing...'
-                    : `Charge $${total.toFixed(2)}`}
-                </Text>
-              </TouchableOpacity>
+              {/* v2.7.44 — Charge + Hold side-by-side. Charge is the
+                  primary action (75% width), Hold is a smaller secondary
+                  action that parks the cart for later. */}
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                <TouchableOpacity
+                  style={[
+                    styles.chargeBtn,
+                    { flex: 3, marginBottom: 0 },
+                    (charging || holding || cart.length === 0) && styles.chargeBtnOff,
+                  ]}
+                  onPress={() => setShowPayment(true)}
+                  disabled={charging || holding || cart.length === 0}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.chargeText}>
+                    {charging
+                      ? 'Processing...'
+                      : `Charge $${total.toFixed(2)}`}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.holdBtn,
+                    (charging || holding || cart.length === 0) && styles.chargeBtnOff,
+                  ]}
+                  onPress={handleHold}
+                  disabled={charging || holding || cart.length === 0}
+                  activeOpacity={0.85}
+                >
+                  {holding ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="pause-circle" size={18} color="#fff" />
+                      <Text style={styles.holdBtnText}>Hold</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
               <View style={{ flexDirection: 'row', gap: 6 }}>
                 <TouchableOpacity style={[styles.clearBtn, { flex: 1 }]} onPress={() => router.push('/(pos)/split-check' as never)}>
                   <Text style={[styles.clearText, { color: '#6366f1' }]}>Split</Text>
@@ -2530,6 +2643,22 @@ const styles = StyleSheet.create({
   },
   chargeBtnOff: { opacity: 0.4, shadowOpacity: 0, elevation: 0 },
   chargeText: { fontSize: 15, fontWeight: '800', color: '#fff' },
+  holdBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: '#3b82f6',
+    borderRadius: 12,
+    paddingVertical: 14,
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  holdBtnText: { fontSize: 15, fontWeight: '800', color: '#fff' },
   clearBtn: { paddingVertical: 6, alignItems: 'center' },
   clearText: { fontSize: 12, color: '#444' },
 });
