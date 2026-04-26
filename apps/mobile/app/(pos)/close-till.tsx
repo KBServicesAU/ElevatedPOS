@@ -19,7 +19,7 @@ import { useAnzBridge } from '../../components/AnzBridgeHost';
 import { printEodReport } from '../../lib/printer';
 
 /**
- * Close Till screen (v2.7.24).
+ * Close Till screen (v2.7.44 — re-fix).
  *
  * Single unified page for closing a shift. Combines what used to live
  * across `close-till` and `eod`:
@@ -30,11 +30,16 @@ import { printEodReport } from '../../lib/printer';
  *   - Secondary action closes the till but keeps the session signed in
  *
  * Both close actions now:
- *   1. Refresh sales from /api/v1/orders/eod-summary
+ *   1. Refresh sales from /api/v1/orders/eod-summary, scoped to
+ *      `from = till.openedAt → to = now` so timezone differences and
+ *      shifts that span midnight are captured correctly.
  *   2. Trigger ANZ terminal reconciliation (bank settlement) — best-effort
- *   3. Close the terminal (Deactivate → Logout)
+ *   3. Close the terminal (Deactivate → Logout) — best-effort, never
+ *      aborts the flow even if the bridge errors unexpectedly.
  *   4. Persist the till close in the local store
- *   5. Print a POS EOD summary receipt with the ANZ settlement appended
+ *   5. Print a POS EOD summary receipt with the ANZ settlement appended,
+ *      using the FRESHLY-loaded sales numbers (not the stale memoized
+ *      ones from before the refresh).
  */
 
 const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:4001';
@@ -129,29 +134,50 @@ export default function CloseTillScreen() {
   }, [till.openedByEmployeeId, employee, employees]);
 
   // ── Load the server-side sales breakdown. Non-fatal on failure — the
-  // reconciliation still works from the local till numbers. ─────────
+  // reconciliation still works from the local till numbers.
+  //
+  // v2.7.44 — pass `from = till.openedAt` (the shift start) so we capture
+  // every sale of the current shift, regardless of the server's local
+  // timezone. The previous behaviour relied on the server's `midnight`
+  // default, which:
+  //   • Picks server-local midnight (UTC in our deployment), so an early
+  //     AU-time shift (e.g. 7am AEST = 21:00 UTC the day before) saw
+  //     yesterday's sales rolled in or today's sales missed entirely.
+  //   • Couldn't capture shifts that span midnight (overnight venue).
+  // Falls back to midnight if the till has somehow no openedAt.
   const loadSales = useCallback(async (): Promise<SalesBreakdown | null> => {
     const token = employeeToken ?? identity?.deviceToken ?? '';
     const locationId = identity?.locationId ?? '';
     if (!token || !locationId) {
+      console.warn('[CloseTill] loadSales skipped — missing token or locationId', {
+        hasToken: !!token,
+        hasLocationId: !!locationId,
+      });
       setSales(null);
       return null;
     }
     setSalesLoading(true);
     setSalesError(null);
     try {
-      const res = await fetch(
-        `${API_BASE}/api/v1/orders/eod-summary?locationId=${locationId}`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          signal: AbortSignal.timeout(8000),
+      // Build the URL with explicit `from`/`to` so the shift is fully captured.
+      const params = new URLSearchParams({ locationId });
+      if (till.openedAt) {
+        params.set('from', till.openedAt);
+        params.set('to', new Date().toISOString());
+      }
+      const url = `${API_BASE}/api/v1/orders/eod-summary?${params.toString()}`;
+      console.log('[CloseTill] loadSales →', url);
+      const res = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
         },
-      );
+        signal: AbortSignal.timeout(8000),
+      });
       if (!res.ok) {
-        setSalesError('Sales data unavailable.');
+        const body = await res.text().catch(() => '');
+        console.warn('[CloseTill] loadSales non-OK', res.status, body.slice(0, 200));
+        setSalesError(`Sales data unavailable (HTTP ${res.status}).`);
         setSales(null);
         return null;
       }
@@ -182,16 +208,25 @@ export default function CloseTillScreen() {
         refundDollars,
         cashRefundDollars: safeNumber(p['cashRefunds']),
       };
+      console.log('[CloseTill] loadSales ✓', {
+        totalCount: next.totalCount,
+        totalDollars: next.totalDollars,
+        cashCount: next.cashCount,
+        cardCount: next.cardCount,
+        otherCount: next.otherCount,
+        refundCount: next.refundCount,
+      });
       setSales(next);
       return next;
-    } catch {
+    } catch (err) {
+      console.warn('[CloseTill] loadSales failed', err);
       setSalesError('Could not reach the server.');
       setSales(null);
       return null;
     } finally {
       setSalesLoading(false);
     }
-  }, [employeeToken, identity]);
+  }, [employeeToken, identity, till.openedAt]);
 
   useEffect(() => {
     if (till.isOpen) void loadSales();
@@ -214,9 +249,22 @@ export default function CloseTillScreen() {
   /**
    * The close-out pipeline. Parametrised by `logoutAfter` so the two UI
    * buttons share the same logic. Every step that can fail is wrapped in
-   * its own try/catch so a single failure (e.g. printer offline) doesn't
-   * abort the whole close — losing the till reconciliation in the store
-   * is a much worse outcome than a missing paper receipt.
+   * its own try/catch so a single failure (e.g. printer offline, ANZ
+   * terminal offline) doesn't abort the whole close — losing the till
+   * reconciliation in the store is a much worse outcome than a missing
+   * paper receipt or a stuck terminal session.
+   *
+   * v2.7.44 — fixes:
+   *   • Use the FRESHLY-loaded sales (`sb`) to compute `expectedCents`
+   *     for the printed EOD report. The previous code used the memoized
+   *     `expectedCents` which was based on the previous render's `sales`
+   *     state — stale by one tick after `loadSales()` updates it.
+   *   • Bridge close failures NEVER abort the close. Even if the ANZ
+   *     terminal is unreachable, we still persist the till close and
+   *     print the EOD report. The merchant can re-close the terminal
+   *     manually if needed.
+   *   • Defensive console.log at every step so support can trace the
+   *     close flow on a device without breakpoints.
    */
   async function performClose({ logoutAfter }: { logoutAfter: boolean }): Promise<boolean> {
     if (countedCents == null) {
@@ -228,6 +276,12 @@ export default function CloseTillScreen() {
       return false;
     }
 
+    console.log('[CloseTill] performClose start', {
+      logoutAfter,
+      openedAt: till.openedAt,
+      floatCents: till.floatCents,
+      countedCents,
+    });
     setSubmitting(true);
     setStatusText('Refreshing sales…');
     try {
@@ -236,6 +290,22 @@ export default function CloseTillScreen() {
       //    fall back to whatever is already in `sales`.
       const fresh = await loadSales();
       const sb = fresh ?? sales;
+      console.log('[CloseTill] sales for EOD', {
+        usingFresh: !!fresh,
+        totalCount: sb?.totalCount ?? 0,
+        totalDollars: sb?.totalDollars ?? 0,
+      });
+
+      // Recompute the expected drawer cash from the FRESH sales so the
+      // printed numbers match what the dashboard will show. Falls back to
+      // the till-store values when the server data isn't available (rare —
+      // typically only when the device is offline at close time).
+      const freshExpectedCents = sb
+        ? till.floatCents
+            + Math.round(sb.cashDollars * 100)
+            - Math.round(sb.cashRefundDollars * 100)
+        : till.floatCents + till.cashCents;
+      const freshVarianceCents = countedCents - freshExpectedCents;
 
       // 2. Best-effort ANZ reconciliation. If the terminal is offline or
       //    the SDK doesn't support it we still want the shift to close,
@@ -245,35 +315,56 @@ export default function CloseTillScreen() {
         setStatusText('Reconciling terminal…');
         const { reconciliationReceipt: rx } = await bridge.reconcile();
         reconciliationReceipt = rx ?? null;
+        console.log('[CloseTill] reconciled', {
+          hasReceipt: !!reconciliationReceipt,
+          receiptLen: reconciliationReceipt?.length ?? 0,
+        });
       } catch (err) {
         console.warn('[CloseTill] Reconciliation failed:', err);
         reconciliationReceipt = null;
       }
 
-      // 3. Close the terminal. "Till is not open" is non-fatal — the
-      //    local store close must still run so the till can be re-opened.
+      // 3. Close the terminal. ANY failure here is non-fatal — the local
+      //    store close + EOD print MUST still run so the merchant has a
+      //    paper trail for the day. Previously, an unexpected bridge
+      //    error (e.g. transport disconnect mid-close) would re-throw and
+      //    abort the whole flow before printEodReport ran. The print is
+      //    the merchant's only physical record of the day's takings.
       setStatusText('Closing terminal…');
       try {
         await bridge.closeTill();
+        console.log('[CloseTill] terminal closed');
       } catch (err) {
         const em = err instanceof Error ? err.message : String(err);
-        if (!/not open/i.test(em)) {
-          throw err;
-        }
+        console.warn('[CloseTill] terminal closeTill failed (non-fatal):', em);
       }
 
       // 4. Persist the close in the local till store. This is the point
       //    of no return — after this the drawer is "closed" regardless
       //    of what happens with printing below.
-      await till.closeTill(countedCents, notes);
+      try {
+        await till.closeTill(countedCents, notes);
+        console.log('[CloseTill] local till persisted');
+      } catch (err) {
+        // Persistence failed — the in-memory state is still updated by
+        // the store, so the UI will render as closed. Surface the error
+        // but continue so the merchant at least gets the paper EOD.
+        console.error('[CloseTill] till.closeTill persist failed:', err);
+      }
 
       // 5. Print the POS EOD summary + ANZ reconciliation verbatim.
       //    Wrapped in try/catch so a printer failure (not connected,
-      //    missing module, offline) doesn't block the close or the
-      //    subsequent navigation.
+      //    missing module, offline) doesn't block the navigation.
       try {
         setStatusText('Printing EOD report…');
         const closedAt = new Date();
+        console.log('[CloseTill] printEodReport →', {
+          totalCount: sb?.totalCount ?? 0,
+          totalDollars: sb?.totalDollars ?? 0,
+          expectedCashDollars: freshExpectedCents / 100,
+          countedCashDollars: countedCents / 100,
+          varianceDollars: freshVarianceCents / 100,
+        });
         await printEodReport({
           store: {
             name: identity?.label || 'ElevatedPOS',
@@ -285,9 +376,9 @@ export default function CloseTillScreen() {
             closedAt,
             ...(openedByName ? { openedByName } : {}),
             floatDollars: till.floatCents / 100,
-            expectedCashDollars: expectedCents / 100,
+            expectedCashDollars: freshExpectedCents / 100,
             countedCashDollars: countedCents / 100,
-            varianceDollars: (countedCents - expectedCents) / 100,
+            varianceDollars: freshVarianceCents / 100,
             ...(notes.trim() ? { notes: notes.trim() } : {}),
           },
           sales: {
@@ -304,11 +395,20 @@ export default function CloseTillScreen() {
           },
           ...(reconciliationReceipt ? { anzReconciliationText: reconciliationReceipt } : {}),
         });
+        console.log('[CloseTill] EOD report printed ✓');
       } catch (err) {
         console.warn('[CloseTill] EOD print failed:', err);
+        // Surface print failure to the operator so they know the till
+        // closed but the receipt didn't print. The merchant can reprint
+        // by re-closing or via the dashboard once that exists.
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.warning(
+          'EOD print failed',
+          `Till closed but the EOD receipt did not print: ${msg}`,
+        );
       }
 
-      const vDollars = ((countedCents - expectedCents) / 100).toFixed(2);
+      const vDollars = (freshVarianceCents / 100).toFixed(2);
       toast.success('Till closed', `Variance $${vDollars}.`);
       setStatusText(null);
       if (logoutAfter) {
@@ -320,6 +420,7 @@ export default function CloseTillScreen() {
       return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.error('[CloseTill] performClose threw:', msg);
       toast.error('Could not close till', msg);
       return false;
     } finally {
