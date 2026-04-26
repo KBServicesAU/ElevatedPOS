@@ -55,6 +55,12 @@ interface KdsTicket {
   id: string;
   orderNumber: string;
   channel: string;
+  /**
+   * v2.7.44 — server now broadcasts the order's `orderType` value
+   * ('retail' | 'dine_in' | 'takeaway' | 'delivery' | 'pickup' | 'layby' |
+   * 'quote'). Optional because older server builds don't include it.
+   */
+  orderType?: string;
   items: KdsItem[];
   createdAt: string;
   status: 'pending' | 'in_progress' | 'ready';
@@ -112,6 +118,31 @@ function getChannelColor(channel: string): string {
   }
 }
 
+/**
+ * v2.7.44 — render the hospitality orderType as a short label
+ * ("Dine In" / "Takeaway" / "Delivery"). Returns null for retail or
+ * any non-hospitality value so we can skip the badge entirely.
+ */
+function getOrderTypeLabel(orderType: string | undefined): string | null {
+  switch (orderType) {
+    case 'dine_in':  return 'Dine In';
+    case 'takeaway': return 'Takeaway';
+    case 'delivery': return 'Delivery';
+    case 'pickup':   return 'Pickup';
+    default:         return null;
+  }
+}
+
+function getOrderTypeColor(orderType: string | undefined): string {
+  switch (orderType) {
+    case 'dine_in':  return '#22c55e'; // green — table service
+    case 'takeaway': return '#f59e0b'; // amber — counter pickup
+    case 'delivery': return '#06b6d4'; // cyan — courier handoff
+    case 'pickup':   return '#a78bfa'; // purple — customer pickup
+    default:         return '#888';
+  }
+}
+
 function TicketCard({ ticket, onBump }: { ticket: KdsTicket; onBump: (id: string) => void }) {
   const [elapsed, setElapsed] = useState(getElapsedSeconds(ticket.createdAt));
   const [bumping, setBumping] = useState(false);
@@ -128,6 +159,11 @@ function TicketCard({ ticket, onBump }: { ticket: KdsTicket; onBump: (id: string
 
   const timerColor = getTimerColor(elapsed);
   const channelColor = getChannelColor(ticket.channel);
+  // v2.7.44 — render the order-type pill next to the channel pill so
+  // line cooks know whether the ticket needs plating (Dine In) or
+  // packing (Takeaway / Delivery).
+  const orderTypeLabel = getOrderTypeLabel(ticket.orderType);
+  const orderTypeColor = getOrderTypeColor(ticket.orderType);
 
   return (
     <View style={[styles.card, { borderTopColor: timerColor }]}>
@@ -137,6 +173,11 @@ function TicketCard({ ticket, onBump }: { ticket: KdsTicket; onBump: (id: string
           <View style={[styles.channelBadge, { backgroundColor: `${channelColor}22`, borderColor: `${channelColor}55` }]}>
             <Text style={[styles.channelText, { color: channelColor }]}>{ticket.channel.toUpperCase()}</Text>
           </View>
+          {orderTypeLabel && (
+            <View style={[styles.channelBadge, { backgroundColor: `${orderTypeColor}22`, borderColor: `${orderTypeColor}55` }]}>
+              <Text style={[styles.channelText, { color: orderTypeColor }]}>{orderTypeLabel.toUpperCase()}</Text>
+            </View>
+          )}
         </View>
         <Text style={[styles.timer, { color: timerColor }]}>{formatElapsed(elapsed)}</Text>
       </View>
@@ -207,6 +248,9 @@ function ExpoTicketCard({
 
   const timerColor = getTimerColor(elapsed);
   const channelColor = getChannelColor(ticket.channel);
+  // v2.7.44 — same orderType pill on the expeditor card.
+  const orderTypeLabel = getOrderTypeLabel(ticket.orderType);
+  const orderTypeColor = getOrderTypeColor(ticket.orderType);
   const readyCount = ticket.items.filter((_, i) => isItemReady(ticket.id, i)).length;
 
   const handleBump = async () => {
@@ -228,6 +272,11 @@ function ExpoTicketCard({
           <View style={[styles.channelBadge, { backgroundColor: `${channelColor}22`, borderColor: `${channelColor}55` }]}>
             <Text style={[styles.channelText, { color: channelColor }]}>{ticket.channel.toUpperCase()}</Text>
           </View>
+          {orderTypeLabel && (
+            <View style={[styles.channelBadge, { backgroundColor: `${orderTypeColor}22`, borderColor: `${orderTypeColor}55` }]}>
+              <Text style={[styles.channelText, { color: orderTypeColor }]}>{orderTypeLabel.toUpperCase()}</Text>
+            </View>
+          )}
         </View>
         <Text style={styles.expoProgress}>
           {readyCount}/{ticket.items.length}
@@ -1574,6 +1623,23 @@ export default function KDSScreen() {
                               {t.channel.toUpperCase()}
                             </Text>
                           </View>
+                          {/* v2.7.44 — order-type pill on the recall list. */}
+                          {(() => {
+                            const lbl = getOrderTypeLabel(t.orderType);
+                            const clr = getOrderTypeColor(t.orderType);
+                            return lbl ? (
+                              <View
+                                style={[
+                                  styles.channelBadge,
+                                  { backgroundColor: `${clr}22`, borderColor: `${clr}55` },
+                                ]}
+                              >
+                                <Text style={[styles.channelText, { color: clr }]}>
+                                  {lbl.toUpperCase()}
+                                </Text>
+                              </View>
+                            ) : null;
+                          })()}
                         </View>
                         <Text style={styles.recallItems} numberOfLines={2}>
                           {t.items.map((i) => `${i.qty}x ${i.name}`).join(' · ')}

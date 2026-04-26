@@ -70,7 +70,9 @@ export const organisations = pgTable('organisations', {
   // Onboarding
   onboardingStep: varchar('onboarding_step', { length: 50 }).notNull().default('completed'),
   onboardingStepV2: onboardingStepEnum('onboarding_step_v2').default('completed'),
-  industry: varchar('industry', { length: 50 }),
+  // Industry classification — drives feature gating (e.g. hospitality order-type picker).
+  // Allowed values: 'retail' | 'hospitality' | 'pharmacy' | 'services'.
+  industry: varchar('industry', { length: 50 }).notNull().default('retail'),
   onboardingCompletedAt: timestamp('onboarding_completed_at', { withTimezone: true }),
   // Onboarding session: short-lived token to allow multi-step pre-login onboarding
   onboardingToken: varchar('onboarding_token', { length: 255 }),

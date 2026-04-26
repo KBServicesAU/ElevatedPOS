@@ -162,6 +162,13 @@
       "when": 1712793600000,
       "tag": "0023_receipt_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1745625600000,
+      "tag": "0024_industry_default",
+      "breakpoints": true
     }
   ]
 }

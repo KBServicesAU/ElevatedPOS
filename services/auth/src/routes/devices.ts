@@ -591,6 +591,11 @@ export async function deviceRoutes(app: FastifyInstance) {
         identity: {
           orgId:        device.orgId,
           orgName:      organisation?.name ?? null,
+          // v2.7.44 — drives the hospitality order-type picker on the
+          // Sell / Quick-Sale screens and skips the Kiosk's
+          // Eat-In/Takeaway/Delivery prompt for non-hospitality orgs.
+          // Allowed: 'retail' | 'hospitality' | 'pharmacy' | 'services'.
+          industry:     organisation?.industry ?? 'retail',
           locationId:   device.locationId,
           locationName: location?.name ?? null,
           locationPhone: location?.phone ?? null,

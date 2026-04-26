@@ -64,9 +64,20 @@ export interface ServerReceiptSettings {
  * render Merchant / Location / Device without extra lookups. Populated on
  * the current backend; may be null against older server builds.
  */
+export type Industry = 'retail' | 'hospitality' | 'pharmacy' | 'services';
+
 export interface ServerIdentity {
   orgId: string;
   orgName: string | null;
+  /**
+   * v2.7.44 — drives feature gating on the mobile app.
+   * Hospitality merchants get the Eat-In/Takeaway/Delivery picker on
+   * Sell + Quick-Sale; non-hospitality merchants skip the kiosk's
+   * order-type prompt entirely. Older server builds may omit this
+   * field, in which case we default to 'retail' to preserve the
+   * existing retail-only behaviour.
+   */
+  industry: Industry;
   locationId: string;
   locationName: string | null;
   locationPhone: string | null;
