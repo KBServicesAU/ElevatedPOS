@@ -18,6 +18,76 @@ spec:
       serviceAccountName: elevatedpos-service
       initContainers:
 
+        # v2.7.46 — raw idempotent SQL safety net for the auth service.
+        # Same pattern as `migrate-orders-raw` (v2.7.29). The drizzle
+        # migrator silently failed to apply 0023_receipt_settings and
+        # 0024_industry_default in prod even though the journal listed
+        # them, so dashboard login crashed with `column "receipt_settings"
+        # does not exist`. Every statement here is pure ADD COLUMN IF
+        # NOT EXISTS / UPDATE ... WHERE NULL / ALTER ... SET DEFAULT, so
+        # running it directly is safe regardless of journal state — if
+        # drizzle catches up later it's a no-op. Runs BEFORE the drizzle
+        # migrator so the auth service starts cleanly.
+        - name: migrate-auth-raw
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/auth:latest
+          command:
+            - node
+            - -e
+            - |
+              const {Pool}=require('pg');
+              const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
+              const statements = [
+                // 0023 — receipt_settings JSONB column on organisations.
+                // Login + dashboard settings page break if this is missing.
+                `ALTER TABLE organisations ADD COLUMN IF NOT EXISTS receipt_settings jsonb NOT NULL DEFAULT '{}'::jsonb`,
+                // 0024 — industry NOT NULL DEFAULT 'retail' (column was
+                // added nullable in 0011). Hospitality picker reads this.
+                `UPDATE organisations SET industry = 'retail' WHERE industry IS NULL`,
+                `ALTER TABLE organisations ALTER COLUMN industry SET DEFAULT 'retail'`,
+                `ALTER TABLE organisations ALTER COLUMN industry SET NOT NULL`,
+                // 0003 alert_rules — moved to DB in v2.7.41 (Agent I).
+                // automations.alert_rules table; safe CREATE IF NOT EXISTS
+                // in case the automations migrator also drifts.
+                `CREATE TABLE IF NOT EXISTS alert_rules (
+                   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                   org_id uuid NOT NULL,
+                   name text NOT NULL,
+                   description text,
+                   channel text NOT NULL,
+                   condition jsonb NOT NULL DEFAULT '{}'::jsonb,
+                   enabled boolean NOT NULL DEFAULT true,
+                   created_by uuid,
+                   created_at timestamptz NOT NULL DEFAULT now(),
+                   updated_at timestamptz NOT NULL DEFAULT now()
+                 )`,
+              ];
+              (async () => {
+                try {
+                  for (const sql of statements) {
+                    try {
+                      await p.query(sql);
+                      console.log('auth-raw: ok —', sql.slice(0, 80).replace(/\s+/g, ' '));
+                    } catch (e) {
+                      console.warn('auth-raw: skipped —', e.message);
+                    }
+                  }
+                  await p.end();
+                  process.exit(0);
+                } catch (e) {
+                  console.error('auth-raw: fatal —', e.message);
+                  await p.end();
+                  process.exit(1);
+                }
+              })();
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+          envFrom:
+            - secretRef:
+                name: elevatedpos-secrets
+            - configMapRef:
+                name: elevatedpos-config
+
         - name: migrate-auth
           image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/auth:latest
           command:
