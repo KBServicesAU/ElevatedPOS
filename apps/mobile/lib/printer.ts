@@ -488,6 +488,14 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   const bigW = Math.floor(w / 2);
   const line = '='.repeat(w);
   const dash = '-'.repeat(w);
+  // v2.7.44 — separators emitted *immediately* after a `</CM>...\n` line
+  // sometimes still print at 2× width on cheap printer firmware that
+  // ignores the implicit reset bytes EPToolkit emits on '\n'. Using the
+  // half-width version guarantees the bar fits either way: bigW × 2 = w
+  // (full 80mm paper) when leaked, or bigW cols normal otherwise. Only
+  // `===` separators have this risk currently — no `---` immediately
+  // follows a `<CM>` line.
+  const bigLine = '='.repeat(bigW);
 
   function pad(left: string, right: string): string {
     const space = w - left.length - right.length;
@@ -525,12 +533,18 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   // NOTE: <CM> prints at 2× width so clip to bigW, not w.
   r += line + '\n';
   r += `<CM>${clip(opts.store.name, bigW)}</CM>\n`;
+  const hasContact = !!(opts.store.address1 || opts.store.address2 ||
+    opts.store.phone || opts.store.email || opts.store.abn);
   if (opts.store.address1) r += centre(opts.store.address1) + '\n';
   if (opts.store.address2) r += centre(opts.store.address2) + '\n';
   if (opts.store.phone)    r += centre(opts.store.phone) + '\n';
   if (opts.store.email)    r += centre(opts.store.email) + '\n';
   if (opts.store.abn)      r += centre(`ABN ${opts.store.abn}`) + '\n';
-  r += line + '\n';
+  // If no address/contact lines were emitted, the next `===` separator
+  // sits directly after `</CM>` and can wrap on cheap firmware. Fall back
+  // to bigLine in that case (bigW × 2 ≤ w, so it fits either way).
+  // See v2.7.44 notes.
+  r += (hasContact ? line : `<C>${bigLine}</C>`) + '\n';
 
   // ── Branch + device line ─────────────────────────────────────────
   if (opts.store.branch || opts.store.device) {
@@ -553,7 +567,11 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
     // <CM> = 2× width, so clip to bigW minus the length of the "ORDER #" prefix.
     const label = `ORDER #${opts.order.shortOrderNumber}`;
     r += `<CM>${clip(label, bigW)}</CM>\n`;
-    r += line + '\n';
+    // bigLine instead of line: the `===` separator immediately follows
+    // a `</CM>` line, where cheap firmware can leak the 2× width state
+    // past the implicit reset on '\n'. bigW × 2 = w, so this fits either
+    // way. See v2.7.44 notes.
+    r += `<C>${bigLine}</C>\n`;
   } else if (opts.order.orderNumber) {
     r += centre(`Order #${opts.order.orderNumber}`) + '\n';
     r += line + '\n';
@@ -931,6 +949,10 @@ export async function printEodReport(opts: EodReportOpts): Promise<void> {
   const bigW = Math.floor(w / 2);
   const line = '='.repeat(w);
   const dash = '-'.repeat(w);
+  // v2.7.44 — half-width separator for use immediately after `</CM>` lines
+  // (cheap firmware can leak the 2× width state past the implicit reset on
+  // '\n', wrapping a full-width `===`). bigW × 2 ≤ w, so it fits either way.
+  const bigLine = '='.repeat(bigW);
 
   function pad(left: string, right: string): string {
     const space = w - left.length - right.length;
@@ -967,13 +989,17 @@ export async function printEodReport(opts: EodReportOpts): Promise<void> {
   r += line + '\n';
   r += `<CM>${clip('END OF DAY REPORT', bigW)}</CM>\n`;
   r += `<CM>${clip(opts.store.name, bigW)}</CM>\n`;
-  if (opts.store.branch || opts.store.device) {
+  const hasBranchOrDevice = !!(opts.store.branch || opts.store.device);
+  if (hasBranchOrDevice) {
     const parts: string[] = [];
     if (opts.store.branch) parts.push(opts.store.branch);
     if (opts.store.device) parts.push(`Device: ${opts.store.device}`);
     r += centre(clip(parts.join('  '), w)) + '\n';
   }
-  r += line + '\n';
+  // bigLine when the separator sits directly after `</CM>` (no branch/device
+  // line between). See v2.7.44 notes — cheap firmware can leak 2× width past
+  // the implicit reset on '\n' and wrap a full-width `===`.
+  r += (hasBranchOrDevice ? line : `<C>${bigLine}</C>`) + '\n';
 
   // ── Shift times ─────────────────────────────────────────────────────
   const openedLine = opts.shift.openedByName
