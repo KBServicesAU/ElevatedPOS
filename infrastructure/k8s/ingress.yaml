@@ -31,6 +31,9 @@ spec:
         - shop.elevatedpos.com.au
       secretName: elevatedpos-shop-tls
     - hosts:
+        - site.elevatedpos.com.au
+      secretName: elevatedpos-site-tls
+    - hosts:
         - app.elevatedpos.com.au
       secretName: elevatedpos-app-tls
   rules:
@@ -57,6 +60,21 @@ spec:
                   number: 3002
     # ── Online ordering storefront (shop.elevatedpos.com.au) ─────────────────
     - host: shop.elevatedpos.com.au
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: storefront
+                port:
+                  number: 3002
+    # ── Customer-facing merchant sites (site.elevatedpos.com.au/<slug>) ──────
+    # v2.7.51-F2 — every merchant gets a public customer site at
+    # site.elevatedpos.com.au/<business-slug>. The storefront app's app/[slug]
+    # route reads the org's web-store config from the auth service and renders
+    # the correct industry template (hospitality / services / retail).
+    - host: site.elevatedpos.com.au
       http:
         paths:
           - path: /
