@@ -570,6 +570,15 @@ export async function deviceRoutes(app: FastifyInstance) {
       showOrderNumber: typeof orgReceiptRaw['showOrderNumber'] === 'boolean'
         ? (orgReceiptRaw['showOrderNumber'] as boolean)
         : true,
+      // v2.7.48 — pre-rasterised 1-bit logo bytes for the mobile printer.
+      // The dashboard does the PNG→bitmap conversion at upload time so we
+      // don't need a PNG decoder on the device. `null` means no logo;
+      // any error parsing the stored value is treated as no-logo.
+      logoBase64: typeof orgReceiptRaw['logoBase64'] === 'string' && (orgReceiptRaw['logoBase64'] as string).length > 0
+        ? (orgReceiptRaw['logoBase64'] as string)
+        : null,
+      logoWidth: typeof orgReceiptRaw['logoWidth'] === 'number' ? (orgReceiptRaw['logoWidth'] as number) : null,
+      logoHeight: typeof orgReceiptRaw['logoHeight'] === 'number' ? (orgReceiptRaw['logoHeight'] as number) : null,
     };
 
     // ── Identity block — so the POS can render "Merchant / Location /

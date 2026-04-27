@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
@@ -30,6 +31,44 @@ interface TaxRate {
 type Tab = 'organisation' | 'locations' | 'hours' | 'receipts' | 'tax' | 'notifications' | 'devices' | 'printers';
 
 // ─── Toggle Switch ────────────────────────────────────────────────────────────
+
+/**
+ * v2.7.48 — render a stored 1-bit raster back to a small canvas thumbnail
+ * so the merchant can see what the printer will actually print after the
+ * dashboard's threshold step.
+ */
+function RasterPreview({ base64, width, height }: { base64: string; width: number; height: number }) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    try {
+      const bin = atob(base64);
+      const rowBytes = width / 8;
+      const img = ctx.createImageData(width, height);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const byte = bin.charCodeAt(y * rowBytes + (x >> 3));
+          const bit = (byte >> (7 - (x & 7))) & 1;
+          const idx = (y * width + x) * 4;
+          const v = bit ? 0 : 255;
+          img.data[idx] = v;
+          img.data[idx + 1] = v;
+          img.data[idx + 2] = v;
+          img.data[idx + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+    } catch {
+      /* corrupt base64 — leave canvas blank */
+    }
+  }, [base64, width, height]);
+  return <canvas ref={canvasRef} className="h-16 w-16 object-contain" />;
+}
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -430,7 +469,17 @@ function ReceiptsTab() {
     // mobile POS can pick it up via /api/v1/devices/config without
     // routing through the catch-all settings/:key bucket.
     showOrderNumber: true,
+    // v2.7.48 — base64-encoded 1-bit raster of the merchant logo. The
+    // dashboard pre-rasterises the uploaded image at 384px (default 80mm
+    // printer width) so the mobile printer never has to decode PNG. We
+    // also keep the original `logoPreviewDataUrl` for the inline preview.
+    logoBase64: null as string | null,
+    logoWidth: null as number | null,
+    logoHeight: null as number | null,
   });
+  /** Original-image data URL for the live preview block — NOT sent to the server. */
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
 
   useEffect(() => {
     // Load both the legacy "receipts" bucket (header/footer/etc.) and
@@ -439,28 +488,133 @@ function ReceiptsTab() {
     // a single tab.
     Promise.all([
       apiFetch<Record<string, unknown>>('settings/receipts').catch(() => null),
-      apiFetch<{ showOrderNumber?: boolean }>('organisations/me/receipt-settings').catch(() => null),
+      apiFetch<{
+        showOrderNumber?: boolean;
+        logoBase64?: string | null;
+        logoWidth?: number | null;
+        logoHeight?: number | null;
+      }>('organisations/me/receipt-settings').catch(() => null),
     ]).then(([legacy, receipt]) => {
       setForm((f) => ({
         ...f,
         ...(legacy ?? {}),
         ...(typeof receipt?.showOrderNumber === 'boolean' ? { showOrderNumber: receipt.showOrderNumber } : {}),
+        ...(typeof receipt?.logoBase64 === 'string' ? { logoBase64: receipt.logoBase64 } : {}),
+        ...(typeof receipt?.logoWidth === 'number' ? { logoWidth: receipt.logoWidth } : {}),
+        ...(typeof receipt?.logoHeight === 'number' ? { logoHeight: receipt.logoHeight } : {}),
       }));
     }).catch(() => {
       toast({ title: 'Could not load receipt settings', description: 'Showing defaults — save to apply changes.', variant: 'destructive' });
     }).finally(() => setLoading(false));
   }, []);
 
-  const set = (k: string, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: string, v: string | boolean | number | null) => setForm((f) => ({ ...f, [k]: v }));
+
+  /**
+   * v2.7.48 — pre-rasterise an uploaded PNG/JPEG/SVG to a 1-bit packed
+   * bitmap at the printer's pixel width (384px for 80mm @ 200dpi),
+   * threshold to monochrome, base64-encode, and stash on `form` ready
+   * for the next Save. Doing the conversion client-side avoids needing
+   * a PNG decoder on the mobile POS — it just emits the bytes verbatim
+   * as part of the GS v 0 raster command.
+   */
+  async function handleLogoFile(file: File) {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: 'Logo too large', description: 'Pick a file under 2 MB.', variant: 'destructive' });
+      return;
+    }
+    setLogoUploading(true);
+    try {
+      // Read into a data URL — used for the inline preview AND fed into the canvas.
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result ?? ''));
+        fr.onerror = () => reject(new Error('read failed'));
+        fr.readAsDataURL(file);
+      });
+      setLogoPreview(dataUrl);
+
+      // Decode via an Image, draw to canvas, threshold to 1-bit.
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('decode failed'));
+        img.src = dataUrl;
+      });
+
+      // Target width in pixels — 80mm 200dpi printers expose 384 dots.
+      // Round to a multiple of 8 so each row packs cleanly.
+      const targetWidth = 384;
+      // Maintain aspect ratio, but cap the height so a tall logo doesn't
+      // burn through paper. 240 px ≈ 3 cm.
+      const maxHeight = 240;
+      let scale = targetWidth / img.width;
+      let h = Math.round(img.height * scale);
+      if (h > maxHeight) {
+        scale = maxHeight / img.height;
+        h = maxHeight;
+      }
+      const w = targetWidth; // already multiple of 8
+      const drawnW = Math.round(img.width * scale);
+      const offsetX = Math.floor((w - drawnW) / 2); // centre on white background
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, offsetX, 0, drawnW, h);
+
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const data = imageData.data;
+      const rowBytes = w / 8;
+      const out = new Uint8Array(rowBytes * h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          // Standard luminance + alpha-aware threshold.
+          const a = data[i + 3]!;
+          const lum = a < 128 ? 255 : (0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!);
+          if (lum < 128) {
+            // Black pixel — set the bit (MSB = leftmost).
+            out[y * rowBytes + (x >> 3)]! |= 0x80 >> (x & 7);
+          }
+        }
+      }
+
+      // Encode out as base64 for the JSONB blob.
+      let bin = '';
+      for (let i = 0; i < out.length; i++) bin += String.fromCharCode(out[i]!);
+      const b64 = btoa(bin);
+
+      setForm((f) => ({ ...f, logoBase64: b64, logoWidth: w, logoHeight: h }));
+      toast({ title: 'Logo ready', description: `Rasterised to ${w}×${h} 1-bit. Save to apply.`, variant: 'success' });
+    } catch (err) {
+      toast({
+        title: 'Logo upload failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
+  function handleClearLogo() {
+    setLogoPreview(null);
+    setForm((f) => ({ ...f, logoBase64: null, logoWidth: null, logoHeight: null }));
+  }
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Split the save: the printed-receipt toggles go to the dedicated
-      // PATCH endpoint (so the mobile POS can read them via devices/config),
-      // while the legacy header/footer/loyalty/etc. fields stay on the
-      // generic settings/:key bucket.
-      const { showOrderNumber, ...legacyForm } = form;
+      // Split the save: the printed-receipt toggles + logo go to the
+      // dedicated PATCH endpoint (so the mobile POS can read them via
+      // devices/config), while the legacy header/footer/loyalty/etc.
+      // fields stay on the generic settings/:key bucket.
+      const { showOrderNumber, logoBase64, logoWidth, logoHeight, ...legacyForm } = form;
       await Promise.all([
         apiFetch('settings/receipts', {
           method: 'PUT',
@@ -468,7 +622,7 @@ function ReceiptsTab() {
         }),
         apiFetch('organisations/me/receipt-settings', {
           method: 'PATCH',
-          body: JSON.stringify({ showOrderNumber }),
+          body: JSON.stringify({ showOrderNumber, logoBase64, logoWidth, logoHeight }),
         }),
       ]);
       setSaved(true);
@@ -526,18 +680,54 @@ function ReceiptsTab() {
         </div>
       </div>
 
-      <Field label="Business Logo" hint="Displayed at top of receipts and invoices (PNG or SVG, max 2MB)">
+      <Field label="Business Logo" hint="Displayed at top of receipts and invoices (PNG, JPEG, SVG, max 2MB)">
         <div className="flex items-center gap-3 rounded-lg border-2 border-dashed border-gray-200 p-4 hover:border-elevatedpos-400 dark:border-gray-700">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800">
-            <Upload className="h-5 w-5 text-gray-400" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800 overflow-hidden">
+            {logoPreview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoPreview} alt="Logo preview" className="h-16 w-16 object-contain" />
+            ) : form.logoBase64 && form.logoWidth && form.logoHeight ? (
+              // Saved-state preview — render the 1-bit raster back to a tiny <canvas>
+              // so the merchant sees what the printer will actually produce.
+              <RasterPreview
+                base64={form.logoBase64}
+                width={form.logoWidth}
+                height={form.logoHeight}
+              />
+            ) : (
+              <Upload className="h-5 w-5 text-gray-400" />
+            )}
           </div>
           <div className="flex-1">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Upload logo</p>
-            <p className="text-xs text-gray-500">PNG, SVG up to 2MB · Recommended 400×120px</p>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {form.logoBase64 ? 'Logo set' : 'Upload logo'}
+              {form.logoBase64 && form.logoWidth ? ` · ${form.logoWidth}×${form.logoHeight} 1-bit` : ''}
+            </p>
+            <p className="text-xs text-gray-500">PNG, JPEG, SVG up to 2MB · Recommended 400×120px</p>
+            {logoUploading && <p className="text-xs text-elevatedpos-600">Rasterising…</p>}
           </div>
+          {form.logoBase64 && (
+            <button
+              type="button"
+              onClick={handleClearLogo}
+              className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-gray-700"
+            >
+              Clear
+            </button>
+          )}
           <label className="cursor-pointer rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400">
             Choose file
-            <input type="file" accept="image/png,image/svg+xml" className="sr-only" />
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/svg+xml"
+              className="sr-only"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleLogoFile(f);
+                // reset so the same file can be picked again
+                e.currentTarget.value = '';
+              }}
+            />
           </label>
         </div>
       </Field>

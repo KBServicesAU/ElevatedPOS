@@ -48,7 +48,24 @@ export async function organisationRoutes(app: FastifyInstance) {
   /** Default values applied when a key has never been written. */
   const DEFAULT_RECEIPT_SETTINGS = {
     showOrderNumber: true,
+    /**
+     * v2.7.48 — base64-encoded 1-bit raster of the merchant logo, generated
+     * client-side by the dashboard at upload time so the mobile POS doesn't
+     * need a PNG decoder. `null` means no logo. Stored alongside dimensions
+     * so the printer can emit the exact GS v 0 command without re-parsing.
+     */
+    logoBase64: null as string | null,
+    logoWidth: null as number | null,
+    logoHeight: null as number | null,
   };
+
+  /**
+   * Sanity cap on stored logo size. Auth-service Fastify default body limit
+   * is 1 MiB; a 384 × 1000-pixel 1-bit raster is 48000 bytes raw / ~64000 base64,
+   * comfortably under. We hard-stop anything larger so a malicious client can't
+   * fill the receipt_settings JSONB column with megabytes of base64 noise.
+   */
+  const MAX_LOGO_BYTES = 256 * 1024; // 256 KiB after base64
 
   /** Merge stored value with defaults, dropping unknown keys for safety. */
   function readReceiptSettings(raw: unknown): typeof DEFAULT_RECEIPT_SETTINGS {
@@ -57,6 +74,11 @@ export async function organisationRoutes(app: FastifyInstance) {
       showOrderNumber: typeof stored['showOrderNumber'] === 'boolean'
         ? (stored['showOrderNumber'] as boolean)
         : DEFAULT_RECEIPT_SETTINGS.showOrderNumber,
+      logoBase64: typeof stored['logoBase64'] === 'string' && (stored['logoBase64'] as string).length > 0
+        ? (stored['logoBase64'] as string)
+        : null,
+      logoWidth: typeof stored['logoWidth'] === 'number' ? (stored['logoWidth'] as number) : null,
+      logoHeight: typeof stored['logoHeight'] === 'number' ? (stored['logoHeight'] as number) : null,
     };
   }
 
@@ -73,12 +95,24 @@ export async function organisationRoutes(app: FastifyInstance) {
   app.patch('/me/receipt-settings', { onRequest: [app.authenticate] }, async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
 
+    // v2.7.48 — `logoBase64` may be `null` to clear, or a non-empty string
+    // (the pre-rasterised 1-bit bitmap from the dashboard). Width/height
+    // are only meaningful when the logo is set; they're cleared together
+    // when the logo is removed.
     const parsed = z.object({
       showOrderNumber: z.boolean().optional(),
+      logoBase64: z.string().nullable().optional(),
+      logoWidth: z.number().int().positive().nullable().optional(),
+      logoHeight: z.number().int().positive().nullable().optional(),
     }).strict().safeParse(request.body);
 
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Invalid body', details: parsed.error.flatten() });
+    }
+
+    // Reject oversize logos before they hit the JSONB column.
+    if (parsed.data.logoBase64 && parsed.data.logoBase64.length > MAX_LOGO_BYTES) {
+      return reply.status(413).send({ error: 'Logo too large', maxBytes: MAX_LOGO_BYTES });
     }
 
     const existing = await db.query.organisations.findFirst({
@@ -91,6 +125,13 @@ export async function organisationRoutes(app: FastifyInstance) {
       ? existing.receiptSettings as Record<string, unknown>
       : {};
     const merged: Record<string, unknown> = { ...current, ...parsed.data };
+
+    // If the caller cleared the logo, also clear its dimensions so the
+    // mobile renderer doesn't try to read stale w×h with a null base64.
+    if (parsed.data.logoBase64 === null) {
+      merged['logoWidth'] = null;
+      merged['logoHeight'] = null;
+    }
 
     await db.update(schema.organisations)
       .set({ receiptSettings: merged, updatedAt: new Date() })
