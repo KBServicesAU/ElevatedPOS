@@ -14,6 +14,8 @@ import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
+import { usePosStore } from '../../store/pos';
+import { confirm, toast } from '../../components/ui';
 
 /**
  * Orders list (v2.7.44).
@@ -42,6 +44,16 @@ const API_BASE =
 
 const VIEW_MODE_KEY = 'elevatedpos_orders_view_mode';
 
+interface OrderListLine {
+  name: string;
+  quantity: number | string;
+  unitPrice: number | string;
+  /** v2.7.51-C2 — needed when resuming a held order from the list view. */
+  productId?: string;
+  notes?: string | null;
+  seatNumber?: number | null;
+}
+
 interface Order {
   id: string;
   orderNumber: string;
@@ -51,9 +63,10 @@ interface Order {
   status: string;
   channel: string;
   createdAt: string;
-  /** May be absent on the list endpoint — present on detail only. */
+  /** v2.7.51-C2 — denormalised by the orders service GET / handler. */
+  customerId?: string | null;
   customerName?: string | null;
-  lines?: { name: string; quantity: number | string; unitPrice: number | string }[];
+  lines?: OrderListLine[];
 }
 
 type DateRangeKey = 'today' | 'yesterday' | 'last7' | 'all';
@@ -246,6 +259,94 @@ export default function OrdersScreen() {
     return { total, paid, remaining };
   }
 
+  /**
+   * v2.7.51-C2 — Resume a held order directly from the list view.
+   *
+   * Mirrors the Resume flow already implemented in
+   * `apps/mobile/app/(pos)/orders/[id].tsx` (handleResume) so the operator
+   * doesn't have to drill into detail just to rehydrate a held cart. The
+   * detail screen handler also rehydrates → cancels the held row → routes
+   * to /(pos)/sell. We re-use exactly the same shape:
+   *   1. Map order.lines → POS cart items (productId, name, qty, price)
+   *   2. setCustomer if there was one attached at hold time
+   *   3. POST /:id/cancel with reason 'Resumed to cart' (status flips to
+   *      'cancelled' so the held row stops cluttering the list)
+   *   4. Navigate to /(pos)/sell where Pay creates a fresh order id
+   *
+   * Cancellation failures are non-fatal — the cart is hydrated before the
+   * network call so the operator always gets their items back even if
+   * the server is unreachable.
+   */
+  const [resumingId, setResumingId] = useState<string | null>(null);
+  const handleResume = useCallback(async (o: Order) => {
+    if (o.status !== 'held') return;
+    if (!o.lines || o.lines.length === 0) {
+      toast.warning('Cannot resume', 'This held order has no line items.');
+      return;
+    }
+    const ok = await confirm({
+      title: 'Resume held order?',
+      description:
+        'The items will be loaded into the cart and this held order will be cancelled. ' +
+        'A fresh order is created when you press Pay again.',
+      confirmLabel: 'Resume',
+    });
+    if (!ok) return;
+
+    setResumingId(o.id);
+    try {
+      const lines = o.lines.map((l) => ({
+        productId: l.productId ?? '', // older list payloads omitted productId
+        name: l.name,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        notes: l.notes ?? null,
+        seatNumber: l.seatNumber ?? null,
+      }));
+      // Filter out any line that has no productId — the POS cart cannot
+      // round-trip without one (it's the merge key for addItem).
+      const safeLines = lines.filter((l) => !!l.productId);
+      if (safeLines.length === 0) {
+        toast.warning(
+          'Cannot resume',
+          'Held order is missing line product ids — open the order detail to resume.',
+        );
+        return;
+      }
+      usePosStore.getState().rehydrateFromOrder(safeLines);
+      if (o.customerId && o.customerName) {
+        usePosStore.getState().setCustomer(o.customerId, o.customerName);
+      }
+
+      const token = employeeToken ?? identity?.deviceToken ?? '';
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/orders/${o.id}/cancel`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ reason: 'Resumed to cart' }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!res.ok && res.status !== 422) {
+          const body = await res.json().catch(() => ({})) as { detail?: string; message?: string };
+          toast.warning(
+            'Held order not cleared',
+            body.detail ?? body.message ?? `Server returned ${res.status} — cart loaded anyway.`,
+          );
+        }
+      } catch {
+        toast.warning('Offline', 'Cart loaded but the held order could not be cancelled. Reconcile from Orders.');
+      }
+
+      toast.success('Resumed', `Order #${o.orderNumber} loaded into cart.`);
+      router.push('/(pos)/sell' as never);
+    } finally {
+      setResumingId(null);
+    }
+  }, [employeeToken, identity, router]);
+
   function renderListOrder({ item }: { item: Order }) {
     const time = new Date(item.createdAt).toLocaleTimeString('en-AU', {
       hour: '2-digit',
@@ -256,6 +357,8 @@ export default function OrdersScreen() {
       month: 'short',
     });
     const money = computeMoney(item);
+    const isHeld = item.status === 'held';
+    const isResumingThis = resumingId === item.id;
 
     return (
       <TouchableOpacity
@@ -288,6 +391,27 @@ export default function OrdersScreen() {
             </View>
           </View>
         </View>
+        {/* v2.7.51-C2 — Resume from list view (held orders only) */}
+        {isHeld && (
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              void handleResume(item);
+            }}
+            disabled={isResumingThis}
+            activeOpacity={0.85}
+            style={[s.resumeBtn, isResumingThis && { opacity: 0.6 }]}
+          >
+            {isResumingThis ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="play" size={14} color="#fff" />
+            )}
+            <Text style={s.resumeBtnText}>
+              {isResumingThis ? 'Resuming…' : 'Resume'}
+            </Text>
+          </TouchableOpacity>
+        )}
         {/* Paid / Remaining columns — added in v2.7.44 */}
         <View style={s.moneyRow}>
           <View style={s.moneyCell}>
@@ -329,6 +453,8 @@ export default function OrdersScreen() {
 
   function renderBlockOrder({ item }: { item: Order }) {
     const money = computeMoney(item);
+    const isHeld = item.status === 'held';
+    const isResumingThis = resumingId === item.id;
     return (
       <TouchableOpacity
         style={s.blockCard}
@@ -354,6 +480,27 @@ export default function OrdersScreen() {
         <Text style={s.blockCustomer} numberOfLines={1}>
           {item.customerName || 'Walk-in'}
         </Text>
+        {/* v2.7.51-C2 — block-view Resume button for held orders */}
+        {isHeld && (
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              void handleResume(item);
+            }}
+            disabled={isResumingThis}
+            activeOpacity={0.85}
+            style={[s.resumeBtnSm, isResumingThis && { opacity: 0.6 }]}
+          >
+            {isResumingThis ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="play" size={11} color="#fff" />
+            )}
+            <Text style={s.resumeBtnSmText}>
+              {isResumingThis ? '…' : 'Resume'}
+            </Text>
+          </TouchableOpacity>
+        )}
         <View style={s.blockMoneyWrap}>
           <View style={s.blockMoneyRow}>
             <Text style={s.blockMoneyLabel}>Paid</Text>
@@ -778,5 +925,42 @@ const s = StyleSheet.create({
     color: '#666',
     fontWeight: '600',
     textAlign: 'right',
+  },
+
+  // ── v2.7.51-C2: Resume button for held orders in the list ────────
+  resumeBtn: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  resumeBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 12,
+    letterSpacing: 0.5,
+  },
+  resumeBtnSm: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    gap: 4,
+    backgroundColor: '#3b82f6',
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  resumeBtnSmText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 11,
+    letterSpacing: 0.5,
   },
 });
