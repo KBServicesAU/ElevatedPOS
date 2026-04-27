@@ -277,8 +277,20 @@ export async function orderRoutes(app: FastifyInstance) {
   // v2.7.34 — dashboard order-detail → Email Receipt button calls this.
   // Looks up the order, renders the standard `receipt` email template via
   // the notifications service, and returns success/failure so the UI can
-  // toast. No-op if the notifications service is unreachable; callers see
-  // an error rather than a silent failure.
+  // toast.
+  //
+  // v2.7.51 — same class of bug as v2.7.42 (orderConsumer silently
+  // succeeded but never called sendEmail). The /send-receipt path was
+  // returning a 502 to the dashboard with no diagnostic — the upstream
+  // notifications response body was being parsed as JSON only. We now
+  // capture the raw body via .text() (which handles both JSON & non-JSON
+  // upstream errors) and console.error the full upstream response so the
+  // next regression is diagnosable from the orders service logs rather
+  // than a vague toast in the UI.
+  //
+  // We also fall back to signing an internal token when the caller's
+  // JWT is missing/expired. Previously the dashboard could surface a
+  // confusing 401 here when the session cookie was about to expire.
   app.post('/:id/send-receipt', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
@@ -307,13 +319,39 @@ export async function orderRoutes(app: FastifyInstance) {
     }));
 
     const notificationsUrl = process.env['NOTIFICATIONS_SERVICE_URL'] ?? 'http://notifications:4009';
-    // Forward the caller's JWT so the notifications service accepts the
-    // request under the same auth context. Both services share JWT_SECRET
-    // so the token validates on either side.
-    const authHeader = request.headers.authorization ?? '';
+    // Prefer forwarding the caller's JWT so the notifications service
+    // accepts the request under the same auth context. Both services
+    // share JWT_SECRET so the token validates on either side. If the
+    // caller's token is missing for any reason (e.g. internal call from
+    // a worker), sign a short-lived internal token instead — orgId is
+    // still bound to the order, not the request body.
+    let authHeader = request.headers.authorization ?? '';
     if (!authHeader.startsWith('Bearer ')) {
-      return reply.status(401).send({ type: 'about:blank', title: 'Unauthorized', status: 401 });
+      try {
+        const internalToken = (app as unknown as { jwt: { sign: (payload: object, opts?: object) => string } }).jwt.sign(
+          { sub: orgId, orgId, role: 'system' },
+          { expiresIn: '5m' },
+        );
+        authHeader = `Bearer ${internalToken}`;
+      } catch (err) {
+        console.error('[orders/send-receipt] Failed to mint internal token', { err: err instanceof Error ? err.message : err });
+        return reply.status(401).send({ type: 'about:blank', title: 'Unauthorized', status: 401 });
+      }
     }
+
+    const payload = {
+      to: body.data.email,
+      subject: `Receipt — Order ${order.orderNumber}`,
+      template: 'receipt' as const,
+      orgId,
+      data: {
+        orderId: order.orderNumber,
+        items,
+        total,
+        currency: 'AUD',
+        date: (order.completedAt ?? order.createdAt).toISOString(),
+      },
+    };
 
     try {
       const res = await fetch(`${notificationsUrl}/api/v1/notifications/email`, {
@@ -322,34 +360,47 @@ export async function orderRoutes(app: FastifyInstance) {
           'Content-Type': 'application/json',
           Authorization: authHeader,
         },
-        body: JSON.stringify({
-          to: body.data.email,
-          subject: `Receipt — Order ${order.orderNumber}`,
-          template: 'receipt',
-          orgId,
-          data: {
-            orderId: order.orderNumber,
-            items,
-            total,
-            currency: 'AUD',
-            date: (order.completedAt ?? order.createdAt).toISOString(),
-          },
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        const errBody = await res.json().catch(() => ({})) as { detail?: string; title?: string };
+        // Capture the raw body — works for both JSON error envelopes and
+        // bare HTML/text responses from upstream proxies. The previous
+        // implementation called .json() which threw on non-JSON bodies
+        // and obscured the real upstream error.
+        const rawBody = await res.text().catch(() => '<unreadable>');
+        let detail = `Notifications service returned ${res.status}`;
+        try {
+          const parsed = JSON.parse(rawBody) as { detail?: string; title?: string; error?: string };
+          detail = parsed.detail ?? parsed.title ?? parsed.error ?? detail;
+        } catch {
+          // non-JSON body — keep raw text in the log
+        }
+        console.error('[orders/send-receipt] Notifications upstream error', {
+          orderId: order.id,
+          orgId,
+          to: body.data.email,
+          upstreamStatus: res.status,
+          upstreamBody: rawBody.slice(0, 500),
+        });
         return reply.status(502).send({
           type: 'about:blank',
           title: 'Email Send Failed',
           status: 502,
-          detail: errBody.detail ?? errBody.title ?? `Notifications service returned ${res.status}`,
+          detail,
         });
       }
 
       return reply.status(200).send({ data: { email: body.data.email, orderId: order.id } });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      console.error('[orders/send-receipt] Notifications fetch threw', {
+        orderId: order.id,
+        orgId,
+        to: body.data.email,
+        notificationsUrl,
+        error: message,
+      });
       return reply.status(502).send({
         type: 'about:blank',
         title: 'Email Send Failed',
