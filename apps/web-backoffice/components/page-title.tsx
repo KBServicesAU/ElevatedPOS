@@ -37,8 +37,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/dashboard/invoices': 'Invoices',
   '/dashboard/payouts': 'Payouts',
   '/dashboard/transactions': 'Transactions',
-  '/dashboard/billing': 'Billing',
-  '/dashboard/billing/plans': 'Billing Plans',
+  // v2.7.51 — /dashboard/billing removed; subscription moved into /dashboard/account.
   '/dashboard/store': 'Web Store',
   '/dashboard/web-store': 'Web Store',
   '/dashboard/campaigns': 'Campaigns',

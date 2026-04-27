@@ -475,6 +475,11 @@ export async function connectExtendedRoutes(app: FastifyInstance) {
       // `htmlBody` directly which failed zod validation (422) and the email
       // silently never went out. We now use the "custom" template and pass
       // the prebuilt HTML as data.body.
+      //
+      // v2.7.51 — surface the upstream response status + body so future
+      // notifications-shape regressions are diagnosable from the
+      // integrations service logs (instead of a generic 502 to the UI).
+      app.log.info({ to: customerEmail, invoiceId, orgId }, '[invoices/send-email] dispatching to notifications service');
       const notifRes = await fetch(`${NOTIFICATIONS_API_URL}/api/v1/notifications/email`, {
         method: 'POST',
         headers: {
@@ -492,10 +497,26 @@ export async function connectExtendedRoutes(app: FastifyInstance) {
 
       if (!notifRes.ok) {
         const errText = await notifRes.text().catch(() => 'unknown error');
-        app.log.error({ status: notifRes.status, body: errText }, '[invoices/send-email] notifications service error');
-        return reply.status(502).send({ error: 'Failed to send email via notifications service' });
+        // Console.error so the body shows up in stdout even if pino's
+        // log filter would drop the structured-log entry. The dashboard
+        // surfaces "Failed to send via notifications service" — without
+        // this raw body the cause is invisible.
+        console.error('[invoices/send-email] notifications upstream error', {
+          invoiceId,
+          orgId,
+          to: customerEmail,
+          upstreamStatus: notifRes.status,
+          upstreamBody: errText.slice(0, 500),
+        });
+        app.log.error({ status: notifRes.status, body: errText, invoiceId, orgId }, '[invoices/send-email] notifications service error');
+        return reply.status(502).send({
+          error: 'Failed to send email via notifications service',
+          upstreamStatus: notifRes.status,
+          upstreamDetail: errText.slice(0, 500),
+        });
       }
 
+      app.log.info({ to: customerEmail, invoiceId }, '[invoices/send-email] notifications dispatch ok');
       return reply.send({ sent: true, to: customerEmail });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

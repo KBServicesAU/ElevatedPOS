@@ -3,7 +3,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
-import { FileText, Plus, X, Eye, Send, CheckCircle, Ban, Trash2, Loader2, ExternalLink } from 'lucide-react';
+import { FileText, Plus, X, Eye, Send, CheckCircle, Ban, Trash2, Loader2, ExternalLink, Search } from 'lucide-react';
+
+// v2.7.51 — minimal product shape for the "add from catalog" picker.
+// The catalog service returns a much richer object; we only consume the
+// fields we surface in the invoice line item.
+interface CatalogProduct {
+  id: string;
+  name: string;
+  sku?: string | null;
+  price: number | string;
+}
 
 // ── Types matching the stripeInvoices DB row ──────────────────────────────────
 
@@ -104,6 +114,16 @@ export default function InvoicesClient() {
     notes: '',
   });
 
+  // v2.7.51 — catalog picker state. When the merchant clicks "Add from
+  // Catalog" in the invoice form, we open a modal with a searchable list
+  // of products. Selecting one populates the chosen line-item row with
+  // name, sku and unit price.
+  const [catalogPickerOpen, setCatalogPickerOpen] = useState(false);
+  const [catalogPickerForRow, setCatalogPickerForRow] = useState<number | null>(null);
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [catalogResults, setCatalogResults] = useState<CatalogProduct[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+
   // ── Fetch org identity on mount ───────────────────────────────────────────
 
   useEffect(() => {
@@ -154,15 +174,86 @@ export default function InvoicesClient() {
     setForm((prev) => ({ ...prev, lineItems: prev.lineItems.filter((_, i) => i !== index) }));
   }
 
+  // v2.7.51 — catalog picker helpers.
+  function openCatalogPickerFor(rowIndex: number) {
+    setCatalogPickerForRow(rowIndex);
+    setCatalogPickerOpen(true);
+    setCatalogSearch('');
+    setCatalogResults([]);
+  }
+
+  function selectCatalogProduct(p: CatalogProduct) {
+    if (catalogPickerForRow == null) return;
+    const price = typeof p.price === 'string' ? Number(p.price) : p.price;
+    const labeledName = p.sku ? `${p.name} (${p.sku})` : p.name;
+    setForm((prev) => {
+      const updated = [...prev.lineItems];
+      updated[catalogPickerForRow] = {
+        productName: labeledName,
+        qty: prev.lineItems[catalogPickerForRow]?.qty || 1,
+        unitPrice: Number.isFinite(price) ? price : 0,
+      };
+      return { ...prev, lineItems: updated };
+    });
+    setCatalogPickerOpen(false);
+    setCatalogPickerForRow(null);
+  }
+
+  // Debounced catalog search — fires while the picker is open.
+  useEffect(() => {
+    if (!catalogPickerOpen) return;
+    const term = catalogSearch.trim();
+    setCatalogLoading(true);
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const qs = new URLSearchParams();
+          if (term) qs.set('search', term);
+          qs.set('limit', '20');
+          qs.set('isActive', 'true');
+          const res = await apiFetch<{ data: CatalogProduct[] }>(`products?${qs.toString()}`);
+          setCatalogResults(Array.isArray(res?.data) ? res.data : []);
+        } catch {
+          setCatalogResults([]);
+        } finally {
+          setCatalogLoading(false);
+        }
+      })();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [catalogSearch, catalogPickerOpen]);
+
   // ── Create invoice ────────────────────────────────────────────────────────
+  //
+  // v2.7.51 — same class of bug as v2.7.42 (silent send-success but no email
+  // delivered). When autoSend=true, the integrations service creates the
+  // Stripe invoice and calls Stripe's sendInvoice — but Stripe-hosted email
+  // silently fails for sandbox/unfinished Connect accounts. The reliable
+  // path is the notifications-service /send-email endpoint (which uses
+  // template:'custom' with our branded HTML, fixed in v2.7.40). After a
+  // successful create we now ALSO call /send-email so the customer
+  // actually receives an email regardless of the Stripe Connect state.
+  //
+  // We also force a fresh reload (with loading=true) — previously a stale
+  // render could briefly show the list as empty ("All (0)") between the
+  // toast and the list refresh, leading users to think the invoice
+  // disappeared.
+
+  interface CreateInvoiceResponse {
+    invoiceId?: string;
+    status?: string;
+    amountDue?: number;
+    invoiceUrl?: string | null;
+    invoicePdf?: string | null;
+  }
 
   async function handleSave(autoSend: boolean) {
     if (!form.customerName) return;
     setSaving(true);
     try {
-      // Map frontend line items to the Stripe invoice items format
-      // amount is in cents (unitPrice is in dollars)
-      await apiFetch('connect/invoices', {
+      // Map frontend line items to the Stripe invoice items format.
+      // `amount` is in cents (unitPrice is in dollars).
+      const created = await apiFetch<CreateInvoiceResponse>('connect/invoices', {
         method: 'POST',
         body: JSON.stringify({
           customerName: form.customerName,
@@ -178,6 +269,33 @@ export default function InvoicesClient() {
         }),
       });
 
+      // When autoSend=true, ALSO trigger the branded notifications-service
+      // email. Stripe's hosted send is unreliable on sandbox/Connect — the
+      // notifications path is what actually lands in the customer's inbox.
+      if (autoSend && created?.invoiceId && form.customerEmail) {
+        try {
+          await apiFetch(`connect/invoices/${created.invoiceId}/send-email`, { method: 'POST' });
+        } catch (sendErr) {
+          // Non-fatal: the invoice itself was created and Stripe was asked
+          // to send. Surface a softer warning so the merchant knows the
+          // branded email failed but the invoice is still queryable.
+          const msg = sendErr instanceof Error ? sendErr.message : 'Branded email failed';
+          console.warn('[invoices] /send-email failed after create', sendErr);
+          toast({
+            title: 'Invoice created, but email send failed',
+            description: msg,
+            variant: 'destructive',
+          });
+          resetForm();
+          setShowModal(false);
+          if (orgId) {
+            setLoading(true);
+            await load(orgId);
+          }
+          return;
+        }
+      }
+
       toast({
         title: autoSend ? 'Invoice sent' : 'Invoice saved as draft',
         description: `Invoice for ${form.customerName} has been ${autoSend ? 'sent to ' + (form.customerEmail || 'customer') : 'saved'}.`,
@@ -186,8 +304,14 @@ export default function InvoicesClient() {
 
       resetForm();
       setShowModal(false);
-      // Reload from server so we show the real Stripe invoice ID
-      if (orgId) await load(orgId);
+
+      // Force a clean reload so the new row shows up immediately.
+      // Without setLoading(true) we briefly render the (now-stale)
+      // previous list, which made users think the invoice vanished.
+      if (orgId) {
+        setLoading(true);
+        await load(orgId);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to save invoice';
       toast({ title: 'Failed to save invoice', description: msg, variant: 'destructive' });
@@ -490,13 +614,27 @@ export default function InvoicesClient() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Items</label>
-                  <button
-                    type="button"
-                    onClick={addLineItem}
-                    className="flex items-center gap-1 text-xs text-elevatedpos-600 hover:text-elevatedpos-500 dark:text-elevatedpos-400"
-                  >
-                    <Plus className="h-3 w-3" /> Add Row
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Append a fresh row, then immediately open the catalog picker for it.
+                        const nextIndex = form.lineItems.length;
+                        setForm((prev) => ({ ...prev, lineItems: [...prev.lineItems, emptyItem()] }));
+                        openCatalogPickerFor(nextIndex);
+                      }}
+                      className="flex items-center gap-1 text-xs text-elevatedpos-600 hover:text-elevatedpos-500 dark:text-elevatedpos-400"
+                    >
+                      <Search className="h-3 w-3" /> Add from Catalog
+                    </button>
+                    <button
+                      type="button"
+                      onClick={addLineItem}
+                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    >
+                      <Plus className="h-3 w-3" /> Add Row
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   {form.lineItems.map((item, idx) => (
@@ -508,6 +646,14 @@ export default function InvoicesClient() {
                         onChange={(e) => updateLineItem(idx, 'productName', e.target.value)}
                         className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
                       />
+                      <button
+                        type="button"
+                        onClick={() => openCatalogPickerFor(idx)}
+                        title="Pick a product from your catalog"
+                        className="flex items-center justify-center h-9 w-9 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-elevatedpos-600 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-elevatedpos-400 transition-colors"
+                      >
+                        <Search className="h-4 w-4" />
+                      </button>
                       <input
                         type="number" min="1" placeholder="Qty"
                         value={item.qty}
@@ -688,6 +834,92 @@ export default function InvoicesClient() {
                   </a>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v2.7.51 — Catalog product picker for invoice line items */}
+      {catalogPickerOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900 flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <Search className="h-4 w-4 text-elevatedpos-600" />
+                Add Product from Catalog
+              </h2>
+              <button
+                onClick={() => { setCatalogPickerOpen(false); setCatalogPickerForRow(null); }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="px-6 pt-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="Search products by name or SKU…"
+                  value={catalogSearch}
+                  onChange={(e) => setCatalogSearch(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-elevatedpos-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {catalogLoading && (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-12 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+                  ))}
+                </div>
+              )}
+              {!catalogLoading && catalogResults.length === 0 && (
+                <p className="py-10 text-center text-sm text-gray-400 dark:text-gray-500">
+                  {catalogSearch.trim() ? 'No products match that search.' : 'Type to search or browse below…'}
+                </p>
+              )}
+              {!catalogLoading && catalogResults.length > 0 && (
+                <ul className="space-y-1.5">
+                  {catalogResults.map((p) => {
+                    const price = typeof p.price === 'string' ? Number(p.price) : p.price;
+                    return (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onClick={() => selectCatalogProduct(p)}
+                          className="w-full flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2.5 text-left hover:border-elevatedpos-500 hover:bg-elevatedpos-50/40 dark:border-gray-700 dark:hover:border-elevatedpos-400 dark:hover:bg-elevatedpos-900/10 transition-colors"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{p.name}</p>
+                            {p.sku && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 truncate font-mono">SKU: {p.sku}</p>
+                            )}
+                          </div>
+                          <span className="text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap ml-3">
+                            {Number.isFinite(price)
+                              ? price.toLocaleString('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 2 })
+                              : '$0.00'}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+              <button
+                onClick={() => { setCatalogPickerOpen(false); setCatalogPickerForRow(null); }}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

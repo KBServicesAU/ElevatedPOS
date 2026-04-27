@@ -6,7 +6,7 @@ import {
   Star, Megaphone, Plug, ClipboardList, BellRing, Building2,
   Truck, Gift, CalendarCheck, ArrowLeftRight, MapPin, Clock, Webhook, ShoppingCart,
   FileText, Tag, CreditCard, ChefHat, Tablet, Smartphone, Receipt, RefreshCw, Globe,
-  Banknote, ArrowDownToLine, Wallet, ArrowUpDown, UserCog, MoveRight, LayoutGrid, Calendar,
+  Banknote, ArrowDownToLine, ArrowUpDown, UserCog, MoveRight, LayoutGrid, Calendar,
   Tv,
 } from 'lucide-react';
 import { NavLink } from './nav-link';
@@ -118,7 +118,9 @@ const nav: NavItem[] = [
   { href: '/dashboard/invoices',            icon: Receipt,         label: 'Invoices',          roles: ADMIN },
   { href: '/dashboard/payouts',             icon: ArrowDownToLine, label: 'Payouts',           roles: ADMIN },
   { href: '/dashboard/transactions',        icon: Banknote,        label: 'Transactions',      roles: ADMIN },
-  { href: '/dashboard/billing',             icon: Wallet,          label: 'Billing',           roles: OWNER_ONLY },
+  // v2.7.51 — /dashboard/billing was deleted; per-device subscription
+  // moved into /dashboard/account so merchants see plan + device usage
+  // alongside their org details.
 
   // ── Marketing ─────────────────────────────────────────────────────────────
   { href: '/dashboard/web-store',           icon: Globe,           label: 'Web Store',         roles: ADMIN,  feature: 'webStore' },
