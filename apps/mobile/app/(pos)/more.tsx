@@ -21,7 +21,11 @@ import { useDeviceStore } from '../../store/device';
 import { useAuthStore } from '../../store/auth';
 import { useEmployeeStore, type Shift } from '../../store/employee';
 import { useDeviceSettings } from '../../store/device-settings';
-import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
+import {
+  usePrinterStore,
+  type PrinterConnectionType,
+  type OrderPrinterDevice,
+} from '../../store/printers';
 import { useSidebarStore, ALL_SIDEBAR_ITEMS } from '../../store/sidebar';
 import { useCustomerDisplayStore } from '../../store/customer-display';
 import { useCatalogStore, type CatalogProduct } from '../../store/catalog';
@@ -507,140 +511,195 @@ export default function MoreScreen() {
     }
   }
 
-  /* ── Order printer (separate kitchen / bar printer) ─────────── */
-  const [discoveringOrder, setDiscoveringOrder] = useState(false);
-  const [discoveredOrderPrinters, setDiscoveredOrderPrinters] = useState<DiscoveredPrinter[]>([]);
+  /* ── Order printers (v2.7.51 — inline per-card UI) ──────────────
+     Each card represents one entry in `config.orderPrinters[]`. The
+     legacy `config.orderPrinter` (singular) is treated as the first
+     card when the list is empty, and migrated to `orderPrinters[0]`
+     on first edit so the saved config matches what the user sees.
 
-  /* ── Multi-printer routing (v2.7.48) ──────────────────────────
-     Modal-driven: scan, pick a discovered printer, tag with a
-     destination (kitchen/bar/etc.), append to config.orderPrinters.
-     Existing printers are deleted with the trash icon next to each row. */
-  const [showAddRoutedPrinter, setShowAddRoutedPrinter] = useState(false);
-  const [routedPrinterDraft, setRoutedPrinterDraft] = useState({
-    type: 'network' as PrinterConnectionType,
-    address: '',
-    name: '',
-    destination: 'kitchen' as string,
-    paperWidth: 80 as 58 | 80,
-  });
-  const [routedDiscovering, setRoutedDiscovering] = useState(false);
-  const [routedDiscovered, setRoutedDiscovered] = useState<DiscoveredPrinter[]>([]);
+     Discovery state is keyed by card id so two cards can be scanning
+     simultaneously without trampling each other's results. */
+  const [orderDiscovery, setOrderDiscovery] = useState<
+    Record<string, { scanning: boolean; results: DiscoveredPrinter[] }>
+  >({});
 
-  async function handleScanRoutedPrinters(type: PrinterConnectionType) {
-    setRoutedDiscovering(true);
-    setRoutedPrinterDraft((d) => ({ ...d, type }));
+  /**
+   * Build the displayed cards from the current store state. If the
+   * merchant has no `orderPrinters[]` entries yet but DOES have a
+   * legacy single `orderPrinter` configured, we surface that as a
+   * synthetic first card — the user can still edit/clear/test it,
+   * and any save promotes it into `orderPrinters[]`.
+   *
+   * If everything is empty we still return one blank card so the
+   * merchant has a place to start (matches the old default UX).
+   */
+  function getOrderPrinterCards(): OrderPrinterDevice[] {
+    const list = printerConfig.orderPrinters;
+    if (list.length > 0) return list;
+    const legacy = printerConfig.orderPrinter;
+    const seed: OrderPrinterDevice = {
+      id: 'op_legacy',
+      type: legacy?.type ?? null,
+      address: legacy?.address ?? '',
+      name: legacy?.name ?? '',
+      paperWidth: legacy?.paperWidth ?? 80,
+      destination: 'kitchen',
+    };
+    return [seed];
+  }
+
+  /** Persist the current cards list back to the store, dropping the legacy field. */
+  async function commitOrderPrinters(next: OrderPrinterDevice[]): Promise<void> {
+    await setPrinterConfig({
+      orderPrinters: next,
+      // Once the merchant edits anything, the legacy `orderPrinter` is no
+      // longer the source of truth — drop it so routing reads from the
+      // new list exclusively.
+      orderPrinter: { type: null, address: '', name: '', paperWidth: 80 },
+    });
+  }
+
+  /** Patch a single card by id. Materialises the legacy seed on first edit. */
+  async function updateOrderPrinter(id: string, patch: Partial<OrderPrinterDevice>) {
+    const current = getOrderPrinterCards();
+    const next = current.map((p) =>
+      p.id === id ? ({ ...p, ...patch } as OrderPrinterDevice) : p,
+    );
+    // If the synthetic legacy seed is being mutated, give it a real id so
+    // subsequent renders track it as a "real" entry.
+    const sanitised = next.map((p) =>
+      p.id === 'op_legacy'
+        ? { ...p, id: `op_${Date.now()}_${Math.random().toString(36).slice(2, 7)}` }
+        : p,
+    );
+    await commitOrderPrinters(sanitised);
+  }
+
+  /** Append a fresh blank card. */
+  async function addOrderPrinter() {
+    const current = getOrderPrinterCards();
+    const blank: OrderPrinterDevice = {
+      id: `op_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      type: null,
+      address: '',
+      name: '',
+      paperWidth: 80,
+      destination: 'kitchen',
+    };
+    // If the only card is the synthetic legacy seed AND it has no data,
+    // replace it instead of appending to avoid an empty leading card.
+    const replaceSeed =
+      current.length === 1 && current[0]?.id === 'op_legacy' && !current[0]?.address;
+    const nextList = replaceSeed ? [blank] : [...current.filter((c) => c.id !== 'op_legacy' || c.address), blank];
+    // Ensure any synthetic legacy seed that has data is materialised first.
+    const materialised = nextList.map((p) =>
+      p.id === 'op_legacy'
+        ? { ...p, id: `op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` }
+        : p,
+    );
+    await commitOrderPrinters(materialised);
+  }
+
+  /** Reset a card to blank. If it's the only card, keep it as a blank slot. */
+  async function clearOrderPrinter(id: string) {
+    const current = getOrderPrinterCards();
+    const next = current.map((p) =>
+      p.id === id
+        ? {
+            ...p,
+            type: null as PrinterConnectionType | null,
+            address: '',
+            name: '',
+            destination: 'kitchen' as string,
+          }
+        : p,
+    );
+    await commitOrderPrinters(next);
+    setOrderDiscovery((d) => ({ ...d, [id]: { scanning: false, results: [] } }));
+  }
+
+  /** Remove a card entirely. If it's the last one, blank it instead of leaving an empty list. */
+  async function removeOrderPrinter(id: string) {
+    const current = getOrderPrinterCards();
+    if (current.length <= 1) {
+      await clearOrderPrinter(id);
+      return;
+    }
+    const next = current.filter((p) => p.id !== id);
+    await commitOrderPrinters(next);
+    setOrderDiscovery((d) => {
+      const { [id]: _drop, ...rest } = d;
+      return rest;
+    });
+  }
+
+  /** Scan for printers of a specific connection type into a specific card's slot. */
+  async function scanForOrderPrinter(id: string, type: PrinterConnectionType) {
+    setOrderDiscovery((d) => ({
+      ...d,
+      [id]: { scanning: true, results: d[id]?.results ?? [] },
+    }));
     try {
       const devices = await discoverPrinters(type);
-      setRoutedDiscovered(devices);
+      setOrderDiscovery((d) => ({
+        ...d,
+        [id]: { scanning: false, results: devices },
+      }));
       if (devices.length === 0) {
         toast.warning('No Printers Found', `No ${type.toUpperCase()} printers detected.`);
       }
     } catch (err) {
-      toast.error('Discovery Failed', err instanceof Error ? err.message : 'Could not scan for printers');
-    } finally {
-      setRoutedDiscovering(false);
-    }
-  }
-
-  function handlePickRoutedFromList(p: DiscoveredPrinter) {
-    setRoutedPrinterDraft((d) => ({
-      ...d,
-      type: p.type,
-      address: p.id,
-      name: p.name,
-    }));
-    setRoutedDiscovered([]);
-  }
-
-  async function handleSaveRoutedPrinter() {
-    const draft = routedPrinterDraft;
-    if (!draft.address) {
-      toast.warning('Missing address', 'Pick a printer from the scan or enter one manually.');
-      return;
-    }
-    if (!draft.destination.trim()) {
-      toast.warning('Missing destination', 'Enter a destination tag (e.g. kitchen, bar).');
-      return;
-    }
-    const existing = printerConfig.orderPrinters;
-    const newEntry: typeof existing[number] = {
-      // Local id; doesn't need to be a real UUID, just stable for this row.
-      id: `op_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      type: draft.type,
-      address: draft.address,
-      name: draft.name || draft.address,
-      paperWidth: draft.paperWidth,
-      destination: draft.destination.trim().toLowerCase(),
-    };
-    try {
-      await setPrinterConfig({ orderPrinters: [...existing, newEntry] });
-      setShowAddRoutedPrinter(false);
-      setRoutedPrinterDraft({ type: 'network', address: '', name: '', destination: 'kitchen', paperWidth: 80 });
-      setRoutedDiscovered([]);
-      toast.success('Printer added', `${newEntry.name} → ${newEntry.destination}`);
-    } catch (err) {
-      toast.error('Save Failed', err instanceof Error ? err.message : 'Could not save');
-    }
-  }
-
-  async function handleDiscoverOrderPrinters(type: PrinterConnectionType) {
-    setDiscoveringOrder(true);
-    try {
-      const devices = await discoverPrinters(type);
-      setDiscoveredOrderPrinters(devices);
-      if (devices.length === 0) {
-        toast.warning(
-          'No Printers Found',
-          `No ${type.toUpperCase()} printers detected. Check the connection.`,
-        );
-      }
-    } catch (err) {
+      setOrderDiscovery((d) => ({
+        ...d,
+        [id]: { scanning: false, results: [] },
+      }));
       toast.error(
         'Discovery Failed',
         err instanceof Error ? err.message : 'Could not scan for printers',
       );
-    } finally {
-      setDiscoveringOrder(false);
     }
   }
 
-  async function handleSelectOrderPrinter(printer: DiscoveredPrinter) {
-    try {
-      await setPrinterConfig({
-        orderPrinter: {
-          type: printer.type,
-          address: printer.id,
-          name: printer.name,
-          paperWidth: printerConfig.orderPrinter?.paperWidth ?? 80,
-        },
-      });
-      setDiscoveredOrderPrinters([]);
-      toast.success(
-        'Order Printer Saved',
-        `${printer.name} will receive kitchen / bar tickets.`,
-      );
-    } catch (err) {
-      toast.error(
-        'Error',
-        err instanceof Error ? err.message : 'Could not save order printer',
-      );
-    }
+  async function pickDiscoveredOrderPrinter(id: string, p: DiscoveredPrinter) {
+    await updateOrderPrinter(id, {
+      type: p.type,
+      address: p.id,
+      name: p.name,
+    });
+    setOrderDiscovery((d) => ({ ...d, [id]: { scanning: false, results: [] } }));
+    toast.success('Printer Saved', `${p.name} configured.`);
   }
 
-  async function handleTestOrderPrinter() {
-    if (!printerConfig.orderPrinter?.type) {
-      toast.warning('No Order Printer', 'Please configure an order printer first.');
+  async function handleTestOrderPrinterCard(card: OrderPrinterDevice) {
+    if (!card.type || !card.address) {
+      toast.warning('Not Configured', 'Pick a connection and address before testing.');
       return;
     }
     try {
-      await printOrderPrinterTestPage();
-      toast.success('Test page sent', 'Sent to order printer.');
+      await printOrderPrinterTestPage({
+        type: card.type,
+        address: card.address,
+        name: card.name,
+        paperWidth: card.paperWidth,
+      });
+      toast.success('Test page sent', `Sent to ${card.name || card.address}.`);
     } catch (err) {
       toast.error(
         'Print Failed',
         err instanceof Error ? err.message : 'Could not print',
       );
     }
+  }
+
+  async function handleConnectOrderPrinterCard(card: OrderPrinterDevice) {
+    if (!card.type || !card.address) {
+      toast.warning('Not Configured', 'Pick a connection and address first.');
+      return;
+    }
+    // The order-printer connect path is handled by the printing pipeline at
+    // print time (per-destination connect inside `printOrderTickets`). The
+    // "Connect" button just doubles as a connectivity check by firing a test.
+    await handleTestOrderPrinterCard(card);
   }
 
   /* ── Unpair ───────────────────────────────────────────────────── */
@@ -1258,198 +1317,216 @@ export default function MoreScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ═══════ Order Printer ═══════ */}
+        {/* ═══════ Order Printer (v2.7.51 — inline per-card UI) ═══════ */}
         <Text style={[s.sectionTitle, { marginTop: 24 }]}>Order Printer</Text>
         <Text style={[s.valueSmall, { paddingHorizontal: 4, marginTop: -6, marginBottom: 8 }]}>
-          Optional second printer for kitchen / bar tickets
+          Kitchen / bar tickets. Add one printer per location.
         </Text>
 
-        <View style={s.card}>
-          <View style={s.row}>
-            <Text style={s.label}>Order Printer</Text>
-            <Text style={s.value}>
-              {printerConfig.orderPrinter?.name ||
-                (printerConfig.orderPrinter?.type
-                  ? printerConfig.orderPrinter.address
-                  : 'Not configured')}
-            </Text>
-          </View>
-          <View style={s.divider} />
-          <View style={s.row}>
-            <Text style={s.label}>Connection</Text>
-            <Text style={s.value}>
-              {printerConfig.orderPrinter?.type?.toUpperCase() ?? '—'}
-            </Text>
-          </View>
-        </View>
-
-        <View style={s.btnRow}>
-          <TouchableOpacity
-            style={s.outlineBtn}
-            onPress={() => handleDiscoverOrderPrinters('usb')}
-            activeOpacity={0.85}
-          >
-            {discoveringOrder ? (
-              <ActivityIndicator size="small" color="#ccc" />
-            ) : (
-              <Ionicons name="search-outline" size={16} color="#ccc" />
-            )}
-            <Text style={s.outlineBtnText}>Scan USB</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[s.outlineBtn, !printerConfig.orderPrinter?.address && { opacity: 0.4 }]}
-            onPress={handleTestOrderPrinter}
-            disabled={!printerConfig.orderPrinter?.address}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="print-outline" size={16} color="#ccc" />
-            <Text style={s.outlineBtnText}>Test</Text>
-          </TouchableOpacity>
-        </View>
-
-        {discoveredOrderPrinters.length > 0 && (
-          <View style={[s.card, { marginTop: 8 }]}>
-            <Text style={[s.label, { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }]}>
-              Found Printers
-            </Text>
-            {discoveredOrderPrinters.map((p) => (
-              <TouchableOpacity
-                key={p.id}
-                style={[s.manageRow, { paddingHorizontal: 16 }]}
-                onPress={() => handleSelectOrderPrinter(p)}
-                activeOpacity={0.6}
+        {getOrderPrinterCards().map((card, idx) => {
+          const cards = getOrderPrinterCards();
+          const isOnly = cards.length === 1;
+          const discovery = orderDiscovery[card.id] ?? { scanning: false, results: [] };
+          const dest = (card.destination || 'kitchen').toLowerCase();
+          const presetDestinations = ['kitchen', 'bar', 'cold_kitchen', 'ready_station'];
+          const isCustomDest = !presetDestinations.includes(dest);
+          return (
+            <View
+              key={card.id}
+              style={[s.card, { padding: 16, marginBottom: 12 }]}
+            >
+              {/* Header */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 12,
+                }}
               >
-                <Ionicons name="print" size={18} color="#f59e0b" style={{ marginRight: 10 }} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.manageName}>{p.name}</Text>
-                  <Text style={s.manageSub}>{p.type.toUpperCase()} · {p.id}</Text>
-                </View>
-                <Ionicons name="add-circle-outline" size={22} color="#f59e0b" />
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {printerConfig.orderPrinter?.type && (
-          <View style={[s.btnRow, { marginTop: 8 }]}>
-            <TouchableOpacity
-              style={[s.outlineBtn, { borderColor: '#ef444444' }]}
-              onPress={() =>
-                setPrinterConfig({
-                  orderPrinter: { type: null, address: '', name: '', paperWidth: 80 },
-                })
-              }
-              activeOpacity={0.85}
-            >
-              <Ionicons name="close-circle-outline" size={16} color="#ef4444" />
-              <Text style={[s.outlineBtnText, { color: '#ef4444' }]}>Clear</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ═══════ Multiple Order Printers (v2.7.48) ═══════ */}
-        <Text style={[s.sectionTitle, { marginTop: 24 }]}>Order Printer Routing</Text>
-        <Text style={[s.valueSmall, { paddingHorizontal: 4, marginTop: -6, marginBottom: 8 }]}>
-          Send line items to specific printers (Kitchen, Bar, etc.) by category destination
-        </Text>
-
-        {printerConfig.orderPrinters.length === 0 && (
-          <View style={[s.card, { padding: 16 }]}>
-            <Text style={[s.valueSmall, { lineHeight: 18 }]}>
-              No routed printers configured. Add one to print Bar items separately from
-              Kitchen items, etc. The legacy Order Printer above keeps working as a
-              single 'kitchen' destination until you set this up.
-            </Text>
-          </View>
-        )}
-
-        {printerConfig.orderPrinters.length > 0 && printerConfig.orderPrinter?.type && (
-          <View
-            style={[
-              s.card,
-              {
-                padding: 14,
-                marginBottom: 8,
-                backgroundColor: 'rgba(245, 158, 11, 0.08)',
-                borderColor: '#f59e0b',
-              },
-            ]}
-          >
-            <Text style={{ color: '#f59e0b', fontWeight: '700', fontSize: 13 }}>
-              ⚠ Legacy Order Printer is being ignored
-            </Text>
-            <Text style={[s.valueSmall, { marginTop: 6, lineHeight: 18 }]}>
-              You've added a routed printer below. The single Order Printer above is no
-              longer used — every kitchen ticket now goes to the matching routed printer
-              instead. Remove the legacy printer to declutter, or leave it as a backup.
-            </Text>
-            <TouchableOpacity
-              style={[s.outlineBtn, { marginTop: 10 }]}
-              onPress={async () => {
-                await setPrinterConfig({
-                  orderPrinter: { type: null, address: '', name: '', paperWidth: 80 },
-                });
-                toast.success('Removed', 'Legacy single-printer config cleared.');
-              }}
-              activeOpacity={0.85}
-            >
-              <Text style={s.outlineBtnText}>Remove Legacy Printer</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {printerConfig.orderPrinters.length > 0 && (
-          <View style={[s.card, { padding: 12, marginBottom: 8, backgroundColor: 'rgba(99,102,241,0.08)' }]}>
-            <Text style={[s.valueSmall, { lineHeight: 18 }]}>
-              <Text style={{ fontWeight: '700', color: '#6366f1' }}>How routing works:</Text>
-              {' '}each cart line is sent to the printer whose destination matches the line's
-              category Printer Destination (set in Dashboard → Catalog → Categories). Lines
-              with no matching printer are skipped — check `adb logcat | grep printer` if a
-              line doesn't print.
-            </Text>
-          </View>
-        )}
-
-        {printerConfig.orderPrinters.length > 0 && (
-          <View style={s.card}>
-            {printerConfig.orderPrinters.map((p, idx) => (
-              <React.Fragment key={p.id}>
-                {idx > 0 && <View style={s.divider} />}
-                <View style={[s.row, { alignItems: 'flex-start' }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.label}>{p.name || p.address || 'Unnamed'}</Text>
-                    <Text style={[s.valueSmall, { marginTop: 2 }]}>
-                      {p.type?.toUpperCase()} · {p.address}
-                    </Text>
-                    <Text style={[s.valueSmall, { marginTop: 2, color: '#f59e0b' }]}>
-                      Destination: {p.destination || 'kitchen'}
-                    </Text>
-                  </View>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#fff' }}>
+                  Order Printer #{idx + 1}
+                  {card.name ? <Text style={{ color: '#666', fontWeight: '500' }}>  ·  {card.name}</Text> : null}
+                </Text>
+                {!isOnly && (
                   <TouchableOpacity
-                    onPress={() =>
-                      setPrinterConfig({
-                        orderPrinters: printerConfig.orderPrinters.filter((x) => x.id !== p.id),
-                      })
-                    }
+                    onPress={() => removeOrderPrinter(card.id)}
                     activeOpacity={0.6}
-                    style={{ padding: 6 }}
+                    style={{ padding: 4 }}
                   >
                     <Ionicons name="trash-outline" size={18} color="#ef4444" />
                   </TouchableOpacity>
-                </View>
-              </React.Fragment>
-            ))}
-          </View>
-        )}
+                )}
+              </View>
 
-        <View style={[s.btnRow, { marginTop: 8 }]}>
+              {/* Connection */}
+              <Text style={[s.label, { marginBottom: 6 }]}>Connection</Text>
+              <View style={[s.segRow, { marginBottom: 12 }]}>
+                {(['usb', 'network', 'bluetooth'] as PrinterConnectionType[]).map((opt) => {
+                  const selected = card.type === opt;
+                  return (
+                    <TouchableOpacity
+                      key={opt}
+                      style={[s.segBtn, selected && s.segBtnActive]}
+                      onPress={() => updateOrderPrinter(card.id, { type: opt })}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[s.segBtnText, selected && s.segBtnTextActive]}>
+                        {opt === 'usb' ? 'USB' : opt === 'network' ? 'Network' : 'Bluetooth'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Location */}
+              <Text style={[s.label, { marginBottom: 6 }]}>Location</Text>
+              <View style={[s.segRow, { marginBottom: 6 }]}>
+                {presetDestinations.map((tag) => {
+                  const selected = !isCustomDest && dest === tag;
+                  return (
+                    <TouchableOpacity
+                      key={tag}
+                      style={[s.segBtn, selected && s.segBtnActive]}
+                      onPress={() => updateOrderPrinter(card.id, { destination: tag })}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[s.segBtnText, selected && s.segBtnTextActive]}>
+                        {tag === 'kitchen'
+                          ? 'Kitchen'
+                          : tag === 'bar'
+                            ? 'Bar'
+                            : tag === 'cold_kitchen'
+                              ? 'Cold Kitchen'
+                              : 'Ready'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity
+                  style={[s.segBtn, isCustomDest && s.segBtnActive]}
+                  onPress={() => updateOrderPrinter(card.id, { destination: isCustomDest ? dest : '' })}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[s.segBtnText, isCustomDest && s.segBtnTextActive]}>Custom</Text>
+                </TouchableOpacity>
+              </View>
+              {isCustomDest && (
+                <TextInput
+                  style={[s.input, { marginBottom: 12 }]}
+                  value={dest}
+                  onChangeText={(v) =>
+                    updateOrderPrinter(card.id, { destination: v.toLowerCase().replace(/\s+/g, '_') })
+                  }
+                  placeholder="custom_tag"
+                  placeholderTextColor="#444"
+                  autoCapitalize="none"
+                />
+              )}
+              {!isCustomDest && <View style={{ height: 6 }} />}
+
+              {/* Address */}
+              <Text style={[s.label, { marginBottom: 6 }]}>
+                {card.type === 'network' ? 'IP Address : Port'
+                  : card.type === 'bluetooth' ? 'BT MAC Address'
+                  : card.type === 'usb' ? 'USB Device ID'
+                  : 'Address'}
+              </Text>
+              <TextInput
+                style={[s.input, { marginBottom: 12 }]}
+                value={card.address}
+                onChangeText={(v) => updateOrderPrinter(card.id, { address: v })}
+                placeholder={
+                  card.type === 'network' ? '192.168.1.50:9100'
+                    : card.type === 'bluetooth' ? '00:11:22:33:44:55'
+                    : 'Pick from scan or enter manually'
+                }
+                placeholderTextColor="#444"
+                autoCapitalize="none"
+                editable={!!card.type}
+              />
+
+              {/* Discovered list (per-card) */}
+              {discovery.results.length > 0 && (
+                <View style={[s.card, { marginBottom: 12 }]}>
+                  <Text style={[s.label, { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }]}>
+                    Found Printers
+                  </Text>
+                  {discovery.results.map((p) => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={[s.manageRow, { paddingHorizontal: 16 }]}
+                      onPress={() => pickDiscoveredOrderPrinter(card.id, p)}
+                      activeOpacity={0.6}
+                    >
+                      <Ionicons name="print" size={18} color="#f59e0b" style={{ marginRight: 10 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.manageName}>{p.name}</Text>
+                        <Text style={s.manageSub}>{p.type.toUpperCase()} · {p.id}</Text>
+                      </View>
+                      <Ionicons name="add-circle-outline" size={22} color="#22c55e" />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* Action buttons */}
+              <View style={s.btnRow}>
+                <TouchableOpacity
+                  style={[s.outlineBtn, !card.type && { opacity: 0.4 }]}
+                  onPress={() => card.type && scanForOrderPrinter(card.id, card.type)}
+                  disabled={!card.type}
+                  activeOpacity={0.85}
+                >
+                  {discovery.scanning ? (
+                    <ActivityIndicator size="small" color="#ccc" />
+                  ) : (
+                    <Ionicons name="search-outline" size={16} color="#ccc" />
+                  )}
+                  <Text style={s.outlineBtnText}>Scan</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.outlineBtn, !card.address && { opacity: 0.4 }]}
+                  onPress={() => handleConnectOrderPrinterCard(card)}
+                  disabled={!card.address}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="link-outline" size={16} color="#ccc" />
+                  <Text style={s.outlineBtnText}>Connect</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.outlineBtn, !card.address && { opacity: 0.4 }]}
+                  onPress={() => handleTestOrderPrinterCard(card)}
+                  disabled={!card.address}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="print-outline" size={16} color="#ccc" />
+                  <Text style={s.outlineBtnText}>Test</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={[s.btnRow, { marginTop: 8 }]}>
+                <TouchableOpacity
+                  style={[s.outlineBtn, { borderColor: '#ef444444' }]}
+                  onPress={() => clearOrderPrinter(card.id)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="close-circle-outline" size={16} color="#ef4444" />
+                  <Text style={[s.outlineBtnText, { color: '#ef4444' }]}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })}
+
+        {/* + Add another */}
+        <View style={[s.btnRow, { marginTop: 4 }]}>
           <TouchableOpacity
             style={s.outlineBtn}
-            onPress={() => setShowAddRoutedPrinter(true)}
+            onPress={addOrderPrinter}
             activeOpacity={0.85}
           >
             <Ionicons name="add-circle-outline" size={16} color="#ccc" />
-            <Text style={s.outlineBtnText}>Add Routed Printer</Text>
+            <Text style={s.outlineBtnText}>+ Add another</Text>
           </TouchableOpacity>
         </View>
 
@@ -2029,168 +2106,6 @@ export default function MoreScreen() {
             >
               <Text style={s.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ═══════════ Add Routed Printer Modal (v2.7.48) ═══════════ */}
-      <Modal
-        visible={showAddRoutedPrinter}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowAddRoutedPrinter(false)}
-      >
-        <View style={s.modalWrap}>
-          <View style={s.modalPane}>
-            <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>Add Routed Printer</Text>
-              <TouchableOpacity onPress={() => setShowAddRoutedPrinter(false)}>
-                <Ionicons name="close" size={24} color="#999" />
-              </TouchableOpacity>
-            </View>
-            <Text style={{ color: '#555', fontSize: 13, paddingHorizontal: 20, marginBottom: 12 }}>
-              Tag a printer with a destination so order lines from categories with that
-              destination route here. Common: kitchen, bar, cold_kitchen, ready_station.
-            </Text>
-
-            {/* Connection type picker */}
-            <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
-              <Text style={[s.label, { marginBottom: 4 }]}>Connection</Text>
-              <View style={s.segRow}>
-                {(['network', 'usb', 'bluetooth'] as PrinterConnectionType[]).map((opt) => {
-                  const selected = routedPrinterDraft.type === opt;
-                  return (
-                    <TouchableOpacity
-                      key={opt}
-                      style={[s.segBtn, selected && s.segBtnActive]}
-                      onPress={() => setRoutedPrinterDraft((d) => ({ ...d, type: opt }))}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[s.segBtnText, selected && s.segBtnTextActive]}>{opt.toUpperCase()}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Address (manual or from scan) */}
-            <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
-              <Text style={[s.label, { marginBottom: 4 }]}>
-                {routedPrinterDraft.type === 'network' ? 'Address (IP:port)'
-                  : routedPrinterDraft.type === 'usb' ? 'USB device id'
-                  : 'BT MAC address'}
-              </Text>
-              <TextInput
-                style={s.input}
-                value={routedPrinterDraft.address}
-                onChangeText={(v) => setRoutedPrinterDraft((d) => ({ ...d, address: v }))}
-                placeholder={routedPrinterDraft.type === 'network' ? '192.168.1.50:9100' : ''}
-                placeholderTextColor="#444"
-              />
-            </View>
-
-            {/* Friendly name */}
-            <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
-              <Text style={[s.label, { marginBottom: 4 }]}>Name</Text>
-              <TextInput
-                style={s.input}
-                value={routedPrinterDraft.name}
-                onChangeText={(v) => setRoutedPrinterDraft((d) => ({ ...d, name: v }))}
-                placeholder="Bar Printer"
-                placeholderTextColor="#444"
-              />
-            </View>
-
-            {/* Destination tag */}
-            <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
-              <Text style={[s.label, { marginBottom: 4 }]}>
-                Destination tag (matches category.printerDestination)
-              </Text>
-              <TextInput
-                style={s.input}
-                value={routedPrinterDraft.destination}
-                onChangeText={(v) => setRoutedPrinterDraft((d) => ({ ...d, destination: v }))}
-                placeholder="kitchen"
-                placeholderTextColor="#444"
-                autoCapitalize="none"
-              />
-              <View style={[s.segRow, { marginTop: 6 }]}>
-                {['kitchen', 'bar', 'cold_kitchen', 'ready_station'].map((tag) => {
-                  const selected = routedPrinterDraft.destination === tag;
-                  return (
-                    <TouchableOpacity
-                      key={tag}
-                      style={[s.segBtn, selected && s.segBtnActive]}
-                      onPress={() => setRoutedPrinterDraft((d) => ({ ...d, destination: tag }))}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[s.segBtnText, selected && s.segBtnTextActive]}>
-                        {tag.replace('_', ' ')}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Scan to fill from list (USB / BT only — network requires manual IP) */}
-            {routedPrinterDraft.type !== 'network' && (
-              <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
-                <TouchableOpacity
-                  style={s.outlineBtn}
-                  onPress={() => handleScanRoutedPrinters(routedPrinterDraft.type)}
-                  activeOpacity={0.85}
-                >
-                  {routedDiscovering ? (
-                    <ActivityIndicator size="small" color="#ccc" />
-                  ) : (
-                    <Ionicons name="search-outline" size={16} color="#ccc" />
-                  )}
-                  <Text style={s.outlineBtnText}>
-                    Scan {routedPrinterDraft.type.toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {routedDiscovered.length > 0 && (
-              <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
-                {routedDiscovered.map((p) => (
-                  <TouchableOpacity
-                    key={p.id}
-                    style={[s.manageRow, { paddingVertical: 10 }]}
-                    onPress={() => handlePickRoutedFromList(p)}
-                    activeOpacity={0.6}
-                  >
-                    <Ionicons name="print" size={18} color="#f59e0b" style={{ marginRight: 10 }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.manageName}>{p.name}</Text>
-                      <Text style={s.manageSub}>{p.type.toUpperCase()} · {p.id}</Text>
-                    </View>
-                    <Ionicons name="add-circle-outline" size={22} color="#22c55e" />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {/* Save / Cancel */}
-            <View style={{ flexDirection: 'row', paddingHorizontal: 20, paddingBottom: 20, gap: 8 }}>
-              <TouchableOpacity
-                style={[s.outlineBtn, { flex: 1 }]}
-                onPress={() => setShowAddRoutedPrinter(false)}
-                activeOpacity={0.85}
-              >
-                <Text style={s.outlineBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.outlineBtn, { flex: 1, borderColor: '#22c55e' }]}
-                onPress={handleSaveRoutedPrinter}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="checkmark" size={16} color="#22c55e" />
-                <Text style={[s.outlineBtnText, { color: '#22c55e' }]}>Save</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </Modal>
