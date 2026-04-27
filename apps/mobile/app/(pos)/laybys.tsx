@@ -474,12 +474,15 @@ export default function LaybysScreen() {
   const loadLaybys = useCallback(async () => {
     setLoading(true);
     try {
+      console.log('[laybys] mobile fetch start locationId=', locationId, 'tokenPresent=', !!token);
       const res = await apiFetch<{ data: Layby[] }>(
         `/api/v1/laybys?status=active&locationId=${locationId}`,
         token,
       );
+      console.log('[laybys] mobile fetch ok count=', res.data?.length ?? 0);
       setLaybys(res.data ?? []);
-    } catch {
+    } catch (err) {
+      console.warn('[laybys] mobile fetch failed:', err instanceof Error ? err.message : err);
       setLaybys([]);
     } finally {
       setLoading(false);

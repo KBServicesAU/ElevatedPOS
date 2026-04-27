@@ -1091,8 +1091,14 @@ function ElevatedPOSPayTab() {
     try {
       const data = await apiFetch<{ url: string }>('connect/sync-account', { method: 'POST' });
       window.location.href = data.url;
-    } catch {
-      toast({ title: 'Could not start setup', description: 'Please try again.', variant: 'destructive' });
+    } catch (err) {
+      // v2.7.51 — surface the actual Stripe error (e.g. missing API key,
+      // invalid account id) instead of a generic "Please try again".
+      const description = err instanceof Error && err.message
+        ? err.message
+        : 'Please try again.';
+      console.error('[connect] sync-account failed:', err);
+      toast({ title: 'Could not start setup', description, variant: 'destructive' });
       setSyncing(false);
     }
   };

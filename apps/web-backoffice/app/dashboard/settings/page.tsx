@@ -615,6 +615,9 @@ function ReceiptsTab() {
       // devices/config), while the legacy header/footer/loyalty/etc.
       // fields stay on the generic settings/:key bucket.
       const { showOrderNumber, logoBase64, logoWidth, logoHeight, ...legacyForm } = form;
+      // v2.7.51 — instrument the save so we can see if the toggle PATCH
+      // is actually firing and what payload size is being sent.
+      console.log('[receipt-toggle] saving showOrderNumber=', showOrderNumber, 'logoBase64.length=', logoBase64?.length ?? 0);
       await Promise.all([
         apiFetch('settings/receipts', {
           method: 'PUT',
@@ -625,11 +628,18 @@ function ReceiptsTab() {
           body: JSON.stringify({ showOrderNumber, logoBase64, logoWidth, logoHeight }),
         }),
       ]);
+      console.log('[receipt-toggle] save succeeded');
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
       toast({ title: 'Receipt settings saved', description: 'Receipt and document preferences have been updated.', variant: 'success' });
-    } catch {
-      toast({ title: 'Save failed', description: 'Could not save receipt settings. Please try again.', variant: 'destructive' });
+    } catch (err) {
+      // v2.7.51 — surface the real reason from the server (e.g. "Logo too
+      // large") instead of always showing a generic "Please try again".
+      const description = err instanceof Error && err.message
+        ? err.message
+        : 'Could not save receipt settings. Please try again.';
+      console.error('[receipt-toggle] save failed:', err);
+      toast({ title: 'Save failed', description, variant: 'destructive' });
     } finally {
       setSaving(false);
     }

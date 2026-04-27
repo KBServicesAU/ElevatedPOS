@@ -44,6 +44,11 @@ const app = Fastify({
   },
   requestIdHeader: 'x-request-id',
   trustProxy: true,
+  // v2.7.51 — receipt logo uploads (base64 1-bit raster) can exceed the
+  // Fastify default 1 MiB body limit when the source PNG is large; raise to
+  // 4 MiB so the route-level MAX_LOGO_BYTES check is the authoritative cap
+  // and Fastify doesn't return a generic 413 before our handler runs.
+  bodyLimit: 4 * 1024 * 1024,
 });
 
 /**
