@@ -29,8 +29,8 @@ locals {
 
 # ACM wildcard certificate (us-east-1 required for CloudFront, ap-southeast-2 for ALB)
 resource "aws_acm_certificate" "wildcard" {
-  provider          = aws.ap-southeast-2
-  domain_name       = var.domain_name
+  provider    = aws.ap-southeast-2
+  domain_name = var.domain_name
   subject_alternative_names = [
     "*.${var.domain_name}",
     "api.${var.domain_name}",
@@ -189,91 +189,75 @@ resource "aws_route53_record" "reseller" {
 
 # ── Email sending DNS (Resend on email.elevatedpos.com.au) ────────────────────
 #
-# We send transactional email (order confirmations, receipts, pickup-ready
-# notifications, password resets, etc.) via Resend. Resend requires:
+# v2.7.54 — corrected the DKIM record shape. The v2.7.43 version assumed
+# Amazon-SES-style "3× CNAME with hash selectors" but Resend actually
+# publishes a single TXT public key at `resend._domainkey.email.<domain>`
+# (selector is the literal string `resend`). The other records below
+# match the Resend dashboard's "DNS Records" page exactly:
 #
-#   1. SPF — TXT record on the sending subdomain authorising Amazon SES
-#      (Resend's backing mailer for AU region) to send mail for us.
-#   2. DKIM — three CNAME records pointing to DKIM keys Resend publishes
-#      for the sending domain. These must be added in the Resend dashboard
-#      FIRST (Domains → Add Domain → email.elevatedpos.com.au) which shows
-#      the exact record values — then mirrored here so they're tracked in
-#      terraform.
-#   3. DMARC — TXT at _dmarc.<sending subdomain> that tells inboxes what
-#      policy to apply when a message fails SPF/DKIM. Start with p=none
-#      (monitor only) and move to p=quarantine once a few weeks of Resend
-#      reports come back clean.
-#   4. MX — minimal MX so reply-to addresses don't bounce. Points at
-#      Resend's inbound MX which accepts and drops (we don't process
-#      replies yet).
-#
-# Variables below let us check the DKIM selectors into terraform without
-# hardcoding per-environment keys. Populate via tfvars (not committed).
+#   Domain Verification:
+#     • DKIM TXT  resend._domainkey.email           p=<base64 public key>
+#   Enable Sending:
+#     • SPF TXT   send.email                        v=spf1 include:amazonses.com ~all
+#     • MX        send.email   priority 10          feedback-smtp.<region>.amazonses.com
+#   DMARC (optional):
+#     • TXT       _dmarc                            v=DMARC1; p=none;
+#   Enable Receiving (optional):
+#     • MX        email        priority 10          inbound-smtp.<region>.amazonaws.com
 #
 # Sender address (see k8s/configmap.yaml EMAIL_FROM):
-#   ElevatedPOS <noreply@email.elevatedpos.com.au>
+#   ElevatedPOS <noreply@send.email.elevatedpos.com.au>
 #
-# After applying these records, run `dig TXT email.elevatedpos.com.au` and
-# the three `dig CNAME <selector>._domainkey.email.elevatedpos.com.au`
-# lookups — values should match Resend's dashboard. Resend's "Verify"
-# button in their UI checks the same records.
+# After `terraform apply`, run these to confirm propagation:
+#   dig TXT  resend._domainkey.email.elevatedpos.com.au +short
+#   dig TXT  send.email.elevatedpos.com.au              +short
+#   dig MX   send.email.elevatedpos.com.au              +short
+#   dig MX   email.elevatedpos.com.au                   +short
+# Resend's "Verify" button in the dashboard reads the same records.
 
-variable "resend_dkim_selector_1" {
-  description = "Resend-issued DKIM selector 1 for email.<domain> — get from Resend → Domains → <sending subdomain>"
+variable "resend_dkim_public_key" {
+  description = "Resend-issued DKIM public key (everything after `p=` in the TXT, no quotes)."
   type        = string
   default     = ""
+  sensitive   = true
 }
 
-variable "resend_dkim_cname_1" {
-  description = "Resend-issued DKIM CNAME target for selector 1 — looks like <hash>.dkim.amazonses.com"
+variable "resend_aws_region" {
+  description = "AWS region of the Resend SES backend (visible in the Resend dashboard MX values)."
   type        = string
-  default     = ""
+  default     = "ap-southeast-2"
 }
 
-variable "resend_dkim_selector_2" {
-  description = "Resend-issued DKIM selector 2"
-  type        = string
-  default     = ""
-}
-
-variable "resend_dkim_cname_2" {
-  description = "Resend-issued DKIM CNAME target for selector 2"
-  type        = string
-  default     = ""
-}
-
-variable "resend_dkim_selector_3" {
-  description = "Resend-issued DKIM selector 3"
-  type        = string
-  default     = ""
-}
-
-variable "resend_dkim_cname_3" {
-  description = "Resend-issued DKIM CNAME target for selector 3"
-  type        = string
-  default     = ""
+variable "resend_enable_inbound" {
+  description = "Set true to also publish the inbound MX (email.<domain>). Optional — only needed if you process replies."
+  type        = bool
+  default     = false
 }
 
 locals {
-  # Skip the email records entirely if the DKIM selectors haven't been
-  # filled in yet — terraform shouldn't create broken records. The
-  # create/destroy step happens the first time someone runs `terraform
-  # apply` after the Resend domain is verified.
-  email_dns_enabled = (
-    var.resend_dkim_selector_1 != "" &&
-    var.resend_dkim_cname_1    != "" &&
-    var.resend_dkim_selector_2 != "" &&
-    var.resend_dkim_cname_2    != "" &&
-    var.resend_dkim_selector_3 != "" &&
-    var.resend_dkim_cname_3    != ""
-  )
+  # Skip every Resend record if the DKIM key isn't set yet — terraform
+  # shouldn't create broken DNS. Filling in `resend_dkim_public_key` in
+  # terraform.tfvars (gitignored) flips this to true on the next apply.
+  resend_dns_enabled = var.resend_dkim_public_key != ""
 }
 
-# SPF — TXT on email.<domain>. Resend uses Amazon SES for AU sending.
-resource "aws_route53_record" "email_spf" {
-  count   = local.email_dns_enabled ? 1 : 0
+# DKIM — single TXT at resend._domainkey.email.<domain>
+resource "aws_route53_record" "resend_dkim" {
+  count   = local.resend_dns_enabled ? 1 : 0
   zone_id = local.zone_id
-  name    = "email.${var.domain_name}"
+  name    = "resend._domainkey.email.${var.domain_name}"
+  type    = "TXT"
+  ttl     = 600
+  records = [
+    "p=${var.resend_dkim_public_key}"
+  ]
+}
+
+# SPF — TXT on send.email.<domain>
+resource "aws_route53_record" "resend_spf" {
+  count   = local.resend_dns_enabled ? 1 : 0
+  zone_id = local.zone_id
+  name    = "send.email.${var.domain_name}"
   type    = "TXT"
   ttl     = 600
   records = [
@@ -281,40 +265,23 @@ resource "aws_route53_record" "email_spf" {
   ]
 }
 
-# DKIM selectors — three CNAMEs as issued by Resend.
-resource "aws_route53_record" "email_dkim_1" {
-  count   = local.email_dns_enabled ? 1 : 0
+# Outbound MX — feedback-smtp for bounce processing
+resource "aws_route53_record" "resend_send_mx" {
+  count   = local.resend_dns_enabled ? 1 : 0
   zone_id = local.zone_id
-  name    = "${var.resend_dkim_selector_1}._domainkey.email.${var.domain_name}"
-  type    = "CNAME"
+  name    = "send.email.${var.domain_name}"
+  type    = "MX"
   ttl     = 600
-  records = [var.resend_dkim_cname_1]
+  records = [
+    "10 feedback-smtp.${var.resend_aws_region}.amazonses.com"
+  ]
 }
 
-resource "aws_route53_record" "email_dkim_2" {
-  count   = local.email_dns_enabled ? 1 : 0
+# DMARC — monitor-only. Bump to p=quarantine once reports are clean.
+resource "aws_route53_record" "resend_dmarc" {
+  count   = local.resend_dns_enabled ? 1 : 0
   zone_id = local.zone_id
-  name    = "${var.resend_dkim_selector_2}._domainkey.email.${var.domain_name}"
-  type    = "CNAME"
-  ttl     = 600
-  records = [var.resend_dkim_cname_2]
-}
-
-resource "aws_route53_record" "email_dkim_3" {
-  count   = local.email_dns_enabled ? 1 : 0
-  zone_id = local.zone_id
-  name    = "${var.resend_dkim_selector_3}._domainkey.email.${var.domain_name}"
-  type    = "CNAME"
-  ttl     = 600
-  records = [var.resend_dkim_cname_3]
-}
-
-# DMARC — monitor-only first. Bump to p=quarantine once Resend reports
-# come back clean for ~2 weeks of production traffic.
-resource "aws_route53_record" "email_dmarc" {
-  count   = local.email_dns_enabled ? 1 : 0
-  zone_id = local.zone_id
-  name    = "_dmarc.email.${var.domain_name}"
+  name    = "_dmarc.${var.domain_name}"
   type    = "TXT"
   ttl     = 600
   records = [
@@ -322,18 +289,118 @@ resource "aws_route53_record" "email_dmarc" {
   ]
 }
 
-# MX so replies to noreply@email.<domain> at least get routed somewhere
-# (Resend's bounce handler). If you want real inbound mail routing later,
-# swap this for your own inbound MX — until then this is a "drop quietly"
-# endpoint.
-resource "aws_route53_record" "email_mx" {
-  count   = local.email_dns_enabled ? 1 : 0
+# Inbound MX — only when explicitly enabled. Routes replies to
+# Resend's inbound endpoint (which can forward to a webhook).
+resource "aws_route53_record" "resend_inbound_mx" {
+  count   = local.resend_dns_enabled && var.resend_enable_inbound ? 1 : 0
   zone_id = local.zone_id
   name    = "email.${var.domain_name}"
   type    = "MX"
   ttl     = 600
   records = [
-    "10 feedback-smtp.ap-southeast-2.amazonses.com"
+    "10 inbound-smtp.${var.resend_aws_region}.amazonaws.com"
+  ]
+}
+
+# ── Stripe Connect "Pay" domain (pay.elevatedpos.com.au) ──────────────────────
+#
+# Stripe's hosted payment / Connect-branded pages are served from
+# pay.<domain> when a Custom Domain is configured. The Stripe dashboard
+# (Settings → Custom domains, or in some flows Connect → Branding → Domain)
+# lists exactly nine records:
+#
+#   • TXT     pay                                  stripe-verification=<token>
+#   • CNAME   <hash1>._domainkey.pay   →           <hash1>.dkim.custom-email-domain.stripe.com
+#   • CNAME   <hash2>._domainkey.pay   →           <hash2>.dkim.custom-email-domain.stripe.com
+#   • CNAME   <hash3>._domainkey.pay   →           <hash3>.dkim.custom-email-domain.stripe.com
+#   • CNAME   <hash4>._domainkey.pay   →           <hash4>.dkim.custom-email-domain.stripe.com
+#   • CNAME   <hash5>._domainkey.pay   →           <hash5>.dkim.custom-email-domain.stripe.com
+#   • CNAME   <hash6>._domainkey.pay   →           <hash6>.dkim.custom-email-domain.stripe.com
+#   • CNAME   bounce.pay               →           custom-email-domain.stripe.com
+#   • TXT     _dmarc.pay                          (DMARC policy of your choice)
+#
+# Each `<hashN>` is a 32-char alphanumeric string Stripe generates per
+# account. They appear in BOTH the record name (left column in the
+# dashboard) and the value (right column). All six hashes go into the
+# `stripe_pay_dkim_selectors` list variable below, in any order.
+#
+# After `terraform apply`, click "Try verifying now" in the Stripe
+# dashboard. All nine rows should flip from Pending to Verified within
+# a few minutes once DNS propagates.
+
+variable "stripe_pay_verification_token" {
+  description = "Stripe-issued domain verification token. From the dashboard: TXT 'pay' value, the part AFTER 'stripe-verification='."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "stripe_pay_dkim_selectors" {
+  description = "Six DKIM selector hashes from the Stripe dashboard CNAME records. Each is 32 alphanumeric characters and appears in both the Name (<hash>._domainkey.pay) and the Value (<hash>.dkim.custom-email-domain.stripe.com) columns."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.stripe_pay_dkim_selectors) == 0 || length(var.stripe_pay_dkim_selectors) == 6
+    error_message = "stripe_pay_dkim_selectors must contain exactly 6 selectors (or be empty to skip the Stripe Pay records)."
+  }
+}
+
+locals {
+  # Both the verification token AND all 6 DKIM selectors must be set.
+  # Half-configured DNS would let Stripe's verifier flap.
+  stripe_pay_dns_enabled = (
+    var.stripe_pay_verification_token != "" &&
+    length(var.stripe_pay_dkim_selectors) == 6
+  )
+}
+
+# Stripe domain verification TXT
+resource "aws_route53_record" "stripe_pay_verification" {
+  count   = local.stripe_pay_dns_enabled ? 1 : 0
+  zone_id = local.zone_id
+  name    = "pay.${var.domain_name}"
+  type    = "TXT"
+  ttl     = 600
+  records = [
+    "stripe-verification=${var.stripe_pay_verification_token}"
+  ]
+}
+
+# Stripe DKIM CNAMEs — one per selector
+resource "aws_route53_record" "stripe_pay_dkim" {
+  count   = local.stripe_pay_dns_enabled ? 6 : 0
+  zone_id = local.zone_id
+  name    = "${var.stripe_pay_dkim_selectors[count.index]}._domainkey.pay.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 600
+  records = [
+    "${var.stripe_pay_dkim_selectors[count.index]}.dkim.custom-email-domain.stripe.com"
+  ]
+}
+
+# Stripe bounce CNAME
+resource "aws_route53_record" "stripe_pay_bounce" {
+  count   = local.stripe_pay_dns_enabled ? 1 : 0
+  zone_id = local.zone_id
+  name    = "bounce.pay.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 600
+  records = [
+    "custom-email-domain.stripe.com"
+  ]
+}
+
+# DMARC for the pay subdomain — Stripe's UI accepts any policy you write.
+# Mirror the email DMARC pattern (monitor first, tighten later).
+resource "aws_route53_record" "stripe_pay_dmarc" {
+  count   = local.stripe_pay_dns_enabled ? 1 : 0
+  zone_id = local.zone_id
+  name    = "_dmarc.pay.${var.domain_name}"
+  type    = "TXT"
+  ttl     = 600
+  records = [
+    "v=DMARC1; p=none; rua=mailto:dmarc@${var.domain_name}"
   ]
 }
 

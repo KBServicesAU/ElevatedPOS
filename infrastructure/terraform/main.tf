@@ -88,11 +88,11 @@ module "vpc" {
   private_subnets = var.private_subnet_cidrs
   public_subnets  = var.public_subnet_cidrs
 
-  enable_nat_gateway     = true
-  single_nat_gateway     = var.environment != "prod"
-  enable_vpn_gateway     = false
-  enable_dns_hostnames   = true
-  enable_dns_support     = true
+  enable_nat_gateway   = true
+  single_nat_gateway   = var.environment != "prod"
+  enable_vpn_gateway   = false
+  enable_dns_hostnames = true
+  enable_dns_support   = true
 
   public_subnet_tags = {
     "kubernetes.io/role/elb" = "1"
@@ -176,10 +176,10 @@ resource "aws_db_instance" "elevatedpos" {
   db_subnet_group_name   = aws_db_subnet_group.elevatedpos.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
-  multi_az               = false
-  publicly_accessible    = false
-  deletion_protection    = false
-  skip_final_snapshot    = true
+  multi_az                  = false
+  publicly_accessible       = false
+  deletion_protection       = false
+  skip_final_snapshot       = true
   final_snapshot_identifier = null
 
   backup_retention_period = var.environment == "prod" ? 1 : 0
@@ -220,9 +220,9 @@ resource "aws_elasticache_replication_group" "elevatedpos" {
   replication_group_id = "elevatedpos-${var.environment}"
   description          = "ElevatedPOS Redis cache"
 
-  node_type            = var.redis_node_type
-  num_cache_clusters   = var.environment == "prod" ? 2 : 1
-  port                 = 6379
+  node_type          = var.redis_node_type
+  num_cache_clusters = var.environment == "prod" ? 2 : 1
+  port               = 6379
 
   subnet_group_name  = aws_elasticache_subnet_group.elevatedpos.name
   security_group_ids = [aws_security_group.redis.id]

@@ -15,3 +15,39 @@ eks_node_instance_type    = "t3.medium"
 eks_node_desired_capacity = 2
 eks_node_min_capacity     = 1
 eks_node_max_capacity     = 5
+
+# ── Resend (email sending) ──────────────────────────────────────────────────
+# From Resend dashboard → Domains → email.elevatedpos.com.au → DNS Records.
+# The DKIM TXT row shows `p=MIGfMA0GCSqG...IDAQAB`. Paste EVERYTHING after
+# `p=` (no leading `p=`, no surrounding quotes). Long base64 string.
+resend_dkim_public_key = ""
+
+# Region of the Resend SES backend (visible in the dashboard MX values:
+# `feedback-smtp.<REGION>.amazonses.com`). AU is ap-southeast-2.
+resend_aws_region = "ap-southeast-2"
+
+# Set true to also publish the inbound MX (`email`). Default false — only
+# needed if you process inbound replies. Leave false unless that changes.
+resend_enable_inbound = false
+
+# ── Stripe Connect "Pay" domain ─────────────────────────────────────────────
+# From the Stripe "Connect your domain" dialog (Settings → Custom domains
+# → pay.elevatedpos.com.au).
+#
+# The TXT row labelled `pay` has value `stripe-verification=<token>`.
+# Paste EVERYTHING after `stripe-verification=`.
+stripe_pay_verification_token = ""
+
+# Six DKIM CNAME selectors. Each one appears in BOTH the Name and Value
+# columns in the dashboard, e.g.:
+#   Name:  3ozu4v756ams4f5udt3o2rgoe4mordwy._domainkey.pay
+#   Value: 3ozu4v756ams4f5udt3o2rgoe4mordwy.dkim.custom-email-domain.stripe.com
+# Just the 32-char hash on the left side. Order doesn't matter.
+stripe_pay_dkim_selectors = [
+  # "PASTE_HASH_1",
+  # "PASTE_HASH_2",
+  # "PASTE_HASH_3",
+  # "PASTE_HASH_4",
+  # "PASTE_HASH_5",
+  # "PASTE_HASH_6",
+]
