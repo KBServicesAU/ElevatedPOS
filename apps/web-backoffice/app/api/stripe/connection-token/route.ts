@@ -27,7 +27,7 @@ export async function POST() {
   }
 
   try {
-    const stripe = new Stripe(secretKey, { apiVersion: '2026-03-25.dahlia' });
+    const stripe = new Stripe(secretKey);
     const token = await stripe.terminal.connectionTokens.create();
     // When STRIPE_TERMINAL_SIMULATED is set we still return a real connection
     // token (the SDK requires one even for simulated readers) but we tell the

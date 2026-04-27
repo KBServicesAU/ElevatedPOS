@@ -29,7 +29,7 @@ export default function ServicesTemplate({ org }: { org: OrgInfo }) {
         ) : services.length === 0 ? (
           <div className="text-center py-12">
             <h2 className="text-2xl font-bold mb-2">Services coming soon</h2>
-            <p className="text-gray-600">We're adding our services to the site. Please call us to book in the meantime.</p>
+            <p className="text-gray-600">We&apos;re adding our services to the site. Please call us to book in the meantime.</p>
           </div>
         ) : (
           <BookingForm org={org} primary={primary} />
@@ -132,7 +132,7 @@ function BookingForm({ org, primary }: { org: OrgInfo; primary: string }) {
         Continue to payment →
       </button>
       <p className="text-xs text-gray-500 text-center">
-        Secure payment via Stripe. You'll receive a confirmation by SMS.
+        Secure payment via Stripe. You&apos;ll receive a confirmation by SMS.
       </p>
     </form>
   );

@@ -38,7 +38,7 @@ export default async function HospitalityTemplate({ org }: { org: OrgInfo }) {
           >
             <h2 className="text-2xl font-bold mb-2">Reserve a table</h2>
             <p className="text-gray-600 mb-6">
-              Pick a date and time that suits you — we'll confirm by SMS.
+              Pick a date and time that suits you — we&apos;ll confirm by SMS.
             </p>
             <ReservationPicker primary={primary} slug={org.slug} />
           </div>
@@ -49,7 +49,7 @@ export default async function HospitalityTemplate({ org }: { org: OrgInfo }) {
         <h2 className="text-3xl font-bold mb-8">Menu</h2>
         {products.length === 0 ? (
           <p className="text-gray-500 text-center py-12">
-            Menu coming soon — contact us for today's specials.
+            Menu coming soon — contact us for today&apos;s specials.
           </p>
         ) : (
           <div className="space-y-12">
@@ -199,7 +199,7 @@ function ReservationPicker({ primary, slug }: { primary: string; slug: string })
         Request reservation
       </button>
       <p className="text-xs text-gray-500 mt-2 text-center">
-        We'll confirm by SMS within 30 minutes.
+        We&apos;ll confirm by SMS within 30 minutes.
       </p>
     </form>
   );

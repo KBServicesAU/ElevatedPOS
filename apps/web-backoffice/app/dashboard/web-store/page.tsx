@@ -184,7 +184,7 @@ export default function WebStoreDashboardPage() {
               {data.enabled ? 'Your web store is live.' : 'Your web store is disabled.'}
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-              When disabled, the public URL shows a "coming soon" message.
+              When disabled, the public URL shows a &ldquo;coming soon&rdquo; message.
             </p>
           </div>
           <Toggle on={data.enabled} onChange={(v) => update('enabled', v)} />
@@ -301,7 +301,7 @@ export default function WebStoreDashboardPage() {
             onChange={(v) => update('reservationsEnabled', v)}
           />
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-            Menu items are pulled automatically from <a href="/dashboard/catalog" className="underline">Catalog</a> — products with the "Web Store" channel enabled appear on your site.
+            Menu items are pulled automatically from <a href="/dashboard/catalog" className="underline">Catalog</a> — products with the &ldquo;Web Store&rdquo; channel enabled appear on your site.
           </p>
         </Section>
       )}
@@ -352,7 +352,7 @@ export default function WebStoreDashboardPage() {
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave empty for free shipping.</p>
           </Field>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-            Products are pulled automatically from <a href="/dashboard/catalog" className="underline">Catalog</a> — set the channel to "Web Store" or "Both" to make a product appear on your site.
+            Products are pulled automatically from <a href="/dashboard/catalog" className="underline">Catalog</a> — set the channel to &ldquo;Web Store&rdquo; or &ldquo;Both&rdquo; to make a product appear on your site.
           </p>
         </Section>
       )}

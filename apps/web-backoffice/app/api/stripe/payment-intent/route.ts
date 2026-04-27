@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const stripe = new Stripe(secretKey, { apiVersion: '2026-03-25.dahlia' });
+    const stripe = new Stripe(secretKey);
     const paymentIntent = await stripe.paymentIntents.create({
       amount,
       currency,
