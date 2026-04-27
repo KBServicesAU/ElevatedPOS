@@ -106,6 +106,7 @@ const nav: NavItem[] = [
 
   // ── Reports ───────────────────────────────────────────────────────────────
   { href: '/dashboard/reports',             icon: BarChart3,       label: 'Reports',           roles: OPS },
+  { href: '/dashboard/terminal-logs',       icon: Receipt,         label: 'Terminal Logs',     roles: OPS },
 
   // ── Finance ───────────────────────────────────────────────────────────────
   { href: '/dashboard/payments',            icon: CreditCard,      label: 'Payments & Connect', roles: ADMIN },

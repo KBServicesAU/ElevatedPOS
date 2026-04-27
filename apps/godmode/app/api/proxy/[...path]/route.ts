@@ -3,12 +3,17 @@ import { cookies } from 'next/headers';
 
 const AUTH_API_URL = process.env['AUTH_API_URL'] ?? 'http://localhost:4001';
 const INTEGRATIONS_API_URL = process.env['INTEGRATIONS_API_URL'] ?? 'http://localhost:4010';
+// v2.7.48 — orders service hosts the ANZ TIM API audit log
+// (terminal_transactions). Used by the Godmode Terminal Logs page to
+// drill in across orgs.
+const ORDERS_API_URL = process.env['ORDERS_API_URL'] ?? 'http://localhost:4004';
 
 // Map path prefixes to service base URLs.
 // The first segment of the proxy path determines which upstream service to hit.
 const SERVICE_MAP: Record<string, string> = {
   platform: AUTH_API_URL,
   integrations: INTEGRATIONS_API_URL,
+  godmode: ORDERS_API_URL,
 };
 
 function resolveServiceUrl(pathSegments: string[]): string {

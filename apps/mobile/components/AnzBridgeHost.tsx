@@ -12,6 +12,11 @@ import { WebView } from 'react-native-webview';
 import { useAnzStore } from '../store/anz';
 import { getServerAnzConfig } from '../store/device-settings';
 import { useTillStore } from '../store/till';
+import {
+  logTerminalTx,
+  type TerminalTxOutcome,
+  type TerminalTxType,
+} from '../lib/terminal-tx-log';
 
 /**
  * AnzBridgeHost
@@ -64,20 +69,37 @@ export interface AnzBridgeApi {
   capabilities: AnzCapabilities | null;
   openTill: () => Promise<void>;
   closeTill: () => Promise<void>;
-  transaction: (amountCents: number, referenceId?: string) => Promise<AnzTransactionResult>;
+  /**
+   * Run a card-present purchase. `orderId` is plumbed through to the
+   * audit log (`terminal_transactions.order_id`) so support staff can
+   * cross-reference an ANZ row to the parent POS order.
+   */
+  transaction: (
+    amountCents: number,
+    referenceId?: string,
+    orderId?: string,
+  ) => Promise<AnzTransactionResult>;
   /**
    * Refund `amountCents` to whichever card is presented on the terminal.
    * Internally runs the TIM API credit (refund) primitive. Same response
    * shape as `transaction()` — including the merchant + customer receipts
    * to be re-printed alongside the POS refund slip.
    */
-  refund: (amountCents: number, referenceId?: string) => Promise<AnzTransactionResult>;
+  refund: (
+    amountCents: number,
+    referenceId?: string,
+    orderId?: string,
+  ) => Promise<AnzTransactionResult>;
   /**
    * Reverse the most recent card transaction for the same amount. Used
    * to undo a card-present sale when the card is still in hand. Callers
    * should guard on same-shift + card-paid before invoking this.
    */
-  reverse: (amountCents: number, originalTransactionRef?: string | null) => Promise<AnzTransactionResult>;
+  reverse: (
+    amountCents: number,
+    originalTransactionRef?: string | null,
+    orderId?: string,
+  ) => Promise<AnzTransactionResult>;
   /**
    * Trigger an EOD reconciliation (bank settlement) on the terminal.
    * The ANZ Worldline SDK runs `reconciliationAsync()` which clears the
@@ -106,6 +128,15 @@ interface PendingRequest {
   reject: (error: Error) => void;
   /** Kind of request — used to map response types back to the right promise. */
   kind: 'open' | 'close' | 'transaction' | 'refund' | 'reversal' | 'reconcile';
+  /**
+   * v2.7.48 — context captured at request time so the audit log entry can
+   * be filled in from the bridge response without the call site having to
+   * re-supply amount/reference/etc.
+   */
+  startedAt: number;
+  amountCents: number | null;
+  referenceId: string | null;
+  orderId: string | null;
 }
 
 type BridgeMessage =
@@ -206,9 +237,33 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
 
   const [state, setState] = useState<AnzBridgeState>('idle');
   const [capabilities, setCapabilities] = useState<AnzCapabilities | null>(null);
+  /**
+   * v2.7.48 — keep a ref of the last-known capabilities so the audit
+   * logger can snapshot them on every transaction without React having
+   * to re-read state through the closure.
+   */
+  const capabilitiesRef = useRef<AnzCapabilities | null>(null);
+  useEffect(() => { capabilitiesRef.current = capabilities; }, [capabilities]);
 
   const terminalIp   = useAnzStore((s) => s.config.terminalIp);
   const terminalPort = useAnzStore((s) => s.config.terminalPort);
+
+  /**
+   * v2.7.48 — map a PendingRequest.kind to the audit log
+   * `transaction_type` enum. Open / close till are recorded as
+   * 'logon' / 'logoff' so ANZ certification reviewers can see them
+   * alongside purchases in a single log file.
+   */
+  const kindToTxType = useCallback((kind: PendingRequest['kind']): TerminalTxType => {
+    switch (kind) {
+      case 'open':        return 'logon';
+      case 'close':       return 'logoff';
+      case 'transaction': return 'purchase';
+      case 'refund':      return 'refund';
+      case 'reversal':    return 'reversal';
+      case 'reconcile':   return 'reconcile';
+    }
+  }, []);
 
   const sendRaw = useCallback((payload: string) => {
     if (sdkReadyRef.current && webviewRef.current) {
@@ -281,6 +336,19 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
           const pending = pendingRef.current.get(reqId);
           if (pending) {
             pendingRef.current.delete(reqId);
+            // v2.7.48 — log the successful logon for ANZ cert evidence.
+            try {
+              logTerminalTx({
+                outcome: 'approved',
+                transactionType: 'logon',
+                amountCents: null,
+                referenceId: pending.referenceId,
+                orderId: pending.orderId,
+                durationMs: Date.now() - pending.startedAt,
+                timCapabilities: msg.capabilities ?? null,
+                raw: msg,
+              });
+            } catch { /* never fail the user flow on a log post */ }
             pending.resolve(undefined);
           }
         }
@@ -316,6 +384,18 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
           const pending = pendingRef.current.get(reqId);
           if (pending) {
             pendingRef.current.delete(reqId);
+            try {
+              logTerminalTx({
+                outcome: 'approved',
+                transactionType: 'logoff',
+                amountCents: null,
+                referenceId: pending.referenceId,
+                orderId: pending.orderId,
+                durationMs: Date.now() - pending.startedAt,
+                timCapabilities: capabilitiesRef.current,
+                raw: msg,
+              });
+            } catch { /* never fail the user flow on a log post */ }
             pending.resolve(undefined);
           }
         }
@@ -330,6 +410,19 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
           const pending = pendingRef.current.get(reqId);
           if (pending) {
             pendingRef.current.delete(reqId);
+            try {
+              logTerminalTx({
+                outcome: 'approved',
+                transactionType: 'reconcile',
+                amountCents: null,
+                referenceId: pending.referenceId,
+                orderId: pending.orderId,
+                durationMs: Date.now() - pending.startedAt,
+                timCapabilities: capabilitiesRef.current,
+                merchantReceipt: msg.reconciliationReceipt ?? null,
+                raw: msg,
+              });
+            } catch { /* never fail the user flow on a log post */ }
             pending.resolve({ reconciliationReceipt: msg.reconciliationReceipt ?? null });
           }
         }
@@ -354,6 +447,25 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
               merchantReceipt: msg.merchantReceipt ?? null,
               customerReceipt: msg.customerReceipt ?? null,
             };
+            try {
+              logTerminalTx({
+                outcome: 'approved',
+                transactionType: kindToTxType(pending.kind),
+                amountCents: pending.amountCents,
+                referenceId: pending.referenceId,
+                orderId: pending.orderId,
+                transactionRef: result.transactionRef,
+                authCode: result.authCode,
+                rrn: result.rrn,
+                maskedPan: result.maskedPan,
+                cardType: result.cardType,
+                merchantReceipt: result.merchantReceipt,
+                customerReceipt: result.customerReceipt,
+                durationMs: Date.now() - pending.startedAt,
+                timCapabilities: capabilitiesRef.current,
+                raw: msg,
+              });
+            } catch { /* never fail the user flow on a log post */ }
             pending.resolve(result);
           }
         }
@@ -368,10 +480,28 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
           const pending = pendingRef.current.get(reqId);
           if (pending) {
             pendingRef.current.delete(reqId);
+            const declineCode = typeof msg.declineCode === 'string'
+              ? Number(msg.declineCode) || null
+              : null;
+            try {
+              logTerminalTx({
+                outcome: 'declined',
+                transactionType: kindToTxType(pending.kind),
+                amountCents: pending.amountCents,
+                referenceId: pending.referenceId,
+                orderId: pending.orderId,
+                errorCategory: 'declined',
+                errorCode: declineCode,
+                errorMessage: msg.message ?? 'Declined',
+                durationMs: Date.now() - pending.startedAt,
+                timCapabilities: capabilitiesRef.current,
+                raw: msg,
+              });
+            } catch { /* never fail the user flow on a log post */ }
             pending.reject(new AnzBridgeError({
               message: msg.message ?? 'Declined',
               category: 'declined',
-              code: typeof msg.declineCode === 'string' ? Number(msg.declineCode) || null : null,
+              code: declineCode,
             }));
           }
         }
@@ -386,6 +516,30 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
           const pending = pendingRef.current.get(reqId);
           if (pending) {
             pendingRef.current.delete(reqId);
+            // v2.7.48 — distinguish timeouts and aborts from generic
+            // errors so the dashboard log can filter on outcome and
+            // ANZ cert reviewers can see the full picture.
+            const outcome: TerminalTxOutcome = msg.timedOut
+              ? 'timeout'
+              : msg.category === 'aborted' || /cancel/i.test(errMsg)
+                ? 'cancelled'
+                : 'error';
+            try {
+              logTerminalTx({
+                outcome,
+                transactionType: kindToTxType(pending.kind),
+                amountCents: pending.amountCents,
+                referenceId: pending.referenceId,
+                orderId: pending.orderId,
+                errorCategory: msg.category ?? null,
+                errorCode: msg.code ?? null,
+                errorMessage: errMsg,
+                errorStep: msg.step ?? null,
+                durationMs: Date.now() - pending.startedAt,
+                timCapabilities: capabilitiesRef.current,
+                raw: msg,
+              });
+            } catch { /* never fail the user flow on a log post */ }
             pending.reject(new AnzBridgeError({
               message: errMsg,
               category: msg.category ?? null,
@@ -440,7 +594,13 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
       }
 
       const requestId = makeRequestId();
-      pendingRef.current.set(requestId, { resolve, reject, kind: 'open' });
+      pendingRef.current.set(requestId, {
+        resolve, reject, kind: 'open',
+        startedAt: Date.now(),
+        amountCents: null,
+        referenceId: null,
+        orderId: null,
+      });
       setState('opening');
 
       const payload: Record<string, unknown> = {
@@ -462,7 +622,13 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
   const closeTill = useCallback<AnzBridgeApi['closeTill']>(() => {
     return new Promise<void>((resolve, reject) => {
       const requestId = makeRequestId();
-      pendingRef.current.set(requestId, { resolve, reject, kind: 'close' });
+      pendingRef.current.set(requestId, {
+        resolve, reject, kind: 'close',
+        startedAt: Date.now(),
+        amountCents: null,
+        referenceId: null,
+        orderId: null,
+      });
       setState('closing');
       sendRaw(JSON.stringify({ type: 'close_till', requestId }));
     });
@@ -478,7 +644,13 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
     if (inflightReconcileRef.current) return inflightReconcileRef.current;
     const p = new Promise<{ reconciliationReceipt: string | null }>((resolve, reject) => {
       const requestId = makeRequestId();
-      pendingRef.current.set(requestId, { resolve, reject, kind: 'reconcile' });
+      pendingRef.current.set(requestId, {
+        resolve, reject, kind: 'reconcile',
+        startedAt: Date.now(),
+        amountCents: null,
+        referenceId: null,
+        orderId: null,
+      });
       sendRaw(JSON.stringify({ type: 'reconcile', requestId }));
     });
     inflightReconcileRef.current = p;
@@ -487,7 +659,7 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
   }, [makeRequestId, sendRaw]);
 
   const transaction = useCallback<AnzBridgeApi['transaction']>(
-    async (amountCents, referenceId) => {
+    async (amountCents, referenceId, orderId) => {
       // Self-heal: if the user is mid-shift (till store says open) but the
       // bridge has no live terminal (e.g. the WebView just reloaded), run
       // open_till first so the transaction doesn't fail with
@@ -506,7 +678,13 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
 
       return new Promise<AnzTransactionResult>((resolve, reject) => {
         const requestId = makeRequestId();
-        pendingRef.current.set(requestId, { resolve, reject, kind: 'transaction' });
+        pendingRef.current.set(requestId, {
+          resolve, reject, kind: 'transaction',
+          startedAt: Date.now(),
+          amountCents: Math.round(amountCents),
+          referenceId: referenceId ?? null,
+          orderId: orderId ?? null,
+        });
         setState('transacting');
         const payload: Record<string, unknown> = {
           type: 'transaction',
@@ -528,7 +706,7 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
    */
   const inflightRefundRef = useRef<Promise<AnzTransactionResult> | null>(null);
   const refund = useCallback<AnzBridgeApi['refund']>(
-    async (amountCents, referenceId) => {
+    async (amountCents, referenceId, orderId) => {
       if (inflightRefundRef.current) return inflightRefundRef.current;
 
       // Self-heal: same as transaction() — if we're mid-shift but the
@@ -547,7 +725,13 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
 
       const p = new Promise<AnzTransactionResult>((resolve, reject) => {
         const requestId = makeRequestId();
-        pendingRef.current.set(requestId, { resolve, reject, kind: 'refund' });
+        pendingRef.current.set(requestId, {
+          resolve, reject, kind: 'refund',
+          startedAt: Date.now(),
+          amountCents: Math.round(amountCents),
+          referenceId: referenceId ?? null,
+          orderId: orderId ?? null,
+        });
         setState('transacting');
         const payload: Record<string, unknown> = {
           type: 'refund',
@@ -571,7 +755,7 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
    */
   const inflightReverseRef = useRef<Promise<AnzTransactionResult> | null>(null);
   const reverse = useCallback<AnzBridgeApi['reverse']>(
-    async (amountCents, originalTransactionRef) => {
+    async (amountCents, originalTransactionRef, orderId) => {
       if (inflightReverseRef.current) return inflightReverseRef.current;
 
       const storeOpen = useTillStore.getState().isOpen;
@@ -587,7 +771,13 @@ export function AnzBridgeProvider({ children }: { children: React.ReactNode }) {
 
       const p = new Promise<AnzTransactionResult>((resolve, reject) => {
         const requestId = makeRequestId();
-        pendingRef.current.set(requestId, { resolve, reject, kind: 'reversal' });
+        pendingRef.current.set(requestId, {
+          resolve, reject, kind: 'reversal',
+          startedAt: Date.now(),
+          amountCents: Math.round(amountCents),
+          referenceId: originalTransactionRef ?? null,
+          orderId: orderId ?? null,
+        });
         setState('transacting');
         const payload: Record<string, unknown> = {
           type: 'reversal',
