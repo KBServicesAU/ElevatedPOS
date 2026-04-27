@@ -336,10 +336,15 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.AUTOMATIONS_API_URL ?? 'http://localhost:4011',
     prefix: '/api/v1/automation-rules',
   },
-  // "inventory" alias for stock service
+  // "inventory" alias for stock service.
+  // v2.7.51 — the inventory service registers its routes under
+  // /api/v1/stock, not /api/v1/inventory. The previous mapping pointed
+  // at a non-existent prefix so every `/api/proxy/inventory/...` call
+  // 404'd, which surfaced as "Could not connect to the inventory
+  // service" on the dashboard. Re-point at the actual prefix.
   inventory: {
     base: process.env.INVENTORY_API_URL ?? 'http://localhost:4003',
-    prefix: '/api/v1/inventory',
+    prefix: '/api/v1/stock',
   },
   // Reservations + settings — integrations service (restaurant & service bookings)
   reservations: {

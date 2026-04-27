@@ -71,9 +71,41 @@ function CustomerDetailPanel({ customer, onClose }: { customer: Customer; onClos
   useEffect(() => {
     if (activeTab === 'timeline') {
       setLoadingTimeline(true);
-      fetch(`/api/proxy/crm/customers/${customer.id}/timeline`)
-        .then((r) => r.json())
-        .then((d) => setTimeline(d.events ?? []))
+      // v2.7.51 — the CRM timeline endpoint does an internal
+      // service-to-service call to orders that has been failing in some
+      // environments and returning an empty events array. Fetch orders
+      // directly via /api/v1/orders?customerId=<id> as well, then merge,
+      // so the customer detail panel always shows their receipts.
+      Promise.all([
+        fetch(`/api/proxy/crm/customers/${customer.id}/timeline`)
+          .then((r) => r.ok ? r.json() : { events: [] })
+          .catch(() => ({ events: [] as TimelineEvent[] })),
+        fetch(`/api/proxy/orders?customerId=${customer.id}&limit=20`)
+          .then((r) => r.ok ? r.json() : { data: [] })
+          .catch(() => ({ data: [] as Array<Record<string, unknown>> })),
+      ])
+        .then(([timelineRes, ordersRes]) => {
+          const events: TimelineEvent[] = (timelineRes as { events?: TimelineEvent[] }).events ?? [];
+          const orders = (ordersRes as { data?: Array<Record<string, unknown>> }).data ?? [];
+
+          // Merge in any orders that the timeline endpoint missed.
+          const seenOrderIds = new Set(events.filter((e) => e.type === 'order').map((e) => (e.metadata as { orderId?: string })?.orderId));
+          for (const o of orders) {
+            const oid = (o['id'] as string | undefined) ?? '';
+            if (!oid || seenOrderIds.has(oid)) continue;
+            const total = Number(o['total'] ?? 0);
+            const orderNumber = (o['orderNumber'] as string | undefined) ?? oid.slice(0, 8);
+            events.push({
+              type: 'order',
+              date: String(o['createdAt'] ?? o['completedAt'] ?? new Date().toISOString()),
+              description: `Order #${orderNumber} — $${total.toFixed(2)}`,
+              metadata: { orderId: oid, total, status: o['status'] },
+            });
+          }
+          // Newest first
+          events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          setTimeline(events);
+        })
         .catch(() => setTimeline([]))
         .finally(() => setLoadingTimeline(false));
     } else {

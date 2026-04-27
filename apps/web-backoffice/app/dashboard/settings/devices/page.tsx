@@ -11,10 +11,14 @@ import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// v2.7.51 — broaden the Role union to match all roles the API can return.
+// Previously a paired customer-display / dashboard / signage device threw
+// "Cannot destructure property 'label' of 'j[t]' as it is undefined" in
+// RoleBadge because ROLE_META had no entry for that role.
 interface Device {
   id: string;
   label?: string;
-  role: 'pos' | 'kds' | 'kiosk';
+  role: Role;
   locationId: string;
   lastSeenAt?: string;
   status: 'active' | 'inactive' | 'revoked';
@@ -32,7 +36,7 @@ interface PairingCodeResponse {
   expiresAt: string;
 }
 
-type Role = 'pos' | 'kds' | 'kiosk';
+type Role = 'pos' | 'kds' | 'kiosk' | 'customer-display' | 'dashboard' | 'display';
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 
@@ -40,10 +44,19 @@ const ROLE_META: Record<Role, { label: string; Icon: React.ElementType; color: s
   pos:   { label: 'POS Terminal',       Icon: Monitor, color: 'text-indigo-400', badge: 'bg-indigo-900/50 text-indigo-300 border-indigo-800' },
   kds:   { label: 'Kitchen Display',    Icon: ChefHat, color: 'text-yellow-400', badge: 'bg-yellow-900/50 text-yellow-300 border-yellow-800' },
   kiosk: { label: 'Self-Serve Kiosk',   Icon: Tablet,  color: 'text-amber-400',  badge: 'bg-amber-900/50  text-amber-300  border-amber-800'  },
+  // v2.7.51 — additional device roles paired from the apps. Previously
+  // RoleBadge crashed for any role outside { pos, kds, kiosk }.
+  'customer-display': { label: 'Customer Display', Icon: Monitor, color: 'text-purple-400', badge: 'bg-purple-900/50 text-purple-300 border-purple-800' },
+  dashboard:          { label: 'Dashboard',        Icon: Monitor, color: 'text-blue-400',   badge: 'bg-blue-900/50   text-blue-300   border-blue-800'   },
+  display:            { label: 'Signage',          Icon: Monitor, color: 'text-cyan-400',   badge: 'bg-cyan-900/50   text-cyan-300   border-cyan-800'   },
 };
 
+// Defensive fallback — any role not in the map renders as a generic badge.
+const FALLBACK_ROLE_META = { label: 'Device', Icon: Monitor, color: 'text-gray-400', badge: 'bg-gray-900/50 text-gray-300 border-gray-800' };
+
 function RoleBadge({ role }: { role: Role }) {
-  const { label, badge, Icon } = ROLE_META[role];
+  const meta = ROLE_META[role] ?? FALLBACK_ROLE_META;
+  const { label, badge, Icon } = meta;
   return (
     <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${badge}`}>
       <Icon className="h-3 w-3" />
@@ -178,7 +191,8 @@ function GenerateModal({ onClose, onGenerated }: GenerateModalProps) {
                 <label className="mb-1.5 block text-sm font-medium text-gray-300">Device Role</label>
                 <div className="grid grid-cols-3 gap-2">
                   {(['pos', 'kds', 'kiosk'] as const).map((r) => {
-                    const { label: rLabel, Icon, color } = ROLE_META[r];
+                    const meta = ROLE_META[r] ?? FALLBACK_ROLE_META;
+                    const { label: rLabel, Icon, color } = meta;
                     return (
                       <button
                         key={r}
@@ -383,7 +397,8 @@ export default function DevicesPage() {
           </div>
           <div className="grid grid-cols-3 gap-4 text-center">
             {(['pos', 'kds', 'kiosk'] as const).map((r) => {
-              const { label, Icon, color } = ROLE_META[r];
+              const meta = ROLE_META[r] ?? FALLBACK_ROLE_META;
+              const { label, Icon, color } = meta;
               const count = devices.filter((d) => d.role === r && d.status !== 'revoked').length;
               return (
                 <div key={r}>

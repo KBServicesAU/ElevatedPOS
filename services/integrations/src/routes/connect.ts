@@ -174,6 +174,18 @@ export async function connectRoutes(app: FastifyInstance) {
       businessName?: string; returnUrl?: string; refreshUrl?: string;
     };
 
+    // v2.7.51 — graceful 503 when Stripe isn't configured. Previously the
+    // route blew up inside `stripe.accounts.create` and the dashboard
+    // showed "Could not start setup" with no useful error.
+    if (!process.env['STRIPE_SECRET_KEY']) {
+      return reply.status(503).send({
+        type: 'https://elevatedpos.com/errors/stripe-not-configured',
+        title: 'Stripe Connect is not configured',
+        status: 503,
+        detail: 'STRIPE_SECRET_KEY environment variable is missing on the integrations service. Set it and restart the service to enable Stripe Connect onboarding.',
+      });
+    }
+
     const baseUrl = process.env['APP_URL'] ?? 'https://app.elevatedpos.com.au';
 
     // Check if already has a connect account

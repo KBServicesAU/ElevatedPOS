@@ -28,7 +28,12 @@ interface TaxRate {
   percent: number;
 }
 
-type Tab = 'organisation' | 'locations' | 'hours' | 'receipts' | 'tax' | 'notifications' | 'devices' | 'printers';
+// v2.7.51 — `locations` lives at /dashboard/locations now; the duplicate
+// settings tab was a no-op. `printers` is fully owned by the POS/Kiosk
+// More page, so the dashboard tab + /dashboard/settings/printers route
+// are removed. The `receipts` tab now houses the receipt template
+// settings (logo / order# / header / footer with a live preview).
+type Tab = 'organisation' | 'hours' | 'receipts' | 'tax' | 'notifications' | 'devices';
 
 // ─── Toggle Switch ────────────────────────────────────────────────────────────
 
@@ -1167,13 +1172,11 @@ function TradingHoursTab() {
 
 const TABS: { id: Tab; label: string; icon: React.ElementType; href?: string }[] = [
   { id: 'organisation', label: 'Organisation', icon: Building },
-  { id: 'locations', label: 'Locations', icon: MapPin },
   { id: 'hours', label: 'Trading Hours', icon: Clock },
   { id: 'receipts', label: 'Receipts', icon: PrinterIcon },
   { id: 'tax', label: 'Tax / GST', icon: Receipt },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'devices', label: 'Devices', icon: Smartphone, href: '/dashboard/settings/devices' },
-  { id: 'printers', label: 'Printers', icon: PrinterIcon, href: '/dashboard/settings/printers' },
 ];
 
 export default function SettingsPage() {
@@ -1220,7 +1223,6 @@ export default function SettingsPage() {
       {/* Tab content */}
       <div>
         {activeTab === 'organisation' && <OrganisationTab />}
-        {activeTab === 'locations' && <LocationsTab />}
         {activeTab === 'hours' && <TradingHoursTab />}
         {activeTab === 'receipts' && <ReceiptsTab />}
         {activeTab === 'tax' && <TaxTab />}
