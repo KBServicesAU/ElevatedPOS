@@ -131,7 +131,15 @@ export interface Product {
   name: string;
   sku: string;
   basePrice: number;
-  status: string;
+  // v2.7.48 — the catalog service returns `isActive` (camelCased boolean),
+  // not `status: 'active' | 'inactive'`. Earlier dashboard code did
+  // `product.status === 'active'` against this `status` field which was
+  // always undefined → the toggle rendered every product as untick even
+  // when isActive was true in the DB. We keep `status` as an optional
+  // mirror for any legacy callers that still set it, but `isActive` is
+  // the source of truth that aligns with the POS app's CatalogProduct type.
+  isActive: boolean;
+  status?: string;
   productType: string;
   categoryId?: string;
   categoryName?: string;
@@ -148,13 +156,20 @@ export interface ProductsResponse {
 export function fetchProducts(params?: {
   search?: string;
   categoryId?: string;
+  /** Legacy 'active' | 'inactive' string — translated to ?isActive=true|false. */
   status?: string;
+  isActive?: boolean;
   limit?: number;
 }): Promise<ProductsResponse> {
   const qs = new URLSearchParams();
   if (params?.search) qs.set('search', params.search);
   if (params?.categoryId) qs.set('categoryId', params.categoryId);
-  if (params?.status) qs.set('status', params.status);
+  // v2.7.48 — the catalog service filters on `isActive` (boolean), not
+  // `status`. Map the legacy `status` param to the boolean form so callers
+  // that still pass status: 'active' continue to work.
+  if (params?.isActive !== undefined) qs.set('isActive', String(params.isActive));
+  else if (params?.status === 'active') qs.set('isActive', 'true');
+  else if (params?.status === 'inactive') qs.set('isActive', 'false');
   if (params?.limit) qs.set('limit', String(params.limit));
   return apiFetch<ProductsResponse>(`products?${qs}`);
 }
