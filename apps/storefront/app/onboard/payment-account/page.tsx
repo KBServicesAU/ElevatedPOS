@@ -38,41 +38,40 @@ const infoCards = [
 function PaymentAccountContent() {
   const searchParams = useSearchParams();
   const orgId = searchParams?.get('orgId') || '';
-  const plan = searchParams?.get('plan') || 'starter';
   const token = searchParams?.get('token') || '';
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const skipHref = `/onboard/subscription?orgId=${orgId}&plan=${plan}${token ? `&token=${token}` : ''}`;
+  // v2.7.51 — "Skip for now" no longer skips Stripe entirely. The
+  // subscription step requires a Stripe customer for the per-device
+  // subscription, but the merchant *can* defer Stripe Connect (collecting
+  // customer payments through us) until later. We carry the token forward
+  // so they can come back to this step.
+  const skipHref = `/onboard/subscription?orgId=${orgId}${token ? `&token=${token}` : ''}&skipConnect=1`;
 
   async function handleConnect() {
     setError('');
     setLoading(true);
     try {
-      const returnUrl = encodeURIComponent(
-        `${window.location.origin}/onboard/subscription?orgId=${orgId}&plan=${plan}&connected=true`,
-      );
-      const refreshUrl = encodeURIComponent(
-        `${window.location.origin}/onboard/payment-account?orgId=${orgId}&plan=${plan}&refresh=true`,
-      );
+      const returnUrl = `${window.location.origin}/onboard/subscription?orgId=${orgId}${token ? `&token=${token}` : ''}&connected=true`;
+      const refreshUrl = `${window.location.origin}/onboard/payment-account?orgId=${orgId}${token ? `&token=${token}` : ''}&refresh=true`;
       const res = await fetch('/api/onboard/connect-payments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orgId,
-          returnUrl: decodeURIComponent(returnUrl),
-          refreshUrl: decodeURIComponent(refreshUrl),
-        }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'x-onboarding-token': token } : {}),
+        },
+        body: JSON.stringify({ orgId, returnUrl, refreshUrl }),
       });
       const data = await res.json() as { url?: string; error?: string };
-      if (!res.ok) {
+      if (!res.ok || !data.url) {
         setError(data.error ?? 'Failed to start payment setup. Please try again.');
         return;
       }
-      if (data.url) {
-        window.location.href = data.url;
-      }
+      // Real Stripe Connect redirect — this is the fix. Previously the
+      // route silently fell through to the next step without touching Stripe.
+      window.location.href = data.url;
     } catch {
       setError('Network error. Please check your connection and try again.');
     } finally {

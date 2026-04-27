@@ -58,13 +58,21 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     const { email, password, deviceId, deviceName } = body.data;
+    const normalisedEmail = email.trim().toLowerCase();
 
     const employee = await db.query.employees.findFirst({
-      where: eq(schema.employees.email, email.toLowerCase()),
+      where: eq(schema.employees.email, normalisedEmail),
       with: { role: true },
     });
 
     if (!employee || !employee.passwordHash) {
+      // v2.7.51 — diagnostic log so we can debug the recurring "Email or
+      // password is incorrect" reports. Logs only the email + a boolean for
+      // whether a row was found, NEVER the password or hash.
+      request.log.warn(
+        { email: normalisedEmail, found: !!employee, hasPasswordHash: !!employee?.passwordHash },
+        '[auth/login] no matching employee or missing password hash',
+      );
       // v2.7.48-univlog — record auth_fail with the attempted email so
       // the merchant + Godmode see brute-force attempts in the activity feed.
       request.audit?.({
@@ -120,6 +128,15 @@ export async function authRoutes(app: FastifyInstance) {
 
     const valid = await verifyPassword(password, employee.passwordHash);
     if (!valid) {
+      // v2.7.51 — diagnostic log: bcrypt rejected the password. Includes the
+      // hash prefix ($2a$ / $2b$) and round count so we can spot bcrypt
+      // round mismatches across signup paths. Never logs the actual password
+      // or full hash.
+      const hashPrefix = employee.passwordHash.slice(0, 7);
+      request.log.warn(
+        { employeeId: employee.id, email: normalisedEmail, hashPrefix },
+        '[auth/login] bcrypt compare returned false',
+      );
       const attempts = employee.failedLoginAttempts + 1;
       const lockedUntil = attempts >= 5 ? new Date(Date.now() + 5 * 60 * 1000) : null;
 

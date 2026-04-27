@@ -180,11 +180,19 @@ export async function organisationRoutes(app: FastifyInstance) {
       },
     },
   }, async (request, reply) => {
-    const { businessName, email, password, firstName, lastName, abn, plan = 'starter', industry } = request.body as {
+    const { businessName, email: rawEmail, password, firstName, lastName, abn, plan = 'starter', industry } = request.body as {
       businessName: string; email: string; password: string;
       firstName: string; lastName: string; phone?: string; abn?: string; plan?: string;
       industry?: string;
     };
+
+    // v2.7.51 — normalise email at write time so the case-insensitive lookup
+    // in /login (which already does email.toLowerCase()) actually finds the
+    // employee row. Without this, signing up with "Jane@Acme.com" creates
+    // an employee row with that mixed-case email, and login (which lowercases
+    // its query input) can never match it. Manifests to the user as the
+    // ever-present "Email or password is incorrect" with correct details.
+    const email = rawEmail.trim().toLowerCase();
 
     // Plan limits
     const planLimits: Record<string, { maxLocations: number; maxDevices: number }> = {
@@ -307,14 +315,21 @@ export async function organisationRoutes(app: FastifyInstance) {
 </body>
 </html>`;
 
+      // v2.7.51 — the notifications service /email endpoint requires
+      // a `template` field (one of receipt/layby_statement/gift_card/
+      // campaign/roster/pickup_ready/custom). Sending only `htmlBody`
+      // returns a 422 Validation Error and the welcome email never
+      // arrives. Use the `custom` template, which renders the body
+      // string as-is.
       fetch(`${NOTIFICATIONS_API_URL}/api/v1/notifications/email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${internalToken}` },
         body: JSON.stringify({
           to: result.employee.email,
-          subject: `Verify your email — welcome to ElevatedPOS, ${firstName}!`,
-          htmlBody: verificationHtml,
+          subject: `Welcome to ElevatedPOS — verify your email, ${firstName}!`,
+          template: 'custom',
           orgId: result.org.id,
+          data: { body: verificationHtml },
         }),
       }).catch((err: unknown) => {
         console.error('[organisations/register] failed to send verification email', err instanceof Error ? err.message : String(err));
@@ -335,6 +350,23 @@ export async function organisationRoutes(app: FastifyInstance) {
         console.error('[organisations/register] failed to create Stripe Connect account', err instanceof Error ? err.message : String(err));
       });
 
+      // v2.7.51 — issue a real auth JWT for the new owner so the storefront
+      // can call authenticated endpoints (Stripe Connect onboarding,
+      // /api/v1/billing/setup, etc.) for the rest of the wizard. Without this,
+      // /onboard/connect-payments hits the integrations service unauthenticated
+      // and the route silently falls back to "skip Stripe" — which is exactly
+      // why the merchant saw "Payment account connected successfully!" without
+      // any Stripe redirect.
+      const onboardingToken = app.jwt.sign({
+        sub: result.employee.id,
+        orgId: result.org.id,
+        roleId: null,
+        permissions: {},
+        locationIds: [],
+        name: `${firstName} ${lastName}`,
+        email: result.employee.email,
+      });
+
       return reply.status(201).send({
         orgId: result.org.id,
         employeeId: result.employee.id,
@@ -342,6 +374,7 @@ export async function organisationRoutes(app: FastifyInstance) {
         businessName: result.org.name,
         plan: result.org.plan,
         onboardingStep: result.org.onboardingStep,
+        token: onboardingToken,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -538,6 +571,9 @@ export async function organisationRoutes(app: FastifyInstance) {
     const d = body.data;
     if (d.password !== d.confirmPassword) return reply.status(400).send({ error: 'Passwords do not match' });
 
+    // v2.7.51 — normalise email at write time. /login lowercases its lookup.
+    const normalisedEmail = d.email.trim().toLowerCase();
+
     const passwordHash = await hashPassword(d.password);
     const verificationToken = randomBytes(32).toString('hex');
 
@@ -546,7 +582,7 @@ export async function organisationRoutes(app: FastifyInstance) {
         orgId: session.orgId,
         firstName: d.firstName,
         lastName: d.lastName,
-        email: d.email,
+        email: normalisedEmail,
         passwordHash,
         isActive: true,
         emailVerificationToken: verificationToken,
@@ -554,21 +590,24 @@ export async function organisationRoutes(app: FastifyInstance) {
       }).returning();
 
       await db.update(schema.organisations)
-        .set({ billingEmail: d.email, onboardingStepV2: 'owner_account', updatedAt: new Date() })
+        .set({ billingEmail: normalisedEmail, onboardingStepV2: 'owner_account', updatedAt: new Date() })
         .where(eq(schema.organisations.id, session.orgId));
 
       // Fire-and-forget: send welcome + verify email
       const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, session.orgId) });
       const verifyUrl = `${APP_URL}/verify-email?token=${verificationToken}&emp=${employee!.id}`;
       const internalToken = app.jwt.sign({ sub: employee!.id, orgId: session.orgId, role: 'system' }, { expiresIn: '5m' });
+      // v2.7.51 — see note in /register: the email service requires the
+      // `template` field. Use 'custom' with a body data field.
       fetch(`${NOTIFICATIONS_API_URL}/api/v1/notifications/email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${internalToken}` },
         body: JSON.stringify({
-          to: d.email,
+          to: normalisedEmail,
           subject: `Welcome to ElevatedPOS — verify your email, ${d.firstName}!`,
-          htmlBody: buildWelcomeEmail(d.firstName, org?.name ?? '', verifyUrl),
+          template: 'custom',
           orgId: session.orgId,
+          data: { body: buildWelcomeEmail(d.firstName, org?.name ?? '', verifyUrl) },
         }),
       }).catch(() => {});
 
@@ -638,7 +677,8 @@ export async function organisationRoutes(app: FastifyInstance) {
         orgId: session.orgId,
         firstName: member.firstName,
         lastName: member.lastName,
-        email: member.email,
+        // v2.7.51 — lowercase to match /login lookup
+        email: member.email.trim().toLowerCase(),
         pin: member.pin,
         isActive: true,
       }).onConflictDoNothing(); // skip if owner email re-entered

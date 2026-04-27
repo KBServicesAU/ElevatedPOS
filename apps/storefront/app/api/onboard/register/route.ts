@@ -19,12 +19,17 @@ export async function POST(request: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         businessName,
-        email,
+        // v2.7.51 — also normalise here as a safety net; the auth service
+        // also lowercases on its end so login can find the row.
+        email: typeof email === 'string' ? email.trim().toLowerCase() : email,
         password,
         firstName,
         lastName,
         phone: phone || undefined,
         abn: abn || undefined,
+        // The legacy `plan` enum is still required by the schema for
+        // back-compat. Per-device pricing happens in the next step
+        // (/api/onboard/device-pricing) via billingModel = 'per_device'.
         plan: 'starter',
       }),
     });
