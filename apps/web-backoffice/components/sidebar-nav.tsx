@@ -7,7 +7,7 @@ import {
   Truck, Gift, CalendarCheck, ArrowLeftRight, MapPin, Clock, Webhook, ShoppingCart,
   FileText, Tag, CreditCard, ChefHat, Tablet, Smartphone, Receipt, RefreshCw, Globe,
   Banknote, ArrowDownToLine, Wallet, ArrowUpDown, UserCog, MoveRight, LayoutGrid, Calendar,
-  Tv, ScrollText,
+  Tv,
 } from 'lucide-react';
 import { NavLink } from './nav-link';
 
@@ -106,10 +106,11 @@ const nav: NavItem[] = [
 
   // ── Reports ───────────────────────────────────────────────────────────────
   { href: '/dashboard/reports',             icon: BarChart3,       label: 'Reports',           roles: OPS },
-  { href: '/dashboard/terminal-logs',       icon: Receipt,         label: 'Terminal Logs',     roles: OPS },
-  // v2.7.48-univlog — universal mutation audit trail. Org-scoped view of
-  // every server change (orders, products, employees, settings, …).
-  { href: '/dashboard/audit-logs',          icon: ScrollText,      label: 'Audit Logs',        roles: ADMIN },
+  // v2.7.51 — Terminal Logs and Audit Logs are now godmode-only. Merchants
+  // don't need to see EFTPOS message-level traffic or raw mutation diffs;
+  // those are platform-side diagnostics. The pages live in apps/godmode/
+  // (admin)/logs/ — that route stays. Sidebar entries + dashboard pages
+  // were deleted from this app.
 
   // ── Finance ───────────────────────────────────────────────────────────────
   { href: '/dashboard/payments',            icon: CreditCard,      label: 'Payments & Connect', roles: ADMIN },

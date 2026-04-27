@@ -27,6 +27,12 @@ export default function PosLayout() {
   const { enabledIds, hydrate: hydrateSidebar } = useSidebarStore();
   const employee = useAuthStore((s) => s.employee);
   const fetchDeviceSettings = useDeviceSettings((s) => s.fetch);
+  // v2.7.51 — industry gate for sidebar items. Hospitality merchants see
+  // Floor Plan + Reservations + Online Orders; services merchants see
+  // Bookings; retail merchants see Ecommerce. Older server builds (or
+  // pre-onboarding devices) return undefined here and we hide the gated
+  // items rather than guessing — better to under-show than to mis-show.
+  const deviceIndustry = useDeviceSettings((s) => s.config?.identity?.industry);
   const hydrateAnz  = useAnzStore((s) => s.hydrate);
   const hydrateTill = useTillStore((s) => s.hydrate);
   const tillOpen    = useTillStore((s) => s.isOpen);
@@ -60,9 +66,15 @@ export default function PosLayout() {
   // item is only relevant while a shift is active — hide it when the
   // till is closed so operators aren't presented with a no-op button
   // they have to think about.
+  //
+  // v2.7.51 — industry gate. Items with a `requiresIndustry` are only
+  // shown when the merchant's industry matches. We bail out conservatively
+  // when industry is unknown (older server / pre-onboarding) so a retail
+  // merchant doesn't see Reservations even briefly during a fresh install.
   const navItems = ALL_SIDEBAR_ITEMS
     .filter(item => enabledIds.includes(item.id))
-    .filter(item => item.id !== 'close-till' || tillOpen);
+    .filter(item => item.id !== 'close-till' || tillOpen)
+    .filter(item => !item.requiresIndustry || item.requiresIndustry === deviceIndustry);
 
   // Auto-prompt: when an employee logs in and the till isn't open, route
   // them to Open Till ONCE so they enter the float before taking a sale.

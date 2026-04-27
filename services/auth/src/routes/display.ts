@@ -35,13 +35,23 @@ export async function displayRoutes(app: FastifyInstance) {
   });
 
   // GET /api/v1/display/screens — staff auth, list display devices with content
+  //
+  // v2.7.51 — response shape now matches the dashboard's `DisplayScreen`
+  // interface verbatim:
+  //   { id, label, locationId, lastSeenAt, status: 'online'|'offline', hasContent }
+  // Previously this route returned `status: 'active'|'revoked'` (the device
+  // row's status enum) and `content: object|null` + `publishedAt`. The
+  // dashboard treats `screens.length === 0` as "No display screens", and
+  // any error in the proxy/parse path silently degrades to that state, so
+  // mismatches here become invisible blank pages rather than visible
+  // failures. Return the right shape and there's nothing to mismatch.
   app.get('/screens', { onRequest: [app.authenticate] }, async (request, reply) => {
     const user = request.user as { orgId: string };
 
     const devices = await db.query.devices.findMany({
       where: and(
         eq(schema.devices.orgId, user.orgId),
-        eq(schema.devices.role, 'display' as any),
+        eq(schema.devices.role, 'display'),
         eq(schema.devices.status, 'active'),
       ),
       orderBy: (d, { asc }) => [asc(d.createdAt)],
@@ -55,15 +65,24 @@ export async function displayRoutes(app: FastifyInstance) {
       )
     );
 
-    const result = devices.map((d, i) => ({
-      id: d.id,
-      label: d.label,
-      locationId: d.locationId,
-      lastSeenAt: d.lastSeenAt,
-      status: d.status,
-      content: contentRows[i]?.content ?? null,
-      publishedAt: contentRows[i]?.publishedAt ?? null,
-    }));
+    // 5 minutes since last heartbeat = online. Devices without a
+    // lastSeenAt (just paired, never booted) report offline until they
+    // first call /api/v1/devices/access-token.
+    const ONLINE_WINDOW_MS = 5 * 60_000;
+    const now = Date.now();
+
+    const result = devices.map((d, i) => {
+      const lastSeen = d.lastSeenAt ? new Date(d.lastSeenAt).getTime() : 0;
+      const online = lastSeen > 0 && now - lastSeen < ONLINE_WINDOW_MS;
+      return {
+        id: d.id,
+        label: d.label,
+        locationId: d.locationId,
+        lastSeenAt: d.lastSeenAt,
+        status: online ? 'online' as const : 'offline' as const,
+        hasContent: contentRows[i]?.content != null,
+      };
+    });
 
     return reply.send({ data: result });
   });
