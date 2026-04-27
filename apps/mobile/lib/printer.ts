@@ -1789,29 +1789,51 @@ export async function printOrderTickets(opts: {
     return;
   }
 
-  // Resolve each destination to a physical printer. When the merchant has
-  // not yet upgraded to the multi-printer UI we fall back to the legacy
-  // single `cfg.orderPrinter` and treat every line as 'kitchen'.
+  // v2.7.49 — resolve each destination to a physical printer.
+  //
+  // Routing rules (in order):
+  //   1. Multi-printer mode (`orderPrinters[]` non-empty): match the
+  //      destination exactly. If no printer is tagged for that
+  //      destination, the line is dropped with a warning. Legacy
+  //      single-printer config is IGNORED in this mode — adding even
+  //      one entry to `orderPrinters` graduates the merchant to
+  //      multi-printer mode and the legacy printer is no longer used.
+  //      Otherwise legacy was silently capturing every 'kitchen' line
+  //      even when a real kitchen printer was added (the bug merchants
+  //      reported as "added a second printer but everything still
+  //      prints from the first").
+  //   2. Single-printer mode (`orderPrinters[]` empty AND legacy set):
+  //      every line goes to the legacy printer, which is treated as a
+  //      'kitchen' destination. This preserves behaviour for merchants
+  //      who haven't migrated to the new UI yet.
+  //   3. No printer config at all: drop everything with a warning.
   const legacy = cfg.orderPrinter?.type && cfg.orderPrinter.address ? cfg.orderPrinter : null;
+  const inMultiPrinterMode = printerList.length > 0;
 
   function resolvePrinter(dest: string): OrderPrinterDevice | null {
-    const exact = printerList.find((p) => p.destination?.toLowerCase().trim() === dest);
-    if (exact) return exact;
-    // Fallback: legacy single-printer rigs treat the legacy printer as
-    // 'kitchen'. Lines tagged 'kitchen' (or anything when only legacy is
-    // configured) drop onto the legacy printer.
-    if (legacy && (printerList.length === 0 || dest === 'kitchen')) {
+    if (inMultiPrinterMode) {
+      const exact = printerList.find((p) => p.destination?.toLowerCase().trim() === dest);
+      return exact ?? null;
+    }
+    if (legacy) {
       return {
         id: 'legacy',
         destination: 'kitchen',
         type: legacy.type,
         address: legacy.address,
-        name: legacy.name,
+        name: legacy.name ?? 'Order Printer',
         paperWidth: legacy.paperWidth,
       };
     }
     return null;
   }
+
+  console.log('[printer] printOrderTickets: routing', {
+    mode: inMultiPrinterMode ? 'multi' : (legacy ? 'legacy-single' : 'none'),
+    printerList: printerList.map((p) => ({ destination: p.destination, name: p.name, address: p.address })),
+    legacy: legacy ? { name: legacy.name, address: legacy.address } : null,
+    groups: Array.from(groups.keys()),
+  });
 
   for (const [dest, lines] of groups) {
     const target = resolvePrinter(dest);
@@ -1819,9 +1841,16 @@ export async function printOrderTickets(opts: {
       console.warn(
         `[printer] printOrderTickets: no printer configured for destination "${dest}" — dropping`,
         lines.length, 'lines',
+        inMultiPrinterMode
+          ? `(multi-printer mode — set a category's "Printer Destination" to "${dest}" or add a printer with that destination tag in More → Order Printers)`
+          : '(no printer configured)',
       );
       continue;
     }
+    console.log(
+      `[printer] printOrderTickets: dest="${dest}" → printer "${target.name}" (${target.address})`,
+      `(${lines.length} line${lines.length === 1 ? '' : 's'})`,
+    );
 
     try {
       await connectOrderPrinter(target);

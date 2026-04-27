@@ -1363,6 +1363,53 @@ export default function MoreScreen() {
           </View>
         )}
 
+        {printerConfig.orderPrinters.length > 0 && printerConfig.orderPrinter?.type && (
+          <View
+            style={[
+              s.card,
+              {
+                padding: 14,
+                marginBottom: 8,
+                backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                borderColor: '#f59e0b',
+              },
+            ]}
+          >
+            <Text style={{ color: '#f59e0b', fontWeight: '700', fontSize: 13 }}>
+              ⚠ Legacy Order Printer is being ignored
+            </Text>
+            <Text style={[s.valueSmall, { marginTop: 6, lineHeight: 18 }]}>
+              You've added a routed printer below. The single Order Printer above is no
+              longer used — every kitchen ticket now goes to the matching routed printer
+              instead. Remove the legacy printer to declutter, or leave it as a backup.
+            </Text>
+            <TouchableOpacity
+              style={[s.outlineBtn, { marginTop: 10 }]}
+              onPress={async () => {
+                await setPrinterConfig({
+                  orderPrinter: { type: null, address: '', name: '', paperWidth: 80 },
+                });
+                toast.success('Removed', 'Legacy single-printer config cleared.');
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={s.outlineBtnText}>Remove Legacy Printer</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {printerConfig.orderPrinters.length > 0 && (
+          <View style={[s.card, { padding: 12, marginBottom: 8, backgroundColor: 'rgba(99,102,241,0.08)' }]}>
+            <Text style={[s.valueSmall, { lineHeight: 18 }]}>
+              <Text style={{ fontWeight: '700', color: '#6366f1' }}>How routing works:</Text>
+              {' '}each cart line is sent to the printer whose destination matches the line's
+              category Printer Destination (set in Dashboard → Catalog → Categories). Lines
+              with no matching printer are skipped — check `adb logcat | grep printer` if a
+              line doesn't print.
+            </Text>
+          </View>
+        )}
+
         {printerConfig.orderPrinters.length > 0 && (
           <View style={s.card}>
             {printerConfig.orderPrinters.map((p, idx) => (
