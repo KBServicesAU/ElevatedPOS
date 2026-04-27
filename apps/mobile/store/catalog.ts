@@ -40,6 +40,15 @@ export interface CatalogCategory {
   sortOrder: number;
   parentId: string | null;
   isActive?: boolean;
+  /**
+   * v2.7.48 — routing tag inherited from `categories.printer_destination`
+   * in the catalog DB. Mobile printer.printOrderTickets groups order
+   * lines by this value and dispatches each group to the matching
+   * `OrderPrinterDevice` configured under usePrinterStore.config.orderPrinters.
+   * Common values: 'kitchen', 'bar', 'cold_kitchen', 'ready_station',
+   * 'none' (skip), or a free-form custom tag.
+   */
+  printerDestination?: string | null;
 }
 
 /** The /api/v1/products endpoint may return either shape */

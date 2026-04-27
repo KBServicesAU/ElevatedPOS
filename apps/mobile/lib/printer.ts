@@ -3,8 +3,13 @@
  * Supports USB, Bluetooth, and Network printers via react-native-thermal-receipt-printer.
  */
 import { Platform, Alert } from 'react-native';
-import { usePrinterStore, type PrinterConnectionType } from '../store/printers';
+import {
+  usePrinterStore,
+  type PrinterConnectionType,
+  type OrderPrinterDevice,
+} from '../store/printers';
 import { useReceiptPrefs } from '../store/receipt-prefs';
+import { ensureFreshSettings, getReceiptSettings, type ServerReceiptSettings } from '../store/device-settings';
 
 // ── Android Bluetooth runtime permissions ────────────────────────────────────
 // Android 12+ (API 31+) introduced BLUETOOTH_SCAN and BLUETOOTH_CONNECT as
@@ -73,6 +78,18 @@ function loadPrinterModules(): boolean {
 
 let connected = false;
 
+/**
+ * v2.7.48 — track which physical order printer the library is currently
+ * connected to (the underlying lib only allows one active connection per
+ * transport, so when `printOrderTickets` switches between printers we
+ * have to re-connect each time). `null` means the library is either
+ * disconnected or connected to the receipt printer instead.
+ *
+ * Used by `isOrderPrinterConnected()` to short-circuit kitchen-ticket
+ * prints when the current order printer is unreachable.
+ */
+let connectedOrderPrinterAddress: string | null = null;
+
 export async function connectPrinter(): Promise<void> {
   if (!loadPrinterModules()) {
     throw new Error('Printer module not available. The app may need to be rebuilt.');
@@ -80,6 +97,9 @@ export async function connectPrinter(): Promise<void> {
 
   const { type, address } = usePrinterStore.getState().config;
   if (!type) throw new Error('No printer type configured');
+  // Connecting the receipt printer detaches us from any previously held
+  // order-printer connection — make sure the tracker reflects that.
+  connectedOrderPrinterAddress = null;
 
   if (type === 'usb') {
     try { await USBPrinter.init(); } catch (e: any) {
@@ -152,17 +172,96 @@ export async function connectPrinter(): Promise<void> {
 
 export async function disconnectPrinter(): Promise<void> {
   if (!connected) return; // Nothing to disconnect — avoid crashing native modules
+  // Best-effort: try every transport. We only know which one is actually
+  // open from `connectedOrderPrinterAddress` + the receipt config, but
+  // calling closeConn() on an idle module is harmless.
   const { type } = usePrinterStore.getState().config;
   try {
     if (type === 'usb' && USBPrinter) await USBPrinter.closeConn();
     else if (type === 'bluetooth' && BLEPrinter) await BLEPrinter.closeConn();
     else if (type === 'network' && NetPrinter) await NetPrinter.closeConn();
   } catch { /* ignore */ }
+  // Cover the order-printer transport too in case it differs from the
+  // receipt printer's transport (e.g. USB receipt + network kitchen).
+  if (connectedOrderPrinterAddress) {
+    const orderPrinters = usePrinterStore.getState().config.orderPrinters;
+    const op = orderPrinters.find((p) => p.address === connectedOrderPrinterAddress);
+    const orderType = op?.type ?? usePrinterStore.getState().config.orderPrinter?.type;
+    if (orderType && orderType !== type) {
+      try {
+        if (orderType === 'usb' && USBPrinter) await USBPrinter.closeConn();
+        else if (orderType === 'bluetooth' && BLEPrinter) await BLEPrinter.closeConn();
+        else if (orderType === 'network' && NetPrinter) await NetPrinter.closeConn();
+      } catch { /* ignore */ }
+    }
+  }
   connected = false;
+  connectedOrderPrinterAddress = null;
 }
 
 export function isConnected(): boolean {
   return connected;
+}
+
+/**
+ * v2.7.48 — true when the library is currently connected to AN order
+ * printer (any destination). Use this from call sites that only care
+ * "can we fire a kitchen ticket right now?" without picking a specific
+ * destination — `printOrderTickets` does its own per-destination
+ * connect/disconnect dance.
+ *
+ * Returns `false` if no order printer is configured at all, or if the
+ * last connection attempt failed and we haven't reconnected since.
+ */
+export function isOrderPrinterConnected(): boolean {
+  const cfg = usePrinterStore.getState().config;
+  // Multi-printer mode: connected if we're currently attached to one of them.
+  if (cfg.orderPrinters.length > 0) {
+    return connected && connectedOrderPrinterAddress !== null
+      && cfg.orderPrinters.some((p) => p.address === connectedOrderPrinterAddress);
+  }
+  // Legacy single-printer mode: must have an address AND be connected to it.
+  const legacyAddress = cfg.orderPrinter?.address;
+  if (!legacyAddress) return false;
+  return connected && connectedOrderPrinterAddress === legacyAddress;
+}
+
+/**
+ * Try to connect to a specific order printer. Updates the
+ * `connectedOrderPrinterAddress` tracker on success. Used by
+ * `printOrderTickets` to switch between bar / kitchen / etc. printers.
+ *
+ * Throws on failure — caller is expected to wrap in try/catch and
+ * surface a toast without breaking the sale.
+ */
+async function connectOrderPrinter(target: OrderPrinterDevice): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+  if (!target.type || !target.address) throw new Error('Order printer not configured');
+
+  // The native printer library only holds one active connection per transport,
+  // so we must drop whatever's currently held before connecting to a new device.
+  if (connected) {
+    try { await disconnectPrinter(); } catch { /* ignore */ }
+  }
+
+  if (target.type === 'network') {
+    try { await NetPrinter?.init(); } catch { /* ignore */ }
+    const [host, portStr] = target.address.split(':');
+    await NetPrinter?.connectPrinter(host!, parseInt(portStr ?? '9100'));
+  } else if (target.type === 'usb') {
+    try { await USBPrinter?.init(); } catch { /* ignore */ }
+    let devices: any[] = [];
+    try { devices = await USBPrinter.getDeviceList(); } catch { devices = []; }
+    const found = devices.find((d: any) => String(d.device_id) === target.address) ?? devices[0];
+    if (!found) throw new Error('Order printer not found on USB bus');
+    await USBPrinter.connectPrinter(found.vendor_id, found.product_id);
+  } else if (target.type === 'bluetooth') {
+    await ensureBluetoothPermissions();
+    try { await BLEPrinter?.init(); } catch { /* ignore */ }
+    await BLEPrinter?.connectPrinter(target.address);
+  }
+  connected = true;
+  connectedOrderPrinterAddress = target.address;
 }
 
 /* ------------------------------------------------------------------ */
@@ -306,6 +405,186 @@ function escPosQrCode(data: string, size = 6): string {
   const print =
     GS + '(' + 'k' + String.fromCharCode(3, 0, 49, 81, 48);
   return ESC + 'a' + String.fromCharCode(1) + model + moduleSize + ecc + storeData + print;
+}
+
+/* ------------------------------------------------------------------ */
+/* Raster image printing (logo) — v2.7.48                              */
+/* ------------------------------------------------------------------ */
+/*
+ * The receipt-printer library only exposes `printText` / `printBill`,
+ * which run the input through an EPToolkit pre-processor that handles
+ * `<C>/<B>` markup and iconv-encodes the rest. That mangles raw image
+ * bytes (any 0x00 / 0x0A / 0x3C in the bitmap data gets corrupted).
+ *
+ * The native modules expose an undocumented `printRawData(b64)` JNI
+ * method, however, that streams arbitrary bytes straight to the
+ * printer — no markup pass, no iconv. We use it for the GS v 0
+ * raster-bit-image command so the dashboard-uploaded logo prints at
+ * full fidelity. The bitmap is pre-rasterised by the dashboard at
+ * upload time so the mobile app never has to decode PNG / SVG.
+ *
+ * Caller MUST wrap in try/catch — bad bitmap bytes / unsupported
+ * firmware must NEVER block the receipt body from printing.
+ */
+
+/** Convert an array of byte values to a base64 string without Node's Buffer. */
+function bytesToBase64(bytes: Uint8Array): string {
+  // RN ships its own base64 polyfill via `buffer`. Trying to use it via
+  // require('buffer').Buffer.from(bytes).toString('base64') would work, but
+  // we keep the dependency surface narrow — implement a tiny base64 encoder.
+  const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let out = '';
+  let i = 0;
+  for (; i + 2 < bytes.length; i += 3) {
+    const a = bytes[i]!, b = bytes[i + 1]!, c = bytes[i + 2]!;
+    out += ALPHA[a >> 2]!;
+    out += ALPHA[((a & 0x03) << 4) | (b >> 4)]!;
+    out += ALPHA[((b & 0x0F) << 2) | (c >> 6)]!;
+    out += ALPHA[c & 0x3F]!;
+  }
+  if (i < bytes.length) {
+    const a = bytes[i]!;
+    out += ALPHA[a >> 2]!;
+    if (i + 1 < bytes.length) {
+      const b = bytes[i + 1]!;
+      out += ALPHA[((a & 0x03) << 4) | (b >> 4)]!;
+      out += ALPHA[(b & 0x0F) << 2]!;
+      out += '=';
+    } else {
+      out += ALPHA[(a & 0x03) << 4]!;
+      out += '==';
+    }
+  }
+  return out;
+}
+
+/** Decode a base64 string back to a byte array. */
+function base64ToBytes(b64: string): Uint8Array {
+  const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const lookup = new Int16Array(256).fill(-1);
+  for (let i = 0; i < ALPHA.length; i++) lookup[ALPHA.charCodeAt(i)] = i;
+  const clean = b64.replace(/[^A-Za-z0-9+/=]/g, '');
+  const padIdx = clean.indexOf('=');
+  const usable = padIdx === -1 ? clean.length : padIdx;
+  const outLen = Math.floor((clean.length / 4) * 3) - (clean.length - usable);
+  const out = new Uint8Array(outLen);
+  let oi = 0;
+  for (let i = 0; i < clean.length; i += 4) {
+    const a = lookup[clean.charCodeAt(i)] ?? 0;
+    const b = lookup[clean.charCodeAt(i + 1)] ?? 0;
+    const c = lookup[clean.charCodeAt(i + 2)] ?? 0;
+    const d = lookup[clean.charCodeAt(i + 3)] ?? 0;
+    if (oi < outLen) out[oi++] = (a << 2) | (b >> 4);
+    if (oi < outLen) out[oi++] = ((b & 0x0F) << 4) | (c >> 2);
+    if (oi < outLen) out[oi++] = ((c & 0x03) << 6) | d;
+  }
+  return out;
+}
+
+/**
+ * Stream a raw byte buffer to the currently-connected printer.
+ *
+ * Goes through the native module's undocumented `printRawData(b64,errCb)`
+ * method — the EPToolkit text path can't carry arbitrary bytes (see the
+ * comment block at the top of the raster section).
+ */
+async function printRawBytes(rawBytes: Uint8Array): Promise<void> {
+  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+  const { type } = usePrinterStore.getState().config;
+  // The same native module that backs the chosen connection type also
+  // owns the printRawData call. We grab it from NativeModules so this
+  // works even though the JS shim doesn't expose it.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { NativeModules } = require('react-native') as typeof import('react-native');
+  const native: any = type === 'usb'      ? NativeModules['RNUSBPrinter']
+                    : type === 'bluetooth' ? NativeModules['RNBLEPrinter']
+                    : type === 'network'  ? NativeModules['RNNetPrinter']
+                    : null;
+  // When called from `printOrderTickets` we may be connected to an order
+  // printer of a *different* transport than the receipt-config `type`.
+  // Fall back to whichever native module is actually loaded.
+  const target = native ?? NativeModules['RNUSBPrinter'] ?? NativeModules['RNBLEPrinter'] ?? NativeModules['RNNetPrinter'];
+  if (!target?.printRawData) throw new Error('Raw printing not supported by this printer module');
+
+  const b64 = bytesToBase64(rawBytes);
+  await new Promise<void>((resolve, reject) => {
+    target.printRawData(b64, (err: any) => {
+      if (err) reject(new Error(typeof err === 'string' ? err : (err?.message ?? 'printRawData failed')));
+      else resolve();
+    });
+  });
+}
+
+/**
+ * Build a complete ESC/POS command stream that prints a 1-bit raster
+ * image centred on the paper.
+ *
+ * Format reference — GS v 0:
+ *   1D 76 30 m xL xH yL yH d1...dk
+ *     m  = 0 (normal width, normal height)
+ *     xL = (width / 8) & 0xFF                xH = ((width / 8) >> 8) & 0xFF
+ *     yL = height & 0xFF                     yH = (height >> 8) & 0xFF
+ *     d1...dk = 1-bit pixel data (MSB = leftmost pixel), one byte per
+ *               eight horizontal pixels, rows packed top-to-bottom.
+ *
+ * Width MUST be a multiple of 8. Caller is responsible for padding.
+ * Output bytes also include:
+ *   - centre alignment (ESC a 1) before the image
+ *   - left alignment   (ESC a 0) after the image
+ *   - LF + reset bytes so the next text the receipt printer prints
+ *     starts cleanly.
+ */
+function buildEscPosRasterImage(bitmap: Uint8Array, width: number, height: number): Uint8Array {
+  if (width % 8 !== 0) throw new Error('raster width must be a multiple of 8');
+  const bytesPerRow = width / 8;
+  if (bitmap.length < bytesPerRow * height) {
+    throw new Error('raster bitmap shorter than width × height implies');
+  }
+  const xL = bytesPerRow & 0xFF;
+  const xH = (bytesPerRow >> 8) & 0xFF;
+  const yL = height & 0xFF;
+  const yH = (height >> 8) & 0xFF;
+  // Header: ESC @ (init), ESC a 1 (centre), GS v 0 m xL xH yL yH
+  // Trailer: LF, ESC a 0 (left)
+  const header = new Uint8Array([
+    0x1B, 0x40,                   // ESC @ — reset
+    0x1B, 0x61, 0x01,             // ESC a 1 — centre
+    0x1D, 0x76, 0x30, 0x00,       // GS v 0  m=0
+    xL, xH, yL, yH,
+  ]);
+  const trailer = new Uint8Array([
+    0x0A,                          // LF — flush row
+    0x1B, 0x61, 0x00,             // ESC a 0 — left align
+  ]);
+  const out = new Uint8Array(header.length + bytesPerRow * height + trailer.length);
+  out.set(header, 0);
+  out.set(bitmap.subarray(0, bytesPerRow * height), header.length);
+  out.set(trailer, header.length + bytesPerRow * height);
+  return out;
+}
+
+/**
+ * Print the merchant logo (if any) ahead of `nextText`. Best-effort: any
+ * decoding / streaming failure is logged and swallowed so the receipt
+ * body still prints.
+ *
+ * Returns `true` when the logo was actually pushed to the printer.
+ */
+async function printLogoIfAny(rs: ServerReceiptSettings): Promise<boolean> {
+  if (!rs.logoBase64 || !rs.logoWidth || !rs.logoHeight) return false;
+  if (rs.logoWidth % 8 !== 0) {
+    console.warn('[printer] logo width', rs.logoWidth, 'not multiple of 8 — skipping');
+    return false;
+  }
+  try {
+    const bytes = base64ToBytes(rs.logoBase64);
+    const cmd = buildEscPosRasterImage(bytes, rs.logoWidth, rs.logoHeight);
+    await printRawBytes(cmd);
+    return true;
+  } catch (err) {
+    console.warn('[printer] logo render failed — continuing without logo:', err);
+    return false;
+  }
 }
 
 export async function printText(text: string): Promise<void> {
@@ -582,6 +861,16 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   // dashboard receipt-settings toggle. Default true to preserve
   // pre-v2.7.44 behaviour for callers that don't pass the field.
   const showOrderNumber = opts.order.showOrderNumber ?? true;
+  // v2.7.48 — diagnostic log so a future "the order number isn't showing"
+  // bug report can be triaged from logs without repro. Tracks the actual
+  // value reaching the rendering branch (default-applied or explicit).
+  if (opts.order.orderNumber) {
+    console.log(
+      '[printer] buildReceiptText showOrderNumber=',
+      showOrderNumber,
+      ' (raw=', opts.order.showOrderNumber, ') orderNumber=', opts.order.orderNumber,
+    );
+  }
   const mode = opts.order.orderNumberMode ?? 'full';
   // v2.7.44 — hospitality merchants pass `orderTypeLabel` ("Dine In" /
   // "Takeaway" / "Delivery") so we can suffix the order header with the
@@ -774,6 +1063,15 @@ export async function printReceipt(opts: PrintReceiptOpts | LegacyReceiptOpts): 
   const normalised = isLegacyReceiptOpts(opts) ? legacyToRich(opts) : opts;
   const text = buildReceiptText(normalised, paperWidth);
 
+  // v2.7.48 — render the merchant logo (if any) as a raster bitmap above
+  // the text body. Best-effort: a bad logo or unsupported firmware logs
+  // a warning but does NOT block the receipt body.
+  try {
+    await printLogoIfAny(getReceiptSettings());
+  } catch (err) {
+    console.warn('[printer] logo print failed — continuing with text receipt:', err);
+  }
+
   try {
     await printer.printText(text, { cut: true });
   } catch (e: any) {
@@ -802,7 +1100,30 @@ export async function printSaleReceipts(
     anzCustomerReceipt?: string;
   },
 ): Promise<void> {
+  // v2.7.48 — pull fresh device-config from the server before printing so a
+  // dashboard change the merchant just made (showOrderNumber toggle, logo
+  // upload) takes effect on the very next receipt without forcing them to
+  // tap "Sync" on the More page. Best-effort: throttled to a 30s window
+  // so this never blocks the print on a slow connection.
+  //
+  // After the refresh we re-pull the receipt settings and OVERRIDE the
+  // value the caller captured at order-placement time. The caller's
+  // `getReceiptSettings()` snapshot may be stale (older than 30s of
+  // navigating around), and bug 1 in v2.7.48 was specifically that
+  // toggle changes weren't reflected. The fresh fetch + override is the
+  // root-cause fix.
+  await ensureFreshSettings();
+  const fresh = getReceiptSettings();
+  const overrideShowOrderNumber = fresh.showOrderNumber;
+
   const { anzMerchantReceipt, anzCustomerReceipt, ...base } = opts;
+  // Re-apply the fresh toggle so all downstream `printReceipt` calls
+  // see the latest server-side value, not the snapshot the call site
+  // captured before the fetch happened.
+  const baseWithFreshSettings: typeof base = {
+    ...base,
+    order: { ...base.order, showOrderNumber: overrideShowOrderNumber },
+  };
   const prefs = useReceiptPrefs.getState();
 
   const customerAnz = anzCustomerReceipt && anzCustomerReceipt.trim().length > 0
@@ -818,7 +1139,7 @@ export async function printSaleReceipts(
       ? customerAnz
       : undefined;
     await printReceipt({
-      ...base,
+      ...baseWithFreshSettings,
       copy: 'customer',
       anzReceiptText: anzAttached,
     });
@@ -835,7 +1156,7 @@ export async function printSaleReceipts(
       ? merchantAnz
       : undefined;
     await printReceipt({
-      ...base,
+      ...baseWithFreshSettings,
       copy: 'merchant',
       anzReceiptText: anzAttached,
     });
@@ -1250,9 +1571,84 @@ export async function printRefundReceiptDetailed(
   }
 }
 
+/**
+ * v2.7.48 — line item shape for `printOrderTickets`. Carries the
+ * destination tag inherited from the line's product → category, so the
+ * grouping logic in `printOrderTickets` doesn't need a catalog lookup.
+ */
+export interface OrderTicketLine {
+  name: string;
+  qty: number;
+  /**
+   * Routing destination from `category.printerDestination`. Lines with
+   * `'none'`, empty string, or `null` are dropped — those categories
+   * are explicitly opted out of kitchen tickets.
+   */
+  destination?: string | null;
+  note?: string;
+}
+
+/**
+ * Build the kitchen-ticket text for a SINGLE destination's lines.
+ * Shared between the legacy `printOrderTicket` (single-printer) and
+ * the v2.7.48 `printOrderTickets` (multi-printer) paths so the layout
+ * stays consistent.
+ */
+function buildOrderTicketText(args: {
+  paperWidth: 58 | 80;
+  orderNumber?: string;
+  orderTypeLabel?: string;
+  destinationLabel?: string; // shown in the header so kitchen vs bar tickets are distinguishable
+  items: { name: string; qty: number; note?: string }[];
+}): string {
+  const w = args.paperWidth === 58 ? 32 : 48;
+  const line = '='.repeat(w);
+
+  const now = new Date();
+  const time = now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+
+  let ticket = '';
+  ticket += `<C><B>ORDER TICKET</B></C>\n`;
+  if (args.destinationLabel) {
+    ticket += `<C><B>[ ${args.destinationLabel.toUpperCase()} ]</B></C>\n`;
+  }
+  if (args.orderNumber) ticket += `<C>Order #${args.orderNumber}</C>\n`;
+  if (args.orderTypeLabel) ticket += `<C><B>${args.orderTypeLabel}</B></C>\n`;
+  ticket += `<C>${time}</C>\n`;
+  ticket += line + '\n';
+
+  for (const item of args.items) {
+    const qtyStr = `x${item.qty}`;
+    const nameStr = item.name.substring(0, w - qtyStr.length - 2);
+    const space = w - nameStr.length - qtyStr.length;
+    ticket += nameStr + ' '.repeat(Math.max(1, space)) + qtyStr + '\n';
+    if (item.note) {
+      ticket += `   ${item.note.substring(0, w - 4)}\n`;
+    }
+  }
+
+  ticket += line + '\n\n\n';
+  return ticket;
+}
+
+/**
+ * Print a single kitchen / bar ticket — legacy single-printer path.
+ *
+ * v2.7.48 changes:
+ *  - Bails early with a console.warn (no throw) when the order printer
+ *    is configured but disconnected, so the caller's try/catch isn't
+ *    invoked and the toast surface is the responsibility of the caller's
+ *    higher-level code (not us).
+ *  - Renders the merchant logo (best-effort) at the top of the ticket
+ *    so kitchen staff see the same branding as the customer copy.
+ *
+ * Callers that want per-category routing should use {@link printOrderTickets}
+ * instead — this function preserves the pre-v2.7.48 single-printer behaviour
+ * for back-compat.
+ */
 export async function printOrderTicket(opts: {
   orderNumber?: string;
-  items: { name: string; qty: number }[];
+  items: { name: string; qty: number; note?: string }[];
   /**
    * v2.7.44 — hospitality order type label ("Dine In" / "Takeaway" /
    * "Delivery"). When set, printed in bold under the order number so the
@@ -1260,8 +1656,12 @@ export async function printOrderTicket(opts: {
    */
   orderTypeLabel?: string;
 }): Promise<void> {
-  if (!loadPrinterModules()) throw new Error('Printer module not available.');
+  if (!loadPrinterModules()) {
+    console.warn('[printer] printOrderTicket: module not available — skipping');
+    return;
+  }
   const cfg = usePrinterStore.getState().config;
+
   // Prefer the dedicated order printer if it has been configured. The library
   // only supports one active connection per transport, so we may need to
   // disconnect from the receipt printer and reconnect to the order printer.
@@ -1270,70 +1670,195 @@ export async function printOrderTicket(opts: {
   const targetAddress = useOrderPrinter ? cfg.orderPrinter.address : cfg.address;
   const paperWidth = useOrderPrinter ? cfg.orderPrinter.paperWidth : cfg.paperWidth;
   const printer = getPrinter(targetType);
-  if (!printer) throw new Error('No printer configured');
+  if (!printer) {
+    console.warn('[printer] printOrderTicket: no printer configured');
+    return;
+  }
 
   // If we're switching to a different physical printer, drop the existing
   // connection and reconnect to the new device.
+  // v2.7.48 — every connect/init failure is now caught + logged rather
+  // than thrown so a disconnected order printer doesn't propagate an
+  // exception up the sale flow. The caller treats no kitchen ticket as a
+  // soft warning, not a sale-blocking error.
+  let switchedTransport = false;
   if (useOrderPrinter && (cfg.type !== targetType || cfg.address !== targetAddress)) {
     if (connected) { try { await disconnectPrinter(); } catch { /* ignore */ } }
-    if (targetType === 'network') {
-      try { await NetPrinter?.init(); } catch { /* ignore */ }
-      const [host, portStr] = (targetAddress || '').split(':');
-      try { await NetPrinter?.connectPrinter(host!, parseInt(portStr ?? '9100')); }
-      catch (e: any) { throw new Error('Order printer connect failed: ' + (e?.message ?? 'unknown')); }
-    } else if (targetType === 'usb') {
-      try { await USBPrinter?.init(); } catch { /* ignore */ }
-      let devices: any[] = [];
-      try { devices = await USBPrinter.getDeviceList(); }
-      catch { devices = []; }
-      const target = devices.find((d: any) => String(d.device_id) === targetAddress) ?? devices[0];
-      if (target) {
-        try {
-          await USBPrinter.connectPrinter(
-            target.vendor_id,
-            target.product_id,
-          );
-        } catch (e: any) { throw new Error('Order printer USB connect failed: ' + (e?.message ?? 'unknown')); }
+    try {
+      if (targetType === 'network') {
+        try { await NetPrinter?.init(); } catch { /* ignore */ }
+        const [host, portStr] = (targetAddress || '').split(':');
+        await NetPrinter?.connectPrinter(host!, parseInt(portStr ?? '9100'));
+      } else if (targetType === 'usb') {
+        try { await USBPrinter?.init(); } catch { /* ignore */ }
+        let devices: any[] = [];
+        try { devices = await USBPrinter.getDeviceList(); } catch { devices = []; }
+        const target = devices.find((d: any) => String(d.device_id) === targetAddress) ?? devices[0];
+        if (!target) throw new Error('order printer not found on USB bus');
+        await USBPrinter.connectPrinter(target.vendor_id, target.product_id);
+      } else if (targetType === 'bluetooth') {
+        try { await BLEPrinter?.init(); } catch { /* ignore */ }
+        await BLEPrinter?.connectPrinter(targetAddress);
       }
-    } else if (targetType === 'bluetooth') {
-      try { await BLEPrinter?.init(); } catch { /* ignore */ }
-      try { await BLEPrinter?.connectPrinter(targetAddress); }
-      catch (e: any) { throw new Error('Order printer BT connect failed: ' + (e?.message ?? 'unknown')); }
+      connected = true;
+      connectedOrderPrinterAddress = targetAddress;
+      switchedTransport = true;
+    } catch (err) {
+      console.warn('[printer] printOrderTicket: order printer unreachable —', err);
+      return; // Best-effort: skip the ticket without throwing.
     }
-    connected = true;
   } else if (!connected) {
-    await connectPrinter();
+    try { await connectPrinter(); } catch (err) {
+      console.warn('[printer] printOrderTicket: receipt printer unreachable —', err);
+      return;
+    }
   }
 
-  const w = paperWidth === 58 ? 32 : 48;
-  const line = '='.repeat(w);
-  const dash = '-'.repeat(w);
+  // Best-effort logo print at the top — small enough to not waste paper.
+  try { await printLogoIfAny(getReceiptSettings()); } catch { /* ignore */ }
 
-  const now = new Date();
-  const time = now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
-
-  let ticket = '';
-  ticket += `<C><B>ORDER TICKET</B></C>\n`;
-  if (opts.orderNumber) ticket += `<C>Order #${opts.orderNumber}</C>\n`;
-  // v2.7.44 — surface the channel (Dine In / Takeaway / Delivery) so the
-  // kitchen plates / packs the order correctly.
-  if (opts.orderTypeLabel) ticket += `<C><B>${opts.orderTypeLabel}</B></C>\n`;
-  ticket += `<C>${time}</C>\n`;
-  ticket += line + '\n';
-
-  for (const item of opts.items) {
-    const qtyStr = `x${item.qty}`;
-    const nameStr = item.name.substring(0, w - qtyStr.length - 2);
-    const space = w - nameStr.length - qtyStr.length;
-    ticket += nameStr + ' '.repeat(Math.max(1, space)) + qtyStr + '\n';
-  }
-
-  ticket += line + '\n\n\n';
+  const ticket = buildOrderTicketText({
+    paperWidth: paperWidth === 58 ? 58 : 80,
+    orderNumber: opts.orderNumber,
+    orderTypeLabel: opts.orderTypeLabel,
+    items: opts.items,
+  });
 
   try {
     await printer.printText(ticket, { cut: true });
   } catch (e: any) {
-    throw new Error('Order ticket print failed: ' + (e?.message ?? 'unknown'));
+    console.warn('[printer] printOrderTicket: print call failed —', e?.message ?? e);
+  }
+
+  // Don't leave the library connected to the order printer if we hijacked
+  // the receipt-printer transport — the next receipt-side call will
+  // re-connect the receipt printer anyway, but flagging it explicitly
+  // saves a stale-connection warning.
+  if (switchedTransport) {
+    connectedOrderPrinterAddress = targetAddress;
+  }
+}
+
+/**
+ * v2.7.48 — multi-printer routing helper.
+ *
+ * Groups `lines` by their `destination` tag (typically inherited from
+ * `category.printerDestination`) and prints one ticket per non-empty
+ * group to the matching `OrderPrinterDevice` in `cfg.orderPrinters`.
+ *
+ * Routing rules:
+ *   - Lines with `destination` == `'none'`, empty string, or null/undefined
+ *     are dropped (those categories opted out of kitchen tickets).
+ *   - Lines whose destination doesn't match any configured printer are
+ *     forwarded to the legacy single `cfg.orderPrinter` (if set) under
+ *     a "kitchen" fallback so existing single-printer rigs keep working.
+ *   - When `cfg.orderPrinters` is empty AND the legacy `cfg.orderPrinter`
+ *     is set, every printable line goes to the legacy printer (treated as
+ *     destination 'kitchen').
+ *   - Each printer's connect/print is wrapped in try/catch — a failure on
+ *     one destination never blocks the others.
+ *
+ * Best-effort: NEVER throws. Any failure is logged and the call returns
+ * normally so the sale itself isn't blocked.
+ */
+export async function printOrderTickets(opts: {
+  orderNumber?: string;
+  orderTypeLabel?: string;
+  lines: OrderTicketLine[];
+}): Promise<void> {
+  if (!loadPrinterModules()) {
+    console.warn('[printer] printOrderTickets: module not available — skipping');
+    return;
+  }
+
+  const cfg = usePrinterStore.getState().config;
+  const printerList = cfg.orderPrinters;
+
+  // Filter & group lines by destination. Drop opt-outs early so empty
+  // groups don't waste paper.
+  const groups = new Map<string, OrderTicketLine[]>();
+  for (const ln of opts.lines) {
+    const dest = (ln.destination ?? '').toLowerCase().trim();
+    if (!dest || dest === 'none') continue;
+    const arr = groups.get(dest) ?? [];
+    arr.push(ln);
+    groups.set(dest, arr);
+  }
+  if (groups.size === 0) {
+    console.log('[printer] printOrderTickets: no printable lines after destination filter');
+    return;
+  }
+
+  // Resolve each destination to a physical printer. When the merchant has
+  // not yet upgraded to the multi-printer UI we fall back to the legacy
+  // single `cfg.orderPrinter` and treat every line as 'kitchen'.
+  const legacy = cfg.orderPrinter?.type && cfg.orderPrinter.address ? cfg.orderPrinter : null;
+
+  function resolvePrinter(dest: string): OrderPrinterDevice | null {
+    const exact = printerList.find((p) => p.destination?.toLowerCase().trim() === dest);
+    if (exact) return exact;
+    // Fallback: legacy single-printer rigs treat the legacy printer as
+    // 'kitchen'. Lines tagged 'kitchen' (or anything when only legacy is
+    // configured) drop onto the legacy printer.
+    if (legacy && (printerList.length === 0 || dest === 'kitchen')) {
+      return {
+        id: 'legacy',
+        destination: 'kitchen',
+        type: legacy.type,
+        address: legacy.address,
+        name: legacy.name,
+        paperWidth: legacy.paperWidth,
+      };
+    }
+    return null;
+  }
+
+  for (const [dest, lines] of groups) {
+    const target = resolvePrinter(dest);
+    if (!target || !target.type || !target.address) {
+      console.warn(
+        `[printer] printOrderTickets: no printer configured for destination "${dest}" — dropping`,
+        lines.length, 'lines',
+      );
+      continue;
+    }
+
+    try {
+      await connectOrderPrinter(target);
+    } catch (err) {
+      console.warn(
+        `[printer] printOrderTickets: connect failed for destination "${dest}" (${target.name}) —`,
+        err,
+      );
+      continue;
+    }
+
+    const printer = getPrinter(target.type);
+    if (!printer) {
+      console.warn('[printer] printOrderTickets: native module missing for', target.type);
+      continue;
+    }
+
+    // Logo at top of the kitchen ticket too — small branding for the
+    // back-of-house workflow. Best-effort only.
+    try { await printLogoIfAny(getReceiptSettings()); } catch { /* ignore */ }
+
+    const ticket = buildOrderTicketText({
+      paperWidth: target.paperWidth === 58 ? 58 : 80,
+      orderNumber: opts.orderNumber,
+      orderTypeLabel: opts.orderTypeLabel,
+      destinationLabel: target.destination ?? dest,
+      items: lines.map((l) => ({ name: l.name, qty: l.qty, note: l.note })),
+    });
+
+    try {
+      await printer.printText(ticket, { cut: true });
+    } catch (err: any) {
+      console.warn(
+        `[printer] printOrderTickets: print call failed for "${dest}" —`,
+        err?.message ?? err,
+      );
+    }
   }
 }
 

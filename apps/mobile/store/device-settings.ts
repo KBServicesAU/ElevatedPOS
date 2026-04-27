@@ -57,6 +57,18 @@ export interface ServerCustomerDisplay {
  */
 export interface ServerReceiptSettings {
   showOrderNumber: boolean;
+  /**
+   * v2.7.48 — base64-encoded 1-bit raster of the business logo. The
+   * dashboard pre-rasterises uploaded PNG/SVGs at the printer's pixel
+   * width (default 384px for 80mm) so the mobile POS does NOT need a PNG
+   * decoder — it just emits the bytes verbatim as part of the GS v 0
+   * raster command. `null` / missing = no logo, no rendering attempt.
+   */
+  logoBase64?: string | null;
+  /** Pixel width of the rasterised logo (multiple of 8). */
+  logoWidth?: number | null;
+  /** Pixel height of the rasterised logo. */
+  logoHeight?: number | null;
 }
 
 /**
@@ -105,6 +117,8 @@ interface DeviceSettingsState {
   config: DeviceConfig | null;
   /** True once the first fetch has completed (success or failure) */
   loaded: boolean;
+  /** Epoch ms of the last successful fetch — used by `ensureFreshSettings`. */
+  lastFetchedAt: number | null;
   fetch: () => Promise<void>;
 }
 
@@ -120,24 +134,58 @@ const DEFAULT_DISPLAY: ServerCustomerDisplay = {
 
 const DEFAULT_RECEIPT_SETTINGS: ServerReceiptSettings = {
   showOrderNumber: true,
+  logoBase64: null,
+  logoWidth: null,
+  logoHeight: null,
 };
+
+/**
+ * Considered "fresh" for this many ms — `ensureFreshSettings` skips a
+ * round-trip if the last fetch is younger than this. Prevents hammering
+ * the auth service on every print while still catching dashboard changes
+ * the merchant made within the last minute (typical "I just toggled it,
+ * why isn't it on the receipt?" debugging window).
+ */
+const FRESH_WINDOW_MS = 30_000;
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export const useDeviceSettings = create<DeviceSettingsState>((set) => ({
   config: null,
   loaded: false,
+  lastFetchedAt: null,
 
   fetch: async () => {
     try {
       const res = await deviceApiFetch<{ data: DeviceConfig }>('/api/v1/devices/config');
-      set({ config: res.data, loaded: true });
+      set({ config: res.data, loaded: true, lastFetchedAt: Date.now() });
     } catch {
       // Non-fatal: the app still works, payments fall back to local config
       set({ loaded: true });
     }
   },
 }));
+
+/**
+ * Pull the latest config from the auth service, but skip the round-trip
+ * if the last successful fetch is younger than {@link FRESH_WINDOW_MS}.
+ *
+ * Call this immediately before printing a receipt so a dashboard change
+ * the merchant just made (e.g. toggling the order-number on/off, uploading
+ * a logo) is reflected on the next ticket without forcing them to tap
+ * "Sync" on the More page. Best-effort — a fetch failure leaves the
+ * cached config alone rather than throwing.
+ */
+export async function ensureFreshSettings(): Promise<void> {
+  const state = useDeviceSettings.getState();
+  const last = state.lastFetchedAt;
+  if (last && Date.now() - last < FRESH_WINDOW_MS) return;
+  try {
+    await state.fetch();
+  } catch {
+    /* best-effort */
+  }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -193,6 +241,11 @@ export function getReceiptSettings(): ServerReceiptSettings {
     showOrderNumber: typeof cfg?.showOrderNumber === 'boolean'
       ? cfg.showOrderNumber
       : DEFAULT_RECEIPT_SETTINGS.showOrderNumber,
+    logoBase64: typeof cfg?.logoBase64 === 'string' && cfg.logoBase64.length > 0
+      ? cfg.logoBase64
+      : null,
+    logoWidth: typeof cfg?.logoWidth === 'number' ? cfg.logoWidth : null,
+    logoHeight: typeof cfg?.logoHeight === 'number' ? cfg.logoHeight : null,
   };
 }
 

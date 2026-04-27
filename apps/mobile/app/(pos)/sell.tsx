@@ -22,7 +22,7 @@ import { usePrinterStore } from '../../store/printers';
 import { confirm, toast } from '../../components/ui';
 import {
   printSaleReceipts,
-  printOrderTicket,
+  printOrderTickets,
   printTyroMerchantReceipt,
   isConnected as isPrinterConnected,
   connectPrinter,
@@ -572,21 +572,36 @@ export default function PosSellScreen() {
       }
     }
 
-    // Print kitchen order ticket if enabled
-    if (printerConfig.printOrderTicket && printerConfig.type) {
+    // Print kitchen / bar / etc. order ticket(s) if enabled.
+    // v2.7.48 — `printOrderTickets` groups lines by category.printerDestination
+    // and dispatches each group to the matching printer. Single-printer rigs
+    // still work because the routing helper falls back to the legacy
+    // cfg.orderPrinter when no multi-printer entries are configured.
+    if (printerConfig.printOrderTicket) {
       try {
-        if (!isPrinterConnected()) await connectPrinter();
-        await printOrderTicket({
+        const productIndex = useCatalogStore.getState().products;
+        const categoryIndex = useCatalogStore.getState().categories;
+        const lines = cart.map((i) => {
+          const product = productIndex.find((p) => p.id === i.id);
+          const category = product?.categoryId
+            ? categoryIndex.find((c) => c.id === product.categoryId)
+            : undefined;
+          return {
+            name: i.name,
+            qty: i.qty,
+            note: i.note,
+            destination: category?.printerDestination ?? 'kitchen',
+          };
+        });
+        await printOrderTickets({
           orderNumber,
-          items: cart.map((i) => ({ name: i.name, qty: i.qty })),
-          // v2.7.44 — kitchen sees "Dine In" / "Takeaway" / "Delivery"
-          // banner on the ticket so plating matches the channel.
           orderTypeLabel: isHospitality
             ? hospitalityOrderTypeLabel(hospitalityOrderType)
             : undefined,
+          lines,
         });
       } catch {
-        // Order ticket print failed — don't block order
+        // Best-effort: never block the sale on a kitchen-ticket failure.
       }
     }
 
