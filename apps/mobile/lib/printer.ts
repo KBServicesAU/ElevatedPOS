@@ -1891,10 +1891,23 @@ export async function printOrderTickets(opts: {
   }
 }
 
-export async function printOrderPrinterTestPage(): Promise<void> {
+/**
+ * Print a test page to an order printer.
+ *
+ * v2.7.51 — accepts an optional `target` so the More-page UI can fire a
+ * test print at a specific entry from `cfg.orderPrinters[]`. When omitted,
+ * falls back to the legacy `cfg.orderPrinter` for back-compat with older
+ * callers (and merchants who haven't migrated yet).
+ */
+export async function printOrderPrinterTestPage(target?: {
+  type: PrinterConnectionType | null;
+  address: string;
+  name?: string;
+  paperWidth?: 58 | 80;
+}): Promise<void> {
   if (!loadPrinterModules()) throw new Error('Printer module not available.');
   const cfg = usePrinterStore.getState().config;
-  const op = cfg.orderPrinter;
+  const op = target ?? cfg.orderPrinter;
   if (!op?.type || !op.address) {
     throw new Error('Order printer not configured');
   }
@@ -1913,12 +1926,12 @@ export async function printOrderPrinterTestPage(): Promise<void> {
     try { await USBPrinter?.init(); } catch { /* ignore */ }
     let devices: any[] = [];
     try { devices = await USBPrinter.getDeviceList(); } catch { devices = []; }
-    const target = devices.find((d: any) => String(d.device_id) === op.address) ?? devices[0];
-    if (!target) throw new Error('Order printer not found on USB bus');
+    const usbDev = devices.find((d: any) => String(d.device_id) === op.address) ?? devices[0];
+    if (!usbDev) throw new Error('Order printer not found on USB bus');
     try {
       await USBPrinter.connectPrinter(
-        target.vendor_id,
-        target.product_id,
+        usbDev.vendor_id,
+        usbDev.product_id,
       );
     } catch (e: any) { throw new Error('Order printer USB connect failed: ' + (e?.message ?? 'unknown')); }
   } else if (op.type === 'bluetooth') {
@@ -1930,14 +1943,15 @@ export async function printOrderPrinterTestPage(): Promise<void> {
 
   const printer = getPrinter(op.type);
   if (!printer) throw new Error('Order printer not initialised');
-  const w = op.paperWidth === 58 ? 32 : 48;
+  const paperWidth = (op.paperWidth ?? 80) as 58 | 80;
+  const w = paperWidth === 58 ? 32 : 48;
   let text = '';
   text += `<C><B>ElevatedPOS</B></C>\n`;
   text += `<C>Order Printer Test</C>\n`;
   text += '='.repeat(w) + '\n';
   text += `Printer: ${op.name || 'Unknown'}\n`;
   text += `Connection: ${op.type?.toUpperCase()}\n`;
-  text += `Paper: ${op.paperWidth}mm\n`;
+  text += `Paper: ${paperWidth}mm\n`;
   text += `Time: ${new Date().toLocaleString('en-AU')}\n`;
   text += '='.repeat(w) + '\n';
   text += `<C>Order printer ready</C>\n\n\n`;
