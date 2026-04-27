@@ -158,9 +158,18 @@ export const useDeviceSettings = create<DeviceSettingsState>((set) => ({
   fetch: async () => {
     try {
       const res = await deviceApiFetch<{ data: DeviceConfig }>('/api/v1/devices/config');
+      // v2.7.51 — surface what showOrderNumber the server returned so a stale
+      // mobile after a dashboard toggle can be diagnosed in shipped logs.
+      console.log(
+        '[receipt-toggle] device-settings fetched showOrderNumber=',
+        res.data.receiptSettings?.showOrderNumber,
+        ' logoBase64.length=',
+        res.data.receiptSettings?.logoBase64?.length ?? 0,
+      );
       set({ config: res.data, loaded: true, lastFetchedAt: Date.now() });
-    } catch {
+    } catch (err) {
       // Non-fatal: the app still works, payments fall back to local config
+      console.warn('[receipt-toggle] device-settings fetch failed:', err instanceof Error ? err.message : err);
       set({ loaded: true });
     }
   },

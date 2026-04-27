@@ -82,6 +82,7 @@ export async function laybyRoutes(app: FastifyInstance) {
     // Accept both "totalAmount" (API/POS) and "total" (backoffice form)
     const totalAmount = body.data.totalAmount ?? body.data.total!;
     const { depositAmount } = body.data;
+    console.log('[laybys] POST orgId=', orgId, 'totalAmount=', totalAmount, 'depositAmount=', depositAmount, 'customerName=', body.data.customerName);
 
     // AU Consumer Law: deposit must be >= 10% of total
     const minDeposit = totalAmount * 0.1;
@@ -160,8 +161,10 @@ export async function laybyRoutes(app: FastifyInstance) {
   // GET /api/v1/laybys
   app.get('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
-    const q = request.query as { status?: string; customerId?: string; limit?: string };
+    const q = request.query as { status?: string; customerId?: string; locationId?: string; limit?: string };
     const limit = Math.min(Number(q.limit ?? 50), 200);
+
+    console.log('[laybys] GET orgId=', orgId, 'status=', q.status, 'locationId=', q.locationId, 'customerId=', q.customerId);
 
     const results = await db.query.laybyAgreements.findMany({
       where: and(
@@ -176,7 +179,51 @@ export async function laybyRoutes(app: FastifyInstance) {
       ? results.filter((r) => r.status === q.status)
       : results;
 
-    return reply.status(200).send({ data: filtered, meta: { totalCount: filtered.length, hasMore: results.length === limit } });
+    // v2.7.51 — enrich the list response with shape the POS expects:
+    // `totalAmount` and `amountPaid` as numeric cents, plus `payments[]`.
+    // Previously the POS got DB-decimal strings and an empty payments
+    // array, so the layby card rendered $0.00 paid even after payments
+    // were recorded. The dashboard already coerces so this is additive.
+    const laybyIds = filtered.map((r) => r.id);
+    const allPayments = laybyIds.length > 0
+      ? await db.query.laybyPayments.findMany({
+          where: (p, { inArray }) => inArray(p.laybyId, laybyIds),
+          orderBy: [desc(schema.laybyPayments.paidAt)],
+        })
+      : [];
+    const paymentsByLayby = new Map<string, typeof allPayments>();
+    for (const p of allPayments) {
+      const list = paymentsByLayby.get(p.laybyId) ?? [];
+      list.push(p);
+      paymentsByLayby.set(p.laybyId, list);
+    }
+
+    const enriched = filtered.map((r) => {
+      const totalNum = Number(r.totalAmount);
+      const balanceNum = Number(r.balanceOwing);
+      const amountPaid = totalNum - balanceNum;
+      const payments = paymentsByLayby.get(r.id) ?? [];
+      return {
+        ...r,
+        // Numeric mirrors so the POS' fmt() works without re-coercing strings.
+        totalAmount: totalNum,
+        balanceOwing: balanceNum,
+        amountPaid,
+        // Convenience field: the POS' `Layby.payments` schema expects
+        // { id, amount, method, date, note }. Map the DB shape.
+        payments: payments.map((p) => ({
+          id: p.id,
+          amount: Number(p.amount),
+          method: p.method,
+          date: p.paidAt ? new Date(p.paidAt).toISOString() : new Date().toISOString(),
+          note: p.reference ?? undefined,
+        })),
+        description: (r.items as unknown as Array<{ name?: string }> | null)?.[0]?.name ?? '',
+        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+      };
+    });
+
+    return reply.status(200).send({ data: enriched, meta: { totalCount: enriched.length, hasMore: results.length === limit } });
   });
 
   // GET /api/v1/laybys/:id

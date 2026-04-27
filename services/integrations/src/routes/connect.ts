@@ -336,45 +336,78 @@ export async function connectRoutes(app: FastifyInstance) {
   app.post('/connect/sync-account', { onRequest: [app.authenticate] }, async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
 
+    // v2.7.51 — surface the actual failure reason to the dashboard so the
+    // merchant doesn't get a generic "Could not start setup, please try
+    // again" toast forever. The browser sees the message via `apiFetch`.
     if (!process.env['STRIPE_SECRET_KEY']) {
-      return reply.status(503).send({ error: 'Payment processing not configured' });
+      console.error('[connect/sync-account] STRIPE_SECRET_KEY missing — cannot create AccountLink');
+      return reply.status(500).send({
+        error: 'Stripe is not configured on the server (STRIPE_SECRET_KEY env var is missing). Contact support.',
+      });
     }
 
-    const rows = await db.select()
-      .from(stripeConnectAccounts)
-      .where(eq(stripeConnectAccounts.orgId, orgId))
-      .limit(1);
+    try {
+      const rows = await db.select()
+        .from(stripeConnectAccounts)
+        .where(eq(stripeConnectAccounts.orgId, orgId))
+        .limit(1);
 
-    if (rows.length === 0) {
-      return reply.status(404).send({ error: 'No Connect account found for this organisation' });
+      if (rows.length === 0) {
+        console.warn('[connect/sync-account] no Connect account row for orgId=', orgId);
+        return reply.status(404).send({
+          error: 'No Connect account exists for this organisation yet. Reload and try again.',
+        });
+      }
+
+      const { stripeAccountId } = rows[0]!;
+      const orgProfile = await getOrgProfile(orgId);
+      console.log('[connect/sync-account] orgId=', orgId, 'stripeAccountId=', stripeAccountId, 'hasProfile=', !!orgProfile);
+
+      if (orgProfile) {
+        const profileParams = buildStripeAccountParams(orgProfile);
+        try {
+          await stripe.accounts.update(stripeAccountId, profileParams as Stripe.AccountUpdateParams);
+        } catch (updateErr) {
+          // Non-fatal: we can still issue an AccountLink even if the profile
+          // sync failed. Surface the exact reason in logs for triage.
+          console.warn(
+            '[connect/sync-account] profile update failed (continuing):',
+            updateErr instanceof Error ? updateErr.message : String(updateErr),
+          );
+        }
+      }
+
+      // Generate a fresh onboarding link for the remaining requirements
+      const baseUrl = process.env['APP_URL'] ?? 'https://app.elevatedpos.com.au';
+      const accountLink = await stripe.accountLinks.create({
+        account: stripeAccountId,
+        refresh_url: `${baseUrl}/dashboard/payments?refresh=1`,
+        return_url:  `${baseUrl}/dashboard/payments?connected=1`,
+        type: 'account_onboarding',
+      });
+
+      await db.update(stripeConnectAccounts)
+        .set({
+          onboardingUrl:       accountLink.url,
+          onboardingExpiresAt: new Date(accountLink.expires_at * 1000),
+          updatedAt:           new Date(),
+        })
+        .where(eq(stripeConnectAccounts.orgId, orgId));
+
+      return reply.send({ url: accountLink.url, expiresAt: new Date(accountLink.expires_at * 1000) });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Stripe errors expose `type` and `code` — surface them so the toast
+      // says e.g. "Stripe: api_key_expired" instead of "Please try again".
+      const stripeType = (err as { type?: string }).type;
+      const stripeCode = (err as { code?: string }).code;
+      console.error('[connect/sync-account] Stripe call failed:', { message, stripeType, stripeCode });
+      return reply.status(500).send({
+        error: stripeType
+          ? `Stripe error (${stripeType}${stripeCode ? `/${stripeCode}` : ''}): ${message}`
+          : `Could not start Stripe onboarding: ${message}`,
+      });
     }
-
-    const { stripeAccountId } = rows[0]!;
-    const orgProfile = await getOrgProfile(orgId);
-
-    if (orgProfile) {
-      const profileParams = buildStripeAccountParams(orgProfile);
-      await stripe.accounts.update(stripeAccountId, profileParams as Stripe.AccountUpdateParams);
-    }
-
-    // Generate a fresh onboarding link for the remaining requirements
-    const baseUrl = process.env['APP_URL'] ?? 'https://app.elevatedpos.com.au';
-    const accountLink = await stripe.accountLinks.create({
-      account: stripeAccountId,
-      refresh_url: `${baseUrl}/dashboard/payments?refresh=1`,
-      return_url:  `${baseUrl}/dashboard/payments?connected=1`,
-      type: 'account_onboarding',
-    });
-
-    await db.update(stripeConnectAccounts)
-      .set({
-        onboardingUrl:       accountLink.url,
-        onboardingExpiresAt: new Date(accountLink.expires_at * 1000),
-        updatedAt:           new Date(),
-      })
-      .where(eq(stripeConnectAccounts.orgId, orgId));
-
-    return reply.send({ url: accountLink.url, expiresAt: new Date(accountLink.expires_at * 1000) });
   });
 
   // ── Create Stripe login link (dashboard access) ──────────────────────────────

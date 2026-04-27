@@ -64,8 +64,12 @@ export async function organisationRoutes(app: FastifyInstance) {
    * is 1 MiB; a 384 × 1000-pixel 1-bit raster is 48000 bytes raw / ~64000 base64,
    * comfortably under. We hard-stop anything larger so a malicious client can't
    * fill the receipt_settings JSONB column with megabytes of base64 noise.
+   *
+   * v2.7.51 — raised from 256 KiB to 1 MiB to accommodate larger source PNGs
+   * the dashboard rasteriser produces for some merchant logos before the
+   * 384×240 cap kicks in. The strict server-side cap stays as a safety net.
    */
-  const MAX_LOGO_BYTES = 256 * 1024; // 256 KiB after base64
+  const MAX_LOGO_BYTES = 1024 * 1024; // 1 MiB after base64
 
   /** Merge stored value with defaults, dropping unknown keys for safety. */
   function readReceiptSettings(raw: unknown): typeof DEFAULT_RECEIPT_SETTINGS {
@@ -95,6 +99,19 @@ export async function organisationRoutes(app: FastifyInstance) {
   app.patch('/me/receipt-settings', { onRequest: [app.authenticate] }, async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
 
+    // v2.7.51 — diagnostic instrumentation. Merchants reported "Save failed"
+    // toasts after uploading a logo; surface size + first-100-char preview of
+    // the body and the actual reason for any rejection so log-triage doesn't
+    // need a repro. Body is base64 only — no PII.
+    try {
+      const rawSize = JSON.stringify(request.body ?? {}).length;
+      const preview = JSON.stringify(request.body ?? {}).slice(0, 100);
+      const logoLen = (request.body as { logoBase64?: string | null } | undefined)?.logoBase64?.length ?? 0;
+      console.log('[receipt-settings PATCH] orgId=', orgId, 'bodySize=', rawSize, 'logoBase64.length=', logoLen, 'preview=', preview);
+    } catch {
+      /* best-effort logging only */
+    }
+
     // v2.7.48 — `logoBase64` may be `null` to clear, or a non-empty string
     // (the pre-rasterised 1-bit bitmap from the dashboard). Width/height
     // are only meaningful when the logo is set; they're cleared together
@@ -107,37 +124,59 @@ export async function organisationRoutes(app: FastifyInstance) {
     }).strict().safeParse(request.body);
 
     if (!parsed.success) {
-      return reply.status(400).send({ error: 'Invalid body', details: parsed.error.flatten() });
+      console.warn('[receipt-settings PATCH] zod validation failed:', parsed.error.flatten());
+      return reply.status(400).send({
+        error: 'Invalid receipt settings body',
+        details: parsed.error.flatten(),
+      });
     }
 
-    // Reject oversize logos before they hit the JSONB column.
+    // Reject oversize logos before they hit the JSONB column. v2.7.51 — return
+    // a human-readable reason so the dashboard toast can show "Logo too large"
+    // instead of a generic "Please try again".
     if (parsed.data.logoBase64 && parsed.data.logoBase64.length > MAX_LOGO_BYTES) {
-      return reply.status(413).send({ error: 'Logo too large', maxBytes: MAX_LOGO_BYTES });
+      const sizeKb = Math.round(parsed.data.logoBase64.length / 1024);
+      const maxKb = Math.round(MAX_LOGO_BYTES / 1024);
+      console.warn('[receipt-settings PATCH] logo rejected — size', sizeKb, 'KiB > limit', maxKb, 'KiB');
+      return reply.status(413).send({
+        error: `Logo too large (${sizeKb} KiB) — maximum is ${maxKb} KiB. Try a smaller source image.`,
+        maxBytes: MAX_LOGO_BYTES,
+        actualBytes: parsed.data.logoBase64.length,
+      });
     }
 
-    const existing = await db.query.organisations.findFirst({
-      where: eq(schema.organisations.id, orgId),
-      columns: { receiptSettings: true },
-    });
-    if (!existing) return reply.status(404).send({ error: 'Organisation not found' });
+    try {
+      const existing = await db.query.organisations.findFirst({
+        where: eq(schema.organisations.id, orgId),
+        columns: { receiptSettings: true },
+      });
+      if (!existing) return reply.status(404).send({ error: 'Organisation not found' });
 
-    const current = (existing.receiptSettings && typeof existing.receiptSettings === 'object')
-      ? existing.receiptSettings as Record<string, unknown>
-      : {};
-    const merged: Record<string, unknown> = { ...current, ...parsed.data };
+      const current = (existing.receiptSettings && typeof existing.receiptSettings === 'object')
+        ? existing.receiptSettings as Record<string, unknown>
+        : {};
+      const merged: Record<string, unknown> = { ...current, ...parsed.data };
 
-    // If the caller cleared the logo, also clear its dimensions so the
-    // mobile renderer doesn't try to read stale w×h with a null base64.
-    if (parsed.data.logoBase64 === null) {
-      merged['logoWidth'] = null;
-      merged['logoHeight'] = null;
+      // If the caller cleared the logo, also clear its dimensions so the
+      // mobile renderer doesn't try to read stale w×h with a null base64.
+      if (parsed.data.logoBase64 === null) {
+        merged['logoWidth'] = null;
+        merged['logoHeight'] = null;
+      }
+
+      await db.update(schema.organisations)
+        .set({ receiptSettings: merged, updatedAt: new Date() })
+        .where(eq(schema.organisations.id, orgId));
+
+      console.log('[receipt-settings PATCH] saved successfully for orgId=', orgId);
+      return reply.send(readReceiptSettings(merged));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[receipt-settings PATCH] DB write failed:', message);
+      return reply.status(500).send({
+        error: `Could not persist receipt settings: ${message}`,
+      });
     }
-
-    await db.update(schema.organisations)
-      .set({ receiptSettings: merged, updatedAt: new Date() })
-      .where(eq(schema.organisations.id, orgId));
-
-    return reply.send(readReceiptSettings(merged));
   });
 
   // GET /organisations/by-slug/:slug — public, no auth required

@@ -1059,15 +1059,34 @@ export async function printReceipt(opts: PrintReceiptOpts | LegacyReceiptOpts): 
   if (!printer) throw new Error('No printer configured');
   if (!connected) await connectPrinter();
 
+  // v2.7.51 — make `printReceipt` (single receipt / reprint path) ALSO
+  // respect the merchant's latest dashboard toggle. Previously only
+  // `printSaleReceipts` refreshed device-config, so reprinting an old
+  // order via the Orders detail screen would render with the toggle's
+  // value at order-placement time, not the current setting.
+  await ensureFreshSettings();
+  const fresh = getReceiptSettings();
+
   // Accept the legacy shape so pre-v2.7.17 callers keep compiling.
   const normalised = isLegacyReceiptOpts(opts) ? legacyToRich(opts) : opts;
-  const text = buildReceiptText(normalised, paperWidth);
+  // Override the caller's snapshot with the freshly-fetched value so
+  // toggle changes are reflected even on reprints.
+  const withFresh: PrintReceiptOpts = {
+    ...normalised,
+    order: { ...normalised.order, showOrderNumber: fresh.showOrderNumber },
+  };
+  console.log(
+    '[receipt-toggle] printReceipt override showOrderNumber=',
+    fresh.showOrderNumber,
+    ' (caller passed=', normalised.order.showOrderNumber, ')',
+  );
+  const text = buildReceiptText(withFresh, paperWidth);
 
   // v2.7.48 — render the merchant logo (if any) as a raster bitmap above
   // the text body. Best-effort: a bad logo or unsupported firmware logs
   // a warning but does NOT block the receipt body.
   try {
-    await printLogoIfAny(getReceiptSettings());
+    await printLogoIfAny(fresh);
   } catch (err) {
     console.warn('[printer] logo print failed — continuing with text receipt:', err);
   }
@@ -1115,6 +1134,13 @@ export async function printSaleReceipts(
   await ensureFreshSettings();
   const fresh = getReceiptSettings();
   const overrideShowOrderNumber = fresh.showOrderNumber;
+
+  // v2.7.51 — confirm the merchant's toggle propagation right before print.
+  console.log(
+    '[receipt-toggle] printSaleReceipts override showOrderNumber=',
+    overrideShowOrderNumber,
+    ' (caller passed=', opts.order.showOrderNumber, ')',
+  );
 
   const { anzMerchantReceipt, anzCustomerReceipt, ...base } = opts;
   // Re-apply the fresh toggle so all downstream `printReceipt` calls

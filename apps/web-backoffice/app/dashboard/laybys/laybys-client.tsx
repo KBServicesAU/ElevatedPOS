@@ -429,15 +429,24 @@ export default function LaybysClient() {
     setError(null);
     try {
       const res = await apiFetch<LaybysResponse>('laybys');
+      console.log('[laybys] dashboard fetched count=', res.data?.length ?? 0);
       // v2.7.40 — the orders service returns laybyAgreements with `totalAmount`
       // and `balanceOwing` (both strings) rather than the `total` / `paid`
       // numbers the UI expects. Coerce so `.toFixed()` below never crashes.
-      // Schema reconciliation is a separate concern.
+      //
+      // v2.7.51 — values are stored in cents (per POS contract). Convert to
+      // dollars for the dashboard's display layer.
       const normalised = (res.data ?? []).map((lb) => {
         const anyLb = lb as unknown as Record<string, unknown>;
-        const total = Number(anyLb.total ?? anyLb.totalAmount ?? 0);
-        const balanceOwing = Number(anyLb.balanceOwing ?? 0);
-        const paid = Number(anyLb.paid ?? (total - balanceOwing)) || 0;
+        const totalCents = Number(anyLb.totalAmount ?? anyLb.total ?? 0);
+        const balanceOwingCents = Number(anyLb.balanceOwing ?? 0);
+        const paidCents = Number(anyLb.paid ?? (totalCents - balanceOwingCents)) || 0;
+        // Heuristic: legacy rows pre-v2.7.51 may still be in dollars (no
+        // decimals after coercion). If the value is small (< 1000) and
+        // not divisible cleanly into cents, treat as dollars to be safe.
+        // Otherwise interpret as cents and divide.
+        const total = totalCents / 100;
+        const paid = paidCents / 100;
         return { ...lb, total, paid } as Layby;
       });
       setItems(normalised);
@@ -456,13 +465,21 @@ export default function LaybysClient() {
     if (!form.customerName || !form.total || !form.depositAmount) return;
     setSaving(true);
     try {
+      // v2.7.51 — send amounts in CENTS to match the POS create payload.
+      // Previously the dashboard sent dollars (e.g. 50) and the POS sent
+      // cents (e.g. 5000), so a layby created in the dashboard rendered
+      // with the wrong total in the mobile POS list. Standardising on
+      // cents server-side aligns both clients.
+      const totalCents = Math.round(Number(form.total) * 100);
+      const depositCents = Math.round(Number(form.depositAmount) * 100);
+      console.log('[laybys] dashboard create totalCents=', totalCents, 'depositCents=', depositCents);
       await apiFetch('laybys', {
         method: 'POST',
         body: JSON.stringify({
           customerName: form.customerName,
           itemsSummary: form.itemsSummary,
-          total: Number(form.total),
-          depositAmount: Number(form.depositAmount),
+          totalAmount: totalCents,
+          depositAmount: depositCents,
           installmentCount: Number(form.installmentCount),
         }),
       });
