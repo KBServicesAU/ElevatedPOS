@@ -251,7 +251,7 @@ function TransactionsTab() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const onExport = (format: 'json' | 'csv') => {
+  const onExport = (format: 'json' | 'csv' | 'timapi') => {
     const params = new URLSearchParams(queryString);
     params.delete('limit'); params.delete('offset');
     params.set('format', format);
@@ -264,8 +264,15 @@ function TransactionsTab() {
         <button onClick={() => onExport('json')} className="px-3 py-2 text-sm border border-[#1e1e2e] text-gray-300 rounded hover:bg-[#1e1e2e]">
           Export JSON
         </button>
-        <button onClick={() => onExport('csv')} className="px-3 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded">
+        <button onClick={() => onExport('csv')} className="px-3 py-2 text-sm border border-[#1e1e2e] text-gray-300 rounded hover:bg-[#1e1e2e]">
           Export CSV
+        </button>
+        <button
+          onClick={() => onExport('timapi')}
+          className="px-3 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded"
+          title="SIX/Worldline TimApi-format log file — ANZ certification submission format"
+        >
+          Export TIM API Log
         </button>
       </div>
 

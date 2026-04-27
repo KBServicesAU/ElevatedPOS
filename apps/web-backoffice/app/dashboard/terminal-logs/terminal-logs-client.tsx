@@ -164,7 +164,7 @@ export function TerminalLogsClient() {
     setOffset(0);
   };
 
-  const onExport = (format: 'json' | 'csv') => {
+  const onExport = (format: 'json' | 'csv' | 'timapi') => {
     // Reuse the same query string but swap pagination off (the export
     // endpoint caps server-side at 10k rows). The proxy adds the org
     // bearer cookie so the merchant only ever sees their own log.
@@ -196,9 +196,16 @@ export function TerminalLogsClient() {
           </button>
           <button
             onClick={() => onExport('csv')}
-            className="px-3 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded"
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Export CSV
+          </button>
+          <button
+            onClick={() => onExport('timapi')}
+            className="px-3 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded"
+            title="SIX/Worldline TimApi-format log file — ANZ certification submission format"
+          >
+            Export TIM API Log
           </button>
         </div>
       </header>
