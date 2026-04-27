@@ -10,6 +10,7 @@ import { rfmRoutes } from './routes/rfm';
 import { crmRoutes } from './routes/crm';
 import { gdprRoutes } from './routes/gdpr';
 import { storeCreditRoutes } from './routes/storeCredit';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -43,6 +44,8 @@ async function start() {
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     try { await request.jwtVerify(); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
   });
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  await app.register(auditPlugin, { serviceName: 'customers' });
   await app.register(customerRoutes, { prefix: '/api/v1/customers' });
   await app.register(rfmRoutes, { prefix: '/api/v1/customers' });
   await app.register(crmRoutes, { prefix: '/api/v1/crm' });

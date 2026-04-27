@@ -12,6 +12,7 @@ import { serialTrackingRoutes } from './routes/serialTracking';
 import { lotTrackingRoutes } from './routes/lotTracking';
 import { stocktakeRoutes } from './routes/stocktakes';
 import { startConsumers } from './consumers';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -38,6 +39,9 @@ async function start() {
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     try { await request.jwtVerify(); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
   });
+
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  await app.register(auditPlugin, { serviceName: 'inventory' });
 
   await app.register(stockRoutes, { prefix: '/api/v1/stock' });
   await app.register(supplierRoutes, { prefix: '/api/v1/suppliers' });

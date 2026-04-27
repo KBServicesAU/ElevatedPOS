@@ -569,7 +569,7 @@ export const supportNotes = pgTable('support_notes', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// ── Audit Logs ────────────────────────────────────────────────────────────────
+// ── Audit Logs (legacy — godmode hand-rolled) ─────────────────────────────────
 
 export const auditLogs = pgTable('audit_logs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -584,4 +584,44 @@ export const auditLogs = pgTable('audit_logs', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   orgCreatedAtIdx: index('audit_logs_org_created_at_idx').on(table.orgId, table.createdAt),
+}));
+
+// ── System Audit Logs (v2.7.48-univlog — universal mutation log) ──────────────
+//
+// One row per server mutation (POST / PATCH / PUT / DELETE) captured by
+// the @nexus/fastify-audit plugin registered in every backend service.
+// Wider than the legacy `audit_logs` table — carries before/after diffs,
+// HTTP context, and a service-name tag so the Godmode Logs page can
+// filter by service.
+
+export const systemAuditLogs = pgTable('system_audit_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id'),
+  locationId: uuid('location_id'),
+  // Actor
+  actorType: varchar('actor_type', { length: 20 }).notNull(),  // 'employee' | 'device' | 'godmode_staff' | 'system' | 'customer'
+  actorId: uuid('actor_id'),
+  actorName: text('actor_name'),
+  // Action
+  action: varchar('action', { length: 20 }).notNull(),         // 'create' | 'update' | 'delete' | 'login' | 'logout' | 'auth_fail'
+  entityType: varchar('entity_type', { length: 50 }).notNull(),
+  entityId: text('entity_id'),
+  entityName: text('entity_name'),
+  // Diff
+  beforeJson: jsonb('before_json'),
+  afterJson:  jsonb('after_json'),
+  // HTTP
+  endpoint:   text('endpoint'),
+  method:     varchar('method', { length: 10 }),
+  statusCode: integer('status_code'),
+  ipAddress:  text('ip_address'),
+  userAgent:  text('user_agent'),
+  // Optional context
+  service:    varchar('service', { length: 50 }),
+  notes:      text('notes'),
+  createdAt:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  orgIdx:    index('system_audit_org_idx').on(table.orgId, table.createdAt),
+  actorIdx:  index('system_audit_actor_idx').on(table.actorId, table.createdAt),
+  entityIdx: index('system_audit_entity_idx').on(table.entityType, table.entityId),
 }));

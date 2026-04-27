@@ -65,6 +65,15 @@ export async function authRoutes(app: FastifyInstance) {
     });
 
     if (!employee || !employee.passwordHash) {
+      // v2.7.48-univlog — record auth_fail with the attempted email so
+      // the merchant + Godmode see brute-force attempts in the activity feed.
+      request.audit?.({
+        action: 'auth_fail',
+        entityType: 'employee',
+        entityName: email,
+        notes: 'No employee with that email or no password set.',
+        statusCode: 401,
+      });
       return reply.status(401).send({
         type: 'https://elevatedpos.com/errors/invalid-credentials',
         title: 'Invalid Credentials',
@@ -74,6 +83,15 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     if (!employee.isActive) {
+      request.audit?.({
+        orgId: employee.orgId,
+        action: 'auth_fail',
+        entityType: 'employee',
+        entityId: employee.id,
+        entityName: `${employee.firstName} ${employee.lastName}`,
+        notes: 'Account inactive.',
+        statusCode: 401,
+      });
       return reply.status(401).send({
         type: 'https://elevatedpos.com/errors/account-inactive',
         title: 'Account Inactive',
@@ -83,6 +101,15 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     if (employee.lockedUntil && employee.lockedUntil > new Date()) {
+      request.audit?.({
+        orgId: employee.orgId,
+        action: 'auth_fail',
+        entityType: 'employee',
+        entityId: employee.id,
+        entityName: `${employee.firstName} ${employee.lastName}`,
+        notes: `Account locked until ${employee.lockedUntil.toISOString()}.`,
+        statusCode: 429,
+      });
       return reply.status(429).send({
         type: 'https://elevatedpos.com/errors/account-locked',
         title: 'Account Locked',
@@ -103,6 +130,18 @@ export async function authRoutes(app: FastifyInstance) {
           ...(lockedUntil ? { lockedUntil } : {}),
         })
         .where(eq(schema.employees.id, employee.id));
+
+      request.audit?.({
+        orgId: employee.orgId,
+        action: 'auth_fail',
+        entityType: 'employee',
+        entityId: employee.id,
+        entityName: `${employee.firstName} ${employee.lastName}`,
+        notes: lockedUntil
+          ? `Bad password (attempt ${attempts}/5) — account now locked until ${lockedUntil.toISOString()}.`
+          : `Bad password (attempt ${attempts}/5).`,
+        statusCode: 401,
+      });
 
       return reply.status(401).send({
         type: 'https://elevatedpos.com/errors/invalid-credentials',
@@ -154,6 +193,20 @@ export async function authRoutes(app: FastifyInstance) {
       expiresAt,
     });
 
+    // v2.7.48-univlog — successful login row.
+    request.audit?.({
+      orgId: employee.orgId,
+      actorId: employee.id,
+      actorName: `${employee.firstName} ${employee.lastName}`,
+      actorType: 'employee',
+      action: 'login',
+      entityType: 'employee',
+      entityId: employee.id,
+      entityName: `${employee.firstName} ${employee.lastName}`,
+      notes: deviceName ? `via ${deviceName}` : null,
+      statusCode: 200,
+    });
+
     return reply.status(200).send({
       accessToken,
       refreshToken: rawRefreshToken,
@@ -195,6 +248,19 @@ export async function authRoutes(app: FastifyInstance) {
         locationIds: (employee.locationIds ?? []) as string[],
         name: `${employee.firstName} ${employee.lastName}`,
         email: employee.email,
+      });
+      // v2.7.48-univlog — successful PIN login.
+      request.audit?.({
+        orgId: employee.orgId,
+        actorId: employee.id,
+        actorName: `${employee.firstName} ${employee.lastName}`,
+        actorType: 'employee',
+        action: 'login',
+        entityType: 'employee',
+        entityId: employee.id,
+        entityName: `${employee.firstName} ${employee.lastName}`,
+        notes: 'pin-login',
+        statusCode: 200,
       });
       return reply.status(200).send({
         accessToken,
@@ -390,7 +456,7 @@ export async function authRoutes(app: FastifyInstance) {
     onRequest: [app.authenticate],
   }, async (request, reply) => {
     // Blacklist the current access token's JTI so it can't be reused
-    const jwtPayload = request.user as { jti?: string; exp?: number };
+    const jwtPayload = request.user as { jti?: string; exp?: number; sub?: string; orgId?: string; name?: string };
     if (jwtPayload.jti && jwtPayload.exp) {
       await addToBlacklist(jwtPayload.jti, jwtPayload.exp);
     }
@@ -403,6 +469,22 @@ export async function authRoutes(app: FastifyInstance) {
         .set({ revokedAt: new Date() })
         .where(eq(schema.refreshTokens.tokenHash, tokenHash));
     }
+
+    // v2.7.48-univlog — explicit logout row. The mutation hook would
+    // already log this as 'create' on /logout — overriding to 'logout'
+    // makes the activity timeline read naturally.
+    request.audit?.({
+      orgId: jwtPayload.orgId ?? null,
+      actorId: jwtPayload.sub ?? null,
+      actorName: jwtPayload.name ?? null,
+      actorType: 'employee',
+      action: 'logout',
+      entityType: 'employee',
+      entityId: jwtPayload.sub ?? null,
+      entityName: jwtPayload.name ?? null,
+      statusCode: 204,
+    });
+
     return reply.status(204).send();
   });
 

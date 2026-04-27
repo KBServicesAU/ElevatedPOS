@@ -8,6 +8,7 @@ import { automationRoutes } from './routes/automations.js';
 import { alertRulesRoutes } from './routes/alert-rules.js';
 import { startWorker } from './temporal/worker.js';
 import { startEventConsumer } from './lib/eventConsumer.js';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -52,6 +53,9 @@ async function start() {
       }
     },
   );
+
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  await app.register(auditPlugin, { serviceName: 'automations' });
 
   await app.register(automationRoutes, { prefix: '/api/v1/automations' });
   // v2.7.41 — alert rules persisted to DB. Replaces the in-memory shadow

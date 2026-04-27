@@ -14,6 +14,9 @@ import { useDeviceStore } from '../../store/device';
 import { useTillStore } from '../../store/till';
 import { getDeviceJwt } from '../../lib/device-jwt';
 import { AnzPaymentModal, type AnzPaymentResult } from '../../components/AnzPaymentModal';
+// v2.7.48-univlog — universal transaction logger. Kiosk QR + cash sales
+// log here so the merchant gets a unified Logs view across channels.
+import { logTerminalTx } from '../../lib/terminal-tx-log';
 
 type PaymentMethod = 'card' | 'cash' | 'qr';
 
@@ -173,13 +176,32 @@ export default function PaymentScreen() {
         }),
         signal: AbortSignal.timeout(15000),
       });
-      if (!completeRes.ok && completeRes.status !== 409) {
+      const completeOk = completeRes.ok || completeRes.status === 409;
+      if (!completeOk) {
         // Log but don't fail the UX — the kiosk customer is about to see
         // the confirmation screen and walk away. Staff can reconcile from
         // the orders page if this keeps happening.
         console.error('[POS/complete]', 'kiosk.postOrderAndComplete /complete FAILED:', completeRes.status, await completeRes.text().catch(() => ''));
       } else {
         console.log('[POS/complete]', 'kiosk.postOrderAndComplete /complete OK', { orderId: data.id, status: completeRes.status });
+      }
+
+      // v2.7.48-univlog — log every kiosk transaction. Card-method rows
+      // are already logged by the AnzBridgeHost; cash + QR + the dev
+      // 'card' fallback (no terminal wired) only get a row here.
+      const isAnzPath = method === 'card' && extras !== null;
+      if (!isAnzPath) {
+        const provider: 'cash' | 'qr' | 'card' = method;
+        logTerminalTx({
+          provider,
+          outcome: completeOk ? 'approved' : 'error',
+          transactionType: 'purchase',
+          amountCents: Math.round(paidTotal * 100),
+          orderId: data.id ?? null,
+          referenceId: data.orderNumber ?? null,
+          errorCategory: completeOk ? null : 'order_complete_failed',
+          raw: { paymentMethod: method, paidTotal, channel: 'kiosk' },
+        });
       }
 
       setOrderNumber(data.orderNumber);

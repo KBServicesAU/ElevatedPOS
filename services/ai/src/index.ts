@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { copilotRoutes } from './routes/copilot.js';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -222,6 +223,9 @@ async function start() {
       }
     },
   );
+
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  await app.register(auditPlugin, { serviceName: 'ai' });
 
   // ── POST /api/v1/ai/query — natural language business intelligence ───────────
   app.post('/api/v1/ai/query', { onRequest: [app.authenticate] }, async (request, reply) => {

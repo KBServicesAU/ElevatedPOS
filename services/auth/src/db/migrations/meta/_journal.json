@@ -169,6 +169,13 @@
       "when": 1745625600000,
       "tag": "0024_industry_default",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1745712000000,
+      "tag": "0025_system_audit_logs",
+      "breakpoints": true
     }
   ]
 }

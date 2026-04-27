@@ -16,6 +16,7 @@ import {
   terminalTransactionRoutes,
   godmodeTerminalTransactionRoutes,
 } from './routes/terminalTransactions';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -83,6 +84,29 @@ async function start() {
 
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     try { await request.jwtVerify(); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
+  });
+
+  // v2.7.48-univlog — universal audit middleware. Captures every
+  // POST/PATCH/PUT/DELETE response into system_audit_logs (Godmode + org
+  // dashboard "Activity" tab). Registered AFTER jwt so request.user is
+  // populated when the onResponse hook runs. Errors are swallowed inside
+  // the plugin so audit blips never break a sale.
+  await app.register(auditPlugin, {
+    serviceName: 'orders',
+    entityFromUrl: (url, body) => {
+      // POST /api/v1/orders/:id/complete → entity: order, id: :id
+      const m = url.match(/\/api\/v1\/orders\/([0-9a-f-]{36})\/(complete|hold|cancel|refund)/i);
+      if (m) return { entityType: 'order', entityId: m[1] };
+      const b = (body as { id?: string; orderNumber?: string } | null) ?? null;
+      if (url.startsWith('/api/v1/orders')) {
+        return {
+          entityType: 'order',
+          entityId: b?.id,
+          entityName: b?.orderNumber,
+        };
+      }
+      return null;
+    },
   });
 
   await app.register(orderRoutes, { prefix: '/api/v1/orders' });

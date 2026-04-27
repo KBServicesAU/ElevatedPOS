@@ -16,8 +16,22 @@ const SERVICE_MAP: Record<string, string> = {
   godmode: ORDERS_API_URL,
 };
 
+/**
+ * Some `godmode/<resource>` paths route to a different service than the
+ * default `godmode` mapping (orders). Audit logs live in the auth
+ * service so the Activity tab needs its own routing.
+ */
+const GODMODE_SUBPATH_MAP: Record<string, string> = {
+  // v2.7.48-univlog — system_audit_logs lives on auth.
+  'audit-logs': AUTH_API_URL,
+};
+
 function resolveServiceUrl(pathSegments: string[]): string {
   const prefix = pathSegments[0] ?? '';
+  if (prefix === 'godmode') {
+    const sub = pathSegments[1] ?? '';
+    if (sub in GODMODE_SUBPATH_MAP) return GODMODE_SUBPATH_MAP[sub]!;
+  }
   return SERVICE_MAP[prefix] ?? AUTH_API_URL;
 }
 

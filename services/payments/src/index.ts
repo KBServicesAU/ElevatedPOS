@@ -14,6 +14,7 @@ import { invoiceRoutes } from './routes/invoices';
 import { surchargeRoutes } from './routes/surcharge';
 import { eftposRoutes } from './routes/eftpos';
 import { stripeTerminalRoutes } from './routes/stripe-terminal';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -47,6 +48,8 @@ async function start() {
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     try { await request.jwtVerify(); } catch { return reply.status(401).send({ title: 'Unauthorized', status: 401 }); }
   });
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  await app.register(auditPlugin, { serviceName: 'payments' });
   await app.register(paymentRoutes, { prefix: '/api/v1/payments' });
   await app.register(paymentLinkRoutes, { prefix: '/api/v1/payment-links' });
   await app.register(bnplRoutes, { prefix: '/api/v1/bnpl' });

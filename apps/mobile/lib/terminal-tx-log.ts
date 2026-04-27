@@ -1,11 +1,13 @@
 /**
- * Terminal Transaction Logger — v2.7.48
+ * Terminal Transaction Logger — v2.7.48 → v2.7.48-univlog
  * ================================================================
  * Posts a row to the orders service `terminal_transactions` table for
- * every ANZ Worldline TIM API interaction (purchase, refund, reversal,
- * reconcile, logon, logoff). Built for ANZ certification evidence
- * (merchants must be able to download a full log alongside test
- * receipts) and ongoing audit (cardholder dispute resolution).
+ * EVERY payment attempt — ANZ Worldline TIM API, Tyro, Stripe Terminal
+ * (Tap to Pay), cash, gift card, layby, split, and kiosk QR. Originally
+ * built for ANZ certification evidence (cert reviewers want a full log
+ * alongside test videos and receipts); v2.7.48-univlog widened the
+ * provider field so the merchant gets a unified audit trail for every
+ * transaction, not just card-present ones.
  *
  * Design decisions
  *   - Fire-and-forget. The user-facing checkout flow MUST NOT fail
@@ -17,6 +19,11 @@
  *     Bounded so a long offline stretch doesn't OOM the device.
  *   - Uses `getDeviceJwt()` so the device-paired POS can authenticate
  *     without an employee PIN (kiosk path).
+ *   - `provider` is a free string accepted by the orders service —
+ *     'anz' | 'tyro' | 'stripe' | 'cash' | 'gift_card' | 'layby' |
+ *     'split' | 'qr' | 'card' (kiosk legacy stub) | …. The schema does
+ *     not enum-restrict it so future providers (Square, Adyen, …) can
+ *     plug in without a migration.
  */
 
 import { getDeviceJwt } from './device-jwt';
@@ -44,7 +51,35 @@ export type TerminalTxType =
   | 'logon'
   | 'logoff';
 
+/**
+ * Provider tag — drives column-grouping + filtering on the dashboard
+ * Logs page. Free string at the schema level so this doesn't need a
+ * migration when a new acquirer lands.
+ *   - 'anz'        ANZ Worldline TIM API (existing)
+ *   - 'tyro'       Tyro IClientWithUI SDK
+ *   - 'stripe'     Stripe Terminal (Tap to Pay on the device)
+ *   - 'cash'       Cash sale (no terminal)
+ *   - 'gift_card'  Gift-card redemption
+ *   - 'layby'      Layby payment / agreement settle
+ *   - 'split'      Mixed cash + card (one row per leg of the split)
+ *   - 'qr'         Kiosk QR (legacy stub)
+ *   - 'card'       Kiosk fallback when no terminal is wired up
+ */
+export type TerminalTxProvider =
+  | 'anz'
+  | 'tyro'
+  | 'stripe'
+  | 'cash'
+  | 'gift_card'
+  | 'layby'
+  | 'split'
+  | 'qr'
+  | 'card'
+  | string;
+
 export interface TerminalTxLogInput {
+  /** Provider tag — defaults to 'anz' when omitted (legacy ANZ-only flow). */
+  provider?: TerminalTxProvider;
   outcome: TerminalTxOutcome;
   transactionType: TerminalTxType;
   amountCents?: number | null;
@@ -88,7 +123,11 @@ function buildRow(input: TerminalTxLogInput): Record<string, unknown> | null {
     deviceId: identity.deviceId,
     orderId: input.orderId ?? null,
     referenceId: input.referenceId ?? null,
-    provider: 'anz',
+    // v2.7.48-univlog — provider was hardcoded 'anz' originally; now
+    // every transaction (cash / split / Tyro / Stripe / kiosk QR …)
+    // logs through the same path. Default to 'anz' for backwards
+    // compatibility with the ANZ bridge that still omits the field.
+    provider: input.provider ?? 'anz',
     outcome: input.outcome,
     amountCents: input.amountCents ?? null,
     transactionType: input.transactionType,
