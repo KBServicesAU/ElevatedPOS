@@ -16,16 +16,29 @@ import { useAnzStore } from '../../store/anz';
 import { useTillStore } from '../../store/till';
 import { useAnzBridge } from '../../components/AnzBridgeHost';
 import { useAuthStore } from '../../store/auth';
-import { getServerAnzConfig } from '../../store/device-settings';
+import { useDeviceSettings, getServerAnzConfig } from '../../store/device-settings';
 
 /**
  * Open Till screen.
  *
  * Operator enters the starting float (cash in drawer at shift start)
  * and the app:
- *   1. Records it in the persistent till session.
- *   2. Opens the persistent ANZ bridge (Connect → Login → Activate).
- * On success the terminal stays connected for subsequent transactions.
+ *   1. Records it in the persistent till session (cash + EOD tracking).
+ *   2. **If** the dashboard has assigned an integrated payment terminal
+ *      to this device, opens the persistent ANZ bridge
+ *      (Connect → Login → Activate).
+ *
+ * v2.7.47 — standalone-EFTPOS support. Many merchants don't use
+ * integrated card payments; they swipe on a separate terminal and key
+ * the amount manually. For those merchants the dashboard either:
+ *   - has no terminal credential assigned to this device, OR
+ *   - has a terminal credential assigned but with provider != 'anz'
+ *
+ * In either case we should open the till LOCALLY (cash float tracked,
+ * receipts still print, EOD still works) WITHOUT trying to drive an
+ * ANZ terminal. Previously the screen refused to open the till at all
+ * when no ANZ IP was configured, which forced standalone-EFTPOS users
+ * into a permanent "fix your config" wall.
  */
 
 export default function OpenTillScreen() {
@@ -44,6 +57,13 @@ export default function OpenTillScreen() {
   const effectiveIp   = serverCfg?.terminalIp ?? anzConfig.terminalIp;
   const effectivePort = serverCfg?.terminalPort ?? anzConfig.terminalPort ?? 7784;
 
+  // v2.7.47 — has the dashboard assigned an integrated payment terminal
+  // to this device? When `terminal === null`, this device runs in
+  // standalone-EFTPOS mode (or cash-only) and the till opens without
+  // touching the ANZ bridge.
+  const serverTerminal = useDeviceSettings((s) => s.config?.terminal);
+  const integratedPayments = !!(serverTerminal && serverTerminal.provider === 'anz' && effectiveIp.trim());
+
   // Subscribe to bridge status messages so the operator sees progress.
   useEffect(() => {
     return bridge.onStatus((m) => setStatusText(m));
@@ -55,16 +75,25 @@ export default function OpenTillScreen() {
       toast.warning('Invalid float', 'Enter a non-negative dollar amount.');
       return;
     }
-    if (!effectiveIp.trim()) {
-      toast.error('No terminal', 'Configure the terminal IP in ANZ Settings first.');
-      return;
-    }
 
     const floatCents = Math.round(floatDollars * 100);
     setSubmitting(true);
-    setStatusText('Starting…');
+    setStatusText(integratedPayments ? 'Starting…' : 'Opening till…');
     try {
       await openTillStore(floatCents, employee?.id);
+
+      // Standalone-EFTPOS or cash-only: skip the ANZ bridge entirely.
+      // The till is now "open" locally so card payments via a separate
+      // terminal still print receipts and EOD can reconcile cash.
+      if (!integratedPayments) {
+        toast.success(
+          'Till opened (standalone)',
+          `Starting float $${floatDollars.toFixed(2)}. Card payments will not route through this app.`,
+        );
+        router.back();
+        return;
+      }
+
       await bridge.openTill();
       toast.success('Till opened', `Starting float $${floatDollars.toFixed(2)}.`);
       router.back();
@@ -83,12 +112,18 @@ export default function OpenTillScreen() {
    * When the till was already open (previous session crashed / app was
    * killed mid-shift), reopen the bridge with the saved float instead
    * of forcing the operator to close + re-open. Fast path: just run
-   * bridge.openTill() which is idempotent.
+   * bridge.openTill() which is idempotent. v2.7.47: in standalone mode
+   * the till is already open locally — Resume is a no-op toast.
    */
   async function handleResume() {
     setSubmitting(true);
-    setStatusText('Reconnecting terminal…');
+    setStatusText(integratedPayments ? 'Reconnecting terminal…' : 'Resuming…');
     try {
+      if (!integratedPayments) {
+        toast.success('Shift resumed', 'Standalone mode — no terminal to reconnect.');
+        router.back();
+        return;
+      }
       await bridge.openTill();
       toast.success('Shift resumed', 'Terminal is reconnected.');
       router.back();
@@ -146,14 +181,32 @@ export default function OpenTillScreen() {
         )}
 
         {/* Terminal info */}
-        <Text style={styles.sectionTitle}>Terminal</Text>
+        <Text style={styles.sectionTitle}>Payments</Text>
         <View style={styles.card}>
           <View style={styles.row}>
-            <Text style={styles.label}>Terminal</Text>
-            <Text style={styles.value}>
-              {effectiveIp ? `${effectiveIp}:${effectivePort}` : 'Not configured'}
+            <Text style={styles.label}>Mode</Text>
+            <Text style={[styles.value, { color: integratedPayments ? '#22c55e' : '#94a3b8' }]}>
+              {integratedPayments ? 'Integrated (ANZ)' : 'Standalone'}
             </Text>
           </View>
+          {integratedPayments && (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.row}>
+                <Text style={styles.label}>Terminal</Text>
+                <Text style={styles.value}>
+                  {effectiveIp ? `${effectiveIp}:${effectivePort}` : '—'}
+                </Text>
+              </View>
+            </>
+          )}
+          {!integratedPayments && (
+            <Text style={styles.hint}>
+              No payment terminal is assigned to this device in the back-office.
+              The till will open in standalone mode — operators ring up sales here
+              and process card payments on a separate terminal.
+            </Text>
+          )}
         </View>
 
         {/* Float input */}
@@ -294,6 +347,7 @@ const styles = StyleSheet.create({
   },
   label: { color: '#888', fontSize: 13, fontWeight: '600' },
   value: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  divider: { height: 1, backgroundColor: '#1e1e2e', marginVertical: 6 },
   inputLabel: { color: '#888', fontSize: 12, fontWeight: '700', marginBottom: 6 },
   bigInput: {
     backgroundColor: '#0f0f1a',
