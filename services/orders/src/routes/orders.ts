@@ -58,6 +58,16 @@ export async function orderRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
 
   // GET /api/v1/orders
+  //
+  // v2.7.51-C2 — denormalises `customerName` onto each order row by
+  // LEFT JOINing the `customers` table (orders + customers share the
+  // same Postgres database; orders.customer_id → customers.id).
+  // Without this, the mobile Orders list could never render the
+  // customer name in a row because the list endpoint only returned
+  // `customerId`. We also accept `from`/`to` ISO timestamps so the
+  // client can scope the query server-side instead of relying on a
+  // 50-row client-side filter (which previously hid sales the moment
+  // a busy register filled the list with newer orders).
   app.get('/', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const querySchema = z.object({
@@ -66,6 +76,8 @@ export async function orderRoutes(app: FastifyInstance) {
       status: z.string().optional(),
       locationId: z.string().uuid().optional(),
       customerId: z.string().uuid().optional(),
+      from: z.string().datetime().optional(),
+      to: z.string().datetime().optional(),
     });
     const query = querySchema.parse(request.query);
 
@@ -74,6 +86,8 @@ export async function orderRoutes(app: FastifyInstance) {
       query.locationId ? eq(schema.orders.locationId, query.locationId) : undefined,
       query.customerId ? eq(schema.orders.customerId, query.customerId) : undefined,
       query.status ? eq(schema.orders.status, query.status as any) : undefined,
+      query.from ? gte(schema.orders.createdAt, new Date(query.from)) : undefined,
+      query.to ? lte(schema.orders.createdAt, new Date(query.to)) : undefined,
     );
 
     const [orders, [countResult]] = await Promise.all([
@@ -89,9 +103,50 @@ export async function orderRoutes(app: FastifyInstance) {
         .where(whereClause),
     ]);
 
+    // v2.7.51-C2 — pull customer first/last name for every order in the
+    // page in a single `WHERE id = ANY(...)` query. Cross-service raw
+    // SQL because `customers` lives in the customers service schema
+    // (same DB instance — see infrastructure/docker/docker-compose.dev.yml
+    // DATABASE_URL: both services point at elevatedpos_dev).
+    //
+    // Mobile Orders list expects `customerName` as a top-level field on
+    // every row in the response (see apps/mobile/app/(pos)/orders.tsx
+    // `interface Order` and the row renderers). Before this change the
+    // list rendered "$XX.XX" with no name even when a customer had been
+    // attached at sale time — merchants couldn't tell which order was
+    // whose without tapping into detail.
+    const customerIds = Array.from(new Set(
+      orders.map((o) => o.customerId).filter((id): id is string => !!id),
+    ));
+    const customerNameById = new Map<string, string>();
+    if (customerIds.length > 0) {
+      try {
+        const rows = await db.execute(sql`
+          SELECT id, first_name, last_name
+          FROM customers
+          WHERE id = ANY(${customerIds}::uuid[])
+        `);
+        // `db.execute` returns the raw pg result; rows is an array-ish.
+        const list = Array.isArray(rows) ? rows : (rows as { rows?: unknown[] }).rows ?? [];
+        for (const r of list as { id: string; first_name: string; last_name: string }[]) {
+          const name = `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim();
+          if (r.id && name) customerNameById.set(r.id, name);
+        }
+      } catch (err) {
+        // Non-fatal. The list still renders, just without names for
+        // orders that have a customer attached.
+        console.error('[orders] GET / customer name lookup failed', err);
+      }
+    }
+
+    const enriched = orders.map((o) => ({
+      ...o,
+      customerName: o.customerId ? (customerNameById.get(o.customerId) ?? null) : null,
+    }));
+
     const totalCount = countResult?.count ?? 0;
     return reply.status(200).send({
-      data: orders,
+      data: enriched,
       meta: {
         totalCount,
         hasMore: query.offset + orders.length < totalCount,
@@ -154,6 +209,24 @@ export async function orderRoutes(app: FastifyInstance) {
       .where(rangeFilter)
       .groupBy(schema.orders.paymentMethod, schema.orders.status);
 
+    // v2.7.51-C2 — log the raw bucketing query result so the next regression
+    // ("Close Till shows $0 in cash + card") surfaces in pod logs without a
+    // database dump. Pre-bucketing rows give us the actual paymentMethod
+    // strings as persisted (lowercase, snake_case, capitalised, etc).
+    console.log('[orders] /eod-summary grouped', {
+      orgId,
+      locationId,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      rowCount: grouped.length,
+      rows: grouped.map((r) => ({
+        paymentMethod: r.paymentMethod,
+        status: r.status,
+        count: r.orderCount,
+        totalSum: r.totalSum,
+      })),
+    });
+
     // Aggregate into the response shape the merchant UI expects.
     let transactionCount = 0;
     let totalSales = 0;
@@ -167,7 +240,13 @@ export async function orderRoutes(app: FastifyInstance) {
       const count = Number(row.orderCount) || 0;
       const total = parseFloat(row.totalSum) || 0;
       const paid = parseFloat(row.paidSum) || 0;
-      const method = (row.paymentMethod ?? '').toString();
+      // v2.7.51-C2 — case-insensitive bucketing. Historically the POS sent
+      // 'Cash' / 'Card' / 'Split' (Title-cased) but recent merges (Stripe
+      // Terminal, gift_card, qr) post lowercase / snake_case. Without this
+      // normalisation, rows with `paymentMethod = 'cash'` fell into the
+      // `else` branch and appeared as `payments.other`, leaving Close Till
+      // showing $0 in cash and card buckets even though sales had landed.
+      const method = (row.paymentMethod ?? '').toString().toLowerCase();
 
       if (row.status === 'refunded' || row.status === 'partially_refunded') {
         refundCount += count;
@@ -181,13 +260,17 @@ export async function orderRoutes(app: FastifyInstance) {
       transactionCount += count;
       totalSales += total;
 
-      if (method === 'Cash' || method === 'cash') {
+      if (method === 'cash') {
         cashTransactionCount += count;
         payments.cash += total;
-      } else if (method === 'Card' || method === 'card') {
+      } else if (method === 'card' || method === 'tyro' || method === 'stripe' || method === 'anz' || method === 'eftpos') {
+        // v2.7.51-C2 — Tyro / Stripe / ANZ / generic 'card' all fall into
+        // the card bucket so the merchant doesn't see "$0 card sales" when
+        // every payment went through a terminal. The orders row stores
+        // whatever the POS sent in `paymentMethod`; we normalise here.
         cardTransactionCount += count;
         payments.card += total;
-      } else if (method === 'Split' || method === 'split') {
+      } else if (method === 'split') {
         // Split payments are not currently broken out into separate tender
         // buckets on the orders row — keep them as 'split' for now.
         payments.split += total;
@@ -199,31 +282,37 @@ export async function orderRoutes(app: FastifyInstance) {
     // Round everything to cents before returning so the merchant UI can
     // display without accumulating float noise.
     const r2 = (n: number) => Math.round(n * 100) / 100;
-    return reply.status(200).send({
-      data: {
-        locationId,
-        from: from.toISOString(),
-        to: to.toISOString(),
-        transactionCount,
-        totalSales: r2(totalSales),
-        refundCount,
-        refunds: r2(refunds),
-        cashTransactionCount,
-        cardTransactionCount,
-        payments: {
-          cash: r2(payments.cash),
-          card: r2(payments.card),
-          other: r2(payments.other),
-          split: r2(payments.split),
-        },
-        // TODO(v2.7.25): count cash-tender refunds separately once the
-        // refunds table carries a tender column.
-        cashRefunds: 0,
+    const responseBody = {
+      locationId,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      transactionCount,
+      totalSales: r2(totalSales),
+      refundCount,
+      refunds: r2(refunds),
+      cashTransactionCount,
+      cardTransactionCount,
+      payments: {
+        cash: r2(payments.cash),
+        card: r2(payments.card),
+        other: r2(payments.other),
+        split: r2(payments.split),
       },
-    });
+      // TODO(v2.7.25): count cash-tender refunds separately once the
+      // refunds table carries a tender column.
+      cashRefunds: 0,
+    };
+    // v2.7.51-C2 — log the rolled-up response so support can trace why a
+    // close-till screen is showing $0 in a particular bucket.
+    console.log('[orders] /eod-summary out', responseBody);
+    return reply.status(200).send({ data: responseBody });
   });
 
   // GET /api/v1/orders/:id
+  //
+  // v2.7.51-C2 — denormalises `customerName` from the customers table so
+  // the order detail screen + Resume button can show the customer name
+  // without an extra round-trip to the customers service.
   app.get('/:id', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
     const { id } = request.params as { id: string };
@@ -234,7 +323,28 @@ export async function orderRoutes(app: FastifyInstance) {
     });
 
     if (!order) return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404 });
-    return reply.status(200).send({ data: order });
+
+    let customerName: string | null = null;
+    if (order.customerId) {
+      try {
+        const rows = await db.execute(sql`
+          SELECT first_name, last_name
+          FROM customers
+          WHERE id = ${order.customerId}::uuid
+          LIMIT 1
+        `);
+        const list = Array.isArray(rows) ? rows : (rows as { rows?: unknown[] }).rows ?? [];
+        const row = list[0] as { first_name?: string; last_name?: string } | undefined;
+        if (row) {
+          const n = `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim();
+          customerName = n || null;
+        }
+      } catch (err) {
+        console.error('[orders] GET /:id customer name lookup failed', err);
+      }
+    }
+
+    return reply.status(200).send({ data: { ...order, customerName } });
   });
 
   // GET /api/v1/orders/:id/items
@@ -592,9 +702,29 @@ export async function orderRoutes(app: FastifyInstance) {
       return reply.status(422).send({ type: 'about:blank', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
+    // v2.7.51-C2 — log the inbound /complete envelope so the next regression
+    // (paidTotal coming through as 0, paymentMethod missing, etc.) surfaces
+    // in pod logs alongside the [POS/complete] device-side breadcrumbs.
+    console.log('[orders] /complete in', {
+      id,
+      paidTotal: body.data.paidTotal,
+      paymentMethod: body.data.paymentMethod ?? null,
+      changeGiven: body.data.changeGiven,
+    });
+
     const order = await db.query.orders.findFirst({ where: and(eq(schema.orders.id, id), eq(schema.orders.orgId, orgId)) });
-    if (!order) return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404 });
-    if (order.status !== 'open') return reply.status(409).send({ title: 'Order not open', status: 409 });
+    if (!order) {
+      console.error('[orders] /complete 404 — order not found', { id, orgId });
+      return reply.status(404).send({ type: 'about:blank', title: 'Not Found', status: 404 });
+    }
+    if (order.status !== 'open') {
+      // v2.7.51-C2 — log the actual on-disk status so support can tell whether
+      // the regression is a double-submit (status === 'completed' is fine, the
+      // POS treats 409 as success) or a held / cancelled / refunded order
+      // that should never have hit this endpoint.
+      console.warn('[orders] /complete 409 — order not open', { id, status: order.status });
+      return reply.status(409).send({ title: 'Order not open', status: 409 });
+    }
 
     const completeRows = await db.update(schema.orders).set({
       status: 'completed',
@@ -678,7 +808,17 @@ export async function orderRoutes(app: FastifyInstance) {
       console.error('[orders] /complete: broadcastToKDS threw (ignored)', err);
     }
 
-    console.log('[orders] /complete OK', { id, status: 'completed', paymentMethod: body.data.paymentMethod ?? null });
+    // v2.7.51-C2 — surface the persisted `paidTotal` so support can verify
+    // the row really did get the payment recorded (vs. the tender field
+    // being silently lost between request body and DB write — that was
+    // exactly the symptom of issue #3 from the v2.7.51 regression report).
+    console.log('[orders] /complete OK', {
+      id,
+      status: 'completed',
+      paymentMethod: body.data.paymentMethod ?? null,
+      paidTotalPersisted: updated.paidTotal,
+      paidTotalRequested: body.data.paidTotal,
+    });
     return reply.status(200).send({ data: updated });
   });
 
