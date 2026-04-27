@@ -140,6 +140,152 @@ export async function organisationRoutes(app: FastifyInstance) {
     return reply.send(readReceiptSettings(merged));
   });
 
+  // ── Web-store settings (v2.7.51-F2) ───────────────────────────────────────
+  //
+  // Drives the customer-facing site at site.elevatedpos.com.au/<slug>.
+  //
+  // Stored on organisations.settings.webStore (a JSONB sub-key on the existing
+  // settings column) so we don't need a schema migration. Industry-aware: the
+  // dashboard hides sections that don't apply (no Reservations toggle in retail,
+  // no Shipping settings in hospitality).
+  //
+  // GET /organisations/me/web-store          — authenticated, returns merchant's settings
+  // PATCH /organisations/me/web-store        — authenticated, partial update
+  // GET /organisations/by-slug/:slug         — public, returns org + webStore for storefront
+
+  type WebStoreSettings = {
+    enabled: boolean;
+    theme: 'minimal' | 'modern' | 'warm' | 'classic';
+    description: string | null;
+    primaryColor: string | null;
+    logoUrl: string | null;
+    // Hospitality
+    onlineOrderingEnabled: boolean;
+    reservationsEnabled: boolean;
+    // Services
+    bookingsEnabled: boolean;
+    bookingServices: { name: string; durationMinutes: number; priceCents: number }[];
+    // Retail
+    inventorySync: boolean;
+    shippingFlatRateCents: number | null;
+  };
+
+  const DEFAULT_WEB_STORE: WebStoreSettings = {
+    enabled: false,
+    theme: 'minimal',
+    description: null,
+    primaryColor: null,
+    logoUrl: null,
+    onlineOrderingEnabled: false,
+    reservationsEnabled: false,
+    bookingsEnabled: false,
+    bookingServices: [],
+    inventorySync: true,
+    shippingFlatRateCents: null,
+  };
+
+  function readWebStoreSettings(rawSettings: unknown): WebStoreSettings {
+    const settings = (rawSettings && typeof rawSettings === 'object') ? rawSettings as Record<string, unknown> : {};
+    const raw = settings['webStore'];
+    const stored = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
+    const themeValue = stored['theme'];
+    const theme: WebStoreSettings['theme'] =
+      themeValue === 'modern' || themeValue === 'warm' || themeValue === 'classic' || themeValue === 'minimal'
+        ? themeValue
+        : DEFAULT_WEB_STORE.theme;
+    const services = Array.isArray(stored['bookingServices'])
+      ? (stored['bookingServices'] as unknown[]).filter((s): s is WebStoreSettings['bookingServices'][number] => {
+          if (!s || typeof s !== 'object') return false;
+          const sv = s as Record<string, unknown>;
+          return typeof sv['name'] === 'string'
+            && typeof sv['durationMinutes'] === 'number'
+            && typeof sv['priceCents'] === 'number';
+        })
+      : DEFAULT_WEB_STORE.bookingServices;
+    return {
+      enabled: typeof stored['enabled'] === 'boolean' ? stored['enabled'] as boolean : DEFAULT_WEB_STORE.enabled,
+      theme,
+      description: typeof stored['description'] === 'string' ? stored['description'] as string : DEFAULT_WEB_STORE.description,
+      primaryColor: typeof stored['primaryColor'] === 'string' ? stored['primaryColor'] as string : DEFAULT_WEB_STORE.primaryColor,
+      logoUrl: typeof stored['logoUrl'] === 'string' ? stored['logoUrl'] as string : DEFAULT_WEB_STORE.logoUrl,
+      onlineOrderingEnabled: typeof stored['onlineOrderingEnabled'] === 'boolean' ? stored['onlineOrderingEnabled'] as boolean : DEFAULT_WEB_STORE.onlineOrderingEnabled,
+      reservationsEnabled: typeof stored['reservationsEnabled'] === 'boolean' ? stored['reservationsEnabled'] as boolean : DEFAULT_WEB_STORE.reservationsEnabled,
+      bookingsEnabled: typeof stored['bookingsEnabled'] === 'boolean' ? stored['bookingsEnabled'] as boolean : DEFAULT_WEB_STORE.bookingsEnabled,
+      bookingServices: services,
+      inventorySync: typeof stored['inventorySync'] === 'boolean' ? stored['inventorySync'] as boolean : DEFAULT_WEB_STORE.inventorySync,
+      shippingFlatRateCents: typeof stored['shippingFlatRateCents'] === 'number' ? stored['shippingFlatRateCents'] as number : DEFAULT_WEB_STORE.shippingFlatRateCents,
+    };
+  }
+
+  app.get('/me/web-store', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const org = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, orgId),
+      columns: { settings: true, slug: true, name: true, industry: true },
+    });
+    if (!org) return reply.status(404).send({ error: 'Organisation not found' });
+    return reply.send({
+      slug: org.slug,
+      businessName: org.name,
+      industry: org.industry,
+      previewUrl: `https://site.elevatedpos.com.au/${org.slug}`,
+      ...readWebStoreSettings(org.settings),
+    });
+  });
+
+  app.patch('/me/web-store', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+
+    const bookingServiceSchema = z.object({
+      name: z.string().min(1).max(100),
+      durationMinutes: z.number().int().positive().max(1440),
+      priceCents: z.number().int().nonnegative(),
+    });
+
+    const parsed = z.object({
+      enabled: z.boolean().optional(),
+      theme: z.enum(['minimal', 'modern', 'warm', 'classic']).optional(),
+      description: z.string().max(2000).nullable().optional(),
+      primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
+      logoUrl: z.string().url().nullable().optional(),
+      onlineOrderingEnabled: z.boolean().optional(),
+      reservationsEnabled: z.boolean().optional(),
+      bookingsEnabled: z.boolean().optional(),
+      bookingServices: z.array(bookingServiceSchema).max(50).optional(),
+      inventorySync: z.boolean().optional(),
+      shippingFlatRateCents: z.number().int().nonnegative().nullable().optional(),
+    }).strict().safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid body', details: parsed.error.flatten() });
+    }
+
+    const existing = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, orgId),
+      columns: { settings: true },
+    });
+    if (!existing) return reply.status(404).send({ error: 'Organisation not found' });
+
+    const currentSettings = (existing.settings && typeof existing.settings === 'object')
+      ? existing.settings as Record<string, unknown>
+      : {};
+    const currentWebStore = readWebStoreSettings(currentSettings);
+    // Strip undefined keys so each `optional()` field doesn't clobber the
+    // current value with `undefined` when the caller didn't include it.
+    const patch: Partial<WebStoreSettings> = {};
+    for (const [k, v] of Object.entries(parsed.data)) {
+      if (v !== undefined) (patch as Record<string, unknown>)[k] = v;
+    }
+    const mergedWebStore: WebStoreSettings = { ...currentWebStore, ...patch };
+    const newSettings: Record<string, unknown> = { ...currentSettings, webStore: mergedWebStore };
+
+    await db.update(schema.organisations)
+      .set({ settings: newSettings, updatedAt: new Date() })
+      .where(eq(schema.organisations.id, orgId));
+
+    return reply.send(mergedWebStore);
+  });
+
   // GET /organisations/by-slug/:slug — public, no auth required
   app.get('/by-slug/:slug', { config: { skipAuth: true } }, async (request, reply) => {
     const { slug } = request.params as { slug: string };
@@ -155,6 +301,7 @@ export async function organisationRoutes(app: FastifyInstance) {
       country: org.country,
       currency: org.currency,
       timezone: org.timezone,
+      webStore: readWebStoreSettings(org.settings),
     });
   });
 

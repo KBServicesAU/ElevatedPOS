@@ -133,6 +133,21 @@ resource "aws_route53_record" "api" {
   }
 }
 
+# A record: site subdomain → nginx NLB (customer-facing merchant storefronts)
+# v2.7.51-F2 — every merchant gets a public site at site.elevatedpos.com.au/<slug>.
+# The matching ingress rule routes to the storefront service on port 3002.
+resource "aws_route53_record" "site" {
+  zone_id = local.zone_id
+  name    = "site.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = data.aws_lb.nginx_nlb.dns_name
+    zone_id                = data.aws_lb.nginx_nlb.zone_id
+    evaluate_target_health = true
+  }
+}
+
 # A record: godmode subdomain → nginx NLB (platform super-admin)
 resource "aws_route53_record" "godmode" {
   zone_id = local.zone_id

@@ -40,6 +40,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/dashboard/billing': 'Billing',
   '/dashboard/billing/plans': 'Billing Plans',
   '/dashboard/store': 'Web Store',
+  '/dashboard/web-store': 'Web Store',
   '/dashboard/campaigns': 'Campaigns',
   '/dashboard/franchise': 'Franchise',
   '/dashboard/alerts': 'Alerts',

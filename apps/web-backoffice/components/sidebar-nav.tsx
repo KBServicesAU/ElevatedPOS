@@ -121,7 +121,7 @@ const nav: NavItem[] = [
   { href: '/dashboard/billing',             icon: Wallet,          label: 'Billing',           roles: OWNER_ONLY },
 
   // ── Marketing ─────────────────────────────────────────────────────────────
-  { href: '/dashboard/store',               icon: Globe,           label: 'Web Store',         roles: ADMIN,  feature: 'webStore' },
+  { href: '/dashboard/web-store',           icon: Globe,           label: 'Web Store',         roles: ADMIN,  feature: 'webStore' },
   { href: '/dashboard/campaigns',           icon: Megaphone,       label: 'Campaigns',         roles: ADMIN },
 
   // ── Platform ──────────────────────────────────────────────────────────────
