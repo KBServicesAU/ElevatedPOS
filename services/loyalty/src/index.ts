@@ -11,6 +11,7 @@ import { membershipRoutes } from './routes/memberships.js';
 import { stampRoutes } from './routes/stamps.js';
 import { multiplierEventRoutes } from './routes/multiplierEvents.js';
 import { startConsumers } from './consumers/index.js';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -63,6 +64,9 @@ async function start() {
       }
     },
   );
+
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  await app.register(auditPlugin, { serviceName: 'loyalty' });
 
   await app.register(programRoutes, { prefix: '/api/v1/loyalty/programs' });
   await app.register(accountRoutes, { prefix: '/api/v1/loyalty/accounts' });

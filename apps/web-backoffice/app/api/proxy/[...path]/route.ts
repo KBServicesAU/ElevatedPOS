@@ -275,6 +275,12 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.ORDERS_API_URL ?? 'http://localhost:4004',
     prefix: '/api/v1/terminal/transactions',
   },
+  // v2.7.48-univlog — system_audit_logs read API (org-scoped). Lives in
+  // the auth service alongside the legacy hand-rolled audit_logs.
+  'audit-logs': {
+    base: process.env.AUTH_API_URL ?? 'http://localhost:4001',
+    prefix: '/api/v1/audit-logs',
+  },
   transfers: {
     base: process.env.INVENTORY_API_URL ?? 'http://localhost:4003',
     prefix: '/api/v1/transfers',

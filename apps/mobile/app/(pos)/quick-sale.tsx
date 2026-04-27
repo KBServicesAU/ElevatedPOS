@@ -61,6 +61,8 @@ import {
 } from '../../components/payments/StripePaymentModal';
 import { useStripeTerminalStore } from '../../store/stripe-terminal';
 import { useTillStore } from '../../store/till';
+// v2.7.48-univlog — universal transaction logger (Tyro/Stripe/cash/split/ANZ).
+import { logTerminalTx } from '../../lib/terminal-tx-log';
 
 const KEYS: string[][] = [
   ['1', '2', '3'],
@@ -416,6 +418,34 @@ export default function QuickSaleScreen() {
       } else {
         console.log('[POS/complete]', 'quickSale.handleCharge /complete OK', { orderId });
       }
+
+      // v2.7.48-univlog — log non-card sales (Cash / Split / Card-fallback).
+      // Tyro / Stripe / ANZ already log from their respective callbacks
+      // before handleCharge runs.
+      const isCardWithExtras = !!cardExtras || !!tyroExtras;
+      if (!isCardWithExtras) {
+        const provider: 'cash' | 'split' | 'card' =
+          paymentMethod === 'Cash'  ? 'cash'
+          : paymentMethod === 'Split' ? 'split'
+          : 'card';
+        logTerminalTx({
+          provider,
+          outcome: completed ? 'approved' : 'error',
+          transactionType: 'purchase',
+          amountCents: Math.round(paidTotal * 100),
+          orderId,
+          referenceId: orderNumber,
+          errorCategory: completed ? null : 'order_complete_failed',
+          raw: {
+            paymentMethod,
+            paidTotal,
+            tendered: cashExtras?.tendered ?? null,
+            changeGiven,
+            tipDollars,
+            surchargeDollars,
+          },
+        });
+      }
     } catch (err) {
       setCharging(false);
       const msg = err instanceof Error ? err.message : String(err);
@@ -576,6 +606,32 @@ export default function QuickSaleScreen() {
     const outcome = String(result.result || 'UNKNOWN').toUpperCase();
     const split = pendingSplit;
     if (split) setPendingSplit(null);
+
+    // v2.7.48-univlog — log every Tyro outcome.
+    const tyroLogOutcome: 'approved' | 'cancelled' | 'declined' | 'error' =
+      outcome === 'APPROVED' ? 'approved'
+      : outcome === 'CANCELLED' ? 'cancelled'
+      : outcome === 'DECLINED' ? 'declined'
+      : 'error';
+    const tyroAmtCents = result.transactionAmount
+      ? parseInt(String(result.transactionAmount), 10)
+      : Math.round((tyroAmount || amount) * 100);
+    logTerminalTx({
+      provider: 'tyro',
+      outcome: tyroLogOutcome,
+      transactionType: 'purchase',
+      amountCents: Number.isFinite(tyroAmtCents) ? tyroAmtCents : null,
+      transactionRef: result.transactionReference ?? null,
+      authCode: result.authorisationCode ?? null,
+      rrn: result.rrn ?? null,
+      maskedPan: result.elidedPan ?? null,
+      cardType: result.cardType ?? null,
+      merchantReceipt: outcomeEvent.merchantReceipt ?? null,
+      customerReceipt: result.customerReceipt ?? null,
+      errorCategory: tyroLogOutcome === 'error' ? 'tyro_system_error' : null,
+      errorMessage: result.errorMessage ?? null,
+      raw: result,
+    });
 
     if (outcome === 'APPROVED') {
       const tipCents = result.tipAmount ? parseInt(String(result.tipAmount), 10) : 0;
@@ -1164,6 +1220,18 @@ export default function QuickSaleScreen() {
         orderId={undefined}
         onApproved={(result: StripePaymentResult) => {
           setShowStripeModal(false);
+          // v2.7.48-univlog — capture every Stripe outcome.
+          logTerminalTx({
+            provider: 'stripe',
+            outcome: 'approved',
+            transactionType: 'purchase',
+            amountCents: result.amount ?? stripeAmount,
+            transactionRef: result.paymentIntentId ?? null,
+            authCode: result.paymentIntentId ?? null,
+            cardType: result.cardBrand ?? null,
+            maskedPan: result.cardLast4 ? `**** **** **** ${result.cardLast4}` : null,
+            raw: result,
+          });
           handleCharge('Card', 0, {
             authCode: result.paymentIntentId,
             cardLast4: result.cardLast4,
@@ -1172,9 +1240,28 @@ export default function QuickSaleScreen() {
         }}
         onDeclined={(result) => {
           setShowStripeModal(false);
+          logTerminalTx({
+            provider: 'stripe',
+            outcome: 'declined',
+            transactionType: 'purchase',
+            amountCents: stripeAmount,
+            transactionRef: result.paymentIntentId ?? null,
+            errorCategory: 'stripe_declined',
+            errorMessage: result.errorMessage ?? null,
+            errorStep: result.declineCode ?? null,
+            raw: result,
+          });
           toast.error('Payment Declined', result.errorMessage ?? 'Card was declined');
         }}
-        onCancel={() => setShowStripeModal(false)}
+        onCancel={() => {
+          setShowStripeModal(false);
+          logTerminalTx({
+            provider: 'stripe',
+            outcome: 'cancelled',
+            transactionType: 'purchase',
+            amountCents: stripeAmount,
+          });
+        }}
       />
     </SafeAreaView>
   );

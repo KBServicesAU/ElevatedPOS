@@ -12,7 +12,7 @@ import {
   CreditCard,
   Link as LinkIcon,
   Settings,
-  Receipt,
+  ClipboardList,
 } from 'lucide-react';
 import { LogoutButton } from './LogoutButton';
 
@@ -42,7 +42,10 @@ const navItems = [
   { href: '/reseller-accounts', label: 'Reseller Accounts', Icon: HandshakeIcon },
   { href: '/plans', label: 'Plans', Icon: CreditCard },
   { href: '/signup-links', label: 'Signup Links', Icon: LinkIcon },
-  { href: '/terminal-logs', label: 'Terminal Logs', Icon: Receipt },
+  // v2.7.48-univlog — unified Logs page (Transactions + Activity tabs)
+  // replaces the v2.7.48 Terminal Logs entry. The /terminal-logs route
+  // still exists as an alias-redirect so old bookmarks keep working.
+  { href: '/logs', label: 'Logs', Icon: ClipboardList },
   { href: '/audit', label: 'Audit Log', Icon: ScrollText },
   { href: '/system', label: 'System Health', Icon: Activity },
   { href: '/settings', label: 'Settings', Icon: Settings },

@@ -16,6 +16,7 @@ import {
   queryRevenueByDay,
   queryToday,
 } from './queries.js';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Extend FastifyInstance to include the `authenticate` decoration
 declare module 'fastify' {
@@ -67,6 +68,10 @@ async function start() {
       }
     },
   );
+
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  // Reporting is GET-heavy but the ingest endpoint is a POST and counts.
+  await app.register(auditPlugin, { serviceName: 'reporting' });
 
   // ─── Health ────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,7 @@ import {
   Truck, Gift, CalendarCheck, ArrowLeftRight, MapPin, Clock, Webhook, ShoppingCart,
   FileText, Tag, CreditCard, ChefHat, Tablet, Smartphone, Receipt, RefreshCw, Globe,
   Banknote, ArrowDownToLine, Wallet, ArrowUpDown, UserCog, MoveRight, LayoutGrid, Calendar,
-  Tv,
+  Tv, ScrollText,
 } from 'lucide-react';
 import { NavLink } from './nav-link';
 
@@ -107,6 +107,9 @@ const nav: NavItem[] = [
   // ── Reports ───────────────────────────────────────────────────────────────
   { href: '/dashboard/reports',             icon: BarChart3,       label: 'Reports',           roles: OPS },
   { href: '/dashboard/terminal-logs',       icon: Receipt,         label: 'Terminal Logs',     roles: OPS },
+  // v2.7.48-univlog — universal mutation audit trail. Org-scoped view of
+  // every server change (orders, products, employees, settings, …).
+  { href: '/dashboard/audit-logs',          icon: ScrollText,      label: 'Audit Logs',        roles: ADMIN },
 
   // ── Finance ───────────────────────────────────────────────────────────────
   { href: '/dashboard/payments',            icon: CreditCard,      label: 'Payments & Connect', roles: ADMIN },

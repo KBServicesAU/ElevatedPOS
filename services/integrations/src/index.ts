@@ -14,6 +14,7 @@ import { terminalHardwareRoutes } from './routes/terminal-hardware';
 import { platformIntegrationsRoutes } from './routes/platform';
 import { reservationsRoutes } from './routes/reservations';
 import { startRetryPoller } from './lib/webhookDelivery';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -56,6 +57,11 @@ async function start() {
       }
     },
   );
+
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  // /stripe-webhook and similar webhook receive endpoints are intentionally
+  // included so the merchant has forensics on Stripe state changes.
+  await app.register(auditPlugin, { serviceName: 'integrations' });
 
   await app.register(appRoutes, { prefix: '/api/v1/integrations/apps' });
   await app.register(webhookRoutes, { prefix: '/api/v1/integrations/webhooks' });

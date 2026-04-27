@@ -21,6 +21,7 @@ import { promoCodeRoutes } from './routes/promoCodes';
 import { db, schema } from './db';
 import { initCollections } from './lib/typesense';
 import { registerGraphQL } from './graphql';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -61,6 +62,9 @@ async function start() {
       return reply.status(401).send({ type: 'https://elevatedpos.com/errors/unauthorized', title: 'Unauthorized', status: 401 });
     }
   });
+
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  await app.register(auditPlugin, { serviceName: 'catalog' });
 
   // Public polling endpoint registered BEFORE productRoutes plugin to ensure static path wins over /:id param
   // No auth required — used by KDS and web-backoffice to poll for availability changes every 30s

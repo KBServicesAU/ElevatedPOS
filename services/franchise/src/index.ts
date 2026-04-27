@@ -8,6 +8,7 @@ import { franchiseRoutes } from './routes/franchise.js';
 import { policyRoutes } from './routes/policies.js';
 import { royaltyRoutes } from './routes/royalties.js';
 import { complianceRoutes } from './routes/compliance.js';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -50,6 +51,9 @@ async function start() {
       }
     },
   );
+
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  await app.register(auditPlugin, { serviceName: 'franchise' });
 
   await app.register(franchiseRoutes, { prefix: '/api/v1/franchise' });
   await app.register(policyRoutes, { prefix: '/api/v1/franchise' });

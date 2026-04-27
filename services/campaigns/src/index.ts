@@ -8,6 +8,7 @@ import { campaignRoutes } from './routes/campaigns.js';
 import { segmentRoutes } from './routes/segments.js';
 import { templateRoutes } from './routes/templates.js';
 import { startConsumers } from './consumers/index.js';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -52,6 +53,9 @@ async function start() {
       }
     },
   );
+
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  await app.register(auditPlugin, { serviceName: 'campaigns' });
 
   await app.register(campaignRoutes, { prefix: '/api/v1/campaigns' });
   await app.register(segmentRoutes, { prefix: '/api/v1/segments' });

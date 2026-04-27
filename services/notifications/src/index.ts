@@ -12,6 +12,7 @@ import { logsRoutes } from './routes/logs.js';
 import { deviceRoutes } from './routes/devices.js';
 import { stopConsumer } from './lib/kafka.js';
 import { startConsumers } from './consumers/index.js';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -57,6 +58,9 @@ async function start() {
       }
     },
   );
+
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  await app.register(auditPlugin, { serviceName: 'notifications' });
 
   await app.register(notificationRoutes, { prefix: '/api/v1/notifications' });
   await app.register(emailRoutes, { prefix: '/api/v1/notifications/email' });

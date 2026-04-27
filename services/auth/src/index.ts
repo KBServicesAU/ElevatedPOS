@@ -27,6 +27,8 @@ import { rosterRoutes } from './routes/roster';
 import { displayRoutes } from './routes/display';
 import { billingRoutes } from './routes/billing';
 import { settingsRoutes } from './routes/settings';
+import { systemAuditLogRoutes, godmodeSystemAuditLogRoutes } from './routes/systemAuditLogs';
+import auditPlugin from '@nexus/fastify-audit';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -165,6 +167,12 @@ async function start() {
     }
   });
 
+  // v2.7.48-univlog — universal audit middleware (system_audit_logs).
+  // The auth service ALSO hand-emits login / logout / auth_fail rows
+  // from routes/auth.ts because the URL → entity inference can't infer
+  // "this POST /login was a login attempt" from the URL alone.
+  await app.register(auditPlugin, { serviceName: 'auth' });
+
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
   await app.register(employeeRoutes, { prefix: '/api/v1/employees' });
   await app.register(roleRoutes, { prefix: '/api/v1/roles' });
@@ -186,6 +194,9 @@ async function start() {
   await app.register(displayRoutes,     { prefix: '/api/v1/display' });
   await app.register(billingRoutes,     { prefix: '/api/v1/billing' });
   await app.register(settingsRoutes,    { prefix: '/api/v1/settings' });
+  // v2.7.48-univlog — system_audit_logs read APIs.
+  await app.register(systemAuditLogRoutes,        { prefix: '/api/v1/audit-logs' });
+  await app.register(godmodeSystemAuditLogRoutes, { prefix: '/api/v1/godmode/audit-logs' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'auth', timestamp: new Date().toISOString() }));
 

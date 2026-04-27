@@ -71,6 +71,10 @@ import {
 } from '../../components/payments/StripePaymentModal';
 import { useStripeTerminalStore } from '../../store/stripe-terminal';
 import { useTillStore } from '../../store/till';
+// v2.7.48-univlog — universal transaction logger. Every payment outcome
+// (Tyro, Stripe, cash, gift_card, layby, split, ANZ) gets one row in
+// `terminal_transactions` for forensics + dashboards.
+import { logTerminalTx } from '../../lib/terminal-tx-log';
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -478,6 +482,38 @@ export default function PosSellScreen() {
           `Sale was charged but the server did not mark it complete (${completeErr ?? 'unknown'}). Go to Orders to reconcile.`,
         );
       }
+
+      // v2.7.48-univlog — log non-card sales to terminal_transactions.
+      // Tyro/Stripe/ANZ already log from their respective callbacks BEFORE
+      // handleCharge runs (so the operator can trace failed-auth attempts
+      // that never reach a sale). For Cash + Split + the bare 'Card'
+      // dev-fallback we log here, AFTER /complete, so the row carries
+      // the orderId and the actual paidTotal.
+      const isCardWithExtras = !!cardExtras || !!tyroExtras;
+      if (!isCardWithExtras) {
+        const provider: 'cash' | 'split' | 'card' =
+          paymentMethod === 'Cash'  ? 'cash'
+          : paymentMethod === 'Split' ? 'split'
+          : 'card';
+        logTerminalTx({
+          provider,
+          outcome: completed ? 'approved' : 'error',
+          transactionType: 'purchase',
+          amountCents: Math.round(paidTotal * 100),
+          orderId,
+          referenceId: orderNumber,
+          errorCategory: completed ? null : 'order_complete_failed',
+          errorMessage: completed ? null : (completeErr ?? null),
+          raw: {
+            paymentMethod,
+            paidTotal,
+            tendered: cashExtras?.tendered ?? null,
+            changeGiven,
+            tipDollars,
+            surchargeDollars,
+          },
+        });
+      }
     } catch (err) {
       setCharging(false);
       const msg = err instanceof Error ? err.message : String(err);
@@ -810,6 +846,34 @@ export default function PosSellScreen() {
     // Always clear the pending split after reading it.
     if (split) setPendingSplit(null);
 
+    // v2.7.48-univlog — log every Tyro outcome, not just approvals. The
+    // merchant + ANZ-style cert reviewers need a unified audit trail
+    // across providers.
+    const tyroLogOutcome: 'approved' | 'cancelled' | 'declined' | 'error' =
+      outcome === 'APPROVED' ? 'approved'
+      : outcome === 'CANCELLED' ? 'cancelled'
+      : outcome === 'DECLINED' ? 'declined'
+      : 'error';
+    const tyroAmtCents = result.transactionAmount
+      ? parseInt(String(result.transactionAmount), 10)
+      : Math.round((tyroAmount || total) * 100);
+    logTerminalTx({
+      provider: 'tyro',
+      outcome: tyroLogOutcome,
+      transactionType: 'purchase',
+      amountCents: Number.isFinite(tyroAmtCents) ? tyroAmtCents : null,
+      transactionRef: result.transactionReference ?? null,
+      authCode: result.authorisationCode ?? null,
+      rrn: result.rrn ?? null,
+      maskedPan: result.elidedPan ?? null,
+      cardType: result.cardType ?? null,
+      merchantReceipt: outcomeEvent.merchantReceipt ?? null,
+      customerReceipt: result.customerReceipt ?? null,
+      errorCategory: tyroLogOutcome === 'error' ? 'tyro_system_error' : null,
+      errorMessage: result.errorMessage ?? null,
+      raw: result,
+    });
+
     if (outcome === 'APPROVED') {
       // Extract tip and surcharge from the Tyro result (values are in cents as strings).
       const tipCents = result.tipAmount ? parseInt(String(result.tipAmount), 10) : 0;
@@ -1078,11 +1142,30 @@ export default function PosSellScreen() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { message?: string; detail?: string };
+        // v2.7.48-univlog — record the failure for forensics.
+        logTerminalTx({
+          provider: 'gift_card',
+          outcome: 'error',
+          transactionType: 'purchase',
+          amountCents: Math.round(amount * 100),
+          errorCategory: 'gift_card_create_failed',
+          errorMessage: err.message ?? err.detail ?? `HTTP ${res.status}`,
+        });
         toast.error('Gift Card Failed', err.message ?? err.detail ?? `Error ${res.status}`);
         return;
       }
       const data = await res.json() as { code?: string; balance?: number };
       const code = data.code ?? '';
+      // v2.7.48-univlog — gift-card issuance is a transaction in its own
+      // right; log so the merchant sees it in the unified Logs page.
+      logTerminalTx({
+        provider: 'gift_card',
+        outcome: 'approved',
+        transactionType: 'purchase',
+        amountCents: Math.round(amount * 100),
+        referenceId: code || null,
+        raw: { code, balance: data.balance, recipient: giftCardRecipientName.trim() || null, email: giftCardRecipientEmail.trim() || null },
+      });
       toast.success('Gift Card Issued', `${code} · $${amount.toFixed(2)}`);
       setShowGiftCardModal(false);
       setShowPayment(false);
@@ -1129,9 +1212,33 @@ export default function PosSellScreen() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { message?: string; detail?: string };
+        logTerminalTx({
+          provider: 'layby',
+          outcome: 'error',
+          transactionType: 'purchase',
+          amountCents: Math.round(depositAmt * 100),
+          errorCategory: 'layby_create_failed',
+          errorMessage: err.message ?? err.detail ?? `HTTP ${res.status}`,
+        });
         toast.error('Layby Failed', err.message ?? err.detail ?? `Error ${res.status}`);
         return;
       }
+      // v2.7.48-univlog — record the layby deposit. The cart total is
+      // captured in `raw` so the merchant can reconcile against the
+      // layby agreement in the dashboard.
+      logTerminalTx({
+        provider: 'layby',
+        outcome: 'approved',
+        transactionType: 'purchase',
+        amountCents: Math.round(depositAmt * 100),
+        raw: {
+          totalAmountCents: Math.round(total * 100),
+          depositCents: Math.round(depositAmt * 100),
+          customerName: laybyCustomerName.trim(),
+          customerPhone: laybyCustomerPhone.trim() || null,
+          itemCount: cart.length,
+        },
+      });
       toast.success('Layby Created', `$${depositAmt.toFixed(2)} deposit recorded`);
       setShowLaybyModal(false);
       setLaybyDepositAmount('');
@@ -2209,6 +2316,18 @@ export default function PosSellScreen() {
         orderId={undefined}
         onApproved={(result) => {
           setShowStripeModal(false);
+          // v2.7.48-univlog — capture every Stripe outcome.
+          logTerminalTx({
+            provider: 'stripe',
+            outcome: 'approved',
+            transactionType: 'purchase',
+            amountCents: result.amount ?? stripeAmount,
+            transactionRef: result.paymentIntentId ?? null,
+            authCode: result.paymentIntentId ?? null,
+            cardType: result.cardBrand ?? null,
+            maskedPan: result.cardLast4 ? `**** **** **** ${result.cardLast4}` : null,
+            raw: result,
+          });
           handleCharge('Card', 0, {
             authCode: result.paymentIntentId,
             cardLast4: result.cardLast4,
@@ -2217,9 +2336,28 @@ export default function PosSellScreen() {
         }}
         onDeclined={(result) => {
           setShowStripeModal(false);
+          logTerminalTx({
+            provider: 'stripe',
+            outcome: 'declined',
+            transactionType: 'purchase',
+            amountCents: stripeAmount,
+            transactionRef: result.paymentIntentId ?? null,
+            errorCategory: 'stripe_declined',
+            errorMessage: result.errorMessage ?? null,
+            errorStep: result.declineCode ?? null,
+            raw: result,
+          });
           toast.error('Payment Declined', result.errorMessage ?? 'Card was declined');
         }}
-        onCancel={() => setShowStripeModal(false)}
+        onCancel={() => {
+          setShowStripeModal(false);
+          logTerminalTx({
+            provider: 'stripe',
+            outcome: 'cancelled',
+            transactionType: 'purchase',
+            amountCents: stripeAmount,
+          });
+        }}
       />
 
       {/* ═══ Issue Gift Card Modal ═══ */}
