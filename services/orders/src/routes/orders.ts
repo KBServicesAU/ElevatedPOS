@@ -763,6 +763,19 @@ export async function orderRoutes(app: FastifyInstance) {
             total,
             paidTotal: body.data.paidTotal,
             completedAt,
+            // v2.7.51 — enrich the event with channel/orderType/customer/
+            // employee/discount/tax/createdAt so the reporting consumer can
+            // populate sales_fact correctly. Without these fields the
+            // consumer was falling back to defaults (channel='pos',
+            // discountTotal=0, taxTotal=gst, etc.) which sometimes left
+            // sales_fact under-counted.
+            channel: updated.channel,
+            orderType: updated.orderType,
+            ...(updated.customerId && { customerId: updated.customerId }),
+            ...(updated.employeeId && { employeeId: updated.employeeId }),
+            discountTotal: Number(updated.discountTotal ?? 0),
+            taxTotal: Number(updated.taxTotal ?? gst),
+            createdAt: updated.createdAt?.toISOString() ?? completedAt,
             // Optional receipt enrichment — only present when the POS includes them
             ...(body.data.customerEmail !== undefined && { customerEmail: body.data.customerEmail }),
             ...(body.data.customerName !== undefined && { customerName: body.data.customerName }),

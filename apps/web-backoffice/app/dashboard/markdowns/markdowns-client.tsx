@@ -467,8 +467,9 @@ export default function MarkdownsClient() {
 
   function formatPromoDiscount(promo: PromoCode): string {
     if (promo.type === 'free_shipping') return 'Free Shipping';
-    if (promo.type === 'percentage') return `${promo.discountValue}% off`;
-    return `$${promo.discountValue.toFixed(2)} off`;
+    // v2.7.51 — discountValue may arrive as a string from the API.
+    if (promo.type === 'percentage') return `${Number(promo.discountValue)}% off`;
+    return `$${Number(promo.discountValue).toFixed(2)} off`;
   }
 
   function formatPromoScope(scope: PromoScope): string {
@@ -618,7 +619,11 @@ export default function MarkdownsClient() {
                           <span className="text-xs">{md.scopeLabel}</span>
                         </td>
                         <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">
-                          {md.discountType === 'percentage' ? `${md.discountValue}%` : `$${md.discountValue.toFixed(2)}`}
+                          {/* v2.7.51 — API returns discountValue as a string
+                              (Postgres NUMERIC); coerce before .toFixed. */}
+                          {md.discountType === 'percentage'
+                            ? `${Number(md.discountValue)}%`
+                            : `$${Number(md.discountValue).toFixed(2)}`}
                         </td>
                         <td className="px-5 py-3.5 text-xs text-gray-500 dark:text-gray-400">{md.startsAt}</td>
                         <td className="px-5 py-3.5 text-xs text-gray-500 dark:text-gray-400">{md.endsAt ?? '—'}</td>
@@ -771,7 +776,8 @@ export default function MarkdownsClient() {
                       </td>
                       {/* Min Order */}
                       <td className="px-5 py-3.5 text-xs text-gray-500 dark:text-gray-400">
-                        {promo.minOrderValue != null ? `$${promo.minOrderValue.toFixed(2)}` : '—'}
+                        {/* v2.7.51 — coerce numeric strings from the API. */}
+                        {promo.minOrderValue != null ? `$${Number(promo.minOrderValue).toFixed(2)}` : '—'}
                       </td>
                       {/* Uses */}
                       <td className="px-5 py-3.5 text-xs text-gray-500 dark:text-gray-400">

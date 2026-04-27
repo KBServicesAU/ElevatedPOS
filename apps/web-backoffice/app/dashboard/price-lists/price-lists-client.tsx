@@ -417,7 +417,18 @@ export function PriceListsClient() {
     async function load() {
       try {
         const json = await apiFetch<{ data?: PriceList[] }>('price-lists');
-        setPriceLists(json.data ?? []);
+        // v2.7.51 — server may omit `overrides`/`channels`/`locationIds`;
+        // default them defensively so the UI never reads `.length` on
+        // undefined (clicking a row threw "Cannot read properties of
+        // undefined (reading 'length')" before this).
+        const list = (json.data ?? []).map((pl) => ({
+          ...pl,
+          overrides: pl.overrides ?? [],
+          productCount: pl.productCount ?? 0,
+          channels: pl.channels ?? [],
+          locationIds: pl.locationIds ?? [],
+        }));
+        setPriceLists(list);
       } catch {
         setPriceLists([]);
       } finally {

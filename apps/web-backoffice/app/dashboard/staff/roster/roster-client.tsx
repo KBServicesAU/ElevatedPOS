@@ -10,11 +10,22 @@ import { useToast } from '@/lib/use-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// v2.7.51 — the auth `/employees` API may return `role` as either a plain
+// string or as a `{ id, name, ... }` role object. Accept both shapes and
+// always render the human-readable name via `roleName()` below — rendering
+// the raw object threw React error #31 ("Objects are not valid as a React
+// child").
 interface Employee {
   id:        string;
   firstName: string;
   lastName:  string;
-  role?:     string;
+  role?:     string | { id?: string; name?: string; [k: string]: unknown };
+}
+
+function roleName(role: Employee['role']): string {
+  if (!role) return '';
+  if (typeof role === 'string') return role;
+  return role.name ?? '';
 }
 
 interface Shift {
@@ -120,11 +131,14 @@ function AddShiftModal({ employees, defaultDate, onClose, onSaved }: AddShiftMod
               className="w-full rounded-xl bg-gray-50 dark:bg-[#2a2a3a] px-3 py-2.5 text-sm text-gray-900 dark:text-white border border-gray-300 dark:border-[#3a3a4a] focus:border-indigo-500 focus:outline-none"
             >
               <option value="">Select employee…</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.firstName} {emp.lastName}{emp.role ? ` — ${emp.role}` : ''}
-                </option>
-              ))}
+              {employees.map((emp) => {
+                const r = roleName(emp.role);
+                return (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.firstName} {emp.lastName}{r ? ` — ${r}` : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
@@ -433,7 +447,7 @@ export function RosterClient() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-900 dark:text-white leading-none">{emp.firstName} {emp.lastName}</p>
-                        {emp.role && <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">{emp.role}</p>}
+                        {roleName(emp.role) && <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">{roleName(emp.role)}</p>}
                       </div>
                     </div>
                   </td>

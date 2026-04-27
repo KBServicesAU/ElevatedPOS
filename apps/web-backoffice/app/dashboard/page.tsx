@@ -112,10 +112,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const resolvedParams = await searchParams;
   const period = resolvedParams.period ?? 'today';
+  // v2.7.51 — optional locationId filter. "all" / undefined = aggregate
+  // across all stores (the reporting service treats no locationId as
+  // org-wide aggregation).
+  const rawLocation = resolvedParams.locationId ?? 'all';
+  const selectedLocationId = rawLocation === 'all' ? '' : rawLocation;
+  const locationParam = selectedLocationId ? `&locationId=${encodeURIComponent(selectedLocationId)}` : '';
 
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
-  const orgId = process.env.DEFAULT_ORG_ID ?? 'default';
+  // v2.7.51 — DO NOT pass a hard-coded "default" orgId to the reports
+  // service: it 403s when the URL orgId doesn't match the JWT orgId, so
+  // the dashboard always rendered $0. Letting the reports route default
+  // `requestedOrgId = orgId ?? userOrgId` makes it use the JWT orgId.
 
   // Calculate date range based on selected period
   let fromStr = todayStr;
@@ -139,12 +148,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const authHeaders = getAuthHeaders();
 
+  const ordersFilter = selectedLocationId ? `&locationId=${encodeURIComponent(selectedLocationId)}` : '';
+  const stockFilter  = selectedLocationId ? `?locationId=${encodeURIComponent(selectedLocationId)}` : '';
+
   const [ordersResult, stockResult, aiSuggestions, salesResult, customersResult, employeesResult, productsResult, user] = await Promise.all([
-    safeFetch<{ data: Order[] }>(ordersBase + '/api/v1/orders?limit=5', authHeaders),
-    safeFetch<{ data: StockItem[] }>(invBase + '/api/v1/stock/low-stock', authHeaders),
+    safeFetch<{ data: Order[] }>(ordersBase + '/api/v1/orders?limit=5' + ordersFilter, authHeaders),
+    safeFetch<{ data: StockItem[] }>(invBase + '/api/v1/stock/low-stock' + stockFilter, authHeaders),
     fetchAISuggestions(),
     safeFetch<{ data: SalesSummary }>(
-      `${reportsBase}/api/v1/reports/sales?orgId=${orgId}&from=${fromStr}&to=${toStr}`,
+      // Omit orgId — the reporting service derives it from the JWT.
+      `${reportsBase}/api/v1/reports/sales?from=${fromStr}&to=${toStr}${locationParam}`,
       authHeaders,
     ),
     safeFetch<{ data: unknown[]; meta?: { totalCount: number }; pagination?: { total: number } }>(
@@ -238,7 +251,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">{greeting(firstName)}</h2>
           <p className="text-sm text-gray-500">{today}</p>
         </div>
-        <DashboardControls period={period} />
+        <DashboardControls period={period} locationId={selectedLocationId || undefined} />
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
