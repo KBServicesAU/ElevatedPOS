@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 
@@ -36,6 +37,23 @@ const tips = [
 function CompleteContent() {
   const searchParams = useSearchParams();
   const orgId = searchParams?.get('orgId') || '';
+  const token = searchParams?.get('token') || '';
+
+  // v2.7.51 — fire the welcome email exactly once after the merchant has
+  // paid and landed on this page. The auth service /billing/welcome-email
+  // endpoint is idempotent (tracks settings.welcomeEmailSentAt) so a
+  // page refresh or React StrictMode double-mount won't send duplicates,
+  // but we also guard at the React level with a ref to avoid the request
+  // even hitting the network twice in dev.
+  const sentRef = useRef(false);
+  useEffect(() => {
+    if (!token || sentRef.current) return;
+    sentRef.current = true;
+    fetch('/api/onboard/welcome-email', {
+      method: 'POST',
+      headers: { 'x-onboarding-token': token },
+    }).catch(() => {});
+  }, [token]);
 
   return (
     <div className="flex-1 flex items-start justify-center px-4 py-12">
