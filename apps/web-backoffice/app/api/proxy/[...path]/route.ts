@@ -267,6 +267,14 @@ const SERVICE_MAP: Record<string, { base: string; prefix: string }> = {
     base: process.env.PAYMENTS_API_URL ?? 'http://localhost:4005',
     prefix: '/api/v1/terminal',
   },
+  // v2.7.48 — ANZ TIM API audit log (terminal_transactions). Lives in
+  // the orders service alongside the order context. Routed BEFORE the
+  // shorter `terminal` prefix above wins because Next maps service
+  // names by exact key, not by prefix length.
+  'terminal-transactions': {
+    base: process.env.ORDERS_API_URL ?? 'http://localhost:4004',
+    prefix: '/api/v1/terminal/transactions',
+  },
   transfers: {
     base: process.env.INVENTORY_API_URL ?? 'http://localhost:4003',
     prefix: '/api/v1/transfers',

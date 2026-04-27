@@ -212,6 +212,63 @@ export const fulfillmentRequests = pgTable('fulfillment_requests', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Terminal Transactions (ANZ Worldline TIM API audit log) ────────────────────
+//
+// v2.7.48 — captures every ANZ terminal interaction (purchase, refund,
+// reversal, reconciliation, logon, logoff) regardless of outcome
+// (approved / declined / cancelled / error / timeout). The mobile bridge
+// posts a row before resolving the JS promise so even network failures
+// after the terminal already authed are recorded for forensic replay.
+//
+// Built for ANZ Worldline TIM API certification — the cert submission
+// requires merchants to be able to download a full transaction log
+// alongside test videos and receipts, and ongoing operations need the
+// same evidence trail when a cardholder disputes an authorisation.
+
+export const terminalTransactions = pgTable('terminal_transactions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull(),
+  locationId: uuid('location_id'),
+  // Which paired POS / kiosk fired the transaction. Nullable so legacy
+  // rows minted before the device-id plumbing landed don't reject.
+  deviceId: uuid('device_id'),
+  // Nullable — Open Till logon attempts and standalone reconciliations
+  // have no order context.
+  orderId: uuid('order_id'),
+  // The POS-NNNN reference we send to the terminal. Useful for cross-
+  // referencing the merchant copy / acquirer settlement reports.
+  referenceId: text('reference_id'),
+  provider: varchar('provider', { length: 20 }).notNull().default('anz'),
+  // 'approved' | 'declined' | 'cancelled' | 'error' | 'timeout'
+  outcome: varchar('outcome', { length: 20 }).notNull(),
+  // What we asked for. Null on logon-only attempts.
+  amountCents: integer('amount_cents'),
+  // 'purchase' | 'refund' | 'reversal' | 'reconcile' | 'logon' | 'logoff'
+  transactionType: varchar('transaction_type', { length: 20 }),
+  // ── ANZ result fields (populated when outcome === 'approved') ───
+  transactionRef: text('transaction_ref'),
+  authCode: text('auth_code'),
+  rrn: text('rrn'),
+  maskedPan: text('masked_pan'),
+  cardType: text('card_type'),
+  // ── Failure detail (populated when outcome !== 'approved') ──────
+  errorCategory: text('error_category'),
+  errorCode: integer('error_code'),
+  errorMessage: text('error_message'),
+  errorStep: text('error_step'),
+  // ── Receipts (full text — merchant copy is ANZ cert evidence) ───
+  merchantReceipt: text('merchant_receipt'),
+  customerReceipt: text('customer_receipt'),
+  // ── Diagnostic ──────────────────────────────────────────────────
+  durationMs: integer('duration_ms'),
+  timCapabilities: jsonb('tim_capabilities'),
+  raw: jsonb('raw'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  orgCreatedIdx: index('terminal_tx_org_idx').on(table.orgId, table.createdAt),
+  orderIdIdx: index('terminal_tx_order_idx').on(table.orderId),
+}));
+
 // ── Relations ─────────────────────────────────────────────────────────────────
 
 export const ordersRelations = relations(orders, ({ many }) => ({

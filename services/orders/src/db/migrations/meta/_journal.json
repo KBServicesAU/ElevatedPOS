@@ -36,6 +36,13 @@
       "when": 1776384000000,
       "tag": "0005_order_payment_method",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777078800000,
+      "tag": "0006_terminal_transactions",
+      "breakpoints": true
     }
   ]
 }

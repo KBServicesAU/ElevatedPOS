@@ -12,6 +12,10 @@ import { laybyRoutes } from './routes/laybys';
 import { giftCardRoutes } from './routes/giftCards';
 import { quoteRoutes } from './routes/quotes';
 import { fulfillmentRoutes } from './routes/fulfillment';
+import {
+  terminalTransactionRoutes,
+  godmodeTerminalTransactionRoutes,
+} from './routes/terminalTransactions';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -87,6 +91,8 @@ async function start() {
   await app.register(giftCardRoutes, { prefix: '/api/v1/gift-cards' });
   await app.register(quoteRoutes, { prefix: '/api/v1/quotes' });
   await app.register(fulfillmentRoutes, { prefix: '/api/v1/fulfillment' });
+  await app.register(terminalTransactionRoutes, { prefix: '/api/v1/terminal/transactions' });
+  await app.register(godmodeTerminalTransactionRoutes, { prefix: '/api/v1/godmode/terminal/transactions' });
 
   app.get('/health', async () => ({ status: 'ok', service: 'orders' }));
   const port = Number(process.env['PORT'] ?? 4004);
