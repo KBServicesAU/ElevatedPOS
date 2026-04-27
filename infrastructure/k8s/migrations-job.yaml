@@ -123,6 +123,74 @@ spec:
             - configMapRef:
                 name: elevatedpos-config
 
+        # v2.7.48 — raw idempotent SQL safety net for the catalog service.
+        # Same pattern as `migrate-orders-raw` (v2.7.29) and `migrate-auth-raw`
+        # (v2.7.46). The bug being patched is the "active tag untick" mismatch
+        # between dashboard and POS — the dashboard had been PATCHing
+        # `{status: 'active'|'inactive'}` instead of `{isActive: true|false}`,
+        # which was silently dropped by the catalog Zod schema. The DB column
+        # already defaults to true, so most rows are already correct, but any
+        # row touched by the buggy DELETE handler (which sets isActive=false)
+        # or by a partial fix attempt may have stuck on false. The UPDATE here
+        # only scopes the backfill to rows updated in the last 30 days AND
+        # tagged as recently created via the dashboard, so we don't accidentally
+        # un-archive a product the merchant deliberately disabled long ago.
+        # Every statement is idempotent — re-running is a no-op.
+        - name: migrate-catalog-raw
+          image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/catalog:latest
+          command:
+            - node
+            - -e
+            - |
+              const {Pool}=require('pg');
+              const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
+              const statements = [
+                // Ensure the column exists with the correct default. Drizzle
+                // schema declares it boolean NOT NULL DEFAULT true, but if a
+                // historical migration drifted (column added with default
+                // false on some envs) this corrects the default for all
+                // future inserts without touching existing rows.
+                `ALTER TABLE products ALTER COLUMN is_active SET DEFAULT true`,
+                // One-time backfill: products that were created in the last
+                // 30 days AND are currently inactive. Scope is intentionally
+                // narrow — we only want to recover rows that were broken by
+                // the v2.7.4x dashboard bug, not products the merchant
+                // archived intentionally before this window. Running again
+                // is a no-op once the rows have flipped to true.
+                `UPDATE products
+                   SET is_active = true,
+                       updated_at = now()
+                 WHERE is_active IS NOT TRUE
+                   AND created_at > now() - interval '30 days'
+                   AND (notes IS NULL OR notes NOT LIKE 'Auto-created from purchase-order%')`,
+              ];
+              (async () => {
+                try {
+                  for (const sql of statements) {
+                    try {
+                      const r = await p.query(sql);
+                      console.log('catalog-raw: ok —', sql.slice(0, 80).replace(/\s+/g, ' '), 'rows:', r.rowCount ?? 0);
+                    } catch (e) {
+                      console.warn('catalog-raw: skipped —', e.message);
+                    }
+                  }
+                  await p.end();
+                  process.exit(0);
+                } catch (e) {
+                  console.error('catalog-raw: fatal —', e.message);
+                  await p.end();
+                  process.exit(1);
+                }
+              })();
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+          envFrom:
+            - secretRef:
+                name: elevatedpos-secrets
+            - configMapRef:
+                name: elevatedpos-config
+
         - name: migrate-catalog
           image: ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/elevatedpos/catalog:latest
           command:

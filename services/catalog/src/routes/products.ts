@@ -15,6 +15,11 @@ const createProductSchema = z.object({
   barcodes: z.array(z.string()).default([]),
   basePrice: z.number().min(0),
   costPrice: z.number().min(0).default(0),
+  // v2.7.48 — accept the boolean active flag from create + PATCH bodies so
+  // the dashboard's "archive" toggle actually mutates state. The DB column
+  // already defaults to true, so omitting this on create still yields an
+  // active product (matching the merchant mental model: archive is opt-in).
+  isActive: z.boolean().default(true),
   isSoldOnline: z.boolean().default(false),
   isSoldInstore: z.boolean().default(true),
   trackStock: z.boolean().default(true),
@@ -290,6 +295,10 @@ export async function productRoutes(app: FastifyInstance) {
     if (bd.barcodes !== undefined) patchData['barcodes'] = bd.barcodes;
     if (bd.basePrice !== undefined) patchData['basePrice'] = String(bd.basePrice);
     if (bd.costPrice !== undefined) patchData['costPrice'] = String(bd.costPrice);
+    // v2.7.48 — accept isActive on PATCH so the dashboard archive toggle
+    // can flip products active/inactive without going through the
+    // /availability endpoint (which is reserved for auto-86 in the POS).
+    if (bd.isActive !== undefined) patchData['isActive'] = bd.isActive;
     if (bd.isSoldOnline !== undefined) patchData['isSoldOnline'] = bd.isSoldOnline;
     if (bd.isSoldInstore !== undefined) patchData['isSoldInstore'] = bd.isSoldInstore;
     if (bd.trackStock !== undefined) patchData['trackStock'] = bd.trackStock;

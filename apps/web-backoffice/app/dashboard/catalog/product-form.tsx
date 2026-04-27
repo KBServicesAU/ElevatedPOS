@@ -1582,7 +1582,12 @@ function VariantsTab({
 function buildPayload(form: ProductFormData): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     name: form.name.trim(),
-    status: 'active',
+    // v2.7.48 — server schema in services/catalog/src/db/schema.ts uses the
+    // boolean `isActive` column with default(true); the previous `status:
+    // 'active'` string was silently dropped by the route's Zod schema. We
+    // still default to `true` so creating from this form keeps the product
+    // active (matching the merchant's mental model: archive is explicit).
+    isActive: true,
     productType: form.productType,
     isSoldInstore: form.isSoldInstore,
     showOnKiosk: form.showOnKiosk,

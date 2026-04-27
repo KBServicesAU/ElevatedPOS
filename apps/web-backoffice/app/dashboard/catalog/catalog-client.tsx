@@ -76,11 +76,18 @@ async function fetchStockLevels(productIds: string[]): Promise<Record<string, nu
   }
 }
 
+// v2.7.48 — the catalog service stores active state on the boolean
+// `isActive` column (see services/catalog/src/db/schema.ts). The previous
+// implementation PATCHed `{ status: 'active' | 'inactive' }`, which the
+// server's Zod schema silently dropped because no `status` field exists,
+// leaving the DB unchanged. UI optimistic updates therefore reverted on
+// the next refetch and the merchant saw the active tag stay un-ticked.
 async function patchProductStatus(productId: string, status: string): Promise<void> {
+  const isActive = status === 'active';
   const res = await fetch(`/api/proxy/catalog/products/${productId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ isActive }),
   });
   if (!res.ok) throw new Error(`Failed to update status: HTTP ${res.status}`);
 }
@@ -105,7 +112,10 @@ function StatusToggle({
   onToggle: (product: ProductWithChannels) => void;
   isToggling: boolean;
 }) {
-  const isActive = product.status === 'active';
+  // v2.7.48 — read from `isActive` (the field the catalog API actually returns).
+  // Fall back to the legacy `status` string for any callers that still set it
+  // (e.g. unit tests / fixture data) so this stays backwards compatible.
+  const isActive = product.isActive ?? product.status === 'active';
   return (
     <button
       onClick={() => onToggle(product)}
@@ -771,7 +781,12 @@ export function CatalogClient() {
 
   const handleToggleStatus = useCallback(
     async (product: ProductWithChannels) => {
-      const currentStatus = statusOverrides[product.id] ?? product.status;
+      // v2.7.48 — derive currentStatus from the boolean isActive field.
+      // The override map continues to use the legacy 'active'|'inactive'
+      // strings so existing optimistic-update paths don't change.
+      const overridden = statusOverrides[product.id];
+      const currentStatus = overridden
+        ?? (product.isActive === false ? 'inactive' : 'active');
       const nextStatus = currentStatus === 'active' ? 'inactive' : 'active';
       // Immediately flip the toggle (optimistic UI)
       setStatusOverrides((prev) => ({ ...prev, [product.id]: nextStatus }));
@@ -1149,7 +1164,11 @@ export function CatalogClient() {
                           {/* Status toggle */}
                           <td className="px-4 py-3.5">
                             <StatusToggle
-                              product={statusOverrides[product.id] ? { ...product, status: statusOverrides[product.id] } : product}
+                              product={statusOverrides[product.id]
+                                // v2.7.48 — set BOTH `status` (legacy) and the
+                                // `isActive` boolean StatusToggle now reads.
+                                ? { ...product, status: statusOverrides[product.id], isActive: statusOverrides[product.id] === 'active' }
+                                : product}
                               onToggle={handleToggleStatus}
                               isToggling={isToggling}
                             />
