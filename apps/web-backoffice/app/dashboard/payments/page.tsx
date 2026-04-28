@@ -1080,28 +1080,17 @@ function ElevatedPOSPayTab() {
   const { toast } = useToast();
   const [account, setAccount]       = useState<ConnectAccount | null>(null);
   const [loading, setLoading]       = useState(true);
-  const [syncing, setSyncing]       = useState(false);
   const [subTab, setSubTab]         = useState<ElevatedPaySubTab>('onboarding');
   const [instanceReady, setInstanceReady] = useState(false);
 
-  // Push org profile data to Stripe then redirect to the hosted onboarding flow
-  // so the merchant can complete representative details, bank account & ToS.
-  const handleCompleteSetup = async () => {
-    setSyncing(true);
-    try {
-      const data = await apiFetch<{ url: string }>('connect/sync-account', { method: 'POST' });
-      window.location.href = data.url;
-    } catch (err) {
-      // v2.7.51 — surface the actual Stripe error (e.g. missing API key,
-      // invalid account id) instead of a generic "Please try again".
-      const description = err instanceof Error && err.message
-        ? err.message
-        : 'Please try again.';
-      console.error('[connect] sync-account failed:', err);
-      toast({ title: 'Could not start setup', description, variant: 'destructive' });
-      setSyncing(false);
-    }
-  };
+  // v2.7.59 — `handleCompleteSetup` and the `syncing` state were removed
+  // along with the legacy yellow "Action required" banner. They drove a
+  // redirect to connect.stripe.com via `connect/sync-account`, which took
+  // the merchant out of the dashboard. The embedded `account_onboarding`
+  // component below handles the same fields inline, keeping the
+  // experience white-labelled. The server-side `connect/sync-account`
+  // endpoint is intentionally left in place until we're sure no other
+  // surface (mobile, godmode, partner-portal) calls it.
 
   // Refs for Stripe Connect Embedded Component mount points
   const notifBannerRef   = useRef<HTMLDivElement>(null);
@@ -1284,35 +1273,25 @@ function ElevatedPOSPayTab() {
             ))}
           </div>
 
-          {/* Onboarding / requirements banner */}
-          {(account.status === 'onboarding' || account.status === 'restricted' || !account.detailsSubmitted) && (
-            <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-800 dark:bg-yellow-900/20">
-              <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-1">
-                ⚠️ Action required — account setup incomplete
-              </p>
-              <p className="text-sm text-yellow-700 dark:text-yellow-400 mb-2">
-                Stripe needs the following information to enable payments and payouts:
-              </p>
-              <ul className="text-sm text-yellow-700 dark:text-yellow-400 mb-3 space-y-0.5 pl-4 list-disc">
-                <li>Business website</li>
-                <li>Business type (company / individual)</li>
-                <li>Bank account for payouts</li>
-                <li>Business representative details</li>
-                <li>Accept Stripe&apos;s terms of service</li>
-                <li>Business industry / category</li>
-              </ul>
-              <p className="text-xs text-yellow-600 dark:text-yellow-500 mb-3">
-                Clicking below will pre-fill your business details and open Stripe&apos;s secure form for the remaining steps.
-              </p>
-              <button
-                onClick={handleCompleteSetup}
-                disabled={syncing}
-                className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-semibold text-white hover:bg-yellow-700 disabled:opacity-60 transition-colors"
-              >
-                {syncing ? 'Preparing…' : 'Complete Setup with Stripe →'}
-              </button>
-            </div>
-          )}
+          {/*
+            v2.7.59 — removed the legacy "Action required" yellow banner that
+            redirected to connect.stripe.com via `handleCompleteSetup`. That
+            path took the merchant out of the dashboard for the rest of
+            their setup, defeating the whole point of using Stripe Connect
+            Embedded Components. The embedded `account_onboarding`
+            component mounted further down (driven by the 'onboarding'
+            sub-tab, which is the default for new accounts) handles the
+            same fields — business type, ABN, bank account, owner
+            details, terms acceptance — entirely inside the dashboard.
+            Stripe's embedded `notification_banner` component (mounted
+            above the sub-tabs when the instance is ready) surfaces any
+            action-required alerts in-page without a redirect.
+
+            `handleCompleteSetup` and the `connect/sync-account` endpoint
+            it calls are intentionally left in place for now; they can be
+            removed in a follow-up commit once we're confident no other
+            code path exercises them.
+          */}
 
           {/* Sub-tab bar — only show extra tabs when active */}
           <div className="flex flex-wrap gap-1 rounded-xl bg-gray-100 p-1 dark:bg-gray-800 w-fit">
