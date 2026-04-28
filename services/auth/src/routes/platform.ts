@@ -110,6 +110,19 @@ export async function platformRoutes(app: FastifyInstance) {
       .set({ lastLoginAt: new Date() })
       .where(eq(schema.platformStaff.id, staff.id));
 
+    // v2.7.62 — TOTP 2FA gate. Same shape as the employee /login response
+    // so the frontend can branch on `mfaRequired` regardless of which login
+    // surface was used. Existing platform staff have mfa_enabled = false,
+    // so this is dormant until the operator runs through /mfa/enroll +
+    // /mfa/confirm.
+    if (staff.mfaEnabled) {
+      const mfaPendingToken = app.jwt.sign(
+        { sub: staff.id, type: 'mfa_pending', subjectType: 'platform' },
+        { expiresIn: '5m' },
+      );
+      return reply.status(200).send({ mfaRequired: true, mfaPendingToken });
+    }
+
     const token = app.jwt.sign(
       {
         sub: staff.id,

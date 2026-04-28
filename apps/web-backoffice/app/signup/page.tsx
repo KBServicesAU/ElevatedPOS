@@ -626,8 +626,19 @@ function StepSubscribe({ monthlyTotal, onboardingToken, onComplete }: {
       </div>
       <PaymentElement />
       {err && <p className="text-red-400 text-sm mt-3">{err}</p>}
+      <p className="text-gray-500 text-xs text-center mt-5 leading-relaxed">
+        By signing up you agree to our{' '}
+        <Link href="/terms" target="_blank" className="text-indigo-400 hover:text-indigo-300 underline-offset-2 hover:underline">
+          Terms of Service
+        </Link>
+        {' '}and{' '}
+        <Link href="/privacy" target="_blank" className="text-indigo-400 hover:text-indigo-300 underline-offset-2 hover:underline">
+          Privacy Policy
+        </Link>
+        .
+      </p>
       <button type="submit" disabled={!stripe || loading}
-        className="mt-6 w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold rounded-xl transition-colors">
+        className="mt-4 w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold rounded-xl transition-colors">
         {loading ? 'Processing…' : `Pay $${monthlyTotal.toFixed(2)}/month →`}
       </button>
       <p className="text-gray-600 text-xs text-center mt-3">Secured by Stripe · No lock-in contract</p>

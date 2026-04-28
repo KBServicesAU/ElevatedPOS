@@ -1,10 +1,23 @@
 # Runbook 01 — Postgres TLS hardening (sslmode=no-verify → verify-full)
 
-## Status (v2.7.61)
+## Status (v2.7.62)
 
-Production `DATABASE_URL` ends with `?sslmode=no-verify`. That gives us
-encryption-in-transit (good) but skips certificate hostname verification
+Production `DATABASE_URL` still ends with `?sslmode=no-verify`. That gives
+us encryption-in-transit (good) but skips certificate hostname verification
 (bad — open to a MITM attacker who can intercept the VPC subnet route).
+
+**v2.7.62 already did the prep work:**
+
+- `infrastructure/certs/rds-global-bundle.pem` is checked into the repo
+  (downloaded from `https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem`,
+  108 certs, multi-region, 165408 bytes).
+- Every Dockerfile in `services/*` and `apps/*` now copies that bundle
+  to `/etc/ssl/certs/rds-combined-ca-bundle.pem` in the runner stage and
+  verifies its SHA-256 at build time. SHA-256 is pinned to:
+  `e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3`.
+
+So the only remaining work is **flipping `DATABASE_URL` to use the
+bundle**. No Dockerfile or build changes needed.
 
 ## What changes
 

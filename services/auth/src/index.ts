@@ -8,6 +8,7 @@ import { Pool } from 'pg';
 import { getRedisClient } from '@nexus/config';
 import { isBlacklisted } from './lib/tokens';
 import { authRoutes } from './routes/auth';
+import { mfaRoutes } from './routes/mfa';
 import { employeeRoutes } from './routes/employees';
 import { roleRoutes } from './routes/roles';
 import { approvalRoutes } from './routes/approvals';
@@ -106,6 +107,26 @@ async function applyMigrations(): Promise<void> {
     await client.query(`ALTER TABLE organisations ALTER COLUMN account_number SET NOT NULL`);
     await client.query(`CREATE INDEX IF NOT EXISTS organisations_account_number_idx ON organisations (account_number)`);
 
+    // ── Migration 0027 — TOTP MFA recovery codes + platform_staff MFA columns ──
+    await client.query(`ALTER TABLE platform_staff ADD COLUMN IF NOT EXISTS mfa_enabled boolean NOT NULL DEFAULT false`);
+    await client.query(`ALTER TABLE platform_staff ADD COLUMN IF NOT EXISTS mfa_secret varchar(255)`);
+    await client.query(`ALTER TABLE platform_staff ADD COLUMN IF NOT EXISTS failed_login_attempts integer NOT NULL DEFAULT 0`);
+    await client.query(`ALTER TABLE platform_staff ADD COLUMN IF NOT EXISTS locked_until timestamptz`);
+    await client.query(`CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
+      id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      employee_id       uuid REFERENCES employees(id) ON DELETE CASCADE,
+      platform_staff_id uuid REFERENCES platform_staff(id) ON DELETE CASCADE,
+      code_hash         varchar(255) NOT NULL,
+      used_at           timestamptz,
+      created_at        timestamptz NOT NULL DEFAULT NOW(),
+      CONSTRAINT mfa_recovery_codes_one_owner CHECK (
+        (employee_id IS NOT NULL AND platform_staff_id IS NULL) OR
+        (employee_id IS NULL AND platform_staff_id IS NOT NULL)
+      )
+    )`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_mfa_recovery_codes_employee ON mfa_recovery_codes(employee_id) WHERE employee_id IS NOT NULL`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_mfa_recovery_codes_platform ON mfa_recovery_codes(platform_staff_id) WHERE platform_staff_id IS NOT NULL`);
+
     console.log('[auth] schema migrations applied successfully');
   } catch (err) {
     console.error('[auth] migration error — aborting startup:', err);
@@ -179,6 +200,8 @@ async function start() {
   await app.register(auditPlugin, { serviceName: 'auth' });
 
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
+  // v2.7.62 — TOTP MFA: /enroll, /confirm, /verify, /reset, /recovery-codes/regenerate.
+  await app.register(mfaRoutes,  { prefix: '/api/v1/auth/mfa' });
   await app.register(employeeRoutes, { prefix: '/api/v1/employees' });
   await app.register(roleRoutes, { prefix: '/api/v1/roles' });
   await app.register(approvalRoutes, { prefix: '/api/v1/approvals' });

@@ -35,6 +35,12 @@ COPY --from=builder --chown=nexus:nodejs /app/services/campaigns/package.json ./
 COPY --from=builder --chown=nexus:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nexus:nodejs /app/packages ./packages
 
+# v2.7.62 — RDS CA bundle for sslmode=verify-full Postgres connections.
+# See infrastructure/RUNBOOKS/01-postgres-tls-verify-full.md.
+# Pinned sha256 to detect a compromised bundle URL.
+COPY infrastructure/certs/rds-global-bundle.pem /etc/ssl/certs/rds-combined-ca-bundle.pem
+RUN echo "e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3  /etc/ssl/certs/rds-combined-ca-bundle.pem" | sha256sum -c -
+
 USER nexus
 EXPOSE 4008
 CMD ["node", "dist/index.js"]

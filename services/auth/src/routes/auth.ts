@@ -202,6 +202,21 @@ export async function authRoutes(app: FastifyInstance) {
       });
     }
 
+    // v2.7.62 — TOTP 2FA. If enrolled, return a short-lived "mfa_pending"
+    // token instead of the normal access+refresh pair. The frontend's
+    // login screen redirects to a TOTP-entry step which posts to
+    // /api/v1/auth/mfa/verify with the pending token + 6-digit code.
+    // Frontend integration is intentionally out of scope here — the route
+    // is ready and the legacy single-factor login behaviour is unchanged
+    // for any account that has not yet flipped mfa_enabled = true.
+    if (employee.mfaEnabled) {
+      const mfaPendingToken = app.jwt.sign(
+        { sub: employee.id, type: 'mfa_pending', subjectType: 'employee' },
+        { expiresIn: '5m' },
+      );
+      return reply.status(200).send({ mfaRequired: true, mfaPendingToken });
+    }
+
     const accessToken = app.jwt.sign({
       sub: employee.id,
       orgId: employee.orgId,

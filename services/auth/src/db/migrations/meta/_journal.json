@@ -183,6 +183,13 @@
       "when": 1777795200000,
       "tag": "0026_email_lowercase_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1777881600000,
+      "tag": "0027_mfa_recovery_codes",
+      "breakpoints": true
     }
   ]
 }

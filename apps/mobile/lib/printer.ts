@@ -835,6 +835,20 @@ function buildReceiptText(opts: PrintReceiptOpts, paperWidth: 58 | 80): string {
   if (opts.store.phone)    r += centre(opts.store.phone) + '\n';
   if (opts.store.email)    r += centre(opts.store.email) + '\n';
   if (opts.store.abn)      r += centre(`ABN ${opts.store.abn}`) + '\n';
+
+  // v2.7.62 — Australian Tax Invoice compliance. Per ATO rules
+  // (https://www.ato.gov.au/businesses-and-organisations/gst-excise-and-indirect-taxes/gst/tax-invoices),
+  // a sale ≥ $82.50 (incl GST) requires the words "Tax Invoice" to appear
+  // prominently on the document. Below that threshold, a receipt with
+  // ABN + GST breakdown is sufficient. We label every receipt that
+  // crosses the threshold AND has an ABN — without an ABN we can't issue
+  // a Tax Invoice anyway. Sales ≥ $1,100 (incl GST) additionally require
+  // the recipient's identity (handled when a customer is attached to the
+  // order — see customer-on-receipt logic later in this builder).
+  if (opts.store.abn && opts.totals.total >= 82.50) {
+    r += centre('TAX INVOICE') + '\n';
+  }
+
   // If no address/contact lines were emitted, the next `===` separator
   // sits directly after `</CM>` and can wrap on cheap firmware. Fall back
   // to bigLine in that case (bigW × 2 ≤ w, so it fits either way).

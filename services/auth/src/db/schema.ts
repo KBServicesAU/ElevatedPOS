@@ -425,6 +425,10 @@ export const platformStaff = pgTable('platform_staff', {
   role: platformRoleEnum('role').notNull().default('support'),
   resellerOrgId: uuid('reseller_org_id'), // null for superadmin/support
   isActive: boolean('is_active').notNull().default(true),
+  mfaEnabled: boolean('mfa_enabled').notNull().default(false),
+  mfaSecret: varchar('mfa_secret', { length: 255 }),
+  failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
 });
@@ -593,6 +597,26 @@ export const auditLogs = pgTable('audit_logs', {
 // Wider than the legacy `audit_logs` table — carries before/after diffs,
 // HTTP context, and a service-name tag so the Godmode Logs page can
 // filter by service.
+
+// ── MFA Recovery Codes (v2.7.62 — TOTP 2FA) ──────────────────────────────────
+//
+// Single-use bcrypt-hashed recovery codes generated at MFA enrollment time.
+// Each row belongs to either an `employees` row OR a `platform_staff` row;
+// the CHECK constraint enforces exactly-one-owner so we don't have to
+// model a polymorphic FK. Successful redemption flips `used_at`; the row
+// stays so an audit trail of which codes were burned remains.
+
+export const mfaRecoveryCodes = pgTable('mfa_recovery_codes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  employeeId: uuid('employee_id').references(() => employees.id, { onDelete: 'cascade' }),
+  platformStaffId: uuid('platform_staff_id').references(() => platformStaff.id, { onDelete: 'cascade' }),
+  codeHash: varchar('code_hash', { length: 255 }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  employeeIdx: index('idx_mfa_recovery_codes_employee').on(table.employeeId),
+  platformIdx: index('idx_mfa_recovery_codes_platform').on(table.platformStaffId),
+}));
 
 export const systemAuditLogs = pgTable('system_audit_logs', {
   id: uuid('id').primaryKey().defaultRandom(),

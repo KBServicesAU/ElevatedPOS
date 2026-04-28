@@ -221,23 +221,13 @@ function LoginContent() {
           </Link>
         </p>
         <p className="mt-3 text-center text-xs text-elevatedpos-700">
-          <a
-            href="https://elevatedpos.com.au/terms"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-elevatedpos-500"
-          >
-            Terms of Service
-          </a>
+          <Link href="/privacy" className="hover:text-elevatedpos-500">
+            Privacy
+          </Link>
           {' · '}
-          <a
-            href="https://elevatedpos.com.au/privacy"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-elevatedpos-500"
-          >
-            Privacy Policy
-          </a>
+          <Link href="/terms" className="hover:text-elevatedpos-500">
+            Terms
+          </Link>
         </p>
       </div>
     </div>
