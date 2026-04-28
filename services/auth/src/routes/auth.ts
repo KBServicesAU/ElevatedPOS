@@ -46,7 +46,22 @@ const refreshSchema = z.object({
 
 export async function authRoutes(app: FastifyInstance) {
   // POST /api/v1/auth/login
-  app.post('/login', async (request, reply) => {
+  // v2.7.61 — tight per-route rate limit on top of the existing
+  // 500/15min global cap, plus the existing 5-failed-attempts per-employee
+  // lockout in the handler. Three layers means a brute-forcer with one IP
+  // gets 10 password attempts per minute (rate-limit) AND triggers the
+  // 5-attempt lockout long before that ceiling matters; rotating IPs
+  // hits the global cap; account-locked feedback prevents pivot to
+  // another employee on the same tenant. Per-route limit shares storage
+  // with the global plugin (Redis if configured, in-memory otherwise).
+  app.post('/login', {
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: '1 minute',
+      },
+    },
+  }, async (request, reply) => {
     const body = loginSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({

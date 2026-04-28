@@ -214,6 +214,40 @@ jobs:
             echo "No running auth pod found — seed skipped."
           fi
 
+      # v2.7.61 — prod smoke test gate. Runs after Helm finishes applying so
+      # we catch deploys that broke the public surface before customers do.
+      # See e2e/tests/prod-smoke.spec.ts for the exact checks; failure here
+      # marks the deploy job as failed which (a) shows red in the run UI and
+      # (b) fires the Slack notify below with `job.status = failure`.
+      # Set `E2E_SKIP_PROD_SMOKE=true` on the workflow if you genuinely need
+      # to bypass for an emergency deploy — the var propagates through.
+      - name: Setup Node for prod smoke test
+        if: success()
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright + run prod smoke
+        if: success()
+        working-directory: e2e
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npx playwright test prod-smoke.spec.ts --reporter=list
+        env:
+          PROD_BASE_URL:        https://app.elevatedpos.com.au
+          PROD_API_BASE_URL:    https://api.elevatedpos.com.au
+          E2E_SKIP_WEBSERVER:   'true'
+          E2E_SKIP_PROD_SMOKE:  ${{ vars.E2E_SKIP_PROD_SMOKE }}
+
+      - name: Upload smoke-test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-smoke-playwright-report
+          path: e2e/playwright-report
+          retention-days: 14
+
       - name: Notify deployment
         if: always() && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1
