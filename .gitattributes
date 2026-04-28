@@ -1,0 +1,13 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Git attributes
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Most of the repo can use the default text+autocrlf behaviour. The exceptions
+# here are files where line-ending conversion would corrupt the content or
+# break a hash check.
+
+# RDS CA bundle — sha256 is pinned in every service Dockerfile; checking it
+# out as CRLF on Windows or LF on Linux must produce IDENTICAL bytes. Treat
+# as binary so git never touches the line endings, regardless of the user's
+# core.autocrlf setting.
+infrastructure/certs/rds-global-bundle.pem binary

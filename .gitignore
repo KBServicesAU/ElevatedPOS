@@ -55,6 +55,13 @@ e2e/.playwright/
 *.key
 *.p12
 *.pfx
+# Exception: the AWS RDS CA bundle is a PUBLIC certificate distributed by
+# AWS at https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+# and is consumed by every service Dockerfile (COPY ... /etc/ssl/certs/) so
+# Postgres connections can use sslmode=verify-full. SHA-256 is pinned in
+# each Dockerfile against tampering. Without this exception the *.pem rule
+# above blocks the file entirely and breaks every Docker build.
+!infrastructure/certs/rds-global-bundle.pem
 infrastructure/k8s/secrets.yaml
 # (the .template variant IS committed — it has no real values)
 
