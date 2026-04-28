@@ -138,10 +138,20 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
     if (!identity) return;
     const API_BASE = process.env['EXPO_PUBLIC_API_URL'] ?? '';
     try {
+      // v2.7.60 — heartbeat is a body-less ping (the deviceToken in the
+      // Authorization header is all the server needs to identify the
+      // device). Earlier versions sent `Content-Type: application/json`
+      // with no body, and Fastify's strict JSON parser
+      // (FST_ERR_CTP_EMPTY_JSON_BODY) rejected every call with a 400.
+      // Heartbeats are best-effort so the failure was invisible in the
+      // UI, but it polluted the auth pod logs and broke the device-
+      // revocation feedback loop — we never reached the 401/403 branch
+      // below because the request 400'd before it could be authorised.
+      // Dropping the Content-Type header lets Fastify accept the empty
+      // body without complaint.
       const res = await fetch(`${API_BASE}/api/v1/devices/heartbeat`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           Authorization: `Bearer ${identity.deviceToken}`,
         },
       });

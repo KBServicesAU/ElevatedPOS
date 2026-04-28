@@ -263,8 +263,16 @@ resource "aws_security_group" "msk" {
 }
 
 resource "aws_msk_cluster" "elevatedpos" {
-  cluster_name           = "elevatedpos-${var.environment}"
-  kafka_version          = "3.5.1"
+  cluster_name = "elevatedpos-${var.environment}"
+  # v2.7.60 — re-baselined from the literal "3.5.1" to "3.9.x" to match
+  # the live prod cluster, which was upgraded out-of-band (either by
+  # AWS auto-update or a console action) without a corresponding terraform
+  # edit. The previous mismatch meant any non-targeted `terraform apply`
+  # was queueing a destructive Kafka downgrade to 3.5.1, which surfaced
+  # during the v2.7.54 DNS apply and forced us to use `-target` instead.
+  # The "x" patch suffix tells MSK to track the latest minor of 3.9 so
+  # we don't have to ship a terraform commit for every patch release.
+  kafka_version          = "3.9.x"
   number_of_broker_nodes = var.environment == "prod" ? 3 : 1
 
   broker_node_group_info {
@@ -333,17 +341,59 @@ resource "aws_ecr_lifecycle_policy" "services" {
   for_each   = aws_ecr_repository.services
   repository = each.value.name
 
+  # v2.7.60 — replaced the previous "keep last 20 of any tag" policy after
+  # we discovered during the v2.7.54 incident that v2.7.47 (the only image
+  # we could roll back to while debugging the auth duplicate-route crash)
+  # had already been pruned. With CI pushing two tags per merge (the
+  # `<sha>` from deploy.yml plus the `:latest`) the previous limit
+  # measured "20 images of any kind", which churned through release tags
+  # in well under a fortnight. The new policy keeps every release tag
+  # (`v*.*.*`) forever — releases are cheap to store, expensive to lose —
+  # and prunes the noisy SHA-tagged + untagged images on a sensible cycle.
   policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 20 images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 20
-      }
-      action = { type = "expire" }
-    }]
+    rules = [
+      {
+        # 1. Keep the last 100 release tags (v*.*.*). At ~1 release per
+        #    weekday this is months of rollback runway, plenty for any
+        #    real-world incident.
+        rulePriority = 1
+        description  = "Keep last 100 release-tagged (v*) images"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["v"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 100
+        }
+        action = { type = "expire" }
+      },
+      {
+        # 2. SHA-tagged images from `deploy.yml` (staging path) churn
+        #    fast. Keep the most recent 30 so a recent staging build is
+        #    still pullable, expire the rest.
+        rulePriority = 2
+        description  = "Keep last 30 sha-tagged staging images"
+        selection = {
+          tagStatus      = "tagged"
+          tagPatternList = ["[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*"]
+          countType      = "imageCountMoreThan"
+          countNumber    = 30
+        }
+        action = { type = "expire" }
+      },
+      {
+        # 3. Anything that ended up untagged (failed CI cleanup, reTag,
+        #    etc.) gets a 14-day grace period.
+        rulePriority = 3
+        description  = "Expire untagged images after 14 days"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 14
+        }
+        action = { type = "expire" }
+      },
+    ]
   })
 }
 

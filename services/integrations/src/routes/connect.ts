@@ -338,87 +338,18 @@ export async function connectRoutes(app: FastifyInstance) {
     });
   });
 
-  // ── POST /connect/sync-account ───────────────────────────────────────────────
-  // Pushes current org profile data (website, MCC, phone, address) to the
-  // existing Stripe Connect account and returns a fresh onboarding link so
-  // the merchant can complete the remaining requirements (representative,
-  // bank account, ToS acceptance).
-  app.post('/connect/sync-account', { onRequest: [app.authenticate] }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
-
-    // v2.7.51 — surface the actual failure reason to the dashboard so the
-    // merchant doesn't get a generic "Could not start setup, please try
-    // again" toast forever. The browser sees the message via `apiFetch`.
-    if (!process.env['STRIPE_SECRET_KEY']) {
-      console.error('[connect/sync-account] STRIPE_SECRET_KEY missing — cannot create AccountLink');
-      return reply.status(500).send({
-        error: 'Stripe is not configured on the server (STRIPE_SECRET_KEY env var is missing). Contact support.',
-      });
-    }
-
-    try {
-      const rows = await db.select()
-        .from(stripeConnectAccounts)
-        .where(eq(stripeConnectAccounts.orgId, orgId))
-        .limit(1);
-
-      if (rows.length === 0) {
-        console.warn('[connect/sync-account] no Connect account row for orgId=', orgId);
-        return reply.status(404).send({
-          error: 'No Connect account exists for this organisation yet. Reload and try again.',
-        });
-      }
-
-      const { stripeAccountId } = rows[0]!;
-      const orgProfile = await getOrgProfile(orgId);
-      console.log('[connect/sync-account] orgId=', orgId, 'stripeAccountId=', stripeAccountId, 'hasProfile=', !!orgProfile);
-
-      if (orgProfile) {
-        const profileParams = buildStripeAccountParams(orgProfile);
-        try {
-          await stripe.accounts.update(stripeAccountId, profileParams as Stripe.AccountUpdateParams);
-        } catch (updateErr) {
-          // Non-fatal: we can still issue an AccountLink even if the profile
-          // sync failed. Surface the exact reason in logs for triage.
-          console.warn(
-            '[connect/sync-account] profile update failed (continuing):',
-            updateErr instanceof Error ? updateErr.message : String(updateErr),
-          );
-        }
-      }
-
-      // Generate a fresh onboarding link for the remaining requirements
-      const baseUrl = process.env['APP_URL'] ?? 'https://app.elevatedpos.com.au';
-      const accountLink = await stripe.accountLinks.create({
-        account: stripeAccountId,
-        refresh_url: `${baseUrl}/dashboard/payments?refresh=1`,
-        return_url:  `${baseUrl}/dashboard/payments?connected=1`,
-        type: 'account_onboarding',
-      });
-
-      await db.update(stripeConnectAccounts)
-        .set({
-          onboardingUrl:       accountLink.url,
-          onboardingExpiresAt: new Date(accountLink.expires_at * 1000),
-          updatedAt:           new Date(),
-        })
-        .where(eq(stripeConnectAccounts.orgId, orgId));
-
-      return reply.send({ url: accountLink.url, expiresAt: new Date(accountLink.expires_at * 1000) });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Stripe errors expose `type` and `code` — surface them so the toast
-      // says e.g. "Stripe: api_key_expired" instead of "Please try again".
-      const stripeType = (err as { type?: string }).type;
-      const stripeCode = (err as { code?: string }).code;
-      console.error('[connect/sync-account] Stripe call failed:', { message, stripeType, stripeCode });
-      return reply.status(500).send({
-        error: stripeType
-          ? `Stripe error (${stripeType}${stripeCode ? `/${stripeCode}` : ''}): ${message}`
-          : `Could not start Stripe onboarding: ${message}`,
-      });
-    }
-  });
+  // ── Removed in v2.7.60: POST /connect/sync-account ──────────────────────────
+  // The endpoint pushed org profile data to Stripe and returned a fresh
+  // hosted-onboarding AccountLink URL. It was paired with a yellow
+  // "Complete Setup with Stripe →" banner in the dashboard that
+  // redirected the merchant to connect.stripe.com to finish the account
+  // setup. v2.7.59 deleted the banner + button to keep the onboarding
+  // experience white-labelled — the embedded `account_onboarding`
+  // component handles the same fields inline. Nothing else in the
+  // codebase calls this endpoint, so the route is now removed entirely.
+  // The `accountLinks.create` call survives only inside the older
+  // `/connect/onboard` endpoint above, which is still used by the
+  // storefront onboarding flow and intentionally redirects there.
 
   // ── Create Stripe login link (dashboard access) ──────────────────────────────
   app.post('/connect/login-link/:orgId', async (request, reply) => {
