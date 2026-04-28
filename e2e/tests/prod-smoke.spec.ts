@@ -44,7 +44,11 @@ test('dashboard ALB responds', async () => {
 test('dashboard login page renders', async ({ page }) => {
   await page.goto(`${BASE}/login`);
   await expect(page.getByPlaceholder(/you@yourstore\.com/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();
+  // The login page has TWO buttons that match /sign in/i — the regular
+  // email/password "Sign In" submit AND the "Sign in with PIN" alt path.
+  // getByRole with a regex matches both → strict-mode violation. Anchor
+  // the regex to require an end-of-string after the words to disambiguate.
+  await expect(page.getByRole('button', { name: /^sign in$/i })).toBeVisible();
 });
 
 test('dashboard /api/proxy/* routes calls (proves web-backoffice -> service wired)', async () => {
