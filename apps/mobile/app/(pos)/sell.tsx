@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -273,7 +273,13 @@ export default function PosSellScreen() {
       list = list.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
-          (p.sku && p.sku.toLowerCase().includes(q)),
+          (p.sku && p.sku.toLowerCase().includes(q)) ||
+          // v2.7.58 — also match against the registered barcodes so typing or
+          // pasting a code into the search bar surfaces the matching product
+          // card. The hidden barcode input below adds the product directly,
+          // but this still helps for manual lookup / debugging "is this
+          // barcode in the catalog?".
+          (Array.isArray(p.barcodes) && p.barcodes.some((b) => b.toLowerCase().includes(q))),
       );
     }
     return list;
@@ -328,6 +334,43 @@ export default function PosSellScreen() {
       toast.info('86\u2019d', `${p.name} is hidden from sale until you re-enable it.`);
     }
   }
+
+  // ── Barcode scan-to-add (v2.7.58) ────────────────────────────────
+  // USB barcode scanners on Android emit the digits as keystrokes followed
+  // by an Enter suffix. Without a target input, the keystrokes were landing
+  // on the sidebar's search-icon button (first focusable element in the
+  // layout), and the Enter triggered its onPress, opening the command
+  // palette — confusing and useless.
+  //
+  // The hidden TextInput rendered later in this screen captures the scan
+  // via `onSubmitEditing`. We look the code up against the already-loaded
+  // products array (catalog is hydrated locally) so a successful scan
+  // adds to the cart with no network round-trip. If the code doesn't
+  // match, we surface a not-found toast with the actual scanned value so
+  // the operator knows whether to register it on the product.
+  const barcodeInputRef = useRef<TextInput>(null);
+  const handleBarcodeScan = useCallback((rawCode: string) => {
+    const code = rawCode.trim();
+    if (!code) return;
+    const match = products.find(
+      (p) => Array.isArray(p.barcodes) && p.barcodes.includes(code),
+    );
+    if (!match) {
+      toast.error('Barcode not found', `No active product registered with barcode ${code}.`);
+      return;
+    }
+    if (unavailable.has(match.id)) {
+      toast.warning('Unavailable', `${match.name} is marked as unavailable.`);
+      return;
+    }
+    addItem({
+      id: match.id,
+      name: match.name,
+      price: parsePrice(match.basePrice),
+      categoryColor: match.categoryId ? colorMap.get(match.categoryId) : undefined,
+    });
+    toast.success('Scanned', `${match.name} added to cart.`);
+  }, [products, unavailable, colorMap, addItem]);
 
   // ── Charge ───────────────────────────────────────────────────────
   async function handleCharge(
@@ -1317,6 +1360,41 @@ export default function PosSellScreen() {
   // ── Render ───────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
+      {/* ── Hidden barcode-scanner capture (v2.7.58) ─────────────────────
+          Auto-focuses on screen mount + after every successful scan so a
+          USB scanner's Enter-terminated keystroke stream lands here
+          instead of the sidebar search-icon button (which used to open
+          the command palette on every scan). `showSoftInputOnFocus={false}`
+          keeps the soft keyboard from popping up on touch devices —
+          relevant only for hardware-scanner workflows. */}
+      <TextInput
+        ref={barcodeInputRef}
+        autoFocus
+        showSoftInputOnFocus={false}
+        blurOnSubmit={false}
+        autoCorrect={false}
+        autoCapitalize="none"
+        spellCheck={false}
+        onSubmitEditing={(e) => {
+          const code = e.nativeEvent.text;
+          handleBarcodeScan(code);
+          // Clear via the native ref + restore focus for the next scan.
+          barcodeInputRef.current?.clear();
+          requestAnimationFrame(() => barcodeInputRef.current?.focus());
+        }}
+        // Off-screen but mounted — lets us reliably accept hardware-keyboard
+        // events without taking up any visible layout. opacity:0 alone
+        // wouldn't be enough as some devices still render a caret/border.
+        style={{
+          position: 'absolute',
+          left: -9999,
+          top: -9999,
+          width: 1,
+          height: 1,
+          opacity: 0,
+        }}
+      />
+
       {/* ═══ Staff Header Bar ═══ */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#141425', paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#1e1e2e' }}>
         <Text style={{ fontSize: 16, fontWeight: '900', color: '#fff', letterSpacing: 0.5 }}>ElevatedPOS</Text>

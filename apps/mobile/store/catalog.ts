@@ -31,6 +31,11 @@ export interface CatalogProduct {
   // Display
   description?: string | null;
   prepTimeMinutes?: number | null;
+  // v2.7.58 — list of EAN/UPC barcodes registered against this product.
+  // Surfaced from the catalog API (`products.barcodes` jsonb column) so the
+  // POS Sell screen can match a USB-barcode scan against the local catalog
+  // without a round-trip to the catalog service.
+  barcodes?: string[] | null;
 }
 
 export interface CatalogCategory {
