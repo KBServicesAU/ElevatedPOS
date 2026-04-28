@@ -1,30 +1,6 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, desc, SQL } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db, schema } from '../db';
-
-// ── Auth helpers ──────────────────────────────────────────────────────────────
-
-interface PlatformPayload {
-  sub: string;
-  role: string;
-  type: string;
-}
-
-async function authenticatePlatform(
-  request: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
-  try {
-    await request.jwtVerify();
-    const payload = request.user as Partial<PlatformPayload>;
-    if (payload.type !== 'platform') {
-      return reply.status(401).send({ title: 'Unauthorized', status: 401, detail: 'Not a platform token.' });
-    }
-  } catch {
-    return reply.status(401).send({ title: 'Unauthorized', status: 401 });
-  }
-}
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -42,43 +18,16 @@ const createAuditLogSchema = z.object({
 // ── Route plugin ──────────────────────────────────────────────────────────────
 
 export async function auditLogRoutes(app: FastifyInstance) {
-  // GET /api/v1/audit-logs — platform auth required
-  app.get('/', { onRequest: [authenticatePlatform] }, async (request, reply) => {
-    const q = request.query as {
-      orgId?: string;
-      resourceType?: string;
-      action?: string;
-      limit?: string;
-      offset?: string;
-    };
-
-    const limit = Math.min(Number(q.limit ?? 50), 200);
-    const offset = Number(q.offset ?? 0);
-
-    const conditions: SQL[] = [];
-
-    if (q.orgId) {
-      conditions.push(eq(schema.auditLogs.orgId, q.orgId));
-    }
-    if (q.resourceType) {
-      conditions.push(eq(schema.auditLogs.resourceType, q.resourceType));
-    }
-    if (q.action) {
-      conditions.push(eq(schema.auditLogs.action, q.action));
-    }
-
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const rows = await db
-      .select()
-      .from(schema.auditLogs)
-      .where(where)
-      .orderBy(desc(schema.auditLogs.createdAt))
-      .limit(limit)
-      .offset(offset);
-
-    return reply.send({ data: rows, limit, offset });
-  });
+  // NOTE: GET /api/v1/audit-logs is now owned by `systemAuditLogRoutes`
+  // (services/auth/src/routes/systemAuditLogs.ts), which extends it with
+  // /:id, /export, and godmode variants. We previously registered a duplicate
+  // GET /  here at the same prefix, causing
+  //   FastifyError [FST_ERR_DUPLICATED_ROUTE]: Method 'GET' already declared
+  //     for route '/api/v1/audit-logs'
+  // at boot. Auth was crashing on every fresh pod and only the v2.7.47 pod
+  // (which predated systemAuditLogs.ts) stayed alive. The legacy GET handler
+  // was redundant and has been removed; this plugin now exposes only the
+  // internal-write endpoint below, which has no conflicting peer.
 
   // POST /api/v1/audit-logs/internal — internal only (x-internal-token header)
   app.post('/internal', async (request, reply) => {
