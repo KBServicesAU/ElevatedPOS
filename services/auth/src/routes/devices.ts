@@ -5,6 +5,39 @@ import crypto from 'crypto';
 import { db, schema } from '../db';
 import { generateRefreshToken, hashToken } from '../lib/tokens';
 
+/**
+ * v2.7.56 — Map the fine-grained `organisations.industry` enum
+ * (cafe / restaurant / bar / retail / fashion / grocery / salon / gym /
+ *  services / barber / quick_service / other / hospitality)
+ * down to the three coarse buckets the mobile sidebar's `requiresIndustry`
+ * gate uses (`hospitality` | `services` | `retail`). Without this mapping,
+ * a 'cafe' org would never match the 'hospitality' gate and Floor Plan /
+ * Reservations / Online Orders stayed hidden even though the merchant is
+ * obviously hospitality. Returning `null` for unknown / 'other' values keeps
+ * the gate strictly conservative — better to under-show than mis-show.
+ */
+function bucketIndustry(raw: string | null | undefined): 'hospitality' | 'services' | 'retail' | null {
+  switch (raw) {
+    case 'cafe':
+    case 'restaurant':
+    case 'bar':
+    case 'quick_service':
+    case 'hospitality':
+      return 'hospitality';
+    case 'salon':
+    case 'gym':
+    case 'barber':
+    case 'services':
+      return 'services';
+    case 'retail':
+    case 'fashion':
+    case 'grocery':
+      return 'retail';
+    default:
+      return null;
+  }
+}
+
 // Pairing code character set — uppercase alphanumeric, ambiguous chars removed (O, 0, I, 1)
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -603,8 +636,12 @@ export async function deviceRoutes(app: FastifyInstance) {
           // v2.7.44 — drives the hospitality order-type picker on the
           // Sell / Quick-Sale screens and skips the Kiosk's
           // Eat-In/Takeaway/Delivery prompt for non-hospitality orgs.
-          // Allowed: 'retail' | 'hospitality' | 'pharmacy' | 'services'.
-          industry:     organisation?.industry ?? 'retail',
+          // v2.7.56 — bucketed down from the fine-grained DB enum
+          // (cafe / restaurant / etc.) to the coarse gate the mobile
+          // sidebar uses (hospitality / services / retail). Falls back
+          // to 'retail' when the bucket can't be determined so existing
+          // behaviour for 'other' / null orgs is unchanged.
+          industry:     bucketIndustry(organisation?.industry) ?? 'retail',
           locationId:   device.locationId,
           locationName: location?.name ?? null,
           locationPhone: location?.phone ?? null,

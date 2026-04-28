@@ -443,10 +443,24 @@ async function proxyRequest(request: NextRequest, segments: string[]): Promise<N
   const cookieStore = cookies();
   const token = cookieStore.get('elevatedpos_token')?.value;
 
+  let body: string | undefined;
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    body = await request.text();
+  }
+
+  // v2.7.56 — only set Content-Type: application/json when forwarding an
+  // actual body. Fastify's strict JSON parser (FST_ERR_CTP_EMPTY_JSON_BODY)
+  // rejects empty-body POST requests that carry that header, which broke
+  // every `apiFetch('…', { method: 'POST' })` without a body — including
+  // Stripe Connect's `fetchClientSecret`, surfacing as a blank "Activate
+  // ElevatedPOS Pay" panel because the embedded onboarding component never
+  // received a clientSecret.
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     Accept: 'application/json',
   };
+  if (body) {
+    headers['Content-Type'] = 'application/json';
+  }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   } else {
@@ -456,11 +470,6 @@ async function proxyRequest(request: NextRequest, segments: string[]): Promise<N
     if (incoming) {
       headers['Authorization'] = incoming;
     }
-  }
-
-  let body: string | undefined;
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    body = await request.text();
   }
 
   try {
