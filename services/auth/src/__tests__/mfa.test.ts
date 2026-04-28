@@ -230,6 +230,13 @@ vi.mock('drizzle-orm', async (importOriginal) => {
 
 // Provide a 32-byte hex ENCRYPTION_KEY before the routes import.
 process.env['ENCRYPTION_KEY'] = '0123456789abcdef'.repeat(4); // 64 hex chars
+// v2.7.66 — drop bcrypt cost from 12 → 4 for tests so the 10-codes-per-
+// enrolment burn (~30s on a 2-core GHA Linux runner) doesn't blow the
+// testTimeout. Fine for tests because the assertions only round-trip
+// hashes through bcrypt.compare, which is cost-agnostic. Also matches
+// the env var convention exposed by mfa.ts so we don't need a code-path
+// fork — just an env override.
+process.env['RECOVERY_CODE_BCRYPT_COST'] = '4';
 
 // vi.mock above is hoisted by Vitest's transformer, so this import resolves
 // against the mocked `../db` module.
@@ -293,9 +300,12 @@ function signMfaPending(app: FastifyInstance, sub: string, subjectType: 'employe
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('MFA routes — employee enrolment + verify', () => {
-  // bcrypt at cost 12 × 10 codes per enrolment is a ~3-5s burn; the default
-  // vitest timeout (5s) leaves no margin for CI. Bump the per-suite ceiling.
-  vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+  // v2.7.66 — bcrypt cost is dropped to 4 in tests via the env override
+  // above, but we still bump the per-test ceiling to 60s as a belt-and-
+  // braces against slow GHA runners (cold caches, networked file system,
+  // 2-core throttling). Faster than the original 30s with cost-12 budget,
+  // but with more headroom for unexpected slowdowns.
+  vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
   let app: FastifyInstance;
   let employeeId: string;
@@ -583,7 +593,10 @@ describe('Recovery code hashing parity', () => {
   it('verifies a recovery code with bcrypt regardless of dash formatting', async () => {
     const code = 'ABCD-EFGH-JKLM';
     const normalised = code.replace(/[\s-]+/g, '').toUpperCase();
-    const hash = await bcrypt.hash(normalised, 12);
+    // v2.7.66 — cost 4 instead of 12. We're testing bcrypt's cost-agnostic
+    // compare/hash contract here, not the production cost factor; the
+    // production cost is enforced by the constant in mfa.ts.
+    const hash = await bcrypt.hash(normalised, 4);
     expect(await bcrypt.compare(normalised, hash)).toBe(true);
     // The route normalises before compare, so dashed input matches.
     expect(await bcrypt.compare('abcd-efgh-jklm'.replace(/[\s-]+/g, '').toUpperCase(), hash)).toBe(true);

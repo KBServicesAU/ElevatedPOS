@@ -87,9 +87,35 @@ function normaliseRecoveryCode(input: string): string {
   return input.replace(/[\s-]+/g, '').toUpperCase();
 }
 
+// v2.7.66 — `RECOVERY_CODE_BCRYPT_COST` overrides the bcrypt cost factor
+// used to hash the 10 recovery codes during MFA enrolment. In production
+// the default of 12 matches the password-hash cost in lib/tokens.ts. The
+// hot path is "exchange a recovery code for an access token", which only
+// runs when an operator's lost their phone — a slow comparison is fine.
+//
+// In CI / tests we drop to 4 so the per-enrolment burn (10 × cost-12
+// hashes ≈ 3-5s on a fast CPU, ~30s on a 2-core GHA Linux runner) doesn't
+// blow vitest's testTimeout. The mfa.test.ts suite never asserts on
+// the cost; it only round-trips a hash through bcrypt.compare, which
+// works at any cost.
+//
+// Read at call time (NOT module load) so a test that sets
+// process.env.RECOVERY_CODE_BCRYPT_COST after `vi.mock` hoisting but
+// before the route handlers run still picks up the override. ESM
+// imports are hoisted ahead of the test file's body, so a module-load-
+// time `const` would resolve to the production default before the test
+// could swap it in.
+function getRecoveryCodeBcryptCost(): number {
+  const raw = process.env['RECOVERY_CODE_BCRYPT_COST'];
+  if (raw === undefined) return 12;
+  const n = Number(raw);
+  // Guardrail — bcrypt accepts 4-31; anything outside that range falls back
+  // to the production default rather than silently weakening the hash.
+  return Number.isInteger(n) && n >= 4 && n <= 31 ? n : 12;
+}
+
 async function hashRecoveryCode(code: string): Promise<string> {
-  // cost 12 matches the password-hash cost in lib/tokens.ts.
-  return bcrypt.hash(normaliseRecoveryCode(code), 12);
+  return bcrypt.hash(normaliseRecoveryCode(code), getRecoveryCodeBcryptCost());
 }
 
 // ── Generate + persist a fresh set of recovery codes for an owner ─────────────
