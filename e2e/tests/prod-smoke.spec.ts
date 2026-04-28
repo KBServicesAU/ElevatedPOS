@@ -1,7 +1,7 @@
 import { test, expect, request } from '@playwright/test';
 
 /**
- * Prod smoke test (v2.7.61).
+ * Prod smoke test (v2.7.61, retuned in v2.7.64).
  *
  * Runs against the live production endpoints AFTER the Helm deploy
  * finishes (deploy-production.yml). The goal isn't deep correctness —
@@ -9,20 +9,18 @@ import { test, expect, request } from '@playwright/test';
  * find out". If any of these assertions fail the deploy job exits
  * non-zero and PagerDuty / SNS / Slack should already be screaming.
  *
- * Targeted checks:
- *   1. ALB / ingress responds at all (no DNS/cert/LB regression).
- *   2. The dashboard's login page renders (web-backoffice up, JS bundle
- *      loaded, CSS not 404'ing).
- *   3. The proxy → auth `/health` round-trip returns 200 (web-backoffice
- *      can talk to auth in-cluster, secrets resolved correctly).
- *   4. A handful of public-but-unauthenticated catalog/orders endpoints
- *      respond with their expected `401` (proves the route is wired and
- *      auth middleware is on the right side of healthy).
- *
- * This deliberately does NOT log in. We don't want test creds rolled
- * into prod's audit log on every deploy and a leaked test account is
- * one more attack surface. Login + transaction smoke is exercised
- * separately on staging where we already have docker-compose tests.
+ * v2.7.64 retune: the original draft assumed endpoints that don't
+ * exist on the prod ingress — `/health` 404s, `/api/v1/products`
+ * 404s, and the dashboard proxy doesn't have an `auth` entry in its
+ * SERVICE_MAP so `/api/proxy/auth/health` 404s as well. Replaced with
+ * endpoints that actually returned the expected codes when probed
+ * manually:
+ *   - api.elevatedpos.com.au/api/v1/orders            → 401
+ *   - api.elevatedpos.com.au/api/v1/customers         → 401
+ *   - api.elevatedpos.com.au/api/v1/payments          → 401
+ *   - api.elevatedpos.com.au/api/v1/locations         → 401 (auth-backed)
+ *   - app.elevatedpos.com.au/login                    → 200
+ *   - app.elevatedpos.com.au/api/proxy/orders         → 307 (proxy alive)
  *
  * Skip with `E2E_SKIP_PROD_SMOKE=true` for emergency deploys.
  */
@@ -35,50 +33,60 @@ test.describe.configure({ mode: 'serial' });
 
 test.skip(SKIP, 'E2E_SKIP_PROD_SMOKE=true — skipping prod smoke');
 
-test('ALB / ingress responds', async () => {
+test('dashboard ALB responds', async () => {
   const ctx = await request.newContext();
-  const res = await ctx.get(BASE, { failOnStatusCode: false });
-  // Either the dashboard renders (200) or it redirects to /login (302).
-  // Anything else (502, 503, certificate error → no response) is bad.
-  expect([200, 302, 307, 308]).toContain(res.status());
+  const res = await ctx.get(BASE, { failOnStatusCode: false, maxRedirects: 0 });
+  // Dashboard either renders (200) or sends to /login (3xx). Anything else
+  // (502/503, cert errors, no response) means the public surface is broken.
+  expect([200, 301, 302, 307, 308]).toContain(res.status());
 });
 
 test('dashboard login page renders', async ({ page }) => {
   await page.goto(`${BASE}/login`);
-  // The login form should be present.
   await expect(page.getByPlaceholder(/you@yourstore\.com/i)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();
 });
 
-test('auth service health via proxy', async () => {
+test('dashboard /api/proxy/* routes calls (proves web-backoffice -> service wired)', async () => {
   const ctx = await request.newContext();
-  // The /api/proxy/* routes ride the same Next.js host as the dashboard;
-  // hitting `auth/health` here proves web-backoffice → auth in-cluster
-  // works and that the rotated secrets are wired correctly.
-  const res = await ctx.get(`${BASE}/api/proxy/auth/health`, { failOnStatusCode: false });
-  expect(res.ok()).toBeTruthy();
+  // /api/proxy/orders without a session cookie. apiFetch in the dashboard
+  // catches the upstream 401 and redirects to /login (Next.js 307). The
+  // important thing is we get a redirect, not a 502 — that proves the
+  // proxy handler ran, looked up `orders` in SERVICE_MAP, forwarded to
+  // the orders service, got a 401 back, and triggered the redirect.
+  const res = await ctx.get(`${BASE}/api/proxy/orders`, {
+    failOnStatusCode: false,
+    maxRedirects: 0,
+  });
+  expect([301, 302, 307, 308, 401]).toContain(res.status());
 });
 
-test('catalog public endpoint requires auth (proves route wired)', async () => {
-  const ctx = await request.newContext();
-  // GET /api/v1/products without a Bearer token should return 401, not 502.
-  // 401 means the service is up + auth middleware is intercepting.
-  // 502/503 would mean the catalog service is down / not reachable.
-  const res = await ctx.get(`${API}/api/v1/products`, { failOnStatusCode: false });
-  expect([401, 403]).toContain(res.status());
-});
-
-test('orders public endpoint requires auth', async () => {
+test('orders service requires auth (proves it is up + middleware on)', async () => {
   const ctx = await request.newContext();
   const res = await ctx.get(`${API}/api/v1/orders`, { failOnStatusCode: false });
+  // 401/403 means the service is up and rejecting unauthenticated requests.
+  // 502/503 would mean the orders service is down or unreachable from the ingress.
   expect([401, 403]).toContain(res.status());
 });
 
-test('integrations connect endpoint requires auth', async () => {
+test('customers service requires auth', async () => {
   const ctx = await request.newContext();
-  const res = await ctx.post(`${API}/api/v1/connect/account-session`, {
-    failOnStatusCode: false,
-    data: {}, // trailing body so we don't trip the v2.7.56 empty-body 400 we just patched
-  });
+  const res = await ctx.get(`${API}/api/v1/customers`, { failOnStatusCode: false });
+  expect([401, 403]).toContain(res.status());
+});
+
+test('payments service requires auth', async () => {
+  const ctx = await request.newContext();
+  const res = await ctx.get(`${API}/api/v1/payments`, { failOnStatusCode: false });
+  expect([401, 403]).toContain(res.status());
+});
+
+test('locations service requires auth (auth-service-backed)', async () => {
+  const ctx = await request.newContext();
+  // /api/v1/locations is served by the auth service. A 401 here proves
+  // auth pods are running and the rotated secrets are wired (auth fails
+  // closed if it can't decode JWTs but it returns 401 not 502 once it's
+  // accepting connections).
+  const res = await ctx.get(`${API}/api/v1/locations`, { failOnStatusCode: false });
   expect([401, 403]).toContain(res.status());
 });

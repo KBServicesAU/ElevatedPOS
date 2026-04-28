@@ -161,6 +161,14 @@ jobs:
         env:
           E2E_SKIP_WEBSERVER: false
           E2E_OFFLINE: true            # Skip tests that need a live orders WS
+          # v2.7.64 — explicitly skip prod-smoke.spec.ts here. That suite is
+          # the deploy-production workflow's post-Helm gate; it talks to
+          # api.elevatedpos.com.au + app.elevatedpos.com.au which the CI
+          # runner can reach but adds nothing for PR-quality assertions
+          # (every push to main would hit prod with the same external
+          # request set, creating flaky-network noise + cross-environment
+          # confusion). Re-enabled in deploy-production.yml's smoke step.
+          E2E_SKIP_PROD_SMOKE: 'true'
           BACKOFFICE_URL: http://localhost:3000
           KDS_URL: http://localhost:3001
           # No Stripe keys → demo mode for payment tests
