@@ -347,15 +347,23 @@ resource "aws_ecr_lifecycle_policy" "services" {
   # had already been pruned. With CI pushing two tags per merge (the
   # `<sha>` from deploy.yml plus the `:latest`) the previous limit
   # measured "20 images of any kind", which churned through release tags
-  # in well under a fortnight. The new policy keeps every release tag
-  # (`v*.*.*`) forever — releases are cheap to store, expensive to lose —
-  # and prunes the noisy SHA-tagged + untagged images on a sensible cycle.
+  # in well under a fortnight. The new policy keeps the last 100 release
+  # tags (`v*.*.*`) — releases are cheap to store, expensive to lose —
+  # and prunes the noisy untagged images on a sensible cycle.
+  #
+  # SHA-tagged staging images (from deploy.yml's `${{ github.sha }}` tag)
+  # are intentionally left to accumulate. ECR's lifecycle policy DSL only
+  # supports glob `*` wildcards, not regex character classes, so there's
+  # no robust way to write "match a 40-char hex tag". Rather than the
+  # earlier broad rule that pruned releases too, we accept the small
+  # storage cost (a few GB/month) of keeping every SHA build and revisit
+  # if/when ECR supports richer tag filters.
   policy = jsonencode({
     rules = [
       {
-        # 1. Keep the last 100 release tags (v*.*.*). At ~1 release per
-        #    weekday this is months of rollback runway, plenty for any
-        #    real-world incident.
+        # 1. Keep the last 100 release-tagged images (v*). Anything older
+        #    than that and you should be cutting a fresh release rather
+        #    than rolling back to ancient code.
         rulePriority = 1
         description  = "Keep last 100 release-tagged (v*) images"
         selection = {
@@ -367,23 +375,12 @@ resource "aws_ecr_lifecycle_policy" "services" {
         action = { type = "expire" }
       },
       {
-        # 2. SHA-tagged images from `deploy.yml` (staging path) churn
-        #    fast. Keep the most recent 30 so a recent staging build is
-        #    still pullable, expire the rest.
+        # 2. Anything that ended up untagged (failed CI cleanup, retag,
+        #    overwritten by a fresh push to the same tag, etc.) gets a
+        #    14-day grace period before pruning. Untagged images are
+        #    almost never useful but we leave a window for forensic
+        #    recovery if a deploy goes wrong.
         rulePriority = 2
-        description  = "Keep last 30 sha-tagged staging images"
-        selection = {
-          tagStatus      = "tagged"
-          tagPatternList = ["[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*"]
-          countType      = "imageCountMoreThan"
-          countNumber    = 30
-        }
-        action = { type = "expire" }
-      },
-      {
-        # 3. Anything that ended up untagged (failed CI cleanup, reTag,
-        #    etc.) gets a 14-day grace period.
-        rulePriority = 3
         description  = "Expire untagged images after 14 days"
         selection = {
           tagStatus   = "untagged"
