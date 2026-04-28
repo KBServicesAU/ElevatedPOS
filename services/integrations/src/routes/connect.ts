@@ -28,6 +28,22 @@ const INDUSTRY_MCC: Record<string, string> = {
 };
 
 // Fields that Stripe accepts upfront when pre-filling a Connect account.
+//
+// v2.7.57 — only pre-fill `business_profile` (name / url / MCC). Earlier
+// versions also pre-filled `params.company` with phone + tax_id + address
+// whenever the org had any of those, which crashed Stripe's
+// `accounts.update` with:
+//   The `business_type` must be provided when sending either of
+//   `individual` or `company` parameters.
+// Stripe requires an explicit `business_type` ('individual' | 'company')
+// whenever you send `individual.*` or `company.*` fields, and the orgs
+// table doesn't track that — sole traders and companies use the same
+// schema. Rather than guess wrong (Stripe rejects the wrong choice during
+// onboarding verification), we leave those fields for the merchant to fill
+// in inside the embedded Connect onboarding component, which is the whole
+// point of using Embedded Components in the first place. `business_profile`
+// alone doesn't trigger the validation, so MCC / website / display name
+// pre-fill is still safe.
 function buildStripeAccountParams(org: {
   name: string;
   websiteUrl?: string | null;
@@ -44,24 +60,6 @@ function buildStripeAccountParams(org: {
     ...(org.websiteUrl ? { url: org.websiteUrl } : {}),
     ...(mcc ? { mcc } : {}),
   };
-
-  if (org.phone || org.businessAddress) {
-    const addr = org.businessAddress ?? {};
-    params.company = {
-      ...(org.phone ? { phone: org.phone } : {}),
-      ...(org.abn ? { tax_id: org.abn } : {}),
-      ...(addr['line1'] ? {
-        address: {
-          line1: addr['line1'],
-          ...(addr['line2'] ? { line2: addr['line2'] } : {}),
-          city: addr['city'] ?? '',
-          state: addr['state'] ?? '',
-          postal_code: addr['postcode'] ?? '',
-          country: 'AU',
-        },
-      } : {}),
-    };
-  }
 
   return params;
 }
