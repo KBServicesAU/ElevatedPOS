@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { Download } from 'lucide-react';
+// v2.7.70 — W2. Route through apiFetch so the in-flight cache dedupes
+// against LocationPicker / locations-client which also fetch on mount.
+import { apiFetch } from '@/lib/api';
 
 const PERIODS = [
   { value: 'today', label: 'Today' },
@@ -25,12 +28,17 @@ export function DashboardControls({ period, locationId }: { period: string; loca
 
   // v2.7.51 — fetch locations so the dashboard can scope by store, with a
   // default "All locations" option that aggregates across stores.
+  // v2.7.70 — switched from raw fetch() to apiFetch() so the in-flight
+  // cache dedupes against the LocationPicker that also runs on mount.
   useEffect(() => {
-    fetch('/api/proxy/locations')
-      .then((r) => (r.ok ? r.json() : null))
+    apiFetch<unknown>('locations')
       .then((json) => {
         if (!json) return;
-        const list: LocationOption[] = Array.isArray(json) ? json : (json.data ?? json.locations ?? []);
+        const list: LocationOption[] = Array.isArray(json)
+          ? (json as LocationOption[])
+          : ((json as { data?: LocationOption[]; locations?: LocationOption[] }).data
+              ?? (json as { data?: LocationOption[]; locations?: LocationOption[] }).locations
+              ?? []);
         setLocations(list);
       })
       .catch(() => { /* dropdown stays at "All locations" */ });

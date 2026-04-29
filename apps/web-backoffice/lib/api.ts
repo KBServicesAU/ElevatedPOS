@@ -15,11 +15,59 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * v2.7.70 — W2. In-flight request dedupe for GET requests.
+ *
+ * Multiple components on the same page often fetch the same canonical
+ * resource (`locations`, `roles`, `programs`, etc.) on mount. Each
+ * component does its own apiFetch and we end up with 3+ identical
+ * round-trips to the backend. The fix is a tiny per-URL cache:
+ *   - If a GET to the same path is currently in flight, share the
+ *     promise rather than fire a second fetch.
+ *   - Briefly hold the resolved response so a third component mounting
+ *     a few hundred ms later also gets the cached value.
+ *
+ * The TTL is intentionally short (5s) so user-initiated refreshes still
+ * hit the network. Anything mutating (POST/PUT/PATCH/DELETE) bypasses
+ * the cache entirely. The cache also bypasses when the call carries
+ * custom headers — those usually indicate auth/state-specific reads.
+ */
+const GET_CACHE_TTL_MS = 5_000;
+type CacheEntry = {
+  /** Resolved value, or undefined while the promise is pending. */
+  value?: unknown;
+  /** Pending promise; resolved once the network call returns. */
+  promise: Promise<unknown>;
+  /** ms-epoch when the entry should be considered stale. */
+  expiresAt: number;
+};
+const inFlightCache = new Map<string, CacheEntry>();
+
+function isCacheEligible(method: string | undefined, init: RequestInit | undefined): boolean {
+  const m = (method ?? 'GET').toUpperCase();
+  if (m !== 'GET' && m !== 'HEAD') return false;
+  // Custom headers usually indicate auth or correlation IDs that we
+  // don't want to share across callers.
+  if (init?.headers && Object.keys(init.headers).length > 0) return false;
+  return true;
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   // Only set Content-Type: application/json when there is a body to send.
   // Fastify (and other servers) reject requests with Content-Type: application/json
   // but an empty body (FST_ERR_CTP_EMPTY_JSON_BODY).
   const hasBody = init?.body != null;
+
+  // v2.7.70 — W2. Try the in-flight / fresh-response cache first.
+  const cacheable = isCacheEligible(init?.method, init);
+  if (cacheable) {
+    const existing = inFlightCache.get(path);
+    if (existing && existing.expiresAt > Date.now()) {
+      return existing.promise as Promise<T>;
+    }
+  }
+
+  const promise = (async () => {
   const res = await fetch(`/api/proxy/${path}`, {
     ...init,
     headers: {
@@ -62,6 +110,28 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     // Non-JSON body — return the raw text so callers with string return types still work
     return text as unknown as T;
   }
+  })();
+
+  // v2.7.70 — W2. Store the in-flight promise so concurrent callers
+  // share it. After resolution, hold the value briefly so a third
+  // component mounting a few hundred ms later also gets it cheap.
+  // On rejection, evict immediately so the next caller can retry.
+  if (cacheable) {
+    const entry: CacheEntry = {
+      promise,
+      expiresAt: Date.now() + GET_CACHE_TTL_MS,
+    };
+    inFlightCache.set(path, entry);
+    promise
+      .then((value) => {
+        entry.value = value;
+        entry.expiresAt = Date.now() + GET_CACHE_TTL_MS;
+      })
+      .catch(() => {
+        inFlightCache.delete(path);
+      });
+  }
+  return promise as Promise<T>;
 }
 
 // ─── Orders ──────────────────────────────────────────────────────────────────

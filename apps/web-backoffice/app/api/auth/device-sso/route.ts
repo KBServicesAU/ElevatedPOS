@@ -21,8 +21,17 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get('token');
   const redirectTo = searchParams.get('redirect') ?? '/dashboard';
 
-  // Guard against open-redirect: only allow same-origin relative paths
-  const safeRedirect = redirectTo.startsWith('/') ? redirectTo : '/dashboard';
+  // v2.7.70 — C10. Tighten the open-redirect guard to match the
+  // login-page / middleware clamp shipped in v2.7.68 (C6).
+  // `redirectTo.startsWith('/')` alone is not enough — `//attacker`,
+  // `/\\attacker`, and (depending on URL parsing) `/attacker.com` can
+  // all be coerced into cross-origin navigation by `new URL(...)`.
+  const safeRedirect =
+    redirectTo.startsWith('/') &&
+    !redirectTo.startsWith('//') &&
+    !redirectTo.startsWith('/\\')
+      ? redirectTo
+      : '/dashboard';
 
   if (!token) {
     return NextResponse.redirect(new URL('/login', request.url));

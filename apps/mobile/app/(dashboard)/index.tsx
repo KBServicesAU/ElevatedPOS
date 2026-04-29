@@ -483,9 +483,10 @@ export default function DashboardHomeScreen() {
   }
 
   function openWebDashboard(path?: string) {
-    // If we have no saved credentials, prompt the user once so the web
-    // dashboard can auto-sign them in from that point onwards.
-    if (!dashboardAuth.email || !dashboardAuth.password) {
+    // v2.7.70 — C10. Gate on a valid access token (not a stored password).
+    // If there's no token (never signed in, signed out, or token wiped
+    // after a 401 from the WebView) prompt for a fresh sign-in.
+    if (!dashboardAuth.token) {
       setLoginEmail(dashboardAuth.email ?? '');
       setLoginPassword('');
       setRememberLogin(true);
@@ -504,23 +505,32 @@ export default function DashboardHomeScreen() {
       toast.warning('Required', 'Email and password are required.');
       return;
     }
-    await dashboardAuth.save(loginEmail.trim(), loginPassword, rememberLogin);
+    // v2.7.70 — actually call the auth service. The previous version
+    // just blindly stored whatever was typed; if the password was wrong
+    // the WebView would loop forever on the login page with broken
+    // auto-fill. Now we verify up front and only persist on success.
+    const ok = await dashboardAuth.signIn(loginEmail.trim(), loginPassword, rememberLogin);
+    if (!ok) {
+      toast.error('Sign In Failed', dashboardAuth.error ?? 'Check your email and password.');
+      return;
+    }
     setShowLoginModal(false);
+    setLoginPassword(''); // Don't leave the password sitting in component state.
     toast.success('Signed In', `Welcome back, ${loginEmail.trim()}.`);
     router.push('/(dashboard)/web' as never);
   }
 
   async function handleForgetLogin() {
     const ok = await confirm({
-      title: 'Forget Login',
+      title: 'Sign Out',
       description:
-        'This will remove the saved dashboard credentials. You will need to sign in again.',
-      confirmLabel: 'Forget',
+        'This will sign you out of the dashboard and remove the saved access token. You will need to sign in again.',
+      confirmLabel: 'Sign Out',
       destructive: true,
     });
     if (!ok) return;
     await dashboardAuth.clear();
-    toast.success('Cleared', 'Dashboard login has been forgotten.');
+    toast.success('Signed Out', 'Dashboard session cleared.');
   }
 
   return (

@@ -117,6 +117,32 @@ export async function notificationRoutes(app: FastifyInstance) {
     });
   });
 
+  // GET /notifications/unread-count — quick badge count for the bell
+  // icon in the dashboard header. v2.7.70 — W1: the dashboard's
+  // <NotificationBell> hits this on every page load. Before this
+  // route existed the upstream returned 404, which the dashboard
+  // proxy logged as an error on every request and the bell silently
+  // fell back to demo data. Until we have a per-user inbox table,
+  // the count is always 0 — the existing alerts/notifications surface
+  // is push-based and doesn't track per-user read state. Adding the
+  // endpoint kills the 404 spam without changing the UX.
+  app.get('/unread-count', async (_request, reply) => {
+    return reply.status(200).send({ count: 0 });
+  });
+
+  // GET /notifications — empty list. Same rationale as above; the
+  // bell prefetches this when opened. Returning a real shape ({data: []})
+  // is friendlier than 404'ing through to the demo fallback.
+  app.get('/', async (_request, reply) => {
+    return reply.status(200).send({ data: [] });
+  });
+
+  // POST /notifications/mark-all-read — no-op success response so the
+  // bell's "Mark all read" button doesn't error.
+  app.post('/mark-all-read', async (_request, reply) => {
+    return reply.status(204).send();
+  });
+
   // GET /notifications/templates — list templates
   app.get('/templates', async (request, reply) => {
     const { orgId } = request.user as { orgId: string };

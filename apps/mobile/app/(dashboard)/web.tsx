@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -19,24 +19,41 @@ import { toast } from '../../components/ui';
 
 const DASHBOARD_URL = process.env['EXPO_PUBLIC_APP_URL'] ?? 'https://app.elevatedpos.com.au';
 
-function escapeJsString(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
-}
-
 /* ------------------------------------------------------------------ */
 /* Screen                                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * v2.7.70 — C10. The dashboard WebView now signs in via the existing
+ * /api/auth/device-sso bridge instead of injecting the merchant's
+ * email + password into the embedded login form. The native side never
+ * sees or stores the password — only the access token returned by
+ * /api/v1/auth/login (which the dashboard-auth store handles).
+ *
+ * Bridge flow on entry:
+ *   1. We have a valid token in the dashboard-auth store.
+ *   2. Open the WebView at /api/auth/device-sso?token=<jwt>&redirect=<path>.
+ *   3. The route handler validates the token upstream, sets the
+ *      elevatedpos_token httpOnly cookie, and 302s to <path>.
+ *   4. From there the WebView navigates as a logged-in user via cookie;
+ *      no JavaScript injection of credentials anywhere.
+ *
+ * If we land back on /login (token expired or rejected), the operator
+ * is sent back to the native app to sign in again. We still inject a
+ * tiny bit of CSS to hide the POS / KDS / Kiosk device-management
+ * sidebar entries — those are device-pairing pages that don't apply
+ * inside the in-app WebView.
+ */
 export default function DashboardWebScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ path?: string }>();
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
-  const email = useDashboardAuthStore((s) => s.email);
-  const password = useDashboardAuthStore((s) => s.password);
+  const token = useDashboardAuthStore((s) => s.token);
   const hydrate = useDashboardAuthStore((s) => s.hydrate);
   const ready = useDashboardAuthStore((s) => s.ready);
+  const clear = useDashboardAuthStore((s) => s.clear);
 
   useEffect(() => {
     if (!ready) hydrate();
@@ -44,8 +61,12 @@ export default function DashboardWebScreen() {
 
   // Hide POS/KDS/Kiosk device-management entries from the sidebar.
   // These are app-device management pages that should not appear inside
-  // the embedded WebView — operators should use the native launcher instead.
-  const hideSidebarJS = `
+  // the embedded WebView — operators should use the native launcher
+  // instead. v2.7.70 — kept this CSS but DROPPED all
+  // credential-injection JavaScript that previously read the password
+  // out of SecureStore.
+  const sidebarHideJS = `
+    (function() {
       function applyHides() {
         try {
           var style = document.getElementById('__epos_hide_css__');
@@ -53,22 +74,16 @@ export default function DashboardWebScreen() {
             style = document.createElement('style');
             style.id = '__epos_hide_css__';
             style.textContent =
-              /* href-based — covers exact paths and sub-paths */
               'a[href="/pos"], a[href="/kds"], a[href="/kiosk"],' +
               'a[href$="/pos/"], a[href$="/kds/"], a[href$="/kiosk/"],' +
-              /* devices section (e.g. /dashboard/devices/...) but not display */
               'a[href*="/dashboard/devices"]:not([href*="/dashboard/display"]),' +
-              /* data-nav attributes used by some nav frameworks */
               '[data-nav="pos"], [data-nav="kds"], [data-nav="kiosk"],' +
-              /* common sidebar role/item selectors */
               '[data-sidebar-item="pos"], [data-sidebar-item="kds"], [data-sidebar-item="kiosk"],' +
-              /* nav links that explicitly target the app management pages */
               'a[href="/dashboard/pos"], a[href="/dashboard/kds"], a[href="/dashboard/kiosk"],' +
               'a[href$="/dashboard/pos/"], a[href$="/dashboard/kds/"], a[href$="/dashboard/kiosk/"]' +
               '{ display: none !important; }';
             (document.head || document.documentElement).appendChild(style);
           }
-          /* Also hide by visible label text as a belt-and-braces fallback */
           var labels = ['POS Terminal', 'KDS Display', 'Kiosk', 'POS Devices', 'KDS Devices', 'Kiosk Devices'];
           document.querySelectorAll('a, li, button, [role="menuitem"]').forEach(function(el) {
             var txt = (el.textContent || '').trim();
@@ -78,59 +93,57 @@ export default function DashboardWebScreen() {
           });
         } catch (e) { /* non-critical */ }
       }
-  `;
-
-  // Auto-login helper: when the login page is visible and we have saved
-  // credentials, fill in and submit the form. We guard against running
-  // more than once by setting a window-scoped flag.
-  const autoLoginJS =
-    email && password
-      ? `
-      function tryAutoLogin() {
-        if (window.__epos_auto_login_done__) return;
-        if (!/\\/login/.test(location.pathname)) return;
-        var emailInput = document.querySelector('input[type="email"], input[name="email"], input#email');
-        var pwdInput = document.querySelector('input[type="password"], input[name="password"], input#password');
-        var form = emailInput && emailInput.form;
-        if (emailInput && pwdInput && form) {
-          var nativeEmailSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-          nativeEmailSetter.call(emailInput, '${escapeJsString(email)}');
-          nativeEmailSetter.call(pwdInput, '${escapeJsString(password)}');
-          emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-          pwdInput.dispatchEvent(new Event('input', { bubbles: true }));
-          setTimeout(function() {
-            var submitBtn = form.querySelector('button[type="submit"]')
-              || Array.prototype.find.call(form.querySelectorAll('button'), function(b) { return /sign in|log in|login/i.test(b.textContent || ''); });
-            window.__epos_auto_login_done__ = true;
-            if (submitBtn) submitBtn.click();
-            else form.requestSubmit ? form.requestSubmit() : form.submit();
-          }, 50);
-        }
-      }
-      `
-      : `function tryAutoLogin() { /* no creds */ }`;
-
-  const injectedJS = `
-    (function() {
-      ${hideSidebarJS}
-      ${autoLoginJS}
       applyHides();
-      tryAutoLogin();
-      var obs = new MutationObserver(function() { applyHides(); tryAutoLogin(); });
+      var obs = new MutationObserver(applyHides);
       obs.observe(document.documentElement, { childList: true, subtree: true });
       var applied = 0;
       var iv = setInterval(function() {
         applyHides();
-        tryAutoLogin();
         if (++applied >= 10) clearInterval(iv);
       }, 500);
     })();
-    true;`;
+    true;
+  `;
 
-  // Allow navigating to a specific web path passed via navigation
-  // params (e.g. /(dashboard)/web?path=/dashboard/catalog).
-  const startPath = params.path && typeof params.path === 'string' ? params.path : '/dashboard';
-  const startUri = `${DASHBOARD_URL}${startPath.startsWith('/') ? '' : '/'}${startPath}`;
+  // v2.7.70 — build the entry URL. Always go through device-sso when
+  // we have a token; the bridge sets the cookie and redirects.
+  const startUri = useMemo(() => {
+    const requestedPath =
+      params.path && typeof params.path === 'string' ? params.path : '/dashboard';
+    // Defensive clamp — same rule the server-side bridge applies.
+    const safePath =
+      requestedPath.startsWith('/') &&
+      !requestedPath.startsWith('//') &&
+      !requestedPath.startsWith('/\\')
+        ? requestedPath
+        : '/dashboard';
+    if (token) {
+      const u = new URL(`${DASHBOARD_URL}/api/auth/device-sso`);
+      u.searchParams.set('token', token);
+      u.searchParams.set('redirect', safePath);
+      return u.toString();
+    }
+    return `${DASHBOARD_URL}${safePath}`;
+  }, [params.path, token]);
+
+  // If we navigate back to /login mid-session (token expired, server
+  // bounced us, etc.) bring the operator back to the native screen so
+  // they can re-enter their password.
+  function handleNavStateChange(nav: { url: string; canGoBack: boolean }) {
+    setCanGoBack(nav.canGoBack);
+    try {
+      const u = new URL(nav.url);
+      const hostMatches = u.host === new URL(DASHBOARD_URL).host;
+      if (hostMatches && /\/login(\b|\/)/.test(u.pathname)) {
+        // Token rejected or expired — wipe the stored token and
+        // send the operator back to the native landing screen.
+        clear().catch(() => { /* ignore */ });
+        router.replace('/(dashboard)' as never);
+      }
+    } catch {
+      // ignore non-parseable URLs
+    }
+  }
 
   return (
     <SafeAreaView style={s.container} edges={['top']}>
@@ -161,14 +174,14 @@ export default function DashboardWebScreen() {
         ref={webRef}
         source={{ uri: startUri }}
         style={s.webview}
-        injectedJavaScriptBeforeContentLoaded={injectedJS}
-        injectedJavaScript={injectedJS}
+        injectedJavaScriptBeforeContentLoaded={sidebarHideJS}
+        injectedJavaScript={sidebarHideJS}
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => {
           setLoading(false);
-          webRef.current?.injectJavaScript(injectedJS);
+          webRef.current?.injectJavaScript(sidebarHideJS);
         }}
-        onNavigationStateChange={(nav) => setCanGoBack(nav.canGoBack)}
+        onNavigationStateChange={handleNavStateChange}
         javaScriptEnabled
         domStorageEnabled
         sharedCookiesEnabled
