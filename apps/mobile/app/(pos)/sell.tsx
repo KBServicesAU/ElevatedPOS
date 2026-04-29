@@ -75,6 +75,9 @@ import { useTillStore } from '../../store/till';
 // (Tyro, Stripe, cash, gift_card, layby, split, ANZ) gets one row in
 // `terminal_transactions` for forensics + dashboards.
 import { logTerminalTx } from '../../lib/terminal-tx-log';
+// v2.7.70 — C12 reconcile queue for orders that were charged but the
+// /complete call failed. Persists to SecureStore + drains on app launch.
+import { useReconcileStore } from '../../store/reconcile';
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -118,10 +121,22 @@ export default function PosSellScreen() {
   // Sell screen itself has to show the state.
   const tillOpen  = useTillStore((s) => s.isOpen);
   const tillReady = useTillStore((s) => s.ready);
+  // v2.7.70 — count of orders awaiting /complete reconciliation. Shown
+  // in a banner so the operator knows the pile-up exists and the system
+  // is auto-retrying in the background.
+  const reconcilePending = useReconcileStore((s) => s.pending.length);
+  const drainReconcile = useReconcileStore((s) => s.drain);
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [charging, setCharging] = useState(false);
+  // v2.7.70 — synchronous guard against double-tap on payment method buttons.
+  // React state (`charging`) is async; without a ref, two rapid taps on
+  // "Card / EFTPOS" both pass the `if (charging) return;` check before
+  // setCharging(true) commits, and we end up firing TWO Tyro purchases
+  // (or two /orders POSTs). The customer sees a single transaction in the
+  // POS UI but gets billed twice on their card.
+  const paymentInFlightRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   // v2.7.44 — Hold flow: park the cart as a held order so the operator can
   // serve another customer / re-open it later from Orders → Resume.
@@ -404,14 +419,51 @@ export default function PosSellScreen() {
     const paidTotal = tyroExtras?.transactionTotalCents
       ? tyroExtras.transactionTotalCents / 100
       : orderTotal;
-    const orderItems = cart.map((i) => ({
-      productId: i.id,
-      name: i.name,
-      quantity: i.qty,
-      unitPrice: i.price,
-      costPrice: 0,
-      taxRate: 10,
-    }));
+    // v2.7.70 — C11: send per-line discount + distribute the order-level
+    // discount to each line proportional to its post-line-discount value.
+    //
+    // Was previously stripping ALL discounts from the payload. Server then
+    // recorded the un-discounted total (line.unitPrice × qty), customer
+    // was charged the discounted price, and GST + revenue + loyalty earn
+    // + EOD reconciliation all desynced from reality. Every discount
+    // applied at the till silently corrupted reporting until reconciled
+    // by hand.
+    //
+    // The orders service accepts `discountAmount` per line (in dollars)
+    // and computes order-level `discountTotal` as the sum. There is no
+    // dedicated order-level discount field in the schema, so we
+    // proportionally distribute the order-level discount across lines —
+    // the server's reported discountTotal then matches what the customer
+    // saw (subtotal - total) to within a cent of rounding noise.
+    const orderSubtotalAfterLineDisc = subtotal; // reduce-derived, post-line-discount
+    const orderDiscountForDistribution = orderDiscountAmount > 0 ? orderDiscountAmount : 0;
+    const orderItems = cart.map((i) => {
+      const perUnitLineDisc = i.discount
+        ? (i.discountType === '%' ? (i.price * i.discount / 100) : i.discount)
+        : 0;
+      const safeLineDisc = Math.min(perUnitLineDisc, i.price);
+      const lineSubtotalAfterLineDisc = (i.price - safeLineDisc) * i.qty;
+      // Order-discount share for this line = order_disc × (line / orderSubtotal).
+      // Guard against div-by-zero when the cart is somehow empty.
+      const orderDiscShare = orderSubtotalAfterLineDisc > 0
+        ? orderDiscountForDistribution * (lineSubtotalAfterLineDisc / orderSubtotalAfterLineDisc)
+        : 0;
+      const totalLineDiscount = +(safeLineDisc * i.qty + orderDiscShare).toFixed(2);
+      return {
+        productId: i.id,
+        name: i.name,
+        quantity: i.qty,
+        unitPrice: i.price,
+        costPrice: 0,
+        taxRate: 10,
+        discountAmount: totalLineDiscount,
+        // The server schema also accepts `notes` and `seatNumber`; pass
+        // them through so the kitchen ticket + by-seat split-check work
+        // identically when an order is later resumed from a held state.
+        ...(i.note ? { notes: i.note } : {}),
+        ...(i.seat ? { seatNumber: i.seat } : {}),
+      };
+    });
 
     // Snapshot the cart for the receipt before we clear it on success.
     const cartSnapshot = cart.map((i) => ({ ...i }));
@@ -452,6 +504,7 @@ export default function PosSellScreen() {
       });
       if (!res.ok) {
         setCharging(false);
+        paymentInFlightRef.current = false;
         const errBody = await res.json().catch(() => ({})) as { message?: string; detail?: string; title?: string };
         const errMsg = errBody.message ?? errBody.detail ?? errBody.title ?? `Server error (${res.status})`;
         console.error('[POS/complete]', 'sell.handleCharge POST /orders FAILED', res.status, errBody);
@@ -517,12 +570,30 @@ export default function PosSellScreen() {
       if (!completed) {
         // Log for diagnostics and warn the operator. Do NOT abort the
         // sale flow — the money was already taken on the terminal; the
-        // order just needs to be re-closed server-side. Staff can do
-        // this from Orders → find the open order → Reprint / Complete.
+        // order just needs to be re-closed server-side.
         console.error('[POS/complete]', 'sell.handleCharge /complete failed after retries', orderId, completeErr);
+        // v2.7.70 — C12. Persist to the reconcile queue so the next app
+        // launch / network recovery / manual retry can pick it up. The
+        // queue is also surfaced as a banner on Sell + Orders so staff
+        // know there's something to clean up.
+        try {
+          await useReconcileStore.getState().enqueue({
+            orderId,
+            orderNumber,
+            apiBase: base,
+            authTokenSnapshot: token,
+            paymentMethod,
+            paidTotal,
+            changeGiven,
+            ...(tipDollars ? { tipAmount: tipDollars } : {}),
+            ...(surchargeDollars ? { surchargeAmount: surchargeDollars } : {}),
+          });
+        } catch (enqueueErr) {
+          console.error('[POS/complete]', 'failed to enqueue reconcile entry', enqueueErr);
+        }
         toast.warning(
           'Order still open',
-          `Sale was charged but the server did not mark it complete (${completeErr ?? 'unknown'}). Go to Orders to reconcile.`,
+          `Sale was charged but the server did not mark it complete (${completeErr ?? 'unknown'}). It will retry automatically.`,
         );
       }
 
@@ -559,6 +630,7 @@ export default function PosSellScreen() {
       }
     } catch (err) {
       setCharging(false);
+      paymentInFlightRef.current = false;
       const msg = err instanceof Error ? err.message : String(err);
       const isTimeout = msg.includes('timeout') || msg.includes('AbortError') || msg.includes('TimeoutError');
       const isNetwork = msg.toLowerCase().includes('network request failed') || msg.toLowerCase().includes('failed to fetch');
@@ -688,6 +760,7 @@ export default function PosSellScreen() {
     if (displaySettings.enabled) showThankYou();
     toast.success('Order Placed', `Order #${orderNumber} — $${paidTotal.toFixed(2)}`);
     setCharging(false);
+    paymentInFlightRef.current = false;
   }
 
   // ── Hold (v2.7.44) ───────────────────────────────────────────────
@@ -820,6 +893,12 @@ export default function PosSellScreen() {
 
   // ── Handle payment method selection ──────────────────────────────
   function handlePayCard() {
+    // v2.7.70 — synchronous double-tap guard. Two fast taps on the Card
+    // button were starting two parallel Tyro purchases / Stripe Terminal
+    // sessions before React could re-render, double-charging the
+    // customer. The ref check below runs before any await/setState.
+    if (paymentInFlightRef.current || charging) return;
+    paymentInFlightRef.current = true;
     setShowPayment(false);
 
     // If Tyro is ready → open the headless transaction modal and
@@ -847,6 +926,7 @@ export default function PosSellScreen() {
       } catch (err) {
         console.warn('[Tyro] start purchase failed:', err);
         setShowTyroModal(false);
+        paymentInFlightRef.current = false;
         toast.error(
           'EFTPOS Error',
           err instanceof Error
@@ -959,6 +1039,11 @@ export default function PosSellScreen() {
       return;
     }
 
+    // v2.7.70 — every non-approved branch must release the in-flight ref
+    // so the operator can retry. (The APPROVED branch chains into
+    // handleCharge which clears the ref on success/failure.)
+    paymentInFlightRef.current = false;
+
     if (outcome === 'CANCELLED') {
       toast.warning('Payment Cancelled', 'The EFTPOS transaction was cancelled.');
       return;
@@ -1049,25 +1134,31 @@ export default function PosSellScreen() {
 
   function handleAnzDeclined(result: AnzPaymentResult) {
     setShowAnzModal(false);
+    paymentInFlightRef.current = false;
     toast.error('Card Declined', result.declineReason || 'The card was declined by the bank.');
   }
 
   function handleAnzCancelled() {
     setShowAnzModal(false);
+    paymentInFlightRef.current = false;
     toast.warning('Payment Cancelled', 'The ANZ transaction was cancelled.');
   }
 
   function handleAnzError(message: string) {
     setShowAnzModal(false);
+    paymentInFlightRef.current = false;
     toast.error('EFTPOS Error', message);
   }
 
   function handlePayCash() {
+    // v2.7.70 — synchronous double-tap guard, see handlePayCard.
+    if (paymentInFlightRef.current || charging) return;
     const tendered = parseFloat(cashTendered) || 0;
     if (tendered < total) {
       toast.warning('Insufficient', `Need at least $${total.toFixed(2)}`);
       return;
     }
+    paymentInFlightRef.current = true;
     const change = tendered - total;
     setShowPayment(false);
     setCashTendered('');
@@ -1079,6 +1170,8 @@ export default function PosSellScreen() {
   }
 
   function handlePaySplit() {
+    // v2.7.70 — synchronous double-tap guard, see handlePayCard.
+    if (paymentInFlightRef.current || charging) return;
     const cardAmt = parseFloat(splitCardAmount) || 0;
     const cashAmt = parseFloat(splitCashAmount) || 0;
     if (cardAmt + cashAmt < total) {
@@ -1088,6 +1181,7 @@ export default function PosSellScreen() {
       );
       return;
     }
+    paymentInFlightRef.current = true;
     const change = cardAmt + cashAmt - total;
 
     // Route the card portion through Tyro if available.
@@ -1109,6 +1203,7 @@ export default function PosSellScreen() {
         console.warn('[Tyro] start split purchase failed:', err);
         setShowTyroModal(false);
         setPendingSplit(null);
+        paymentInFlightRef.current = false;
         toast.error(
           'EFTPOS Error',
           err instanceof Error ? err.message : 'Failed to start Tyro transaction.',
@@ -1432,6 +1527,28 @@ export default function PosSellScreen() {
             activeOpacity={0.8}
           >
             <Text style={styles.tillClosedBtnText}>Open Till</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ═══ Pending reconciliation banner (v2.7.70 — C12) ═══
+          Shows when there are charged-but-not-marked-complete orders
+          waiting in the local queue. The drain runs every 90s + on
+          foreground; this banner offers a one-tap manual retry. */}
+      {reconcilePending > 0 && (
+        <View style={styles.reconcileBanner}>
+          <Ionicons name="sync-outline" size={16} color="#f59e0b" />
+          <Text style={styles.reconcileText}>
+            {reconcilePending === 1
+              ? '1 order awaiting reconciliation. Auto-retrying.'
+              : `${reconcilePending} orders awaiting reconciliation. Auto-retrying.`}
+          </Text>
+          <TouchableOpacity
+            onPress={() => { drainReconcile().catch(() => { /* ignore */ }); }}
+            style={styles.reconcileBtn}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.reconcileBtnText}>Retry now</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -2414,6 +2531,7 @@ export default function PosSellScreen() {
         }}
         onDeclined={(result) => {
           setShowStripeModal(false);
+          paymentInFlightRef.current = false;
           logTerminalTx({
             provider: 'stripe',
             outcome: 'declined',
@@ -2429,6 +2547,7 @@ export default function PosSellScreen() {
         }}
         onCancel={() => {
           setShowStripeModal(false);
+          paymentInFlightRef.current = false;
           logTerminalTx({
             provider: 'stripe',
             outcome: 'cancelled',
@@ -2589,6 +2708,35 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   tillClosedBtnText: {
+    color: '#0d0d14',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  /* ── Reconcile banner (v2.7.70 — C12) ── */
+  reconcileBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(245,158,11,0.12)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(245,158,11,0.35)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  reconcileText: {
+    flex: 1,
+    color: '#f59e0b',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  reconcileBtn: {
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  reconcileBtnText: {
     color: '#0d0d14',
     fontSize: 11,
     fontWeight: '800',

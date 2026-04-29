@@ -17,6 +17,9 @@ import { AnzPaymentModal, type AnzPaymentResult } from '../../components/AnzPaym
 // v2.7.48-univlog — universal transaction logger. Kiosk QR + cash sales
 // log here so the merchant gets a unified Logs view across channels.
 import { logTerminalTx } from '../../lib/terminal-tx-log';
+// v2.7.70 — C13 reconcile queue for orders that were charged but
+// failed to mark complete. See store/reconcile.ts.
+import { useReconcileStore } from '../../store/reconcile';
 
 type PaymentMethod = 'card' | 'cash' | 'qr';
 
@@ -179,9 +182,24 @@ export default function PaymentScreen() {
       const completeOk = completeRes.ok || completeRes.status === 409;
       if (!completeOk) {
         // Log but don't fail the UX — the kiosk customer is about to see
-        // the confirmation screen and walk away. Staff can reconcile from
-        // the orders page if this keeps happening.
+        // the confirmation screen and walk away. v2.7.70 — C13: enqueue
+        // for reconciliation so staff don't have to find unmarked orders
+        // by hand. The terminal_transactions row below carries
+        // outcome='error' for the audit trail.
         console.error('[POS/complete]', 'kiosk.postOrderAndComplete /complete FAILED:', completeRes.status, await completeRes.text().catch(() => ''));
+        try {
+          await useReconcileStore.getState().enqueue({
+            orderId: data.id,
+            orderNumber: data.orderNumber,
+            apiBase,
+            authTokenSnapshot: token,
+            paymentMethod: method === 'card' ? 'Card' : method === 'cash' ? 'Cash' : 'QR',
+            paidTotal,
+            changeGiven: 0,
+          });
+        } catch (enqueueErr) {
+          console.error('[POS/complete]', 'kiosk failed to enqueue reconcile entry', enqueueErr);
+        }
       } else {
         console.log('[POS/complete]', 'kiosk.postOrderAndComplete /complete OK', { orderId: data.id, status: completeRes.status });
       }

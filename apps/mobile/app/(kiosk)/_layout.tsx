@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from 'react';
-import { Stack, useRouter } from 'expo-router';
-import { StyleSheet, TouchableWithoutFeedback, View } from 'react-native';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { Stack, useRouter, usePathname } from 'expo-router';
+import { AppState, type AppStateStatus, StyleSheet, TouchableWithoutFeedback, View } from 'react-native';
 import { AnzBridgeProvider } from '../../components/AnzBridgeHost';
 import { useAnzStore } from '../../store/anz';
+import { useKioskStore } from '../../store/kiosk';
 import { useTillStore } from '../../store/till';
 
 /**
@@ -21,20 +22,94 @@ import { useTillStore } from '../../store/till';
  *      customer are harmless. The settings screen itself challenges
  *      the operator with a 4-digit PIN before showing any content.
  *
- * Both are strictly additive — the Stack navigator below is unchanged;
- * the overlay is a sibling `View` that only intercepts touches inside
- * its 60×60 footprint, outside every customer-facing control.
+ * v2.7.70 — C16 global idle timeout. Previously only the attract screen
+ * had an idle timer. If a customer started a transaction (menu → cart →
+ * loyalty / age-verification / payment) and walked away mid-flow, the
+ * kiosk would sit on that screen forever — leaking PII (loyalty email,
+ * cart contents, scanned ID), holding line space, and blocking the next
+ * customer. We now run a global timer at the layout level that fires
+ * `resetOrder()` and routes back to attract whenever no touch has
+ * happened for IDLE_TIMEOUT_MS, on every screen except attract itself
+ * and the post-payment confirmation (which has its own auto-return).
  */
+const IDLE_TIMEOUT_MS = 90_000;
+
+/** Screens that opt out of the global idle timer. */
+const IDLE_EXEMPT_PATHS = new Set<string>([
+  '/(kiosk)/attract',
+  '/(kiosk)/confirmation',
+  '/(kiosk)/settings', // staff-only — they should not get bumped mid-config
+]);
+
 export default function KioskLayout() {
   const router = useRouter();
+  const pathname = usePathname();
   const hydrateAnz = useAnzStore((s) => s.hydrate);
   const hydrateTill = useTillStore((s) => s.hydrate);
+  const resetOrder = useKioskStore((s) => s.resetOrder);
   const tapsRef = useRef<number[]>([]);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backgroundTimestamp = useRef<number | null>(null);
 
   useEffect(() => {
     hydrateAnz();
     hydrateTill();
   }, []);
+
+  // v2.7.70 — guard exemption-list lookup: pathname comes from expo-router
+  // and may be either '/(kiosk)/attract' or '/(kiosk)/attract/' style;
+  // strip a trailing slash before comparison.
+  const isExempt = useCallback((p: string | null) => {
+    if (!p) return true;
+    const norm = p.endsWith('/') ? p.slice(0, -1) : p;
+    return IDLE_EXEMPT_PATHS.has(norm);
+  }, []);
+
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimer.current) {
+      clearTimeout(idleTimer.current);
+      idleTimer.current = null;
+    }
+    if (isExempt(pathname)) return;
+    idleTimer.current = setTimeout(() => {
+      resetOrder();
+      router.replace('/(kiosk)/attract');
+    }, IDLE_TIMEOUT_MS);
+  }, [pathname, isExempt, resetOrder, router]);
+
+  // Re-arm the timer on every route change (and clear it when entering
+  // an exempt screen). Without this, navigating from menu → confirmation
+  // would leave the menu's timer running, bumping the user mid-receipt.
+  useEffect(() => {
+    resetIdleTimer();
+    return () => {
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+    };
+  }, [pathname, resetIdleTimer]);
+
+  // App-state handling: if the kiosk is backgrounded (screen off,
+  // notification panel pulled, etc.) for longer than IDLE_TIMEOUT_MS,
+  // reset on resume regardless of what the in-process timer says.
+  useEffect(() => {
+    function handleAppStateChange(nextState: AppStateStatus) {
+      if (nextState === 'background' || nextState === 'inactive') {
+        backgroundTimestamp.current = Date.now();
+      } else if (nextState === 'active') {
+        if (backgroundTimestamp.current !== null) {
+          const elapsed = Date.now() - backgroundTimestamp.current;
+          backgroundTimestamp.current = null;
+          if (elapsed >= IDLE_TIMEOUT_MS && !isExempt(pathname)) {
+            resetOrder();
+            router.replace('/(kiosk)/attract');
+            return;
+          }
+        }
+        resetIdleTimer();
+      }
+    }
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub.remove();
+  }, [pathname, isExempt, resetOrder, router, resetIdleTimer]);
 
   function handleHiddenTap() {
     const now = Date.now();
@@ -49,7 +124,11 @@ export default function KioskLayout() {
 
   return (
     <AnzBridgeProvider>
-      <View style={{ flex: 1 }}>
+      {/* v2.7.70 — onTouchStart on the parent View fires for every touch
+          but does not consume the event, so child controls (buttons,
+          inputs) keep working. We use it as a passive "user is active"
+          signal to re-arm the idle timer. */}
+      <View style={{ flex: 1 }} onTouchStart={resetIdleTimer}>
         <Stack screenOptions={{ headerShown: false, animation: 'fade' }} />
         <TouchableWithoutFeedback onPress={handleHiddenTap}>
           <View style={styles.hiddenHitZone} />

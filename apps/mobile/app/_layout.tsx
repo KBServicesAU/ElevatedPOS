@@ -35,6 +35,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 // rest of the app still boots.
 import { useDeviceStore } from '../store/device';
 import { useDeviceSettings } from '../store/device-settings';
+import { useReconcileStore } from '../store/reconcile';
 import { ToastViewport, AlertDialogHost } from '../components/ui';
 
 const stripePublishableKey = process.env['EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?? '';
@@ -66,9 +67,17 @@ SplashScreen.preventAutoHideAsync();
 /** How often to ping the server to check that this device is still authorised. */
 const HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
 
+/** How often to retry orders that were charged but failed to mark complete.
+ *  v2.7.70 — C12/C13 reconcile drain. We pick a relatively short interval
+ *  (90s) to recover quickly from transient blips, but back off the user-
+ *  visible toast so a sustained outage doesn't spam the screen. */
+const RECONCILE_DRAIN_INTERVAL_MS = 90 * 1000;
+
 export default function RootLayout() {
   const { ready, _hydrate, identity, checkHeartbeat } = useDeviceStore();
   const fetchDeviceSettings = useDeviceSettings((s) => s.fetch);
+  const hydrateReconcile = useReconcileStore((s) => s.hydrate);
+  const drainReconcile = useReconcileStore((s) => s.drain);
   const router = useRouter();
   const pathname = usePathname();
   const previousIdentity = useRef(identity);
@@ -78,8 +87,31 @@ export default function RootLayout() {
     _hydrate().then(() => {
       // Non-fatal if it fails — app still works with local fallbacks.
       fetchDeviceSettings().catch(() => { /* ignore */ });
+      // v2.7.70 — load any orders that were charged but failed to mark
+      // complete on a previous session, then immediately try to drain
+      // them. The hydrate() resolves before any sale UI renders so the
+      // count is accurate when Sell/Orders mount.
+      hydrateReconcile()
+        .then(() => drainReconcile())
+        .catch(() => { /* ignore */ });
     });
-  }, [_hydrate, fetchDeviceSettings]);
+  }, [_hydrate, fetchDeviceSettings, hydrateReconcile, drainReconcile]);
+
+  // v2.7.70 — periodic reconcile drain. Cheap when the queue is empty
+  // (early-return inside the store) so safe to run unconditionally.
+  useEffect(() => {
+    if (!identity) return;
+    const interval = setInterval(() => {
+      drainReconcile().catch(() => { /* ignore */ });
+    }, RECONCILE_DRAIN_INTERVAL_MS);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') drainReconcile().catch(() => { /* ignore */ });
+    });
+    return () => {
+      clearInterval(interval);
+      sub.remove();
+    };
+  }, [identity, drainReconcile]);
 
   // Hide the splash only after the component has re-rendered with ready=true.
   // Calling hideAsync() inside the _hydrate().then() callback races with
