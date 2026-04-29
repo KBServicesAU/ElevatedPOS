@@ -60,6 +60,19 @@ export async function refreshDeviceJwt(): Promise<string | null> {
         },
       });
       if (!res.ok) {
+        // v2.7.80 — capture the server response so a kiosk that gets
+        // stuck on "Unauthorized" surfaces a diagnosable trail. 401 here
+        // typically means the device row is missing/revoked, 503 means
+        // auth service is down.
+        const body = await res.text().catch(() => '');
+        console.warn(
+          '[device-jwt] /access-token failed',
+          res.status,
+          'baseUrl:',
+          BASE_URL,
+          'body:',
+          body.slice(0, 240),
+        );
         cache = null;
         return null;
       }

@@ -1,14 +1,16 @@
 /**
- * Kiosk Staff Settings (v2.7.40)
+ * Kiosk Staff Settings (v2.7.40, v2.7.80)
  *
  * Hidden settings page for staff. NOT accessible from the customer-facing
  * kiosk nav. To reach it:
  *
- *   1. On ANY kiosk screen, tap 5 times (within 3 seconds) on the invisible
- *      60×60 corner hit-zone at the TOP-LEFT of the screen. The zone sits
- *      in `(kiosk)/_layout.tsx` as a global floating overlay so it is
+ *   1. On ANY kiosk screen, tap 7 times (within 4 seconds) on the small
+ *      "E" badge in the TOP-LEFT corner. The badge sits in
+ *      `(kiosk)/_layout.tsx` as a global floating overlay so it is
  *      reachable regardless of which customer screen (attract / menu /
- *      cart / payment / confirmation) is currently on top.
+ *      cart / payment / confirmation) is currently on top. v2.7.80 —
+ *      bumped from 5→7 taps + the badge is now visible so staff can
+ *      find it without memorising a corner.
  *   2. The gesture navigates to THIS page, which then challenges the
  *      operator with a 4-digit PIN gate (default `1234`).
  *

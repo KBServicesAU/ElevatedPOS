@@ -225,7 +225,19 @@ export default function MenuScreen() {
 
       {!catalogLoading && catalogError && realProducts.length === 0 && (
         <View style={styles.statusBanner}>
-          <Text style={[styles.statusText, { color: '#ef4444' }]}>{catalogError}</Text>
+          <Text style={[styles.statusText, { color: '#ef4444', textAlign: 'center', paddingHorizontal: 20 }]}>
+            {catalogError}
+          </Text>
+          {/* v2.7.80 — manual retry. Without this the kiosk had no way
+              to recover from a transient auth blip without a full
+              app relaunch. */}
+          <TouchableOpacity
+            style={styles.retryBtn}
+            onPress={() => { hydrateUnavailable(); fetchAll(); }}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.retryBtnText}>Try again</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -407,6 +419,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#888',
     fontWeight: '600',
+  },
+  retryBtn: {
+    marginTop: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#2a2a2a',
+    borderWidth: 1,
+    borderColor: '#555',
+  },
+  retryBtnText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '700',
   },
   catScroll: { flexGrow: 0 },
   catContent: { paddingHorizontal: 16, gap: 8, paddingBottom: 12 },

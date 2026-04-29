@@ -523,6 +523,13 @@ function MiniPreview({
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
+// v2.7.80 — sentinel id used by the dashboard's "Default Template"
+// virtual screen. Saving with this id PUTs to /display/default-content
+// instead of /display/screens/:id/content. Using a UUID-shaped string
+// keeps the type system happy without polluting `selectedScreenId` with
+// a separate union type.
+const DEFAULT_TEMPLATE_ID = '00000000-0000-0000-0000-000000default';
+
 export default function DisplayEditorClient() {
   const [screens, setScreens] = useState<DisplayScreen[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -534,22 +541,34 @@ export default function DisplayEditorClient() {
   const [publishSuccess, setPublishSuccess] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [showAddSection, setShowAddSection] = useState(false);
+  // v2.7.80 — track whether an org-level default exists so the
+  // sidebar entry can show a "Published" badge.
+  const [defaultPublished, setDefaultPublished] = useState(false);
 
-  const selectedScreen = screens.find((s) => s.id === selectedScreenId) ?? null;
+  const isDefaultTemplate = selectedScreenId === DEFAULT_TEMPLATE_ID;
+  const selectedScreen = isDefaultTemplate
+    ? ({ id: DEFAULT_TEMPLATE_ID, label: 'Default Template', locationId: '', lastSeenAt: null, status: 'offline' as const, hasContent: defaultPublished })
+    : screens.find((s) => s.id === selectedScreenId) ?? null;
 
   // ── Fetch screens & categories on mount ──────────────────────────────────────
 
   useEffect(() => {
     (async () => {
       try {
-        const [screensData, catsData] = await Promise.all([
+        const [screensData, catsData, defaultData] = await Promise.all([
           // v2.7.38 — `display` + `categories` go through /api/proxy so the
           // session cookie is exchanged for a Bearer token server-side.
           proxyApiFetch<{ data: DisplayScreen[] }>('display/screens'),
           proxyApiFetch<{ data: Category[] }>('categories'),
+          // v2.7.80 — also fetch the org's default template so the
+          // sidebar entry can show "Published" if one exists.
+          proxyApiFetch<{ data: { content: DisplayContent | null; publishedAt: string | null } }>(
+            'display/default-content',
+          ).catch(() => ({ data: { content: null, publishedAt: null } })),
         ]);
         setScreens(screensData.data ?? []);
         setCategories(catsData.data ?? []);
+        setDefaultPublished(defaultData?.data?.content != null);
       } catch {
         // silently degrade
       } finally {
@@ -557,6 +576,29 @@ export default function DisplayEditorClient() {
       }
     })();
   }, []);
+
+  // v2.7.80 — when the user picks the "Default Template" entry,
+  // hydrate the editor from /display/default-content. Per-device
+  // selection still falls through to the existing flow.
+  useEffect(() => {
+    if (selectedScreenId !== DEFAULT_TEMPLATE_ID) return;
+    (async () => {
+      try {
+        const res = await proxyApiFetch<{
+          data: { content: DisplayContent | null; publishedAt: string | null };
+        }>('display/default-content');
+        if (res?.data?.content) {
+          setContent(res.data.content);
+          setDefaultPublished(true);
+        } else {
+          setContent(defaultContent());
+          setDefaultPublished(false);
+        }
+      } catch {
+        setContent(defaultContent());
+      }
+    })();
+  }, [selectedScreenId]);
 
   // ── Fetch menu items when a menu section is present ──────────────────────────
 
@@ -648,11 +690,16 @@ export default function DisplayEditorClient() {
     setPublishError(null);
     setPublishSuccess(false);
     try {
-      // v2.7.38 — proxy path.
-      await proxyApiFetch(`display/screens/${selectedScreenId}/content`, {
+      // v2.7.80 — Default Template publishes to /display/default-content
+      // (org-level), not /display/screens/:id/content.
+      const path = isDefaultTemplate
+        ? 'display/default-content'
+        : `display/screens/${selectedScreenId}/content`;
+      await proxyApiFetch(path, {
         method: 'PUT',
         body: JSON.stringify({ content }),
       });
+      if (isDefaultTemplate) setDefaultPublished(true);
       setPublishSuccess(true);
       setTimeout(() => setPublishSuccess(false), 3000);
     } catch (err) {
@@ -691,6 +738,44 @@ export default function DisplayEditorClient() {
         {/* Left: Screen list */}
         <div className="col-span-3 space-y-2">
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-1 mb-3">
+            Signage Content
+          </div>
+
+          {/* v2.7.80 — Default Template entry. Always present so the
+              merchant can design content before pairing any displays;
+              new displays pick this up automatically until per-device
+              content is published. */}
+          <button
+            onClick={() => setSelectedScreenId(DEFAULT_TEMPLATE_ID)}
+            className={`w-full text-left rounded-xl border p-3 transition-all ${
+              isDefaultTemplate
+                ? 'border-indigo-500 bg-indigo-950/40'
+                : 'border-gray-800 bg-gray-900 hover:border-gray-700'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-semibold text-sm text-white truncate flex items-center gap-1.5">
+                  <LayoutGrid className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                  Default Template
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  Applies to new displays
+                </div>
+              </div>
+              {defaultPublished && (
+                <span className="mt-0.5 inline-block h-2.5 w-2.5 rounded-full bg-green-500 flex-shrink-0" />
+              )}
+            </div>
+            {defaultPublished && (
+              <div className="mt-1.5 flex items-center gap-1">
+                <CheckCircle className="h-3 w-3 text-green-500" />
+                <span className="text-xs text-green-500 font-medium">Published</span>
+              </div>
+            )}
+          </button>
+
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-1 pt-3">
             Paired Screens
           </div>
 
@@ -699,7 +784,8 @@ export default function DisplayEditorClient() {
               <Monitor className="h-8 w-8 text-gray-600 mx-auto mb-3" />
               <p className="text-sm text-gray-500 font-medium">No display screens</p>
               <p className="text-xs text-gray-600 mt-1">
-                Pair a display device from the Devices page
+                Pair a display device from the Devices page. Until then,
+                use the Default Template above.
               </p>
             </div>
           ) : (

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db';
 import { hashToken } from '../lib/tokens';
@@ -19,19 +19,92 @@ export async function displayRoutes(app: FastifyInstance) {
     if (!device) return reply.status(401).send({ error: 'Device not found or revoked' });
     if (device.role !== 'display') return reply.status(403).send({ error: 'Not a display device' });
 
+    // v2.7.80 — fall back to the org-level default template when no
+    // device-specific content has been published yet. Lets a merchant
+    // pair a display and have it immediately render the same content
+    // they designed in the dashboard before the device existed.
     const contentRow = await db.query.displayContent.findFirst({
       where: eq(schema.displayContent.deviceId, device.id),
     });
+    let resolved = contentRow;
+    if (!resolved?.content) {
+      const fallback = await db.query.displayContent.findFirst({
+        where: and(
+          eq(schema.displayContent.orgId, device.orgId),
+          isNull(schema.displayContent.deviceId),
+        ),
+      });
+      if (fallback?.content) resolved = fallback;
+    }
 
     return reply.send({
       data: {
-        content: contentRow?.content ?? null,
-        publishedAt: contentRow?.publishedAt ?? null,
+        content: resolved?.content ?? null,
+        publishedAt: resolved?.publishedAt ?? null,
         pollIntervalSeconds: 30,
         deviceId: device.id,
         label: device.label,
+        // Tells the device whether the content it's rendering is the
+        // org default or a per-device override. Useful for diagnostics.
+        isDefault: resolved != null && resolved.deviceId === null,
       },
     });
+  });
+
+  // ── Org-level default template (v2.7.80) ─────────────────────────────────────
+  // Single-row endpoints that read/write the (orgId, deviceId IS NULL)
+  // row in display_content. Used by the dashboard editor's
+  // "Default Template" mode so merchants can design signage content
+  // before any display device is paired.
+
+  // GET /api/v1/display/default-content — staff auth, fetch org default
+  app.get('/default-content', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as { orgId: string };
+    const row = await db.query.displayContent.findFirst({
+      where: and(
+        eq(schema.displayContent.orgId, user.orgId),
+        isNull(schema.displayContent.deviceId),
+      ),
+    });
+    return reply.send({
+      data: {
+        content: row?.content ?? null,
+        publishedAt: row?.publishedAt ?? null,
+      },
+    });
+  });
+
+  // PUT /api/v1/display/default-content — staff auth, save org default
+  app.put('/default-content', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as { orgId: string; sub: string };
+    const body = z.object({ content: z.record(z.unknown()) }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Validation error', issues: body.error.issues });
+    }
+
+    const now = new Date();
+    const existing = await db.query.displayContent.findFirst({
+      where: and(
+        eq(schema.displayContent.orgId, user.orgId),
+        isNull(schema.displayContent.deviceId),
+      ),
+    });
+
+    if (existing) {
+      await db
+        .update(schema.displayContent)
+        .set({ content: body.data.content, publishedAt: now, publishedBy: user.sub, updatedAt: now })
+        .where(eq(schema.displayContent.id, existing.id));
+    } else {
+      await db.insert(schema.displayContent).values({
+        orgId: user.orgId,
+        deviceId: null,
+        content: body.data.content,
+        publishedAt: now,
+        publishedBy: user.sub,
+      });
+    }
+    return reply.status(200).send({ ok: true, publishedAt: now });
   });
 
   // GET /api/v1/display/screens — staff auth, list display devices with content

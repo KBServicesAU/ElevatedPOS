@@ -502,7 +502,17 @@ export const devicePairingCodesRelations = relations(devicePairingCodes, ({ one 
 export const displayContent = pgTable('display_content', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').notNull().references(() => organisations.id, { onDelete: 'cascade' }),
-  deviceId: uuid('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }).unique(),
+  // v2.7.80 — deviceId is now nullable. A row with `deviceId IS NULL`
+  // is the org-level default content that any newly-paired display
+  // picks up until per-device content is published. The previous
+  // schema required a deviceId, which meant /dashboard/display
+  // showed "No display screens" if the merchant hadn't paired
+  // anything yet — they couldn't design templates ahead of time.
+  // The migration drops the NOT NULL + the column-level unique on
+  // deviceId, and adds a partial unique index for the
+  // (orgId, deviceId NULL) default row + (orgId, deviceId NOT NULL)
+  // for per-device rows.
+  deviceId: uuid('device_id').references(() => devices.id, { onDelete: 'cascade' }),
   content: jsonb('content'),
   publishedAt: timestamp('published_at', { withTimezone: true }),
   publishedBy: uuid('published_by'),

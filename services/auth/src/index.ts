@@ -136,6 +136,45 @@ async function applyMigrations(): Promise<void> {
     // existing token starts as its own one-element family.
     await client.query(`UPDATE refresh_tokens SET family_id = id WHERE family_id IS NULL`);
 
+    // ── v2.7.80 — display_content org-level defaults ─────────────────────────
+    // Allow a row with deviceId IS NULL to represent the org default
+    // signage template. /api/v1/display/content falls back to this when
+    // a device has no per-device content yet.
+    //
+    // Drop the column-level UNIQUE on device_id (old definition) and
+    // replace with two partial unique indexes that support both shapes.
+    await client.query(`ALTER TABLE display_content ALTER COLUMN device_id DROP NOT NULL`);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'display_content_device_id_unique'
+            AND conrelid = 'display_content'::regclass
+        ) THEN
+          ALTER TABLE display_content DROP CONSTRAINT display_content_device_id_unique;
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'display_content_device_id_key'
+            AND conrelid = 'display_content'::regclass
+        ) THEN
+          ALTER TABLE display_content DROP CONSTRAINT display_content_device_id_key;
+        END IF;
+      EXCEPTION WHEN undefined_table THEN NULL;
+      END $$
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS display_content_device_idx
+        ON display_content (device_id)
+        WHERE device_id IS NOT NULL
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS display_content_org_default_idx
+        ON display_content (org_id)
+        WHERE device_id IS NULL
+    `);
+
     console.log('[auth] schema migrations applied successfully');
   } catch (err) {
     console.error('[auth] migration error — aborting startup:', err);

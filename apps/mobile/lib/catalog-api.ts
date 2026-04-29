@@ -76,8 +76,17 @@ export async function catalogApiPost<T = unknown>(path: string, body: unknown, m
 }
 
 export async function catalogApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  // v2.7.80 — diagnostic logging path. The kiosk specifically was
+  // surfacing a generic "Unauthorized — please log in again" with no
+  // hint about WHICH step failed (device→JWT exchange? catalog
+  // jwtVerify? upstream service down?), making support debugging
+  // impossible. We now log every step so a `adb logcat | grep
+  // [catalog-api]` (or Sentry) shows the failure surface.
   const token = await getToken();
   const url = resolveUrl(path);
+  if (!token) {
+    console.warn('[catalog-api] no token available before request', { url });
+  }
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -88,13 +97,26 @@ export async function catalogApiFetch<T>(path: string, init?: RequestInit): Prom
   });
 
   if (res.status === 401) {
+    // v2.7.80 — capture the server's actual error before retry so we
+    // can tell device-JWT-rejected from generic-unauthenticated.
+    const firstBody = await res.text().catch(() => '');
+    console.warn('[catalog-api] 401 from', url, 'body:', firstBody.slice(0, 240));
+
     // v2.7.37 — token might be a stale device JWT; force a refresh and
     // retry once. If we were using an employee token and it's stale,
     // the caller (POS) will already prompt for re-login elsewhere.
     const employeeToken = getEmployeeTokenSync();
     if (!employeeToken) {
       const fresh = await refreshDeviceJwt();
-      if (fresh && fresh !== token) {
+      if (!fresh) {
+        // The auth service refused to mint a new device JWT. That's
+        // typically a sign of a revoked / unknown device token.
+        console.warn('[catalog-api] refreshDeviceJwt returned null — device token rejected by auth service');
+        throw new Error(
+          'This device cannot reach the server. Open Settings (tap the logo 7×) → Sync, or unpair and re-pair if the problem persists.',
+        );
+      }
+      if (fresh !== token) {
         const retry = await fetch(url, {
           ...init,
           headers: {
@@ -104,9 +126,13 @@ export async function catalogApiFetch<T>(path: string, init?: RequestInit): Prom
           },
         });
         if (retry.ok) return retry.json() as Promise<T>;
+        const retryBody = await retry.text().catch(() => '');
+        console.warn('[catalog-api] retry also 401', url, 'body:', retryBody.slice(0, 240));
       }
     }
-    throw new Error('Unauthorized — please log in again.');
+    throw new Error(
+      'The server rejected this device. Open Settings (tap the logo 7×) → Sync, or unpair and re-pair.',
+    );
   }
   if (!res.ok) {
     const err = (await res.json().catch(() => ({ title: res.statusText }))) as { title?: string };

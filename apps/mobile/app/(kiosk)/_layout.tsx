@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { Stack, useRouter, usePathname } from 'expo-router';
-import { AppState, type AppStateStatus, StyleSheet, TouchableWithoutFeedback, View } from 'react-native';
+import { AppState, type AppStateStatus, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
 import { AnzBridgeProvider } from '../../components/AnzBridgeHost';
 import { useAnzStore } from '../../store/anz';
 import { useKioskStore } from '../../store/kiosk';
@@ -15,12 +15,15 @@ import { useTillStore } from '../../store/till';
  *      cart → payment. Hydrates the ANZ store + till store on mount
  *      because the kiosk flow never runs through the POS layout which
  *      normally does that.
- *   2. Hidden staff-settings gesture — a 60×60 invisible hit-zone in
- *      the top-left corner. Tap it 5 times within 3 seconds to
- *      navigate to `/settings`. The gesture count resets if the
- *      3-second window lapses, so stray single-taps by a curious
- *      customer are harmless. The settings screen itself challenges
- *      the operator with a 4-digit PIN before showing any content.
+ *   2. Staff-settings gesture — a small visible "E" logo in the
+ *      top-left corner. Tap it 7 times within 4 seconds to navigate
+ *      to `/settings`. The gesture count resets if the 4-second
+ *      window lapses, so stray single-taps by a curious customer
+ *      are harmless. The settings screen itself challenges the
+ *      operator with a 4-digit PIN before showing any content.
+ *      v2.7.80 — bumped from 5 to 7 taps and made the hit zone
+ *      visible. Customers occasionally triggered the 5-tap version
+ *      by accident; 7 is a deliberate "the staff member knows".
  *
  * v2.7.70 — C16 global idle timeout. Previously only the attract screen
  * had an idle timer. If a customer started a transaction (menu → cart →
@@ -113,10 +116,11 @@ export default function KioskLayout() {
 
   function handleHiddenTap() {
     const now = Date.now();
-    // Keep only taps from the last 3 seconds.
-    tapsRef.current = tapsRef.current.filter((t) => now - t < 3000);
+    // Keep only taps from the last 4 seconds. v2.7.80 — extended from
+    // 3 to 4 to accommodate the higher tap count.
+    tapsRef.current = tapsRef.current.filter((t) => now - t < 4000);
     tapsRef.current.push(now);
-    if (tapsRef.current.length >= 5) {
+    if (tapsRef.current.length >= 7) {
       tapsRef.current = [];
       router.push('/(kiosk)/settings' as never);
     }
@@ -130,8 +134,14 @@ export default function KioskLayout() {
           signal to re-arm the idle timer. */}
       <View style={{ flex: 1 }} onTouchStart={resetIdleTimer}>
         <Stack screenOptions={{ headerShown: false, animation: 'fade' }} />
+        {/* v2.7.80 — small visible "E" badge in the top-left corner.
+            Staff tap it 7× to open settings. Visible so they can
+            actually find it; subtle enough that customers don't
+            think it's a button. */}
         <TouchableWithoutFeedback onPress={handleHiddenTap}>
-          <View style={styles.hiddenHitZone} />
+          <View style={styles.staffBadge}>
+            <Text style={styles.staffBadgeText}>E</Text>
+          </View>
         </TouchableWithoutFeedback>
       </View>
     </AnzBridgeProvider>
@@ -139,14 +149,25 @@ export default function KioskLayout() {
 }
 
 const styles = StyleSheet.create({
-  hiddenHitZone: {
+  staffBadge: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 60,
-    height: 60,
-    // Transparent — but must be touchable. `backgroundColor: 'transparent'`
-    // on RN Android is still hit-testable as long as the view has a size.
-    backgroundColor: 'transparent',
+    top: 12,
+    left: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    // Subtle dark plate — visible but not commanding attention.
+    backgroundColor: 'rgba(99,102,241,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 999,
+  },
+  staffBadgeText: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#a5b4fc',
+    letterSpacing: 0.5,
   },
 });
