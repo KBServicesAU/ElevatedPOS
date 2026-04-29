@@ -27,12 +27,17 @@ const laybyItemSchema = z.object({
   productId: z.string().uuid(),
   variantId: z.string().uuid().optional(),
   name: z.string(),
-  sku: z.string(),
-  quantity: z.number().positive(),
-  unitPrice: z.number().min(0),
-  taxRate: z.number().min(0).default(0),
-  discountAmount: z.number().min(0).default(0),
-  lineTotal: z.number().min(0),
+  // v2.7.74 — `sku` defaults to '' when missing. The mobile cart-item
+  // shape doesn't carry SKUs (same gap as createOrderSchema). Requiring
+  // it here breaks layby creation from POS.
+  sku: z.string().optional().default(''),
+  // v2.7.74 — same numeric bounds as the orders create schema.
+  quantity: z.number().positive().max(10_000),
+  unitPrice: z.number().min(0).max(100_000),
+  taxRate: z.number().min(0).max(100).default(0),
+  discountAmount: z.number().min(0).max(100_000).default(0),
+  // `lineTotal` is also defaulted from quantity * unitPrice when missing.
+  lineTotal: z.number().min(0).max(1_000_000).optional(),
 });
 
 const createLaybySchema = z.object({

@@ -82,6 +82,18 @@ interface ReconcileStore {
   reset: () => Promise<void>;
 }
 
+/** Drop entries that have failed more than this many times in a row.
+ *  v2.7.74 — without a cap, a fundamentally bad entry (e.g. an order
+ *  the server doesn't recognise because it never made it past
+ *  /orders POST) would retry every 90s forever, spamming the server
+ *  logs with 404s and growing the queue indefinitely if the operator
+ *  ignored the banner. After 100 attempts (~2.5 hours of retries at
+ *  the 90s interval) we hard-fail the entry and drop it; the
+ *  terminal_transactions row already preserves the audit trail of
+ *  the actual money movement, so cutting losses on the bookkeeping
+ *  is acceptable. */
+const RECONCILE_MAX_ATTEMPTS = 100;
+
 async function persist(pending: PendingReconcile[]): Promise<void> {
   try {
     if (pending.length === 0) {
@@ -179,17 +191,51 @@ export const useReconcileStore = create<ReconcileStore>((set, get) => ({
           }
           const errBody = await res.json().catch(() => ({})) as { message?: string; detail?: string; title?: string };
           const errMsg = errBody.detail ?? errBody.message ?? errBody.title ?? `HTTP ${res.status}`;
+          // 404 means the order id we held is unknown to the server —
+          // either the /orders POST never actually succeeded or the
+          // order was force-deleted out from under us. Either way,
+          // there's nothing to retry. Drop immediately.
+          if (res.status === 404) {
+            failed += 1;
+            console.warn('[reconcile] order not found server-side, dropping', {
+              orderId: entry.orderId,
+              orderNumber: entry.orderNumber,
+            });
+            continue;
+          }
+          const nextAttempts = entry.attempts + 1;
+          if (nextAttempts >= RECONCILE_MAX_ATTEMPTS) {
+            failed += 1;
+            console.error('[reconcile] entry exceeded max attempts, dropping', {
+              orderId: entry.orderId,
+              orderNumber: entry.orderNumber,
+              attempts: nextAttempts,
+              lastError: errMsg,
+            });
+            continue;
+          }
           remaining.push({
             ...entry,
-            attempts: entry.attempts + 1,
+            attempts: nextAttempts,
             lastAttemptAt: new Date().toISOString(),
             lastError: errMsg,
           });
           failed += 1;
         } catch (err) {
+          const nextAttempts = entry.attempts + 1;
+          if (nextAttempts >= RECONCILE_MAX_ATTEMPTS) {
+            failed += 1;
+            console.error('[reconcile] entry exceeded max attempts, dropping', {
+              orderId: entry.orderId,
+              orderNumber: entry.orderNumber,
+              attempts: nextAttempts,
+              err,
+            });
+            continue;
+          }
           remaining.push({
             ...entry,
-            attempts: entry.attempts + 1,
+            attempts: nextAttempts,
             lastAttemptAt: new Date().toISOString(),
             lastError: err instanceof Error ? err.message : String(err),
           });

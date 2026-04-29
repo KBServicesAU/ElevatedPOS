@@ -1420,17 +1420,36 @@ export default function PosSellScreen() {
     try {
       const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
       const token = useAuthStore.getState().employeeToken ?? identity?.deviceToken ?? '';
+      // v2.7.74 — wire-shape fix. The orders service's layby schema
+      // expects amounts in DOLLARS (z.number().positive()) but the
+      // POS was sending cents via `Math.round(total * 100)`. It also
+      // requires `sku` and `lineTotal` on every items[] entry. The
+      // result was 422 on every layby creation; staff worked around
+      // by writing layby slips by hand. Now sends dollars + the
+      // missing fields. `customerPhone` is not in the layby schema
+      // — stash it in `notes` so the contact info survives.
+      const noteParts: string[] = [];
+      if (laybyCustomerPhone.trim()) noteParts.push(`Phone: ${laybyCustomerPhone.trim()}`);
+      noteParts.push(`Items: ${cart.map((i) => `${i.qty}x ${i.name}`).join(', ')}`);
       const res = await fetch(`${base}/api/v1/laybys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           customerName: laybyCustomerName.trim(),
-          customerPhone: laybyCustomerPhone.trim() || undefined,
-          description: cart.map((i) => `${i.qty}x ${i.name}`).join(', '),
-          totalAmount: Math.round(total * 100),
-          depositAmount: Math.round(depositAmt * 100),
-          locationId: identity?.locationId ?? '',
-          items: cart.map((i) => ({ productId: i.id, name: i.name, quantity: i.qty, unitPrice: i.price })),
+          totalAmount: total,
+          depositAmount: depositAmt,
+          locationId: identity?.locationId,
+          notes: noteParts.join(' · '),
+          items: cart.map((i) => ({
+            productId: i.id,
+            name: i.name,
+            sku: '',
+            quantity: i.qty,
+            unitPrice: i.price,
+            taxRate: 10,
+            discountAmount: 0,
+            lineTotal: +(i.price * i.qty).toFixed(2),
+          })),
         }),
         signal: AbortSignal.timeout(10000),
       });
