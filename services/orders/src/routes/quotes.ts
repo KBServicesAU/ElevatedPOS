@@ -30,12 +30,14 @@ const quoteItemSchema = z.object({
   productName: z.string().optional(),
   sku: z.string().optional(),
   // Dashboard uses `qty`; POS uses `quantity`. Accept either (normalized below).
-  quantity: z.number().positive().optional(),
-  qty: z.number().positive().optional(),
-  unitPrice: z.number().min(0),
-  taxRate: z.number().min(0).default(0),
-  discountAmount: z.number().min(0).default(0),
-  lineTotal: z.number().min(0).optional(),
+  // v2.7.74 — same upper-bound caps as the orders create schema so a
+  // malformed payload can't produce a quote with a $1B line total.
+  quantity: z.number().positive().max(10_000).optional(),
+  qty: z.number().positive().max(10_000).optional(),
+  unitPrice: z.number().min(0).max(100_000),
+  taxRate: z.number().min(0).max(100).default(0),
+  discountAmount: z.number().min(0).max(100_000).default(0),
+  lineTotal: z.number().min(0).max(1_000_000).optional(),
 }).refine((i) => !!(i.name ?? i.productName), {
   message: 'Item requires a name or productName',
 }).refine((i) => i.quantity !== undefined || i.qty !== undefined, {

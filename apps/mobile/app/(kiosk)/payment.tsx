@@ -232,6 +232,19 @@ export default function PaymentScreen() {
         });
       }
 
+      // v2.7.74 — see POS sell.tsx. Cash kiosk orders need to feed the
+      // till's cashCents so close-till variance lines up. (Kiosk
+      // "cash" actually means "pay at counter" in our copy, but the
+      // kitchen still hands the order through and staff collect cash
+      // — so the till should expect that money in the drawer.)
+      if (completeOk && method === 'cash') {
+        try {
+          await useTillStore.getState().addCashSale(Math.round(paidTotal * 100));
+        } catch (err) {
+          console.warn('[Kiosk/till] addCashSale failed', err);
+        }
+      }
+
       setOrderNumber(data.orderNumber);
       if (loyaltyAccount && data.pointsEarned != null) {
         setEarnedPoints(data.pointsEarned);

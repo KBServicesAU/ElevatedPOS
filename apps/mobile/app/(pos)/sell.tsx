@@ -640,6 +640,28 @@ export default function PosSellScreen() {
           },
         });
       }
+
+      // v2.7.74 — increment the till's cashCents on cash + split-cash
+      // sales so close-till variance reflects reality. The store
+      // exposed addCashSale() since v2.7.20 but no caller wired it up,
+      // so every shift's cash counter stayed at $0 — close-till
+      // showed a "missing $X" variance equal to all cash taken in,
+      // and merchants were chasing phantom shortfalls.
+      if (completed) {
+        const cashCents =
+          paymentMethod === 'Cash'
+            ? Math.round(paidTotal * 100)
+            : paymentMethod === 'Split' && cashExtras?.tendered != null
+              ? Math.round((cashExtras.tendered - changeGiven) * 100)
+              : 0;
+        if (cashCents > 0) {
+          try {
+            await useTillStore.getState().addCashSale(cashCents);
+          } catch (err) {
+            console.warn('[POS/till] addCashSale failed', err);
+          }
+        }
+      }
     } catch (err) {
       setCharging(false);
       paymentInFlightRef.current = false;
