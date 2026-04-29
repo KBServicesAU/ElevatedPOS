@@ -23,6 +23,14 @@ const patchOrgSchema = z.object({
   maxDashboardDevices: z.number().int().min(0).optional(),
   maxDisplayDevices:   z.number().int().min(0).optional(),
   onboardingStep: z.string().optional(),
+  // v2.7.89 — superadmin-editable slug + name + industry. Slug must be
+  // URL-safe (lowercase, digits, dashes), 2–60 chars. Used by the
+  // public storefront at site.elevatedpos.com.au/<slug>, so changing it
+  // breaks any existing inbound links the merchant has shared. The UI
+  // warns before saving.
+  slug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/, 'lowercase letters, digits, and dashes only').optional(),
+  name: z.string().min(1).max(255).optional(),
+  industry: z.string().min(1).max(50).optional(),
 });
 
 const createStaffSchema = z.object({
@@ -261,6 +269,9 @@ export async function platformRoutes(app: FastifyInstance) {
     if (body.data.maxDashboardDevices !== undefined) updates.maxDashboardDevices = body.data.maxDashboardDevices;
     if (body.data.maxDisplayDevices !== undefined) updates.maxDisplayDevices = body.data.maxDisplayDevices;
     if (body.data.onboardingStep !== undefined) updates.onboardingStep = body.data.onboardingStep;
+    if (body.data.slug !== undefined) updates.slug = body.data.slug;
+    if (body.data.name !== undefined) updates.name = body.data.name;
+    if (body.data.industry !== undefined) updates.industry = body.data.industry;
 
     if (Object.keys(updates).length === 0) {
       return reply.status(400).send({ title: 'No fields to update', status: 400 });
@@ -268,11 +279,28 @@ export async function platformRoutes(app: FastifyInstance) {
 
     updates.updatedAt = new Date();
 
-    const [updated] = await db
-      .update(schema.organisations)
-      .set(updates)
-      .where(eq(schema.organisations.id, id))
-      .returning();
+    let updated;
+    try {
+      const result = await db
+        .update(schema.organisations)
+        .set(updates)
+        .where(eq(schema.organisations.id, id))
+        .returning();
+      updated = result[0];
+    } catch (err) {
+      // v2.7.89 — turn the Postgres unique-constraint violation on slug
+      // into a clean 409 instead of a 500 when an admin tries to set
+      // slug to a value another org already owns.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('organisations_slug_unique') || msg.includes('duplicate key')) {
+        return reply.status(409).send({
+          title: 'Slug already in use',
+          status: 409,
+          detail: `Another organisation already has slug='${body.data.slug ?? ''}'. Pick a different slug.`,
+        });
+      }
+      throw err;
+    }
 
     if (!updated) return reply.status(404).send({ title: 'Not Found', status: 404 });
 

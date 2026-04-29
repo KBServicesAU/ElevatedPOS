@@ -128,6 +128,15 @@ export default function MerchantDetailPage({ params }: { params: { id: string } 
   const [editForm, setEditForm] = useState({ plan: '', maxLocations: 1, maxDevices: 2, maxPosDevices: 2, maxKdsDevices: 2, maxKioskDevices: 1, maxDashboardDevices: 1, maxDisplayDevices: 5 });
   const [saving, setSaving] = useState(false);
 
+  // v2.7.89 — inline slug editor. The merchant's storefront URL is
+  // site.elevatedpos.com.au/<slug>, so a superadmin needs a quick way
+  // to change it (e.g. point an existing org at /demo without spinning
+  // up a parallel merchant + employee).
+  const [editingSlug, setEditingSlug] = useState(false);
+  const [slugDraft, setSlugDraft] = useState('');
+  const [slugSaving, setSlugSaving] = useState(false);
+  const [slugError, setSlugError] = useState('');
+
   // Notes state (API-backed)
   const [supportNotes, setSupportNotes] = useState<SupportNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
@@ -300,6 +309,45 @@ export default function MerchantDetailPage({ params }: { params: { id: string } 
     }
   }
 
+  // v2.7.89 — inline slug edit. PATCH /platform/organisations/:id with
+  // just { slug } and reflect the new value on success. The platform
+  // route turns Postgres unique-constraint errors into a clean 409.
+  async function saveSlug() {
+    const next = slugDraft.trim().toLowerCase();
+    if (!next || next === org?.slug) {
+      setEditingSlug(false);
+      return;
+    }
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/.test(next)) {
+      setSlugError('lowercase letters, digits, and dashes only');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Change storefront slug from /${org?.slug} to /${next}?\n\n` +
+          `This changes the public URL at site.elevatedpos.com.au/${next}. ` +
+          `Any existing links to /${org?.slug} will stop working.`,
+      )
+    ) {
+      return;
+    }
+    setSlugSaving(true);
+    setSlugError('');
+    try {
+      const data = (await platformFetch(`platform/organisations/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ slug: next }),
+      })) as { data: OrgDetail };
+      setOrg(data.data);
+      setEditingSlug(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not update slug.';
+      setSlugError(msg);
+    } finally {
+      setSlugSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-8 text-gray-500">Loading...</div>
@@ -464,7 +512,48 @@ export default function MerchantDetailPage({ params }: { params: { id: string } 
               {org.planStatus}
             </span>
           </div>
-          <p className="text-gray-500 text-sm mt-1">/{org.slug}</p>
+          {editingSlug ? (
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-gray-500 text-sm">/</span>
+              <input
+                value={slugDraft}
+                onChange={(e) => {
+                  setSlugDraft(e.target.value.toLowerCase());
+                  setSlugError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void saveSlug();
+                  if (e.key === 'Escape') { setEditingSlug(false); setSlugError(''); }
+                }}
+                placeholder="demo"
+                className="bg-[#1a1a26] border border-[#2a2a3e] text-gray-200 text-sm px-2 py-1 rounded font-mono w-48 focus:outline-none focus:border-indigo-500"
+                autoFocus
+              />
+              <button
+                onClick={() => void saveSlug()}
+                disabled={slugSaving || !slugDraft.trim() || slugDraft === org.slug}
+                className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs rounded"
+              >
+                {slugSaving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                onClick={() => { setEditingSlug(false); setSlugError(''); }}
+                className="px-2 py-1 bg-[#1e1e2e] hover:bg-[#2a2a3e] border border-[#2a2a3e] text-gray-300 text-xs rounded"
+              >
+                Cancel
+              </button>
+              {slugError && <span className="text-red-400 text-xs">{slugError}</span>}
+            </div>
+          ) : (
+            <button
+              onClick={() => { setSlugDraft(org.slug); setEditingSlug(true); setSlugError(''); }}
+              className="mt-1 text-gray-500 hover:text-indigo-400 text-sm cursor-pointer flex items-center gap-1.5 group"
+              title="Edit slug — click to change the storefront URL path"
+            >
+              /{org.slug}
+              <Edit2 className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
