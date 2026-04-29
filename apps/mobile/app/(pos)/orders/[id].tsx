@@ -600,7 +600,7 @@ export default function OrderDetailScreen() {
         name: l.name,
         quantity: l.quantity,
         unitPrice: l.unitPrice,
-        discountAmount: (l as { discountAmount?: number | string | null }).discountAmount ?? null,
+        discountAmount: l.discountAmount ?? null,
         notes: l.notes ?? null,
         seatNumber: l.seatNumber ?? null,
       }));

@@ -50,6 +50,8 @@ interface OrderListLine {
   unitPrice: number | string;
   /** v2.7.51-C2 — needed when resuming a held order from the list view. */
   productId?: string;
+  /** v2.7.75 — preserved on hold/resume so discounts survive. */
+  discountAmount?: number | string | null;
   notes?: string | null;
   seatNumber?: number | null;
 }
@@ -301,7 +303,7 @@ export default function OrdersScreen() {
         quantity: l.quantity,
         unitPrice: l.unitPrice,
         // v2.7.75 — preserve hold-time discounts on resume.
-        discountAmount: (l as { discountAmount?: number | string | null }).discountAmount ?? null,
+        discountAmount: l.discountAmount ?? null,
         notes: l.notes ?? null,
         seatNumber: l.seatNumber ?? null,
       }));
