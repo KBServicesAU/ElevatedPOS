@@ -22,7 +22,7 @@ import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useDeviceStore } from '../../store/device';
 import { usePrinterStore, type PrinterConnectionType } from '../../store/printers';
-import { loadKdsSettings, type KdsSettings, BEEP_URLS } from './settings';
+import { loadKdsSettings, saveKdsSettings, type KdsSettings, BEEP_URLS } from './settings';
 import {
   useSmsStore,
   renderSmsBody,
@@ -1180,12 +1180,41 @@ export default function KDSScreen() {
             <View style={styles.modalCard}>
               <View style={styles.modalRow}>
                 <Text style={styles.modalLabel}>New Order Sound</Text>
-                <Switch value={soundEnabled} onValueChange={setSoundEnabled} trackColor={{ false: '#2a2a2a', true: '#6366f180' }} thumbColor={soundEnabled ? '#6366f1' : '#555'} />
+                {/* v2.7.74 — write through to kdsSettings so the toggle
+                    actually persists. Previously the inline modal had a
+                    local-only useState that did nothing — operator
+                    toggled sound off, app reload restored it. */}
+                <Switch
+                  value={kdsSettings ? kdsSettings.soundEnabled : soundEnabled}
+                  onValueChange={(v) => {
+                    setSoundEnabled(v);
+                    if (kdsSettings) {
+                      const next = { ...kdsSettings, soundEnabled: v };
+                      setKdsSettings(next);
+                      saveKdsSettings(next).catch(() => { /* ignore */ });
+                    }
+                  }}
+                  trackColor={{ false: '#2a2a2a', true: '#6366f180' }}
+                  thumbColor={(kdsSettings ? kdsSettings.soundEnabled : soundEnabled) ? '#6366f1' : '#555'}
+                />
               </View>
               <View style={styles.modalDivider} />
               <View style={styles.modalRow}>
                 <Text style={styles.modalLabel}>Print Label on Bump</Text>
-                <Switch value={printOnBump} onValueChange={setPrintOnBump} trackColor={{ false: '#2a2a2a', true: '#6366f180' }} thumbColor={printOnBump ? '#6366f1' : '#555'} />
+                {/* v2.7.74 — same fix as soundEnabled. */}
+                <Switch
+                  value={kdsSettings ? kdsSettings.printOnBump : printOnBump}
+                  onValueChange={(v) => {
+                    setPrintOnBump(v);
+                    if (kdsSettings) {
+                      const next = { ...kdsSettings, printOnBump: v };
+                      setKdsSettings(next);
+                      saveKdsSettings(next).catch(() => { /* ignore */ });
+                    }
+                  }}
+                  trackColor={{ false: '#2a2a2a', true: '#6366f180' }}
+                  thumbColor={(kdsSettings ? kdsSettings.printOnBump : printOnBump) ? '#6366f1' : '#555'}
+                />
               </View>
             </View>
 
