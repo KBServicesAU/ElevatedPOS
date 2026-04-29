@@ -1,36 +1,26 @@
 /**
- * Demo-org seed (v2.7.87).
+ * Demo-org webStore refresh (v2.7.88).
  *
- * Idempotently provisions a "Demo Cafe" merchant the public marketing
- * site links to from the "Try the demo" button. The org and its login
- * are created on first run so the platform owner can sign in at
- *   /signin → demo@elevatedpos.com.au / <DEMO_ORG_PASSWORD or 'demo1234'>
- * and edit the storefront via /dashboard/web-store like any normal
- * merchant. Subsequent runs are no-ops — we never overwrite an existing
- * row so a merchant's edits aren't clobbered on every deploy.
+ * Counterpart to the dev seed at services/auth/src/db/seed.ts. The dev
+ * seed creates the "Demo Cafe" organisation (slug='demo') with
+ * owner@elevatedpos.dev as its employee — that's the org the platform
+ * owner manages from the standard /dashboard flow they already use.
  *
- * Three things get seeded:
- *   1. organisations row with slug='demo' + rich webStore JSONB
- *   2. employees row for demo@elevatedpos.com.au (bcrypt 12 rounds)
- *   3. roles row mapped to the employee — owner-level so they can edit
+ * This startup seed is the *production* counterpart: it does NOT create
+ * a parallel org or employee. Instead it looks up whichever org currently
+ * has slug='demo' and refreshes the webStore JSONB ONLY if it's empty
+ * (i.e. a brand-new org that hasn't been customised yet). Once the
+ * merchant edits any webStore field via /dashboard/web-store the seed
+ * leaves it alone forever.
  *
- * Sample products live in the catalog service (services/catalog/src/seed.ts).
+ * If no org has slug='demo' the seed is a no-op — never auto-creates an
+ * org. Spawning an org from a service-startup hook is too dangerous
+ * (auto-onboarding past the billing flow, polluting the merchant list).
  */
 
 import { Pool } from 'pg';
-import bcrypt from 'bcryptjs';
 
 const DEMO_SLUG = 'demo';
-const DEMO_BUSINESS_NAME = 'Demo Cafe';
-const DEMO_EMAIL = 'demo@elevatedpos.com.au';
-
-// Default password used only on the *first* seed run. Override in prod by
-// setting DEMO_ORG_PASSWORD before tagging — the ConfigMap pipes it
-// through to the auth pod. After first run the seed never touches the
-// employee row again, so rotating the password via the dashboard sticks.
-function defaultDemoPassword(): string {
-  return process.env['DEMO_ORG_PASSWORD'] ?? 'demo1234';
-}
 
 const DEMO_WEB_STORE = {
   enabled: true,
@@ -58,10 +48,7 @@ const DEMO_WEB_STORE = {
   },
   socials: {
     instagram: 'https://instagram.com/elevatedpos',
-    facebook: null,
-    twitter: null,
-    tiktok: null,
-    website: null,
+    facebook: null, twitter: null, tiktok: null, website: null,
   },
   onlineOrderingEnabled: true,
   reservationsEnabled: true,
@@ -79,90 +66,33 @@ export async function seedDemoOrg(): Promise<void> {
   });
   const client = await pool.connect();
   try {
-    // 1. Bail early if the org already exists. We never overwrite an
-    //    existing row because the merchant may have already customised it.
-    const existing = await client.query<{ id: string }>(
-      'SELECT id FROM organisations WHERE slug = $1 LIMIT 1',
+    const res = await client.query<{ id: string; settings: Record<string, unknown> | null }>(
+      `SELECT id, settings FROM organisations WHERE slug = $1 LIMIT 1`,
       [DEMO_SLUG],
     );
-    let orgId: string;
-    let isNewOrg = false;
+    if (!res.rowCount) {
+      console.log(`[auth] no org with slug='${DEMO_SLUG}' — webStore seed skipped.`);
+      return;
+    }
+    const row = res.rows[0]!;
 
-    if (existing.rowCount && existing.rowCount > 0) {
-      orgId = existing.rows[0]!.id;
-      console.log(`[auth] demo org already exists (${orgId}) — skipping insert.`);
-    } else {
-      const inserted = await client.query<{ id: string }>(
-        `INSERT INTO organisations
-           (name, slug, country, currency, timezone, plan, plan_status, industry, settings, onboarding_step, onboarding_step_v2, onboarding_completed_at, billing_model, subscription_status)
-         VALUES ($1, $2, 'AU', 'AUD', 'Australia/Melbourne', 'starter', 'active', 'cafe',
-                 $3::jsonb, 'completed', 'completed', NOW(), 'legacy', 'active')
-         RETURNING id`,
-        [DEMO_BUSINESS_NAME, DEMO_SLUG, JSON.stringify({ webStore: DEMO_WEB_STORE })],
-      );
-      orgId = inserted.rows[0]!.id;
-      isNewOrg = true;
-      console.log(`[auth] seeded demo org: ${orgId}`);
+    // Bail if the org already has a webStore configured. Even one user
+    // edit means the merchant has been customising and we must not stomp
+    // on their work on the next pod restart.
+    const settings = (row.settings ?? {}) as Record<string, unknown>;
+    const existingWebStore = settings['webStore'];
+    if (existingWebStore && typeof existingWebStore === 'object'
+        && Object.keys(existingWebStore as Record<string, unknown>).length > 0) {
+      console.log(`[auth] demo org ${row.id} already has webStore settings — leaving alone.`);
+      return;
     }
 
-    // 2. Owner role for the demo org. Drizzle's role table allows null
-    //    orgId for system roles — we want a regular org-scoped owner so
-    //    permissions stay self-contained.
-    const roleRes = await client.query<{ id: string }>(
-      `SELECT id FROM roles WHERE org_id = $1 AND name = 'Owner' LIMIT 1`,
-      [orgId],
+    const newSettings = { ...settings, webStore: DEMO_WEB_STORE };
+    await client.query(
+      `UPDATE organisations SET settings = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify(newSettings), row.id],
     );
-    let roleId: string;
-    if (roleRes.rowCount && roleRes.rowCount > 0) {
-      roleId = roleRes.rows[0]!.id;
-    } else {
-      const inserted = await client.query<{ id: string }>(
-        `INSERT INTO roles (org_id, name, description, is_system_role, permissions)
-         VALUES ($1, 'Owner', 'Full access', false, $2::jsonb)
-         RETURNING id`,
-        [orgId, JSON.stringify({ all: true })],
-      );
-      roleId = inserted.rows[0]!.id;
-      console.log(`[auth] seeded demo Owner role: ${roleId}`);
-    }
-
-    // 3. Employee with a known login so the platform owner can sign in
-    //    and edit the demo just like a normal merchant. We never touch
-    //    the row on subsequent runs so password rotations stick.
-    const empRes = await client.query<{ id: string }>(
-      `SELECT id FROM employees WHERE org_id = $1 AND email = $2 LIMIT 1`,
-      [orgId, DEMO_EMAIL],
-    );
-    if (empRes.rowCount === 0) {
-      const passwordHash = await bcrypt.hash(defaultDemoPassword(), 12);
-      await client.query(
-        `INSERT INTO employees (org_id, role_id, first_name, last_name, email, password_hash, is_active)
-         VALUES ($1, $2, 'Demo', 'Owner', $3, $4, true)`,
-        [orgId, roleId, DEMO_EMAIL, passwordHash],
-      );
-      console.log(
-        `[auth] seeded demo employee: ${DEMO_EMAIL} (default password: '${defaultDemoPassword()}' — ROTATE AFTER FIRST LOGIN)`,
-      );
-    }
-
-    // 4. A default location is required by the order/POS flows. Add one
-    //    only when the org is brand new — we don't want to revive a
-    //    location the merchant deleted.
-    if (isNewOrg) {
-      await client.query(
-        `INSERT INTO locations (org_id, name, address, phone, timezone, type, is_active)
-         VALUES ($1, 'Main', $2::jsonb, '+61 3 9000 0000', 'Australia/Melbourne', 'cafe', true)
-         ON CONFLICT DO NOTHING`,
-        [orgId, JSON.stringify({
-          line1: '42 Demo Street',
-          city: 'Melbourne',
-          state: 'VIC',
-          postcode: '3000',
-          country: 'AU',
-        })],
-      );
-      console.log(`[auth] seeded demo location for org ${orgId}`);
-    }
+    console.log(`[auth] populated webStore on demo org ${row.id}.`);
   } finally {
     client.release();
     await pool.end();
