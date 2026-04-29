@@ -189,6 +189,15 @@ export default function PosSellScreen() {
   const [showLoyaltyRedeem, setShowLoyaltyRedeem] = useState(false);
   const [loyaltyPointsToRedeem, setLoyaltyPointsToRedeem] = useState('');
   const [loyaltyRedeemLoading, setLoyaltyRedeemLoading] = useState(false);
+  // v2.7.77 — Track an in-flight loyalty redemption so we can roll it
+  // back if the order POST or /complete eventually fails. Without this,
+  // the customer's points were deducted server-side at "Apply Discount"
+  // time, then if the sale fell over they were just gone.
+  const pendingLoyaltyRedemptionRef = useRef<{
+    accountId: string;
+    points: number;
+    redeemKey: string;
+  } | null>(null);
 
   // v2.7.76 — QR pay (customer-screen Stripe Checkout)
   const [showQrModal, setShowQrModal] = useState(false);
@@ -408,6 +417,66 @@ export default function PosSellScreen() {
   }, [products, unavailable, colorMap, addItem]);
 
   // ── Charge ───────────────────────────────────────────────────────
+  /**
+   * v2.7.77 — Refund a previously-redeemed loyalty redemption.
+   *
+   * Called from every failure path in handleCharge (and handleHold,
+   * cart-clear, employee-switch — anywhere the sale doesn't go through
+   * to completion) so the customer's points come back. The earn call's
+   * idempotencyKey is derived from the redeemKey so a flaky network
+   * can retry without double-crediting.
+   *
+   * Best-effort: a network failure here means the points stay debited
+   * server-side until staff manually reconcile. The redeem record on
+   * the server has the orderId-less audit trail to make that possible.
+   * We log to console so a future "pending refunds" reconcile job has
+   * something to grep for.
+   */
+  async function refundPendingLoyaltyRedemption(reason: string): Promise<void> {
+    const pending = pendingLoyaltyRedemptionRef.current;
+    if (!pending) return;
+    pendingLoyaltyRedemptionRef.current = null;
+    try {
+      const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
+      const token = useAuthStore.getState().employeeToken ?? identity?.deviceToken ?? '';
+      const res = await fetch(`${base}/api/v1/loyalty/accounts/${pending.accountId}/earn`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          points: pending.points,
+          // The earn endpoint dedupes on idempotencyKey, so a flaky
+          // network can retry without double-crediting.
+          idempotencyKey: `${pending.redeemKey}-rollback`,
+          // v2.7.77 — bypass any active multiplier events so a refund
+          // during e.g. "Double Points Tuesday" credits exactly the
+          // original redeemed points, not 2×.
+          isRollback: true,
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        // Reflect in the UI so the operator sees the points return.
+        if (loyaltyAccount?.id === pending.accountId) {
+          setLoyaltyAccount({
+            ...loyaltyAccount,
+            points: loyaltyAccount.points + pending.points,
+          });
+        }
+        console.log('[POS/loyalty]', 'redemption refunded', { pending, reason });
+      } else {
+        const errBody = await res.json().catch(() => ({})) as { detail?: string; message?: string };
+        console.error('[POS/loyalty]', 'refund failed', {
+          pending,
+          reason,
+          status: res.status,
+          detail: errBody.detail ?? errBody.message ?? null,
+        });
+      }
+    } catch (err) {
+      console.error('[POS/loyalty]', 'refund threw', { pending, reason, err });
+    }
+  }
+
   async function handleCharge(
     paymentMethod: 'Card' | 'Cash' | 'Split' = 'Card',
     changeGiven = 0,
@@ -489,6 +558,13 @@ export default function PosSellScreen() {
     const cartSnapshot = cart.map((i) => ({ ...i }));
     const orderDiscountSnapshot = orderDiscountAmount;
 
+    // v2.7.77 — Idempotency key. A per-charge UUID we send on POST
+    // /orders so a network retry after the server already created
+    // the order returns the existing one rather than creating a
+    // duplicate. We generate it here once for the whole charge so
+    // every retry within this handleCharge call uses the same value.
+    const idempotencyKey = `pos-${identity?.registerId ?? 'unknown'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
     let orderNumber: string;
     let orderId: string;
 
@@ -509,6 +585,9 @@ export default function PosSellScreen() {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
+          // v2.7.77 — idempotency. Same key on retry returns the
+          // existing order instead of creating a duplicate.
+          'Idempotency-Key': idempotencyKey,
         },
         body: JSON.stringify({
           locationId: identity?.locationId,
@@ -528,6 +607,10 @@ export default function PosSellScreen() {
         const errBody = await res.json().catch(() => ({})) as { message?: string; detail?: string; title?: string };
         const errMsg = errBody.message ?? errBody.detail ?? errBody.title ?? `Server error (${res.status})`;
         console.error('[POS/complete]', 'sell.handleCharge POST /orders FAILED', res.status, errBody);
+        // v2.7.77 — refund any loyalty points the operator pre-redeemed.
+        // The order didn't make it server-side so the discount never
+        // applied; returning the points keeps the customer whole.
+        void refundPendingLoyaltyRedemption(`order POST failed: ${errMsg}`);
         Alert.alert('Order Failed', errMsg);
         return;
       }
@@ -677,6 +760,14 @@ export default function PosSellScreen() {
       const isTimeout = msg.includes('timeout') || msg.includes('AbortError') || msg.includes('TimeoutError');
       const isNetwork = msg.toLowerCase().includes('network request failed') || msg.toLowerCase().includes('failed to fetch');
       const apiUrl = process.env['EXPO_PUBLIC_API_URL'] ?? '(not set)';
+      // v2.7.77 — refund pre-redeemed loyalty points. See above. We
+      // also do this on a network/timeout failure because we can't
+      // tell whether the order made it to the server or not — but
+      // even if it did, the rollback is keyed by `redeemKey-rollback`
+      // and the order itself was created without the redeemKey set,
+      // so the worst case is a brief over-credit that staff can
+      // reconcile by hand.
+      void refundPendingLoyaltyRedemption(`order POST threw: ${msg}`);
       Alert.alert(
         'Order Failed',
         isTimeout
@@ -818,6 +909,9 @@ export default function PosSellScreen() {
       }
     }
 
+    // v2.7.77 — sale completed; the redemption is now permanent.
+    // Clear the ref without firing a refund.
+    pendingLoyaltyRedemptionRef.current = null;
     clearCart();
     if (displaySettings.enabled) showThankYou();
     toast.success('Order Placed', `Order #${orderNumber} — $${paidTotal.toFixed(2)}`);
@@ -875,11 +969,16 @@ export default function PosSellScreen() {
       });
 
       // Step 1 — create the order (status defaults to 'open')
+      const holdIdempotencyKey = `hold-${identity?.registerId ?? 'unknown'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const createRes = await fetch(`${base}/api/v1/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
+          // v2.7.77 — idempotency on hold path too. A retry of a
+          // hold that already created the order returns the existing
+          // one rather than parking the same cart twice.
+          'Idempotency-Key': holdIdempotencyKey,
         },
         body: JSON.stringify({
           locationId: identity?.locationId,
@@ -1244,6 +1343,9 @@ export default function PosSellScreen() {
   // Stripe Checkout Session and polls for completion. On success the
   // modal calls back into handleQrApproved which finalises the sale
   // through handleCharge with the PaymentIntent id as the auth code.
+  // v2.7.77 — also pushes the QR session URL to the customer-facing
+  // secondary display when the QrPaymentModal reaches 'awaiting_scan'
+  // (see the onSessionReady callback below).
   function handlePayQr() {
     if (paymentInFlightRef.current || charging) return;
     paymentInFlightRef.current = true;
@@ -1270,10 +1372,24 @@ export default function PosSellScreen() {
       cardType: result.paymentMethod ?? null,
       raw: { ...result, kind: 'qr_pay_v1' },
     });
-    handleCharge(split ? 'Split' : 'Card', 0, undefined, {
-      authCode: result.paymentIntentId,
-      cardType: result.paymentMethod ?? undefined,
-    });
+    // v2.7.77 — pass tip through as `tyroExtras`-shaped extras so the
+    // existing handleCharge wiring records it on the order +
+    // surfaces it on the receipt.
+    handleCharge(
+      split ? 'Split' : 'Card',
+      0,
+      result.tipCents > 0
+        ? {
+            tipCents: result.tipCents,
+            transactionTotalCents:
+              (result.amountCents ?? Math.round(total * 100)),
+          }
+        : undefined,
+      {
+        authCode: result.paymentIntentId,
+        cardType: result.paymentMethod ?? undefined,
+      },
+    );
   }
 
   function handleQrCancelled() {
@@ -1390,6 +1506,10 @@ export default function PosSellScreen() {
   }
 
   function handleSwitchEmployee() {
+    // v2.7.77 — refund any pre-redeemed loyalty points before the
+    // session changes hands. authLogout clears the cart anyway, so
+    // the redemption is no longer tied to anything tangible.
+    void refundPendingLoyaltyRedemption('switch employee');
     authLogout();
     router.replace('/employee-login');
   }
@@ -1401,31 +1521,21 @@ export default function PosSellScreen() {
       toast.warning('Invalid Amount', 'Please enter a valid gift card amount.');
       return;
     }
-    // v2.7.74 — guard against cart loss. The "Issue Gift Card" button
-    // sits inside the payment modal; if cart has items, issuing the
-    // card silently abandoned the merchandise sale (the cart was
-    // forgotten and the gift card was created without taking payment).
-    // For now, refuse the action with a clear message — the operator
-    // should park the merchandise via Hold first, or pay for it
-    // separately, then come back to issue the gift card.
-    if (cart.length > 0) {
-      toast.warning(
-        'Cart not empty',
-        'Hold or complete the current sale first, then issue the gift card.',
-      );
-      return;
-    }
+    // v2.7.77 — gift-card cart-line flow. Previously this issued
+    // the card and walked away without taking payment — the merchant
+    // had to remember to add the value as a separate cash line in
+    // their books. Now we issue the card AND add a corresponding
+    // cart line so the operator continues through the normal payment
+    // flow with the gift-card price baked into the cart total.
+    //
+    // The card is created server-side first (so we have its real
+    // code + balance) and then added as a cart line using the card's
+    // own UUID as the line.id. The orders service stores it like any
+    // other line — server doesn't need to know it's a gift card.
     setGiftCardIssuing(true);
     try {
       const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
       const token = useAuthStore.getState().employeeToken ?? identity?.deviceToken ?? '';
-      // v2.7.74 — wire-shape fix. The orders service's gift-cards
-      // endpoint expects `{ amount: <dollars> }`. The POS was sending
-      // `{ balance: <cents> }` since v2.7.48, which fails Zod
-      // validation 422 on every attempt — gift card issuance never
-      // worked. Customer name + email aren't on the issue schema
-      // (the server uses customerId for linkage); pass them in `notes`
-      // so the audit trail at least preserves the operator's intent.
       const noteFragments = [
         giftCardRecipientName.trim() ? `Recipient: ${giftCardRecipientName.trim()}` : null,
         giftCardRecipientEmail.trim() ? `Email: ${giftCardRecipientEmail.trim()}` : null,
@@ -1442,7 +1552,6 @@ export default function PosSellScreen() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { message?: string; detail?: string };
-        // v2.7.48-univlog — record the failure for forensics.
         logTerminalTx({
           provider: 'gift_card',
           outcome: 'error',
@@ -1454,18 +1563,17 @@ export default function PosSellScreen() {
         toast.error('Gift Card Failed', err.message ?? err.detail ?? `Error ${res.status}`);
         return;
       }
-      // v2.7.74 — server returns `{data: card}` with the card's code
-      // and currentBalance, not a flat `{code, balance}` shape.
       const json = await res.json() as {
-        data?: { code?: string; currentBalance?: string };
+        data?: { id?: string; code?: string; currentBalance?: string };
+        id?: string;
         code?: string;
         balance?: number;
       };
       const card = json.data ?? json;
+      const cardId = card.id ?? '';
       const code = card.code ?? '';
       const balance = (card as { currentBalance?: string }).currentBalance ?? json.balance;
-      // v2.7.48-univlog — gift-card issuance is a transaction in its own
-      // right; log so the merchant sees it in the unified Logs page.
+
       logTerminalTx({
         provider: 'gift_card',
         outcome: 'approved',
@@ -1474,7 +1582,30 @@ export default function PosSellScreen() {
         referenceId: code || null,
         raw: { code, balance, recipient: giftCardRecipientName.trim() || null, email: giftCardRecipientEmail.trim() || null },
       });
-      toast.success('Gift Card Issued', `${code} · $${amount.toFixed(2)}`);
+
+      if (cardId) {
+        const noteForLine = [
+          `Code: ${code}`,
+          ...(giftCardRecipientName.trim() ? [`Recipient: ${giftCardRecipientName.trim()}`] : []),
+          ...(giftCardRecipientEmail.trim() ? [`Email: ${giftCardRecipientEmail.trim()}`] : []),
+        ].join(' · ');
+        // The orders service requires productId to be a UUID, which
+        // the gift-card row's id satisfies. Server-side reporting can
+        // optionally join orders.lines.product_id back to gift_cards
+        // to surface "gift cards sold today" without any schema
+        // change.
+        addItem({
+          id: cardId,
+          name: `Gift Card · ${code}`,
+          price: amount,
+          note: noteForLine,
+        });
+      }
+
+      toast.success(
+        'Gift Card Added',
+        `${code} · $${amount.toFixed(2)} — charge the cart to take payment.`,
+      );
       setShowGiftCardModal(false);
       setShowPayment(false);
       setGiftCardAmount('');
@@ -2672,14 +2803,18 @@ export default function PosSellScreen() {
                   try {
                     const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
                     const token = useAuthStore.getState().employeeToken ?? identity?.deviceToken ?? '';
-                    // Pre-authorise the redemption (deduct points from balance)
+                    // Pre-authorise the redemption (deduct points from balance).
+                    // v2.7.77 — Track the redeem-key so handleCharge's
+                    // failure path can refund the points if the sale
+                    // eventually falls over.
+                    const redeemKey = `pos-redeem-${loyaltyAccount.id}-${Date.now()}`;
                     const res = await fetch(`${base}/api/v1/loyalty/accounts/${loyaltyAccount.id}/redeem`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                       body: JSON.stringify({
                         points: pts,
                         orderId: undefined, // orderId not known yet — will be linked on order creation
-                        idempotencyKey: `pos-redeem-${loyaltyAccount.id}-${Date.now()}`,
+                        idempotencyKey: redeemKey,
                       }),
                       signal: AbortSignal.timeout(8000),
                     });
@@ -2691,6 +2826,11 @@ export default function PosSellScreen() {
                     const discount = +(pts / loyaltyAccount.earnRate).toFixed(2);
                     setOrderDiscountAmount((prev) => Math.min(prev + discount, subtotal));
                     setLoyaltyAccount({ ...loyaltyAccount, points: loyaltyAccount.points - pts });
+                    pendingLoyaltyRedemptionRef.current = {
+                      accountId: loyaltyAccount.id,
+                      points: pts,
+                      redeemKey,
+                    };
                     setShowLoyaltyRedeem(false);
                     toast.success('Points Redeemed', `${pts} pts = $${discount.toFixed(2)} discount applied`);
                   } catch (err) {

@@ -140,6 +140,11 @@ export async function accountRoutes(app: FastifyInstance) {
         // Optional context for multiplier matching
         productId: z.string().optional(),
         categoryId: z.string().optional(),
+        // v2.7.77 — when set, earn skips multiplier application and
+        // credits exactly `points`. Used by the POS rollback flow
+        // (a failed sale shouldn't earn extra during a 2× event just
+        // because the refund happens on a multiplier day).
+        isRollback: z.boolean().optional().default(false),
       })
       .safeParse(request.body);
     if (!parsed.success) {
@@ -179,14 +184,16 @@ export async function accountRoutes(app: FastifyInstance) {
     const todayStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
     const todayDow = today.getDay(); // 0 = Sunday
 
-    const activeMultiplierEvents = await db.query.pointsMultiplierEvents.findMany({
-      where: and(
-        eq(schema.pointsMultiplierEvents.orgId, orgId),
-        eq(schema.pointsMultiplierEvents.isActive, true),
-        lte(schema.pointsMultiplierEvents.startDate, todayStr),
-        gte(schema.pointsMultiplierEvents.endDate, todayStr),
-      ),
-    });
+    const activeMultiplierEvents = parsed.data.isRollback
+      ? []
+      : await db.query.pointsMultiplierEvents.findMany({
+          where: and(
+            eq(schema.pointsMultiplierEvents.orgId, orgId),
+            eq(schema.pointsMultiplierEvents.isActive, true),
+            lte(schema.pointsMultiplierEvents.startDate, todayStr),
+            gte(schema.pointsMultiplierEvents.endDate, todayStr),
+          ),
+        });
 
     // Find matching events (day of week + product/category)
     const matchingMultipliers = activeMultiplierEvents

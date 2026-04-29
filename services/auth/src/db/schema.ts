@@ -226,9 +226,21 @@ export const refreshTokens = pgTable('refresh_tokens', {
   ipAddress: varchar('ip_address', { length: 45 }),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  // v2.7.77 — Refresh-token rotation family. Every token issued in
+  // the same login chain shares a family_id. If an already-revoked
+  // token is presented, every unrevoked token in the family gets
+  // revoked too — this is the standard Auth0 / Stripe-style
+  // reuse-detection pattern. familyId === id for the original
+  // /login-issued token; rotated tokens inherit the parent's familyId.
+  familyId: uuid('family_id'),
+  // 'rotated' = legitimate refresh, 'reused' = theft suspected,
+  // 'manual' = explicit logout, 'family_revoked' = collateral damage
+  // from a sibling token being reused.
+  revokedReason: varchar('revoked_reason', { length: 32 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   employeeIdIdx: index('refresh_tokens_employee_id_idx').on(table.employeeId),
+  familyIdIdx: index('refresh_tokens_family_id_idx').on(table.familyId),
 }));
 
 // ── OAuth 2.0 ─────────────────────────────────────────────────────────────────

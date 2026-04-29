@@ -536,6 +536,33 @@ export async function orderRoutes(app: FastifyInstance) {
       return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
     }
 
+    // v2.7.77 — idempotency. Mobile POS / kiosks send an
+    // `Idempotency-Key` header (a per-attempt UUID) so a retry of a
+    // request that succeeded server-side but never returned to the
+    // client doesn't create a duplicate order. We look up an existing
+    // order with the same (orgId, key) and if found, return that one.
+    // Keys are accepted from 16-100 chars to keep them sane (UUIDs
+    // are 36 chars, so 100 leaves headroom).
+    const idemHeader = request.headers['idempotency-key'];
+    const idempotencyKey = typeof idemHeader === 'string' && idemHeader.length >= 16 && idemHeader.length <= 100
+      ? idemHeader
+      : null;
+    if (idempotencyKey) {
+      const existing = await db.query.orders.findFirst({
+        where: and(
+          eq(schema.orders.orgId, orgId),
+          eq(schema.orders.idempotencyKey, idempotencyKey),
+        ),
+        with: { lines: true },
+      });
+      if (existing) {
+        // Same response shape as a fresh creation. The client treats
+        // 200 (vs 201) as the "already-existed" signal but keeps
+        // walking forward into the /complete call.
+        return reply.status(200).send(existing);
+      }
+    }
+
     const { lines, ...orderData } = body.data;
 
     // v2.7.74 — defense-in-depth: refuse any line where the discount
@@ -603,26 +630,51 @@ export async function orderRoutes(app: FastifyInstance) {
     const taxTotal      = (taxTotalCents      / 100).toFixed(2);
     const total         = (totalCents         / 100).toFixed(2);
 
-    const orderRows = await db.insert(schema.orders).values({
-      orgId,
-      employeeId,
-      locationId: orderData.locationId,
-      // Fall back to locationId as a deterministic per-location implicit
-      // register UUID. Devices paired without an explicit register still
-      // produce orders, and reports group consistently per location.
-      registerId: orderData.registerId ?? orderData.locationId,
-      orderNumber: generateOrderNumber(),
-      channel: orderData.channel,
-      orderType: orderData.orderType,
-      ...(orderData.customerId !== undefined && { customerId: orderData.customerId }),
-      ...(orderData.tableId !== undefined && { tableId: orderData.tableId }),
-      ...(orderData.covers !== undefined && { covers: orderData.covers }),
-      ...(orderData.notes !== undefined && { notes: orderData.notes }),
-      subtotal: subtotal,
-      discountTotal: discountTotal,
-      taxTotal: taxTotal,
-      total: total,
-    }).returning();
+    let orderRows;
+    try {
+      orderRows = await db.insert(schema.orders).values({
+        orgId,
+        employeeId,
+        locationId: orderData.locationId,
+        // Fall back to locationId as a deterministic per-location implicit
+        // register UUID. Devices paired without an explicit register still
+        // produce orders, and reports group consistently per location.
+        registerId: orderData.registerId ?? orderData.locationId,
+        orderNumber: generateOrderNumber(),
+        channel: orderData.channel,
+        orderType: orderData.orderType,
+        ...(orderData.customerId !== undefined && { customerId: orderData.customerId }),
+        ...(orderData.tableId !== undefined && { tableId: orderData.tableId }),
+        ...(orderData.covers !== undefined && { covers: orderData.covers }),
+        ...(orderData.notes !== undefined && { notes: orderData.notes }),
+        subtotal: subtotal,
+        discountTotal: discountTotal,
+        taxTotal: taxTotal,
+        total: total,
+        // v2.7.77 — persist the client-supplied key so retries hit the
+        // unique index lookup above instead of recomputing the order.
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+      }).returning();
+    } catch (err: unknown) {
+      // v2.7.77 — race recovery. Two simultaneous retries can both
+      // pass the findFirst check above and both reach this insert,
+      // with the second hitting the unique index. PG code 23505 =
+      // unique_violation. Look up the row that won and return it.
+      const isUniqueViolation =
+        typeof err === 'object' && err !== null &&
+        'code' in err && (err as { code?: unknown }).code === '23505';
+      if (idempotencyKey && isUniqueViolation) {
+        const winner = await db.query.orders.findFirst({
+          where: and(
+            eq(schema.orders.orgId, orgId),
+            eq(schema.orders.idempotencyKey, idempotencyKey),
+          ),
+          with: { lines: true },
+        });
+        if (winner) return reply.status(200).send(winner);
+      }
+      throw err;
+    }
     const order = orderRows[0]!;
 
     await db.insert(schema.orderLines).values(lines.map((l, idx) => {

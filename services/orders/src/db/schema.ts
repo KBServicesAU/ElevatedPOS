@@ -43,6 +43,12 @@ export const orders = pgTable('orders', {
   completedAt: timestamp('completed_at', { withTimezone: true }),
   cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
   cancellationReason: text('cancellation_reason'),
+  // v2.7.77 — client-supplied idempotency key. Mobile POS / kiosks send
+  // an `Idempotency-Key` header on every POST /api/v1/orders so a
+  // network retry of a successful request returns the existing order
+  // rather than creating a duplicate. Scoped per org via the
+  // (orgId, idempotency_key) unique index below.
+  idempotencyKey: varchar('idempotency_key', { length: 100 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -51,6 +57,11 @@ export const orders = pgTable('orders', {
   orgStatusIdx: index('orders_org_status_idx').on(table.orgId, table.status),
   orgCustomerIdx: index('orders_org_customer_idx').on(table.orgId, table.customerId),
   orgCreatedAtIdx: index('orders_org_created_at_idx').on(table.orgId, table.createdAt),
+  // v2.7.77 — partial unique on idempotency key (NULL allowed for legacy rows).
+  orgIdempotencyKeyUnique: uniqueIndex('orders_org_idempotency_key_unique').on(
+    table.orgId,
+    table.idempotencyKey,
+  ),
 }));
 
 export const orderLines = pgTable('order_lines', {

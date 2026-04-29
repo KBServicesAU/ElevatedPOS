@@ -587,17 +587,52 @@ async function printLogoIfAny(rs: ServerReceiptSettings): Promise<boolean> {
   }
 }
 
+/**
+ * v2.7.77 — Run a print operation with one auto-reconnect retry.
+ *
+ * Bluetooth and USB connections drop without warning (cable jiggled,
+ * printer power-cycled, BLE device went to sleep). The previous
+ * `printText` would throw on the first failure and the receipt was
+ * lost. Now: catch the error, mark disconnected, re-establish, and
+ * retry once. Two failures in a row gives up — the printer is
+ * actually unreachable, not just temporarily flaky.
+ *
+ * Returns the operation's result. Caller's error handling stays the
+ * same — only the underlying transport is forgiven for a single drop.
+ */
+async function withAutoReconnect<T>(op: () => Promise<T>, label: string): Promise<T> {
+  try {
+    return await op();
+  } catch (firstErr: any) {
+    console.warn(`[printer] ${label} failed, attempting reconnect:`, firstErr?.message ?? firstErr);
+    connected = false;
+    connectedOrderPrinterAddress = null;
+    try {
+      await connectPrinter();
+    } catch (reconnectErr: any) {
+      // Reconnect itself failed — surface the original error so the
+      // caller's existing toast/console logging stays meaningful.
+      throw new Error(`${label} failed and could not reconnect: ${firstErr?.message ?? firstErr}`);
+    }
+    try {
+      return await op();
+    } catch (secondErr: any) {
+      throw new Error(`${label} failed twice: ${secondErr?.message ?? secondErr}`);
+    }
+  }
+}
+
 export async function printText(text: string): Promise<void> {
   if (!loadPrinterModules()) throw new Error('Printer module not available.');
   const { type } = usePrinterStore.getState().config;
   const printer = getPrinter(type);
   if (!printer) throw new Error('No printer configured');
   if (!connected) await connectPrinter();
-  try {
-    await printer.printText(text, { cut: true });
-  } catch (e: any) {
-    throw new Error('Print failed: ' + (e?.message ?? 'unknown'));
-  }
+  await withAutoReconnect(async () => {
+    const p = getPrinter(usePrinterStore.getState().config.type);
+    if (!p) throw new Error('No printer configured');
+    await p.printText(text, { cut: true });
+  }, 'printText');
 }
 
 /**
@@ -1105,11 +1140,12 @@ export async function printReceipt(opts: PrintReceiptOpts | LegacyReceiptOpts): 
     console.warn('[printer] logo print failed — continuing with text receipt:', err);
   }
 
-  try {
-    await printer.printText(text, { cut: true });
-  } catch (e: any) {
-    throw new Error('Print failed: ' + (e?.message ?? 'unknown'));
-  }
+  // v2.7.77 — auto-reconnect on transport drop. See withAutoReconnect.
+  await withAutoReconnect(async () => {
+    const p = getPrinter(usePrinterStore.getState().config.type);
+    if (!p) throw new Error('No printer configured');
+    await p.printText(text, { cut: true });
+  }, 'printReceipt');
 }
 
 /**

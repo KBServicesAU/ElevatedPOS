@@ -5,6 +5,7 @@ import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
+import { Pool } from 'pg';
 import { getRedisClient } from '@nexus/config';
 import { orderRoutes } from './routes/orders';
 import { kdsRoutes } from './routes/kds';
@@ -61,7 +62,39 @@ export function broadcastToKDS(locationId: string, payload: Record<string, unkno
   }
 }
 
+/**
+ * v2.7.77 — Apply ad-hoc schema changes idempotently before serving traffic.
+ * Mirrors the pattern in services/auth/src/index.ts. Required so the
+ * idempotency-key column + unique index land on every prod pod
+ * regardless of whether `drizzle-kit push` was run during deploy.
+ */
+async function applyMigrations(): Promise<void> {
+  const pool = new Pool({
+    connectionString: process.env['DATABASE_URL'],
+    ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : undefined,
+    max: 1,
+  });
+  const client = await pool.connect();
+  try {
+    // v2.7.77 — idempotency key for /orders POST.
+    await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key varchar(100)`);
+    await client.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS orders_org_idempotency_key_unique
+        ON orders (org_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL`,
+    );
+    console.log('[orders] schema migrations applied successfully');
+  } catch (err) {
+    console.error('[orders] migration error — aborting startup:', err);
+    process.exit(1);
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
 async function start() {
+  await applyMigrations();
   await app.register(helmet);
   await app.register(cors, {
     origin: process.env['ALLOWED_ORIGINS']?.split(',') ?? ['http://localhost:3000'],

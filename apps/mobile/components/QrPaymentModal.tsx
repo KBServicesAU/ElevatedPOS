@@ -30,6 +30,7 @@ import {
 } from 'react-native';
 import { useDeviceStore } from '../store/device';
 import { useAuthStore } from '../store/auth';
+import { useCustomerDisplayStore } from '../store/customer-display';
 import { QrCode } from './QrCode';
 
 const POLL_INTERVAL_MS = 2_000;
@@ -45,12 +46,16 @@ export interface QrPaymentResult {
   paymentMethod: string | null;
   /** The original Checkout Session id, useful for refunds + audit. */
   sessionId: string;
+  /** v2.7.77 — tip the customer added on the QR-pay step, in cents.
+   *  0 if no tip was selected (or tipPercentages was empty). Reported
+   *  back so handleCharge can include it in the receipt + reporting. */
+  tipCents: number;
 }
 
 interface QrPaymentModalProps {
   visible: boolean;
-  /** Amount in cents (no surcharge / tip — the QR-pay flow is a flat
-   *  charge of exactly this amount; there's no on-terminal tip prompt). */
+  /** Base amount in cents (cart subtotal). Tip is added on top before
+   *  the Stripe Checkout Session is created. */
   amountCents: number;
   /** Optional human-friendly order ref that shows on the customer's
    *  Stripe Checkout page ("Order #1042"). */
@@ -58,25 +63,33 @@ interface QrPaymentModalProps {
   /** Optional location name shown beneath the order ref on Stripe's
    *  hosted page. */
   locationName?: string;
+  /** v2.7.77 — Tip percentages to show as quick buttons. Pass `[]`
+   *  to skip the tip step entirely. Defaults to [10, 15, 20] which
+   *  matches what most AU hospitality kiosks offer. */
+  tipPercentages?: number[];
   onApproved: (result: QrPaymentResult) => void;
   onCancelled: () => void;
   onError: (message: string) => void;
 }
 
-type Phase = 'creating' | 'awaiting_scan' | 'paid' | 'expired' | 'error';
+type Phase = 'tip_select' | 'creating' | 'awaiting_scan' | 'paid' | 'expired' | 'error';
 
 export function QrPaymentModal({
   visible,
   amountCents,
   orderRef,
   locationName,
+  tipPercentages = [10, 15, 20],
   onApproved,
   onCancelled,
   onError,
 }: QrPaymentModalProps) {
-  const [phase, setPhase] = useState<Phase>('creating');
+  const showTipStep = tipPercentages.length > 0;
+  const [phase, setPhase] = useState<Phase>(showTipStep ? 'tip_select' : 'creating');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [session, setSession] = useState<{ id: string; url: string; expiresAt: number | null } | null>(null);
+  /** Tip the customer chose (cents). 0 if tip step is skipped. */
+  const [tipCents, setTipCents] = useState(0);
 
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAtRef = useRef<number>(0);
@@ -84,14 +97,21 @@ export function QrPaymentModal({
    *  same instant the modal is being dismissed. */
   const settledRef = useRef(false);
 
-  // ── Session creation on mount ───────────────────────────────────
+  // Reset state on every (re)open.
   useEffect(() => {
     if (!visible) return;
     settledRef.current = false;
-    setPhase('creating');
-    setErrorMessage(null);
     setSession(null);
+    setErrorMessage(null);
+    setTipCents(0);
+    setPhase(showTipStep ? 'tip_select' : 'creating');
     startedAtRef.current = Date.now();
+  }, [visible, showTipStep]);
+
+  // ── Session creation (after tip selection) ──────────────────────
+  useEffect(() => {
+    if (!visible) return;
+    if (phase !== 'creating') return;
 
     let cancelled = false;
     (async () => {
@@ -108,7 +128,10 @@ export function QrPaymentModal({
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            amount: amountCents,
+            // v2.7.77 — bake tip into the charged amount. Reported
+            // back via QrPaymentResult.tipCents so handleCharge can
+            // credit it on the receipt + tip-out reporting.
+            amount: amountCents + tipCents,
             currency: 'aud',
             ...(orderRef ? { orderRef } : {}),
             ...(locationName ? { locationName } : {}),
@@ -130,6 +153,20 @@ export function QrPaymentModal({
         }
         setSession({ id: data.id, url: data.url, expiresAt: data.expiresAt ?? null });
         setPhase('awaiting_scan');
+        // v2.7.77 — mirror the QR to the customer-facing secondary
+        // display if one is configured. Native module renders a
+        // bigger QR + amount; if the build doesn't have the
+        // showQrPay native method yet, the store falls back to
+        // showing a "scan QR on POS" hint message.
+        try {
+          useCustomerDisplayStore.getState().showQrPay({
+            url: data.url,
+            amountCents,
+            tipCents,
+          });
+        } catch {
+          // best-effort
+        }
       } catch (err) {
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);
@@ -141,7 +178,7 @@ export function QrPaymentModal({
     return () => {
       cancelled = true;
     };
-  }, [visible, amountCents, orderRef, locationName]);
+  }, [visible, phase, amountCents, tipCents, orderRef, locationName]);
 
   // ── Polling loop ────────────────────────────────────────────────
   useEffect(() => {
@@ -194,6 +231,7 @@ export function QrPaymentModal({
                 paymentIntentId: body.paymentIntentId!,
                 amountCents: body.amountTotal,
                 paymentMethod: body.paymentMethod,
+                tipCents,
               });
             }
           }, 600);
@@ -231,18 +269,76 @@ export function QrPaymentModal({
   function handleManualCancel() {
     if (settledRef.current) return;
     settledRef.current = true;
+    // v2.7.77 — clear QR from the customer display.
+    try { useCustomerDisplayStore.getState().resetToIdle(); } catch { /* ignore */ }
     onCancelled();
   }
 
   function handleErrorDismiss() {
     if (settledRef.current) return;
     settledRef.current = true;
+    try { useCustomerDisplayStore.getState().resetToIdle(); } catch { /* ignore */ }
     onError(errorMessage ?? 'QR payment failed.');
   }
 
   // ─────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────
+  // v2.7.77 — render tip-select step. Quick percentage buttons +
+  // a "No tip" option. We compute tip in cents from the percentage
+  // off `amountCents` so the customer's QR-pay total matches what
+  // they expect.
+  if (visible && phase === 'tip_select') {
+    return (
+      <Modal visible transparent animationType="fade" onRequestClose={handleManualCancel}>
+        <Pressable style={styles.overlay} onPress={handleManualCancel}>
+          <Pressable style={styles.card} onPress={() => { /* swallow */ }}>
+            <Text style={styles.title}>Add a tip?</Text>
+            <Text style={styles.subtitle}>
+              Customers can adjust on the next screen if they prefer.
+            </Text>
+            <Text style={styles.amount}>
+              ${(amountCents / 100).toFixed(2)} <Text style={{ fontSize: 13, color: '#888', fontWeight: '700' }}>subtotal</Text>
+            </Text>
+
+            <View style={styles.tipGrid}>
+              {tipPercentages.map((pct) => {
+                const cents = Math.round((amountCents * pct) / 100);
+                return (
+                  <Pressable
+                    key={pct}
+                    style={styles.tipBtn}
+                    onPress={() => {
+                      setTipCents(cents);
+                      setPhase('creating');
+                    }}
+                  >
+                    <Text style={styles.tipBtnPct}>{pct}%</Text>
+                    <Text style={styles.tipBtnAmount}>+${(cents / 100).toFixed(2)}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Pressable
+              style={styles.tipSkipBtn}
+              onPress={() => {
+                setTipCents(0);
+                setPhase('creating');
+              }}
+            >
+              <Text style={styles.tipSkipText}>No tip</Text>
+            </Pressable>
+
+            <Pressable style={styles.cancelBtn} onPress={handleManualCancel}>
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  }
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleManualCancel}>
       <Pressable style={styles.overlay} onPress={handleManualCancel}>
@@ -288,7 +384,14 @@ export function QrPaymentModal({
             )}
           </View>
 
-          <Text style={styles.amount}>${(amountCents / 100).toFixed(2)} AUD</Text>
+          <Text style={styles.amount}>
+            ${((amountCents + tipCents) / 100).toFixed(2)} AUD
+          </Text>
+          {tipCents > 0 && (
+            <Text style={styles.tipBreakdown}>
+              ${(amountCents / 100).toFixed(2)} sale  +  ${(tipCents / 100).toFixed(2)} tip
+            </Text>
+          )}
           <Text style={styles.providerHint}>
             Apple Pay · Google Pay · Card · Link
           </Text>
@@ -406,5 +509,57 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontSize: 14,
     fontWeight: '700',
+  },
+  // v2.7.77 — tip-select step
+  tipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 18,
+    width: '100%',
+  },
+  tipBtn: {
+    flex: 1,
+    minWidth: 90,
+    backgroundColor: '#0d0d14',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#22c55e44',
+  },
+  tipBtnPct: {
+    fontSize: 22,
+    color: '#22c55e',
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  tipBtnAmount: {
+    fontSize: 12,
+    color: '#9aa',
+    marginTop: 4,
+    fontWeight: '700',
+  },
+  tipSkipBtn: {
+    marginTop: 12,
+    width: '100%',
+    backgroundColor: '#0d0d14',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
+  },
+  tipSkipText: {
+    color: '#888',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  tipBreakdown: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 4,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
 });

@@ -127,6 +127,15 @@ async function applyMigrations(): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_mfa_recovery_codes_employee ON mfa_recovery_codes(employee_id) WHERE employee_id IS NOT NULL`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_mfa_recovery_codes_platform ON mfa_recovery_codes(platform_staff_id) WHERE platform_staff_id IS NOT NULL`);
 
+    // ── v2.7.77 — refresh-token reuse detection ──────────────────────────────
+    await client.query(`ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS family_id uuid`);
+    await client.query(`ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS revoked_reason varchar(32)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS refresh_tokens_family_id_idx ON refresh_tokens (family_id)`);
+    // Back-fill family_id = id for any existing rows so the reuse-
+    // detection pivot doesn't see NULL families and skip them. Each
+    // existing token starts as its own one-element family.
+    await client.query(`UPDATE refresh_tokens SET family_id = id WHERE family_id IS NULL`);
+
     console.log('[auth] schema migrations applied successfully');
   } catch (err) {
     console.error('[auth] migration error — aborting startup:', err);

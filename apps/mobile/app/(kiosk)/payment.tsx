@@ -77,6 +77,10 @@ export default function PaymentScreen() {
     setProcessing(true);
     const identity = useDeviceStore.getState().identity;
 
+    // v2.7.77 — Idempotency key, see POS sell.tsx. One key per
+    // checkout attempt; identical retries return the same order.
+    const idempotencyKey = `kiosk-${identity?.registerId ?? 'unknown'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
     // v2.7.40 — when a card payment has run on the ANZ terminal we
     // attach the merchant + customer receipts to the order `notes`
     // so staff can reprint from the orders screen. Keeps the field
@@ -150,6 +154,8 @@ export default function PaymentScreen() {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
+          // v2.7.77 — idempotency.
+          'Idempotency-Key': idempotencyKey,
         },
         body: JSON.stringify(orderPayload),
         signal: AbortSignal.timeout(15000),

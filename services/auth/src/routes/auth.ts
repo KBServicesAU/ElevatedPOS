@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, isNotNull } from 'drizzle-orm';
+import { eq, and, isNotNull, isNull } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { db, schema } from '../db';
@@ -231,14 +231,29 @@ export async function authRoutes(app: FastifyInstance) {
     const tokenHash = hashToken(rawRefreshToken);
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    await db.insert(schema.refreshTokens).values({
-      employeeId: employee.id,
-      tokenHash,
-      deviceId: deviceId ?? null,
-      deviceName: deviceName ?? null,
-      ipAddress: request.ip,
-      expiresAt,
-    });
+    // v2.7.77 — every fresh /login starts a new rotation family.
+    // We insert with familyId = NULL initially, then update it to
+    // the row's own id post-insert. (Alternatively we could
+    // crypto.randomUUID() up front, but using the row id keeps the
+    // invariant "familyId = id of the family root" trivially true.)
+    const inserted = await db
+      .insert(schema.refreshTokens)
+      .values({
+        employeeId: employee.id,
+        tokenHash,
+        deviceId: deviceId ?? null,
+        deviceName: deviceName ?? null,
+        ipAddress: request.ip,
+        expiresAt,
+      })
+      .returning();
+    const seedRow = inserted[0];
+    if (seedRow) {
+      await db
+        .update(schema.refreshTokens)
+        .set({ familyId: seedRow.id })
+        .where(eq(schema.refreshTokens.id, seedRow.id));
+    }
 
     // v2.7.48-univlog — successful login row.
     request.audit?.({
@@ -443,7 +458,68 @@ export async function authRoutes(app: FastifyInstance) {
       with: { employee: { with: { role: true } } },
     });
 
-    if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
+    if (!stored) {
+      return reply.status(401).send({
+        type: 'https://elevatedpos.com/errors/invalid-refresh-token',
+        title: 'Invalid or Expired Refresh Token',
+        status: 401,
+      });
+    }
+
+    // v2.7.77 — Refresh-token reuse detection.
+    //
+    // Replaying an already-revoked refresh token is a strong theft
+    // signal: the legitimate client rotated forward, and now someone
+    // is presenting the old (now-stale) token. Revoke every unrevoked
+    // token in the same family so the attacker AND the legitimate
+    // client are forced through a fresh /login. This is the standard
+    // Auth0 / Stripe-style pattern for OAuth refresh-token theft.
+    if (stored.revokedAt) {
+      if (stored.familyId) {
+        const revokedRows = await db
+          .update(schema.refreshTokens)
+          .set({ revokedAt: new Date(), revokedReason: 'family_revoked' })
+          .where(
+            and(
+              eq(schema.refreshTokens.familyId, stored.familyId),
+              isNull(schema.refreshTokens.revokedAt),
+            ),
+          )
+          .returning({ id: schema.refreshTokens.id });
+        if (revokedRows.length > 0) {
+          request.log.warn(
+            {
+              employeeId: stored.employeeId,
+              familyId: stored.familyId,
+              revokedCount: revokedRows.length,
+              presenterIp: request.ip,
+            },
+            '[auth/refresh] refresh-token reuse detected — revoking family',
+          );
+        }
+        // Audit row so the merchant sees the event in the activity feed.
+        // We log under `auth_fail` since that's already a recognised
+        // action enum value and the notes carry the specific signal.
+        request.audit?.({
+          orgId: stored.employee?.orgId,
+          actorId: stored.employeeId,
+          actorName: stored.employee?.email ?? null,
+          actorType: 'employee',
+          action: 'auth_fail',
+          entityType: 'employee',
+          entityId: stored.employeeId,
+          notes: `refresh-token reuse detected — family ${stored.familyId} revoked. Possible token theft.`,
+          statusCode: 401,
+        });
+      }
+      return reply.status(401).send({
+        type: 'https://elevatedpos.com/errors/invalid-refresh-token',
+        title: 'Invalid or Expired Refresh Token',
+        status: 401,
+      });
+    }
+
+    if (stored.expiresAt < new Date()) {
       return reply.status(401).send({
         type: 'https://elevatedpos.com/errors/invalid-refresh-token',
         title: 'Invalid or Expired Refresh Token',
@@ -479,13 +555,16 @@ export async function authRoutes(app: FastifyInstance) {
         // Revoke old token
         await tx
           .update(schema.refreshTokens)
-          .set({ revokedAt: new Date() })
+          .set({ revokedAt: new Date(), revokedReason: 'rotated' })
           .where(eq(schema.refreshTokens.id, stored.id));
 
         newRawRefreshToken = generateRefreshToken();
         const newTokenHash = hashToken(newRawRefreshToken);
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
+        // v2.7.77 — inherit the family so the chain is detectable
+        // for reuse-attack revocation. Fall back to id-as-family for
+        // legacy rows that pre-date the column.
         await tx.insert(schema.refreshTokens).values({
           employeeId: employee.id,
           tokenHash: newTokenHash,
@@ -493,6 +572,7 @@ export async function authRoutes(app: FastifyInstance) {
           deviceName: stored.deviceName,
           ipAddress: request.ip,
           expiresAt,
+          familyId: stored.familyId ?? stored.id,
         });
       });
     } catch (err) {
@@ -538,7 +618,7 @@ export async function authRoutes(app: FastifyInstance) {
       const tokenHash = hashToken(body.data.refreshToken);
       await db
         .update(schema.refreshTokens)
-        .set({ revokedAt: new Date() })
+        .set({ revokedAt: new Date(), revokedReason: 'manual' })
         .where(eq(schema.refreshTokens.tokenHash, tokenHash));
     }
 
