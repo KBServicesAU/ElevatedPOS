@@ -112,7 +112,21 @@ async function start() {
   });
   const jwtSecret = process.env['JWT_SECRET'];
   if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
-  await app.register(jwt, { secret: jwtSecret, verify: { allowedIss: 'elevatedpos-auth' } });
+  // v2.7.81 — set sign.issuer too. Without it, internal-token mints
+  // (e.g. /orders/:id/send-receipt minting a system token to call the
+  // notifications service) sign tokens with no `iss` claim — and the
+  // notifications service's `verify: { issuer: 'elevatedpos-auth' }`
+  // rejects them, surfacing as the merchant's "Failed to send receipt
+  // — HTTP 502". Setting sign.issuer makes every app.jwt.sign() output
+  // include `iss: 'elevatedpos-auth'` automatically. Cast matches the
+  // pattern used in auth service — @fastify/jwt's TS types omit
+  // `issuer` from SignOptions even though it's a documented option.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await app.register(jwt as any, {
+    secret: jwtSecret,
+    sign: { issuer: 'elevatedpos-auth' },
+    verify: { allowedIss: 'elevatedpos-auth' },
+  });
   await app.register(websocket);
 
   app.decorate('authenticate', async (request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {

@@ -919,16 +919,65 @@ export async function organisationRoutes(app: FastifyInstance) {
   // ── STEP 6: Stripe Connect Callback ──────────────────────────────────────
   // Called after Stripe Connect onboarding redirects the user back.
   // Frontend passes the onboarding token (stored in sessionStorage before redirect).
+  // v2.7.81 — actually verify the merchant's Stripe account before
+  // advancing. Previously this just stamped a status flag and issued
+  // the next token even if the merchant clicked "Continue" without
+  // doing anything in the Stripe iframe — making the whole
+  // "connect your payment account" step a no-op. Now we look up the
+  // org's stripe_connect_accounts row, retrieve the live status from
+  // Stripe, and only advance when charges_enabled is true.
   app.post('/onboard/connect-complete', { config: { skipAuth: true } }, async (request, reply) => {
     const session = verifyOnboardingToken(request);
     if (!session) return reply.status(401).send({ error: 'Invalid or expired onboarding session' });
+
+    // The integrations service owns the stripe_connect_accounts table.
+    // Hit it server-to-server with an internal-issued JWT so we don't
+    // depend on the user's session reaching across services.
+    const integrationsUrl = process.env['INTEGRATIONS_API_URL'] ?? 'http://integrations:4010';
+    const internalToken = app.jwt.sign(
+      { sub: 'system', orgId: session.orgId, role: 'system' },
+      { expiresIn: '60s' },
+    );
+    let connectVerified = false;
+    let connectStatus: string = 'unknown';
+    try {
+      const res = await fetch(
+        `${integrationsUrl}/api/v1/connect/account-status`,
+        {
+          headers: { Authorization: `Bearer ${internalToken}` },
+          signal: AbortSignal.timeout(8000),
+        },
+      );
+      if (res.ok) {
+        const data = (await res.json()) as {
+          status?: string;
+          chargesEnabled?: boolean;
+        } | null;
+        connectVerified = !!data?.chargesEnabled;
+        connectStatus = data?.status ?? 'unknown';
+      }
+    } catch (err) {
+      console.warn('[onboard/connect-complete] verification fetch failed', err);
+    }
+
+    if (!connectVerified) {
+      // Don't advance. Tell the wizard to keep showing the Connect step.
+      return reply.status(400).send({
+        error: 'Stripe Connect onboarding not complete',
+        detail:
+          connectStatus === 'onboarding'
+            ? 'Finish entering your business / banking details in the Stripe form before continuing.'
+            : 'Stripe has not yet approved your account for charges. Try again in a minute.',
+        connectStatus,
+      });
+    }
 
     await db.update(schema.organisations)
       .set({ onboardingStepV2: 'stripe_connect', updatedAt: new Date() })
       .where(eq(schema.organisations.id, session.orgId));
 
     const token = signOnboardingToken(session.orgId, 'subscription');
-    return reply.send({ onboardingToken: token, nextStep: 'subscription' });
+    return reply.send({ onboardingToken: token, nextStep: 'subscription', connectStatus });
   });
 
   // ── STEP 7: Subscription Complete ────────────────────────────────────────

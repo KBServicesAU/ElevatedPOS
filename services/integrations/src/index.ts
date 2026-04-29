@@ -65,8 +65,14 @@ async function start() {
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   const jwtSecret = process.env['JWT_SECRET'];
   if (!jwtSecret) throw new Error('JWT_SECRET environment variable is required');
-  await app.register(jwt, {
+  // v2.7.81 — set sign.issuer + verify.allowedIss so internal tokens
+  // we mint (and the ones we accept from auth/orders/etc.) all carry
+  // the same issuer claim. Same fix applied to orders service in v2.7.81.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await app.register(jwt as any, {
     secret: jwtSecret,
+    sign: { issuer: 'elevatedpos-auth' },
+    verify: { allowedIss: 'elevatedpos-auth' },
   });
 
   app.decorate(

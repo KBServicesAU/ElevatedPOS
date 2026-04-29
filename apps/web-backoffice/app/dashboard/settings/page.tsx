@@ -288,171 +288,43 @@ function OrganisationTab() {
 }
 
 // ─── Locations Tab ────────────────────────────────────────────────────────────
-
-const DEFAULT_LOCATIONS: Location[] = [];
+// v2.7.81 — collapsed to a redirect notice. The actual locations
+// editor lives at /dashboard/locations and uses the live
+// `/api/v1/locations` endpoints. The old settings tab here was
+// editing a separate, never-saved `settings/locations` blob and
+// doing nothing useful — keeping two places to manage locations
+// caused enough confusion that merchants reported it. Clicking
+// "Open Locations →" sends them to the canonical page.
 
 function LocationsTab() {
-  const { toast } = useToast();
-  const [loading, setLoading] = useState(true);
-  const [locations, setLocations] = useState<Location[]>(DEFAULT_LOCATIONS);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newLoc, setNewLoc] = useState({ name: '', address: '', type: 'retail' as Location['type'] });
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    apiFetch<{ locations?: Location[] } | Location[]>('settings/locations')
-      .then((data) => {
-        const list = Array.isArray(data) ? data : (data as { locations?: Location[] })?.locations;
-        if (list && Array.isArray(list)) setLocations(list);
-      })
-      .catch(() => {
-        toast({ title: 'Could not load locations', description: 'Showing defaults — save to apply changes.', variant: 'destructive' });
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const toggleActive = (id: string) => setLocations((ls) => ls.map((l) => (l.id === id ? { ...l, active: !l.active } : l)));
-  const removeLocation = (id: string) => setLocations((ls) => ls.filter((l) => l.id !== id));
-  const addLocation = () => {
-    if (!newLoc.name.trim()) return;
-    setLocations((ls) => [...ls, { id: Date.now().toString(), ...newLoc, active: true }]);
-    setNewLoc({ name: '', address: '', type: 'retail' });
-    setShowAdd(false);
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await apiFetch('settings/locations', {
-        method: 'PUT',
-        body: JSON.stringify({ locations }),
-      });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-      toast({ title: 'Locations saved', description: `${locations.length} location(s) updated.`, variant: 'success' });
-    } catch {
-      toast({ title: 'Save failed', description: 'Could not save location settings. Please try again.', variant: 'destructive' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const typeColors: Record<Location['type'], string> = {
-    retail: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    warehouse: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
-    popup: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-    kiosk: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  };
-
   return (
-    <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-      <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-gray-800">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-elevatedpos-50 p-2 dark:bg-elevatedpos-900/30">
-            <MapPin className="h-5 w-5 text-elevatedpos-600 dark:text-elevatedpos-400" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white">Locations</h3>
-            <p className="text-sm text-gray-500">Manage your physical and virtual selling locations</p>
-          </div>
+    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <div className="flex items-center gap-3">
+        <div className="rounded-lg bg-indigo-100 p-2 dark:bg-indigo-900/30">
+          <MapPin className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
         </div>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="flex items-center gap-1.5 rounded-lg bg-elevatedpos-600 px-3 py-2 text-sm font-medium text-white hover:bg-elevatedpos-700"
-        >
-          <Plus className="h-4 w-4" /> Add Location
-        </button>
-      </div>
-
-      {showAdd && (
-        <div className="border-b border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50">
-          <h4 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">New Location</h4>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <input
-              className={inputCls}
-              placeholder="Location name"
-              value={newLoc.name}
-              onChange={(e) => setNewLoc((n) => ({ ...n, name: e.target.value }))}
-            />
-            <input
-              className={inputCls}
-              placeholder="Address"
-              value={newLoc.address}
-              onChange={(e) => setNewLoc((n) => ({ ...n, address: e.target.value }))}
-            />
-            <select
-              className={selectCls}
-              value={newLoc.type}
-              onChange={(e) => setNewLoc((n) => ({ ...n, type: e.target.value as Location['type'] }))}
-            >
-              <option value="retail">Retail</option>
-              <option value="warehouse">Warehouse</option>
-              <option value="popup">Pop-up</option>
-              <option value="kiosk">Kiosk</option>
-            </select>
-          </div>
-          <div className="mt-3 flex gap-2">
-            <button onClick={addLocation} className="rounded-lg bg-elevatedpos-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-elevatedpos-700">
-              Add
-            </button>
-            <button onClick={() => setShowAdd(false)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400">
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="divide-y divide-gray-100 dark:divide-gray-800">
-        {loading && (
-          <div className="px-5 py-4 space-y-3">
-            {[1,2].map(i => <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />)}
-          </div>
-        )}
-        {!loading && locations.length === 0 && (
-          <div className="px-5 py-8 text-center">
-            <MapPin className="mx-auto mb-2 h-8 w-8 text-gray-300" />
-            <p className="text-sm font-medium text-gray-500">No locations yet</p>
-            <p className="mt-1 text-xs text-gray-400">Click &quot;Add Location&quot; above to add your first store or outlet.</p>
-          </div>
-        )}
-        {locations.map((loc) => (
-          <div key={loc.id} className="flex items-center justify-between px-5 py-4">
-            <div className="flex items-center gap-3">
-              <div className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${typeColors[loc.type]}`}>
-                {loc.type}
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-white">{loc.name}</p>
-                <p className="text-xs text-gray-500">{loc.address}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className={`text-xs font-medium ${loc.active ? 'text-green-600' : 'text-gray-400'}`}>
-                {loc.active ? 'Active' : 'Inactive'}
-              </span>
-              <Toggle checked={loc.active} onChange={() => toggleActive(loc.id)} />
-              <button
-                onClick={() => removeLocation(loc.id)}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex items-center justify-between border-t border-gray-100 px-5 py-4 dark:border-gray-800">
-        <p className="text-sm text-gray-500">{locations.filter((l) => l.active).length} of {locations.length} locations active</p>
-        <div className="flex items-center gap-3">
-          {saved && <span className="flex items-center gap-1.5 text-sm text-green-600"><Check className="h-4 w-4" /> Saved</span>}
-          <SaveButton saving={saving} saved={saved} onClick={handleSave} />
+        <div>
+          <h2 className="font-semibold text-gray-900 dark:text-white">Locations</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Manage stores, register IDs, and per-location settings.
+          </p>
         </div>
       </div>
+      <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">
+        Location management has moved to its own page so per-location
+        settings (timezone, opening hours, address) all live in one
+        editor.
+      </p>
+      <Link
+        href="/dashboard/locations"
+        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
+      >
+        Open Locations →
+      </Link>
     </div>
   );
 }
+
 
 // ─── Receipts Tab ─────────────────────────────────────────────────────────────
 

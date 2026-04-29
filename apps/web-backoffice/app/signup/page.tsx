@@ -116,13 +116,17 @@ function SignupWizard() {
   }
 
   // Handle return from Stripe Connect redirect (?step=6&token=...)
+  // v2.7.81 — actually act on the connect-complete response. If the
+  // server reports the merchant didn't finish Stripe onboarding
+  // (`charges_enabled === false`), the wizard now stays on step 4
+  // and surfaces an error message instead of pretending the connect
+  // step succeeded.
   useEffect(() => {
     const stepParam = params?.get('step') ?? null;
     const tokenParam = params?.get('token') ?? null;
     if (stepParam === '6' && tokenParam) {
       const tok = decodeURIComponent(tokenParam);
       setOnboardingToken(tok);
-      setStep(5);
       fetch('/api/proxy/organisations/onboard/connect-complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
@@ -131,8 +135,18 @@ function SignupWizard() {
         if (r.ok) {
           const d = await r.json() as { onboardingToken?: string };
           if (d.onboardingToken) setOnboardingToken(d.onboardingToken);
+          setStep(5);
+        } else {
+          // Stripe Connect onboarding wasn't actually completed.
+          // Send the merchant back to step 4 so they can retry.
+          const err = await r.json().catch(() => ({})) as { detail?: string; error?: string };
+          setError(err.detail ?? err.error ?? 'Stripe onboarding is not yet complete. Please finish the form before continuing.');
+          setStep(4);
         }
-      }).catch(() => {});
+      }).catch(() => {
+        setError('Could not verify Stripe Connect status. Please retry the previous step.');
+        setStep(4);
+      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -186,8 +200,14 @@ function SignupWizard() {
         const connectData = await res.json() as { url?: string };
         if (connectData.url) { window.location.href = connectData.url; return; }
       } else if (step === 5) {
-        // Create the Stripe subscription and get clientSecret for PaymentElement
-        const res = await fetch('/api/proxy/billing/setup', {
+        // v2.7.81 — call billing-saas (which proxies to auth service's
+        // /api/v1/billing/setup) instead of `billing` (which routes to
+        // the payments service and 404's). The auth-service endpoint
+        // is the one that knows about the org's onboarding state +
+        // creates the Stripe subscription using the device counts.
+        // Without this, signup step 5 silently advanced to "Launch"
+        // without ever creating a subscription or charging the merchant.
+        const res = await fetch('/api/proxy/billing-saas/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${onboardingToken}` },
           body: JSON.stringify({
@@ -196,8 +216,16 @@ function SignupWizard() {
             websiteAddon: form.websiteAddon, customDomainAddon: form.customDomainAddon,
           }),
         });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { error?: string; detail?: string };
+          throw new Error(err.detail ?? err.error ?? `Subscription setup failed (${res.status})`);
+        }
         const data = await res.json() as { data?: { clientSecret?: string } };
-        setClientSecret(data.data?.clientSecret ?? '');
+        const cs = data.data?.clientSecret;
+        if (!cs) {
+          throw new Error('Subscription setup did not return a payment client_secret. Try again.');
+        }
+        setClientSecret(cs);
       }
       setStep((s) => s + 1);
     } catch (e) {
