@@ -1221,6 +1221,34 @@ function ElevatedPOSPayTab() {
   const [loading, setLoading]       = useState(true);
   const [subTab, setSubTab]         = useState<ElevatedPaySubTab>('onboarding');
   const [instanceReady, setInstanceReady] = useState(false);
+  // v2.7.83 — track failures so we can offer the legacy hosted-onboarding
+  // link as a fallback when the embedded `account_onboarding` component
+  // can't render (e.g., publishable key missing in prod, AccountSession
+  // creation rejected by Stripe, network blip). Without a fallback the
+  // merchant just sees an empty card with no way forward.
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [embedMountFailed, setEmbedMountFailed] = useState(false);
+  const [hostedLinkLoading, setHostedLinkLoading] = useState(false);
+
+  async function openHostedOnboarding() {
+    setHostedLinkLoading(true);
+    try {
+      const data = await apiFetch<{ url: string }>('connect/onboard', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        toast({ title: 'Could not start setup — please try again.', variant: 'destructive' });
+        setHostedLinkLoading(false);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not start setup';
+      toast({ title: msg, variant: 'destructive' });
+      setHostedLinkLoading(false);
+    }
+  }
 
   // v2.7.59 — `handleCompleteSetup` and the `syncing` state were removed
   // along with the legacy yellow "Action required" banner. They drove a
@@ -1256,14 +1284,33 @@ function ElevatedPOSPayTab() {
     if (loading) return;
 
     async function init() {
+      // v2.7.83 — bail fast with a clear message rather than letting Stripe
+      // accept an empty publishable key and then rejecting later.
+      const pk = process.env['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY'];
+      if (!pk) {
+        console.error('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is missing — cannot init Stripe Connect.');
+        setSetupError('Payment setup is temporarily unavailable. Use the wizard below to continue.');
+        return;
+      }
+
       try {
         const { loadConnectAndInitialize } = await import('@stripe/connect-js');
 
         const instance = loadConnectAndInitialize({
-          publishableKey: process.env['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY'] ?? '',
+          publishableKey: pk,
           fetchClientSecret: async () => {
-            const data = await apiFetch<{ clientSecret: string }>('connect/account-session', { method: 'POST' });
-            return data.clientSecret;
+            try {
+              const data = await apiFetch<{ clientSecret: string }>('connect/account-session', { method: 'POST' });
+              return data.clientSecret;
+            } catch (err) {
+              // Surface fetch failures so the user gets the fallback wizard.
+              setSetupError(
+                err instanceof Error
+                  ? err.message
+                  : 'Could not load Stripe setup form.',
+              );
+              throw err;
+            }
           },
           appearance: {
             overlays: 'dialog',
@@ -1281,12 +1328,27 @@ function ElevatedPOSPayTab() {
         setInstanceReady(true);
       } catch (err) {
         console.error('Failed to initialise ElevatedPOS Pay:', err);
+        setSetupError(err instanceof Error ? err.message : 'Could not initialise payment components.');
         toast({ title: 'Could not initialise payment components', variant: 'destructive' });
       }
     }
 
     void init();
   }, [loading, toast]);
+
+  // v2.7.83 — embed-mount watchdog. If the onboarding mount point is
+  // still empty 5s after instanceReady, assume the embedded component
+  // failed silently (publishableKey/secret/account-session issue) and
+  // surface the hosted-onboarding fallback button.
+  useEffect(() => {
+    if (!instanceReady || setupError || embedMountFailed) return;
+    if (subTab !== 'onboarding') return;
+    const timer = setTimeout(() => {
+      const el = onboardingRef.current;
+      if (el && el.childElementCount === 0) setEmbedMountFailed(true);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [instanceReady, subTab, setupError, embedMountFailed]);
 
   // Mount notification-banner once — always visible at top regardless of sub-tab
   useEffect(() => {
@@ -1378,14 +1440,45 @@ function ElevatedPOSPayTab() {
           <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm leading-relaxed">
             Set up your payment account to accept card payments, receive payouts directly to your bank, and access detailed transaction history.
           </p>
+          {/* Embedded onboarding mount — hidden when we know it failed so
+              the fallback wizard isn't squeezed by an empty 400px gap. */}
           <div
             ref={onboardingRef}
-            className="min-h-[400px]"
+            className={setupError || embedMountFailed ? 'hidden' : 'min-h-[400px]'}
           />
-          {!instanceReady && (
+          {!instanceReady && !setupError && (
             <div className="flex items-center justify-center gap-2 text-gray-400 py-8">
               <Loader2 className="h-5 w-5 animate-spin" />
               <span className="text-sm">Loading setup form…</span>
+            </div>
+          )}
+          {/* v2.7.83 — fallback hosted-onboarding wizard. Shows when the
+              embedded component fails to render or never mounts within
+              5 seconds. The merchant always has a way forward. */}
+          {(setupError || embedMountFailed) && (
+            <div className="space-y-4">
+              {setupError && (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-left dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300">
+                  {setupError}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={openHostedOnboarding}
+                disabled={hostedLinkLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {hostedLinkLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> Opening setup wizard…
+                  </>
+                ) : (
+                  <>Continue with Stripe setup wizard</>
+                )}
+              </button>
+              <p className="text-xs text-gray-400">
+                You&apos;ll be redirected to a secure Stripe page to finish setup, then sent back here.
+              </p>
             </div>
           )}
         </div>
@@ -1499,18 +1592,46 @@ function ElevatedPOSPayTab() {
 
           {/* Embedded component mount points */}
           <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 overflow-hidden">
-            {!instanceReady ? (
+            {!instanceReady && !setupError ? (
               <div className="flex items-center justify-center gap-2 text-gray-400 py-16">
                 <Loader2 className="h-5 w-5 animate-spin" />
                 <span className="text-sm">Loading…</span>
               </div>
             ) : (
               <>
-                <div ref={onboardingRef}   className={subTab === 'onboarding'   ? 'min-h-[500px]' : 'hidden'} />
+                <div ref={onboardingRef}   className={subTab === 'onboarding'   && !setupError && !embedMountFailed ? 'min-h-[500px]' : 'hidden'} />
                 <div ref={transactionsRef} className={subTab === 'transactions' ? 'min-h-[500px]' : 'hidden'} />
                 <div ref={payoutsRef}      className={subTab === 'payouts'      ? 'min-h-[500px]' : 'hidden'} />
                 <div ref={balanceRef}      className={subTab === 'balance'      ? 'min-h-[500px]' : 'hidden'} />
                 <div ref={accountRef}      className={subTab === 'account'      ? 'min-h-[500px]' : 'hidden'} />
+                {/* v2.7.83 — fallback wizard for the Setup sub-tab when the
+                    embedded component can't render. */}
+                {subTab === 'onboarding' && (setupError || embedMountFailed) && (
+                  <div className="p-8 text-center space-y-4">
+                    {setupError && (
+                      <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300">
+                        {setupError}
+                      </p>
+                    )}
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      The in-page setup form couldn&apos;t load. You can finish setup using our secure wizard instead.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={openHostedOnboarding}
+                      disabled={hostedLinkLoading}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {hostedLinkLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" /> Opening setup wizard…
+                        </>
+                      ) : (
+                        <>Continue with Stripe setup wizard</>
+                      )}
+                    </button>
+                  </div>
+                )}
                 {/* v2.7.68 — reportsRef/financingRef divs removed alongside their
                     Stripe components (see comment near the tab buttons above).
                     Both refs intentionally retained at the top of the file with

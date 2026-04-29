@@ -382,14 +382,23 @@ function DetailsTab({
   categories,
   taxClasses,
   hasVariants,
+  barcodeInputRef,
 }: {
   form: ProductFormData;
   setField: <K extends keyof ProductFormData>(k: K, v: ProductFormData[K]) => void;
   categories: Category[];
   taxClasses: TaxClass[];
   hasVariants: boolean;
+  barcodeInputRef: React.MutableRefObject<string>;
 }) {
   const [barcodeInput, setBarcodeInput] = useState('');
+
+  // Keep the parent's ref in sync so handleSave can flush a pending barcode
+  // even if the user hasn't pressed Enter / clicked the + button.
+  function updateBarcodeInput(v: string) {
+    setBarcodeInput(v);
+    barcodeInputRef.current = v;
+  }
 
   function addBarcode() {
     const trimmed = barcodeInput.trim();
@@ -397,6 +406,7 @@ function DetailsTab({
       setField('barcodes', [...form.barcodes, trimmed]);
     }
     setBarcodeInput('');
+    barcodeInputRef.current = '';
   }
 
   function removeBarcode(bc: string) {
@@ -485,7 +495,8 @@ function DetailsTab({
             <input
               type="text"
               value={barcodeInput}
-              onChange={(e) => setBarcodeInput(e.target.value)}
+              onChange={(e) => updateBarcodeInput(e.target.value)}
+              onBlur={addBarcode}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -1612,7 +1623,9 @@ function buildPayload(form: ProductFormData): Record<string, unknown> {
   if (form.description.trim()) payload.description = form.description.trim();
   if (form.sku.trim()) payload.sku = form.sku.trim();
   if (form.brand.trim()) payload.brand = form.brand.trim();
-  if (form.barcodes.length > 0) payload.barcodes = form.barcodes;
+  // Always send barcodes (even when empty) so the server replaces the
+  // existing array — otherwise removing the last barcode would be a no-op.
+  payload.barcodes = form.barcodes;
   if (form.categoryId) payload.categoryId = form.categoryId;
   if (form.taxClassId) payload.taxClassId = form.taxClassId;
   if (form.hospitalityCourse) payload.hospitalityCourse = form.hospitalityCourse;
@@ -1733,6 +1746,10 @@ export function ProductForm({ productId }: { productId?: string }) {
   const [loadingProduct, setLoadingProduct] = useState(isEditing);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+
+  // Holds the pending barcode-input value from DetailsTab so handleSave can
+  // flush it even if the user typed but never pressed Enter or +.
+  const barcodeInputRef = useRef('');
 
   // Use a ref to track mounted state to avoid state updates after unmount
   const mountedRef = useRef(true);
@@ -1905,7 +1922,17 @@ export function ProductForm({ productId }: { productId?: string }) {
     setSaving(true);
 
     try {
-      const payload = buildPayload(form);
+      // Flush any pending barcode input that the user typed but never
+      // committed via Enter or the + button. Without this, the typed value
+      // sits only in DetailsTab's local state and gets discarded on save.
+      const pendingBarcode = barcodeInputRef.current.trim();
+      let formForSave = form;
+      if (pendingBarcode && !form.barcodes.includes(pendingBarcode)) {
+        formForSave = { ...form, barcodes: [...form.barcodes, pendingBarcode] };
+        setForm(formForSave);
+        barcodeInputRef.current = '';
+      }
+      const payload = buildPayload(formForSave);
 
       // When variants are enabled, strip top-level price and embed variant data
       if (hasVariants) {
@@ -2071,6 +2098,7 @@ export function ProductForm({ productId }: { productId?: string }) {
             categories={categories}
             taxClasses={taxClasses}
             hasVariants={hasVariants}
+            barcodeInputRef={barcodeInputRef}
           />
         )}
         {activeTab === 'channels' && (
