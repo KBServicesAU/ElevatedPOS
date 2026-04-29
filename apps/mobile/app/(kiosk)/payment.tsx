@@ -28,10 +28,20 @@ export default function PaymentScreen() {
   const { cartItems, clearCart, setOrderNumber, setEarnedPoints, orderType, tableNumber, loyaltyAccount, language } = useKioskStore();
   const tillOpen = useTillStore((s) => s.isOpen);
 
+  // v2.7.72 — H. The QR payment method was a no-op stub: tapping it
+  // routed straight to /complete without any actual payment occurring,
+  // letting any customer walk away with a free order. We gate it
+  // behind an env flag (defaults to OFF) so production kiosks no
+  // longer expose the bypass. To re-enable, set
+  //   EXPO_PUBLIC_KIOSK_QR_PAYMENT_ENABLED=1
+  // and wire a real provider into postOrderAndComplete.
+  const qrPaymentEnabled = process.env['EXPO_PUBLIC_KIOSK_QR_PAYMENT_ENABLED'] === '1';
   const METHODS: { id: PaymentMethod; label: string; icon: string; subtitle: string }[] = [
     { id: 'card', label: t(language, 'cardLabel'), icon: '💳', subtitle: t(language, 'cardSub') },
     { id: 'cash', label: t(language, 'cashLabel'), icon: '💵', subtitle: t(language, 'cashSub') },
-    { id: 'qr', label: t(language, 'qrLabel'), icon: '📱', subtitle: t(language, 'qrSub') },
+    ...(qrPaymentEnabled
+      ? [{ id: 'qr' as const, label: t(language, 'qrLabel'), icon: '📱', subtitle: t(language, 'qrSub') }]
+      : []),
   ];
   const [selected, setSelected] = useState<PaymentMethod>('card');
   const [processing, setProcessing] = useState(false);

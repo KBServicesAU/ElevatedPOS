@@ -1414,7 +1414,21 @@ export default function PosSellScreen() {
   }
 
   // ── Customer search ──────────────────────────────────────────────
-  async function searchCustomers(query: string) {
+  // v2.7.72 — H. Debounce keystrokes + abort the previous in-flight
+  // request when a new one fires. Was previously firing one fetch per
+  // keystroke (so typing "samantha" sent 8 requests, the last ones
+  // racing to overwrite each other's results) — burned API quota
+  // against the customers service and could land out-of-order results
+  // back into the UI.
+  const customerSearchAbortRef = useRef<AbortController | null>(null);
+  const customerSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function performCustomerSearch(query: string) {
+    if (customerSearchAbortRef.current) {
+      customerSearchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    customerSearchAbortRef.current = controller;
     setCustomerSearchLoading(true);
     try {
       const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
@@ -1423,26 +1437,46 @@ export default function PosSellScreen() {
         `${base}/api/v1/customers?search=${encodeURIComponent(query)}&limit=20`,
         {
           headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(4000),
+          signal: controller.signal,
         },
       );
+      if (controller.signal.aborted) return;
       if (res.ok) {
         const data = await res.json();
         setCustomerResults(Array.isArray(data) ? data : (data.data ?? []));
       }
-    } catch {
+    } catch (err) {
+      // Aborts surface as DOMException; treat as benign.
+      if (err instanceof Error && err.name === 'AbortError') return;
       // ignore — user can retry
     } finally {
-      setCustomerSearchLoading(false);
+      // Only clear loading if this is still the latest in-flight call.
+      if (customerSearchAbortRef.current === controller) {
+        setCustomerSearchLoading(false);
+      }
     }
+  }
+
+  function searchCustomers(query: string, immediate = false) {
+    if (customerSearchTimerRef.current) {
+      clearTimeout(customerSearchTimerRef.current);
+      customerSearchTimerRef.current = null;
+    }
+    if (immediate) {
+      void performCustomerSearch(query);
+      return;
+    }
+    customerSearchTimerRef.current = setTimeout(() => {
+      void performCustomerSearch(query);
+    }, 250);
   }
 
   function openCustomerSearch() {
     setCustomerQuery('');
     setCustomerResults([]);
     setShowCustomerSearch(true);
-    // Pre-load recent customers immediately
-    searchCustomers('');
+    // Pre-load recent customers immediately (skip the debounce on this one)
+    searchCustomers('', true);
   }
 
   // Fetch loyalty account for the selected customer (best-effort, non-blocking)
@@ -2348,7 +2382,7 @@ export default function PosSellScreen() {
                 }}
                 autoFocus
                 returnKeyType="search"
-                onSubmitEditing={() => searchCustomers(customerQuery)}
+                onSubmitEditing={() => searchCustomers(customerQuery, true)}
               />
               {customerSearchLoading && <ActivityIndicator size="small" color="#6366f1" />}
               {customerQuery !== '' && !customerSearchLoading && (

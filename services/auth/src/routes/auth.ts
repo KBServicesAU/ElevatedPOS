@@ -324,8 +324,28 @@ export async function authRoutes(app: FastifyInstance) {
       });
     };
 
-    // Employee-ID-based flow: verify PIN against a specific employee
+    // Employee-ID-based flow: verify PIN against a specific employee.
+    // v2.7.72 — H. Apply the same Redis rate limit the org-scan branch
+    // uses (10 attempts per 5 minutes) but key by employeeId so an
+    // attacker can't brute-force a 4-digit PIN against a single staff
+    // member while another employee elsewhere keeps logging in.
     if ('employeeId' in body.data) {
+      const redisClient = getRedisClient();
+      const empKey = `pin_attempts:emp:${body.data.employeeId}`;
+      if (redisClient) {
+        const attempts = await redisClient.incr(empKey);
+        if (attempts === 1) {
+          await redisClient.expire(empKey, 300);
+        }
+        if (attempts > 10) {
+          return reply.code(429).send({
+            type: 'about:blank',
+            title: 'Too Many Requests',
+            status: 429,
+            detail: 'Too many PIN attempts. Please wait 5 minutes before trying again.',
+          });
+        }
+      }
       const employee = await db.query.employees.findFirst({
         where: and(
           eq(schema.employees.id, body.data.employeeId),
@@ -340,6 +360,11 @@ export async function authRoutes(app: FastifyInstance) {
           status: 401,
           detail: 'No employee found with that PIN.',
         });
+      }
+      // Successful login resets the counter so a forgetful employee
+      // doesn't accumulate fail counts indefinitely.
+      if (redisClient) {
+        redisClient.del(empKey).catch(() => { /* ignore */ });
       }
       return buildSuccess(employee);
     }
