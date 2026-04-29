@@ -1317,18 +1317,42 @@ export default function PosSellScreen() {
       toast.warning('Invalid Amount', 'Please enter a valid gift card amount.');
       return;
     }
+    // v2.7.74 — guard against cart loss. The "Issue Gift Card" button
+    // sits inside the payment modal; if cart has items, issuing the
+    // card silently abandoned the merchandise sale (the cart was
+    // forgotten and the gift card was created without taking payment).
+    // For now, refuse the action with a clear message — the operator
+    // should park the merchandise via Hold first, or pay for it
+    // separately, then come back to issue the gift card.
+    if (cart.length > 0) {
+      toast.warning(
+        'Cart not empty',
+        'Hold or complete the current sale first, then issue the gift card.',
+      );
+      return;
+    }
     setGiftCardIssuing(true);
     try {
       const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
       const token = useAuthStore.getState().employeeToken ?? identity?.deviceToken ?? '';
+      // v2.7.74 — wire-shape fix. The orders service's gift-cards
+      // endpoint expects `{ amount: <dollars> }`. The POS was sending
+      // `{ balance: <cents> }` since v2.7.48, which fails Zod
+      // validation 422 on every attempt — gift card issuance never
+      // worked. Customer name + email aren't on the issue schema
+      // (the server uses customerId for linkage); pass them in `notes`
+      // so the audit trail at least preserves the operator's intent.
+      const noteFragments = [
+        giftCardRecipientName.trim() ? `Recipient: ${giftCardRecipientName.trim()}` : null,
+        giftCardRecipientEmail.trim() ? `Email: ${giftCardRecipientEmail.trim()}` : null,
+      ].filter(Boolean);
       const res = await fetch(`${base}/api/v1/gift-cards`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          balance: Math.round(amount * 100),
-          customerName: giftCardRecipientName.trim() || undefined,
-          locationId: identity?.locationId ?? '',
-          ...(giftCardRecipientEmail.trim() ? { email: giftCardRecipientEmail.trim(), sendEmail: true } : {}),
+          amount,
+          currency: 'AUD',
+          ...(noteFragments.length ? { notes: noteFragments.join(' · ') } : {}),
         }),
         signal: AbortSignal.timeout(10000),
       });
@@ -1346,8 +1370,16 @@ export default function PosSellScreen() {
         toast.error('Gift Card Failed', err.message ?? err.detail ?? `Error ${res.status}`);
         return;
       }
-      const data = await res.json() as { code?: string; balance?: number };
-      const code = data.code ?? '';
+      // v2.7.74 — server returns `{data: card}` with the card's code
+      // and currentBalance, not a flat `{code, balance}` shape.
+      const json = await res.json() as {
+        data?: { code?: string; currentBalance?: string };
+        code?: string;
+        balance?: number;
+      };
+      const card = json.data ?? json;
+      const code = card.code ?? '';
+      const balance = (card as { currentBalance?: string }).currentBalance ?? json.balance;
       // v2.7.48-univlog — gift-card issuance is a transaction in its own
       // right; log so the merchant sees it in the unified Logs page.
       logTerminalTx({
@@ -1356,7 +1388,7 @@ export default function PosSellScreen() {
         transactionType: 'purchase',
         amountCents: Math.round(amount * 100),
         referenceId: code || null,
-        raw: { code, balance: data.balance, recipient: giftCardRecipientName.trim() || null, email: giftCardRecipientEmail.trim() || null },
+        raw: { code, balance, recipient: giftCardRecipientName.trim() || null, email: giftCardRecipientEmail.trim() || null },
       });
       toast.success('Gift Card Issued', `${code} · $${amount.toFixed(2)}`);
       setShowGiftCardModal(false);
