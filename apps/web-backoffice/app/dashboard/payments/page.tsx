@@ -1056,6 +1056,143 @@ function ComplianceTab() {
 // Uses Stripe Connect Embedded Components — no Stripe branding in surrounding UI
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/**
+ * v2.7.78 — QR Pay toggle.
+ *
+ * Renders a card on the active Connect account view that lets the
+ * merchant flip the customer-screen QR Pay flow on or off and (when
+ * on) opens a Stripe-hosted login link to manage which payment
+ * methods (Apple Pay, Google Pay, PayTo, Link, BPAY, …) appear at
+ * the QR-checkout page.
+ *
+ * Wallet selection is driven entirely by Stripe — we don't try to
+ * mirror it locally. The "Manage payment methods" button mints a
+ * fresh Stripe login link via the existing
+ * /connect/login-link/:orgId endpoint and opens it in a new tab.
+ */
+function QrPayToggleCard({
+  account,
+  onChange,
+}: {
+  account: ConnectAccount;
+  onChange: (qrPayEnabled: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const [openingLogin, setOpeningLogin] = useState(false);
+  const enabled = !!account.qrPayEnabled;
+
+  async function handleToggle(next: boolean) {
+    setSaving(true);
+    try {
+      await apiFetch('connect/account', {
+        method: 'PATCH',
+        body: JSON.stringify({ qrPayEnabled: next }),
+      });
+      onChange(next);
+      toast({
+        title: next ? 'QR Pay enabled' : 'QR Pay disabled',
+        description: next
+          ? 'Customers can now pay by scanning the QR on the staff screen.'
+          : 'Removed from POS payment options.',
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not update QR Pay setting.';
+      toast({ title: 'Could not save', description: msg, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openStripePaymentMethods() {
+    setOpeningLogin(true);
+    try {
+      const res = await apiFetch<{ url: string }>(
+        `connect/login-link/${encodeURIComponent(account.stripeAccountId)}`,
+        { method: 'POST' },
+      );
+      if (res?.url) {
+        // Stripe login link is single-use and redirects to the merchant's
+        // dashboard. We send them straight to the payment-methods settings
+        // by appending a hash that Stripe respects.
+        window.open(`${res.url}#/settings/payment_methods`, '_blank', 'noopener,noreferrer');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not open Stripe.';
+      toast({ title: 'Could not open Stripe', description: msg, variant: 'destructive' });
+    } finally {
+      setOpeningLogin(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">📱</span>
+            <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+              QR Pay (customer screen)
+            </h3>
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                enabled
+                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+              }`}
+            >
+              {enabled ? 'On' : 'Off'}
+            </span>
+          </div>
+          <p className="mt-2 max-w-xl text-sm text-gray-600 dark:text-gray-300">
+            Show a QR code on the POS so customers can pay on their own phone
+            with Apple&nbsp;Pay, Google&nbsp;Pay, Card, Link, PayTo, or anything else
+            you've enabled in Stripe. Funds settle into your Stripe balance.
+          </p>
+        </div>
+        <label className="inline-flex cursor-pointer items-center gap-2">
+          <span className="text-sm text-gray-600 dark:text-gray-300">
+            {enabled ? 'Enabled' : 'Disabled'}
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            disabled={saving}
+            onClick={() => handleToggle(!enabled)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              enabled ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-gray-600'
+            } ${saving ? 'opacity-50' : ''}`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                enabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </label>
+      </div>
+
+      {enabled && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-4 dark:border-gray-800">
+          <p className="flex-1 text-sm text-gray-600 dark:text-gray-300">
+            Pick which methods (Apple Pay, Google Pay, PayTo, Link, etc.)
+            appear at checkout from your Stripe dashboard.
+          </p>
+          <button
+            type="button"
+            onClick={openStripePaymentMethods}
+            disabled={openingLogin}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            {openingLogin ? 'Opening…' : 'Manage payment methods →'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ConnectAccount {
   stripeAccountId: string;
   status: 'pending' | 'onboarding' | 'active' | 'restricted' | 'disabled';
@@ -1064,6 +1201,8 @@ interface ConnectAccount {
   detailsSubmitted: boolean;
   businessName?: string;
   platformFeePercent: number;
+  /** v2.7.78 — per-org QR Pay opt-in. */
+  qrPayEnabled?: boolean;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -1274,6 +1413,20 @@ function ElevatedPOSPayTab() {
               </div>
             ))}
           </div>
+
+          {/* v2.7.78 — QR Pay toggle. Customer-screen flow: scan QR
+              → pay on phone via Apple Pay / Google Pay / PayTo /
+              Card / Link. Charges land in the merchant's Stripe
+              balance via the Connect direct-charge mode below.
+              Wallets shown to the customer are driven by the
+              merchant's own Stripe Dashboard payment-method
+              settings — we deep-link them there. */}
+          {account.chargesEnabled && (
+            <QrPayToggleCard
+              account={account}
+              onChange={(next) => setAccount({ ...account, qrPayEnabled: next })}
+            />
+          )}
 
           {/*
             v2.7.59 — removed the legacy "Action required" yellow banner that

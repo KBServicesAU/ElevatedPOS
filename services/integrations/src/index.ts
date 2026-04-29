@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
+import { Pool } from 'pg';
 import { appRoutes } from './routes/apps';
 import { webhookRoutes } from './routes/webhooks';
 import { connectorRoutes } from './routes/connectors';
@@ -26,7 +27,35 @@ declare module 'fastify' {
 
 const app = Fastify({ logger: true, trustProxy: true });
 
+/**
+ * v2.7.78 — Apply ad-hoc schema changes idempotently before serving traffic.
+ * Mirrors the pattern in services/auth/src/index.ts and services/orders.
+ */
+async function applyMigrations(): Promise<void> {
+  const pool = new Pool({
+    connectionString: process.env['DATABASE_URL'],
+    ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : undefined,
+    max: 1,
+  });
+  const client = await pool.connect();
+  try {
+    // v2.7.78 — per-org QR Pay opt-in. Default false so existing merchants
+    // don't see a new payment method appear without their consent.
+    await client.query(
+      `ALTER TABLE stripe_connect_accounts ADD COLUMN IF NOT EXISTS qr_pay_enabled boolean NOT NULL DEFAULT false`,
+    );
+    console.log('[integrations] schema migrations applied successfully');
+  } catch (err) {
+    console.error('[integrations] migration error — aborting startup:', err);
+    process.exit(1);
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
 async function start() {
+  await applyMigrations();
   await app.register(helmet);
   await app.register(cors, {
     origin: process.env['ALLOWED_ORIGINS']?.split(',') ?? ['http://localhost:3000'],

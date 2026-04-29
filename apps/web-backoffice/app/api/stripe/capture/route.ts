@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { type NextRequest } from 'next/server';
 import { requireAuth } from '@/lib/auth-guard';
+import { resolveConnectAccount } from '@/lib/stripe-connect';
 
 /**
  * POST /api/stripe/capture
@@ -38,17 +39,24 @@ export async function POST(req: NextRequest) {
     return Response.json({ ok: true, mock: true });
   }
 
+  // v2.7.78 — Connect direct-charges live on the merchant's account,
+  // so retrieve + capture both need the stripeAccount header.
+  // Sessions/PIs created before v2.7.78 lived on the platform account;
+  // we fall back to that path when the merchant has no Connect
+  // account or charges aren't enabled.
+  const connect = await resolveConnectAccount(req);
+
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
     // v2.7.75 — verify org ownership via metadata.orgId before capture.
     // payment-intent.ts stamps orgId from the JWT at create time.
-    // Older PIs (pre-v2.7.68) without the metadata field are treated
-    // as legitimate but logged so we can spot them in operational
-    // metrics — by the time you read this, they should all have been
-    // captured or expired.
     const callerOrgId = String(auth.orgId ?? '');
-    const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const pi = connect?.stripeAccountId
+      ? await stripe.paymentIntents.retrieve(paymentIntentId, undefined, {
+          stripeAccount: connect.stripeAccountId,
+        })
+      : await stripe.paymentIntents.retrieve(paymentIntentId);
     const piOrgId = pi.metadata?.['orgId'];
     if (piOrgId && callerOrgId && piOrgId !== callerOrgId) {
       console.warn('[stripe/capture] org mismatch', {
@@ -68,7 +76,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    await stripe.paymentIntents.capture(paymentIntentId);
+    if (connect?.stripeAccountId) {
+      await stripe.paymentIntents.capture(paymentIntentId, undefined, {
+        stripeAccount: connect.stripeAccountId,
+      });
+    } else {
+      await stripe.paymentIntents.capture(paymentIntentId);
+    }
     return Response.json({ ok: true });
   } catch (err) {
     console.error('[stripe/capture]', err);

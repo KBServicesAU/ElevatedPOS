@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { type NextRequest } from 'next/server';
 import { requireAuth } from '@/lib/auth-guard';
+import { resolveConnectAccount } from '@/lib/stripe-connect';
 
 /**
  * GET /api/stripe/qr-status?id=cs_xxx
@@ -58,11 +59,25 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: 'Stripe not configured.' }, { status: 503 });
   }
 
+  // v2.7.78 — Sessions created in v2.7.76 (no Connect) lived on the
+  // platform account. Sessions from v2.7.78 onwards live on the
+  // merchant's connected account and need the `stripeAccount` header
+  // to retrieve. Resolve the merchant's account; if missing, fall
+  // back to platform-side retrieval (handles legacy sessions and the
+  // dev/demo path where Connect isn't configured).
+  const connect = await resolveConnectAccount(req);
+
   try {
     const stripe = new Stripe(secretKey);
-    const session = await stripe.checkout.sessions.retrieve(id, {
-      expand: ['payment_intent', 'payment_intent.payment_method'],
-    });
+    const session = connect?.stripeAccountId
+      ? await stripe.checkout.sessions.retrieve(
+          id,
+          { expand: ['payment_intent', 'payment_intent.payment_method'] },
+          { stripeAccount: connect.stripeAccountId },
+        )
+      : await stripe.checkout.sessions.retrieve(id, {
+          expand: ['payment_intent', 'payment_intent.payment_method'],
+        });
 
     // Org-match enforcement (same shape as /api/stripe/capture).
     const callerOrgId = String(auth.orgId ?? '');

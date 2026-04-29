@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { type NextRequest } from 'next/server';
 import { requireAuth } from '@/lib/auth-guard';
+import { resolveConnectAccount, calcPlatformFeeCents } from '@/lib/stripe-connect';
 
 /**
  * POST /api/stripe/qr-checkout
@@ -65,6 +66,35 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // v2.7.78 — Resolve the merchant's Stripe Connect account so the
+  // charge lands in their balance, not the platform's. Required for
+  // multi-tenant production: each merchant sees the payment in their
+  // own Stripe dashboard, controls their own payment methods (Apple
+  // Pay, Google Pay, PayTo, Link, etc.) from connect.stripe.com, and
+  // we collect a platform fee on top.
+  const connect = await resolveConnectAccount(req);
+  if (!connect || !connect.chargesEnabled) {
+    return Response.json(
+      {
+        error: 'Stripe Connect onboarding is incomplete.',
+        detail:
+          'The merchant needs to complete Stripe Connect onboarding before QR Pay is available. Open Settings → Payments → Stripe Connect to finish.',
+        connectStatus: connect?.chargesEnabled === false ? 'restricted' : 'missing',
+      },
+      { status: 409 },
+    );
+  }
+  if (!connect.qrPayEnabled) {
+    return Response.json(
+      {
+        error: 'QR Pay is not enabled for this merchant.',
+        detail:
+          'A merchant admin needs to enable QR Pay in Settings → Payments before it shows up at the till.',
+      },
+      { status: 409 },
+    );
+  }
+
   try {
     const stripe = new Stripe(secretKey);
 
@@ -74,50 +104,73 @@ export async function POST(req: NextRequest) {
     // landing page rather than a 404.
     const appUrl = process.env.APP_URL ?? 'https://app.elevatedpos.com.au';
 
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      // payment_method_types omitted → Stripe enables card + Apple Pay
-      // + Google Pay + Link automatically per the merchant's account
-      // settings. Adding the array would actually *narrow* what's
-      // available, the opposite of what we want.
-      line_items: [
-        {
-          price_data: {
-            currency,
-            product_data: {
-              name: orderRef ? `Order ${orderRef}` : 'Sale',
-              ...(locationName ? { description: locationName } : {}),
+    const platformFeeCents = calcPlatformFeeCents(amount, connect.platformFeePercent);
+
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: 'payment',
+        // payment_method_types omitted → Stripe enables card + Apple Pay
+        // + Google Pay + Link + PayTo + BPAY automatically per the
+        // *connected account's* dashboard settings. Adding the array
+        // would actually narrow what's available — the opposite of
+        // what we want.
+        line_items: [
+          {
+            price_data: {
+              currency,
+              product_data: {
+                name: orderRef ? `Order ${orderRef}` : 'Sale',
+                ...(locationName ? { description: locationName } : {}),
+              },
+              unit_amount: amount,
             },
-            unit_amount: amount,
+            quantity: 1,
           },
-          quantity: 1,
-        },
-      ],
-      success_url: `${appUrl}/pay/qr/success?session={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${appUrl}/pay/qr/cancel?session={CHECKOUT_SESSION_ID}`,
-      // 30 min Stripe-side; we surface 15 in the POS modal so the
-      // operator gets a clean expiry well before the session itself
-      // dies.
-      expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
-      metadata: {
-        orgId: String(auth.orgId ?? ''),
-        createdBy: String(auth.sub),
-        orderRef,
-        kind: 'qr_pay_v1',
-      },
-      payment_intent_data: {
+        ],
+        success_url: `${appUrl}/pay/qr/success?session={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${appUrl}/pay/qr/cancel?session={CHECKOUT_SESSION_ID}`,
+        // 30 min Stripe-side; we surface 15 in the POS modal so the
+        // operator gets a clean expiry well before the session itself
+        // dies.
+        expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
         metadata: {
           orgId: String(auth.orgId ?? ''),
+          createdBy: String(auth.sub),
           orderRef,
           kind: 'qr_pay_v1',
         },
+        // v2.7.78 — direct charge mode: the PaymentIntent is created
+        // on the connected account, the funds settle there, and the
+        // platform takes its cut as `application_fee_amount`. The
+        // merchant's Stripe dashboard shows the full transaction.
+        payment_intent_data: {
+          ...(platformFeeCents > 0
+            ? { application_fee_amount: platformFeeCents }
+            : {}),
+          metadata: {
+            orgId: String(auth.orgId ?? ''),
+            orderRef,
+            kind: 'qr_pay_v1',
+          },
+        },
       },
-    });
+      {
+        // Critical — this is what makes it a Connect direct charge.
+        // Without `stripeAccount` the session is created on the
+        // platform account and funds go to the wrong place.
+        stripeAccount: connect.stripeAccountId,
+      },
+    );
 
     return Response.json({
       id: session.id,
       url: session.url,
       expiresAt: session.expires_at,
+      // Echo the connected account back so the POS can pass it to
+      // /qr-status (Stripe needs the same stripeAccount header on
+      // retrieval). The id alone isn't enough — Stripe scopes
+      // session ids to the account that created them.
+      stripeAccount: connect.stripeAccountId,
     });
   } catch (err) {
     console.error('[stripe/qr-checkout]', err);

@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { type NextRequest } from 'next/server';
 import { requireAuth } from '@/lib/auth-guard';
+import { resolveConnectAccount, calcPlatformFeeCents } from '@/lib/stripe-connect';
 
 /**
  * POST /api/stripe/payment-intent
@@ -46,22 +47,42 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // v2.7.78 — direct-charge through the merchant's Stripe Connect
+  // account. Same rationale as /qr-checkout: Tap-to-Pay charges need
+  // to land in the merchant's Stripe balance, not the platform's.
+  const connect = await resolveConnectAccount(req);
+  if (!connect || !connect.chargesEnabled) {
+    return Response.json(
+      {
+        error: 'Stripe Connect onboarding is incomplete.',
+        detail: 'Complete Stripe onboarding in Settings → Payments before taking card payments.',
+      },
+      { status: 409 },
+    );
+  }
+
   try {
     const stripe = new Stripe(secretKey);
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount,
-      currency,
-      payment_method_types: ['card_present'],
-      capture_method: 'manual',
-      // Tag the PI with the merchant org so dashboard filtering / refunds
-      // can be scoped without trusting the client. orgId comes from the
-      // verified JWT, NOT from the request body.
-      metadata: { orderId, orgId: String(auth.orgId ?? ''), createdBy: String(auth.sub) },
-    });
+    const platformFeeCents = calcPlatformFeeCents(amount, connect.platformFeePercent);
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount,
+        currency,
+        payment_method_types: ['card_present'],
+        capture_method: 'manual',
+        // Tag the PI with the merchant org so dashboard filtering / refunds
+        // can be scoped without trusting the client. orgId comes from the
+        // verified JWT, NOT from the request body.
+        metadata: { orderId, orgId: String(auth.orgId ?? ''), createdBy: String(auth.sub) },
+        ...(platformFeeCents > 0 ? { application_fee_amount: platformFeeCents } : {}),
+      },
+      { stripeAccount: connect.stripeAccountId },
+    );
 
     return Response.json({
       id: paymentIntent.id,
       clientSecret: paymentIntent.client_secret,
+      stripeAccount: connect.stripeAccountId,
       mock: false,
     });
   } catch (err) {

@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { type NextRequest } from 'next/server';
 import { requireAuth } from '@/lib/auth-guard';
+import { resolveConnectAccount } from '@/lib/stripe-connect';
 
 /**
  * POST /api/stripe/connection-token
@@ -27,7 +28,7 @@ import { requireAuth } from '@/lib/auth-guard';
 export async function POST(req: NextRequest) {
   const auth = await requireAuth(req);
   if (auth instanceof Response) return auth;
-  void auth; // Suppress unused — we may scope by orgId later.
+  void auth;
 
   const secretKey = process.env.STRIPE_SECRET_KEY;
   const forceSimulated = process.env.STRIPE_TERMINAL_SIMULATED === 'true';
@@ -37,13 +38,25 @@ export async function POST(req: NextRequest) {
     return Response.json({ secret: null, simulated: true }, { status: 200 });
   }
 
+  // v2.7.78 — Terminal connection tokens belong to the connected
+  // account that owns the reader. Mint on the merchant's account
+  // when Connect is set up, fall back to platform for pre-Connect
+  // setups (mostly demo / staging).
+  const connect = await resolveConnectAccount(req);
+
   try {
     const stripe = new Stripe(secretKey);
-    const token = await stripe.terminal.connectionTokens.create();
+    const token = connect?.stripeAccountId
+      ? await stripe.terminal.connectionTokens.create({}, { stripeAccount: connect.stripeAccountId })
+      : await stripe.terminal.connectionTokens.create();
     // When STRIPE_TERMINAL_SIMULATED is set we still return a real connection
     // token (the SDK requires one even for simulated readers) but we tell the
     // client to use simulated discovery.
-    return Response.json({ secret: token.secret, simulated: forceSimulated });
+    return Response.json({
+      secret: token.secret,
+      simulated: forceSimulated,
+      stripeAccount: connect?.stripeAccountId ?? null,
+    });
   } catch (err) {
     console.error('[stripe/connection-token]', err);
     return Response.json({ error: String(err) }, { status: 500 });

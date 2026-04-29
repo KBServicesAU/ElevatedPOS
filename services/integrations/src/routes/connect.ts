@@ -321,6 +321,8 @@ export async function connectRoutes(app: FastifyInstance) {
           detailsSubmitted: account.details_submitted,
           businessName: account.business_profile?.name,
           platformFeePercent: row.platformFeePercent,
+          // v2.7.78 — per-org QR Pay opt-in.
+          qrPayEnabled: row.qrPayEnabled,
         });
       } catch {
         // Fall through to cached DB values if Stripe call fails
@@ -335,6 +337,49 @@ export async function connectRoutes(app: FastifyInstance) {
       detailsSubmitted: row.detailsSubmitted ?? false,
       businessName: row.businessName ?? undefined,
       platformFeePercent: row.platformFeePercent,
+      qrPayEnabled: row.qrPayEnabled,
+    });
+  });
+
+  // ── PATCH /connect/account ──────────────────────────────────────────────────
+  // v2.7.78 — Per-org settings on the connect account row. Today the only
+  // editable field is qrPayEnabled (toggle the customer-screen QR Pay
+  // flow). Restricted to the requesting org via the JWT — no cross-org
+  // shenanigans. Future settings (custom platform fee, payout schedule
+  // hints) can ride this same endpoint.
+  app.patch('/connect/account', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+
+    const body = request.body as { qrPayEnabled?: unknown };
+    const qrPayEnabled =
+      typeof body?.qrPayEnabled === 'boolean' ? body.qrPayEnabled : null;
+    if (qrPayEnabled === null) {
+      return reply.status(422).send({
+        type: 'about:blank',
+        title: 'Invalid request',
+        status: 422,
+        detail: 'qrPayEnabled (boolean) is required.',
+      });
+    }
+
+    const rows = await db
+      .update(stripeConnectAccounts)
+      .set({ qrPayEnabled, updatedAt: new Date() })
+      .where(eq(stripeConnectAccounts.orgId, orgId))
+      .returning();
+
+    if (rows.length === 0) {
+      return reply.status(404).send({
+        type: 'about:blank',
+        title: 'No connected Stripe account',
+        status: 404,
+        detail: 'Set up Stripe Connect before enabling QR Pay.',
+      });
+    }
+
+    return reply.send({
+      stripeAccountId: rows[0]!.stripeAccountId,
+      qrPayEnabled: rows[0]!.qrPayEnabled,
     });
   });
 

@@ -68,6 +68,11 @@ export const stripeConnectAccounts = pgTable('stripe_connect_accounts', {
   country: varchar('country', { length: 2 }).notNull().default('AU'),
   currency: varchar('currency', { length: 3 }).notNull().default('AUD'),
   platformFeePercent: integer('platform_fee_percent').notNull().default(100), // basis points, 100 = 1%
+  // v2.7.78 — per-org opt-in to the customer-screen QR Pay flow.
+  // Default false because most merchants run a card-present flow
+  // (Tyro / ANZ TIM / Stripe Terminal) and we don't want QR Pay
+  // showing up unsolicited until they explicitly enable it.
+  qrPayEnabled: boolean('qr_pay_enabled').notNull().default(false),
   onboardingUrl: text('onboarding_url'),
   onboardingExpiresAt: timestamp('onboarding_expires_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
