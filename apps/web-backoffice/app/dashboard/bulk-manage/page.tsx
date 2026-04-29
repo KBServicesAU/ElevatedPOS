@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
+import { buildCsv } from '@/lib/csv';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -112,16 +113,15 @@ const ENTITIES: {
 function jsonToCSV(rows: Record<string, unknown>[]): string {
   if (!rows || rows.length === 0) return '';
   const headers = Object.keys(rows[0]);
-  const headerLine = headers.join(',');
-  const dataLines = rows.map((row) =>
-    headers
-      .map((h) => {
-        const val = row[h] == null ? '' : String(row[h]);
-        return val.includes(',') ? `"${val.replace(/"/g, '""')}"` : val;
-      })
-      .join(',')
-  );
-  return [headerLine, ...dataLines].join('\n');
+  // v2.7.75 — defer to the shared csv helper so cells starting with
+  // `=`, `+`, `-`, `@` get a leading single-quote (CWE-1236) and
+  // embedded quotes / newlines escape correctly. Previous logic only
+  // escaped commas, so a customer note containing `"` corrupted the
+  // row layout, and any cell starting with `=` was a formula vector.
+  return buildCsv([
+    headers,
+    ...rows.map((row) => headers.map((h) => row[h] ?? '')),
+  ]);
 }
 
 function downloadCSV(filename: string, content: string) {

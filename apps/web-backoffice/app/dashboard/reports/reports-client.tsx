@@ -10,6 +10,7 @@ import {
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 import { getErrorMessage } from '@/lib/formatting';
+import { downloadCsv } from '@/lib/csv';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -285,25 +286,17 @@ function buildPaymentMethods(orders: Order[]) {
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
 function exportOrdersCSV(orders: Order[], label: string) {
-  const headers = ['Order Number', 'Status', 'Channel', 'Payment Method', 'Total (AUD)', 'Customer ID', 'Created At'];
-  const rows = orders.map((o) => [
-    o.orderNumber, o.status, o.channel, o.paymentMethod ?? '',
-    orderTotal(o).toFixed(2), o.customerId ?? '', o.createdAt,
-  ]);
-
-  const csv = [headers, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `elevatedpos-orders-${label.replace(/[^a-zA-Z0-9]/g, '-')}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // v2.7.75 — see lib/csv.ts. The hand-rolled `"${cell}"` quoting did
+  // not defeat CSV formula injection (Excel evaluates `=…` even when
+  // quoted, because the quotes are stripped on display).
+  const rows: unknown[][] = [
+    ['Order Number', 'Status', 'Channel', 'Payment Method', 'Total (AUD)', 'Customer ID', 'Created At'],
+    ...orders.map((o) => [
+      o.orderNumber, o.status, o.channel, o.paymentMethod ?? '',
+      orderTotal(o).toFixed(2), o.customerId ?? '', o.createdAt,
+    ]),
+  ];
+  downloadCsv(`elevatedpos-orders-${label.replace(/[^a-zA-Z0-9]/g, '-')}.csv`, rows);
 }
 
 function classifyMenuProducts(products: MenuEngineeringProduct[]): MenuProduct[] {
@@ -330,29 +323,20 @@ function classifyMenuProducts(products: MenuEngineeringProduct[]): MenuProduct[]
 }
 
 function exportMenuEngineeringCSV(products: MenuProduct[], label: string) {
-  const headers = ['Name', 'Category', 'Quadrant', 'Units Sold', 'Revenue', 'Cost', 'Margin %', 'Contribution'];
-  const rows = products.map((p) => [
-    p.name,
-    p.category,
-    p.quadrant.charAt(0).toUpperCase() + p.quadrant.slice(1),
-    p.unitsSold,
-    p.revenue.toFixed(2),
-    p.cost.toFixed(2),
-    p.marginPct.toFixed(1) + '%',
-    p.contribution.toFixed(2),
-  ]);
-  const csv = [headers, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `menu-engineering-${label.replace(/[^a-zA-Z0-9]/g, '-')}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const rows: unknown[][] = [
+    ['Name', 'Category', 'Quadrant', 'Units Sold', 'Revenue', 'Cost', 'Margin %', 'Contribution'],
+    ...products.map((p) => [
+      p.name,
+      p.category,
+      p.quadrant.charAt(0).toUpperCase() + p.quadrant.slice(1),
+      p.unitsSold,
+      p.revenue.toFixed(2),
+      p.cost.toFixed(2),
+      p.marginPct.toFixed(1) + '%',
+      p.contribution.toFixed(2),
+    ]),
+  ];
+  downloadCsv(`menu-engineering-${label.replace(/[^a-zA-Z0-9]/g, '-')}.csv`, rows);
 }
 
 // ─── Printable Report ────────────────────────────────────────────────────────

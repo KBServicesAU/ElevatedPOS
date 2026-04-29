@@ -12,6 +12,7 @@ import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 import type { StockItem, PurchaseOrder } from '@/lib/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/formatting';
+import { downloadCsv } from '@/lib/csv';
 
 // Augment StockItem locally with optional pricing fields
 type StockItemWithPricing = StockItem & {
@@ -478,27 +479,23 @@ function StockMovementsTab() {
   }, [movements, search, typeFilter, dateFrom, dateTo]);
 
   function exportCSV() {
-    const header = 'Date,Product,SKU,Type,Qty Change,Location,Reference,User';
-    const rows = filtered.map((m) =>
-      [
+    // v2.7.75 — see lib/csv.ts. Hand-rolled `"…"` quoting failed for
+    // names containing literal quote characters and didn't defeat
+    // CSV formula injection.
+    const rows: unknown[][] = [
+      ['Date', 'Product', 'SKU', 'Type', 'Qty Change', 'Location', 'Reference', 'User'],
+      ...filtered.map((m) => [
         new Date(m.date).toLocaleString('en-AU'),
-        `"${m.productName}"`,
+        m.productName,
         m.sku,
         m.type,
         m.qtyChange,
-        `"${m.location}"`,
+        m.location,
         m.reference,
-        `"${m.user}"`,
-      ].join(','),
-    );
-    const csv = [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `stock-movements-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+        m.user,
+      ]),
+    ];
+    downloadCsv(`stock-movements-${new Date().toISOString().slice(0, 10)}.csv`, rows);
   }
 
   const typeOptions: { value: MovementType | 'all'; label: string }[] = [
@@ -682,10 +679,10 @@ function StockLevelsTab({
   }, [valuationRows]);
 
   function exportValuationCSV() {
-    const header = 'Product,SKU,On Hand,Cost Price,Stock Value,Retail Price,Retail Value,Margin %';
-    const rows = valuationRows.map(({ item, cost, retail, stockValue, retailValue, margin }) =>
-      [
-        `"${item.productName ?? item.productId}"`,
+    const rows: unknown[][] = [
+      ['Product', 'SKU', 'On Hand', 'Cost Price', 'Stock Value', 'Retail Price', 'Retail Value', 'Margin %'],
+      ...valuationRows.map(({ item, cost, retail, stockValue, retailValue, margin }) => [
+        item.productName ?? item.productId,
         item.sku ?? '',
         item.onHand,
         (cost / 100).toFixed(2),
@@ -693,20 +690,12 @@ function StockLevelsTab({
         (retail / 100).toFixed(2),
         (retailValue / 100).toFixed(2),
         margin !== null ? margin.toFixed(1) : '',
-      ].join(','),
-    );
-    const summary = [
-      '',
-      `"Total",,,,${(totals.totalStock / 100).toFixed(2)},,${(totals.totalRetail / 100).toFixed(2)},`,
+      ]),
+      // Summary row — empty cells around the totals for visual spacing.
+      [],
+      ['Total', '', '', '', (totals.totalStock / 100).toFixed(2), '', (totals.totalRetail / 100).toFixed(2), ''],
     ];
-    const csv = [header, ...rows, ...summary].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `inventory-valuation-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`inventory-valuation-${new Date().toISOString().slice(0, 10)}.csv`, rows);
     toast({ title: 'Exported', description: 'Valuation CSV downloaded.', variant: 'success' });
   }
 

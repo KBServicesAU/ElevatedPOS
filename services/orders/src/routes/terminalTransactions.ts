@@ -147,6 +147,17 @@ function csvEscape(v: unknown): string {
   let s = typeof v === 'string' ? v : v instanceof Date ? v.toISOString() : String(v);
   // Strip newlines from receipts/error messages so a single row is a single line.
   s = s.replace(/\r?\n/g, ' ').replace(/\r/g, ' ');
+  // v2.7.75 — CSV formula injection defense (CWE-1236). Excel / Sheets
+  // / Numbers all evaluate cells starting with `=`, `+`, `-`, `@`, or
+  // a tab/CR as a formula on open. A customer who registered with a
+  // name like `=HYPERLINK("https://attacker.com",...)` or
+  // `=cmd|'/c calc'!A1` could pop a shell on the merchant's
+  // workstation when they downloaded the report and opened it. Prefix
+  // any such cell with a leading single quote — Excel strips it on
+  // display so the data still looks correct in the spreadsheet UI.
+  if (s.length > 0 && /^[=+\-@\t\r]/.test(s)) {
+    s = "'" + s;
+  }
   if (s.includes(',') || s.includes('"')) {
     s = '"' + s.replace(/"/g, '""') + '"';
   }

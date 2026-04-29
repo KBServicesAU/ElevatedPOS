@@ -16,6 +16,7 @@ import {
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/formatting';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
+import { downloadCsv } from '@/lib/csv';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,18 +67,11 @@ const STATUS_BADGE: Record<StocktakeStatus, string> = {
   cancelled: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
 };
 
-function downloadCsv(filename: string, rows: string[][]) {
-  const csv = rows
-    .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+// v2.7.75 — was a hand-rolled `"${cell}"` wrapper; that quoting
+// strategy doesn't defeat CSV formula injection (Excel still
+// evaluates `=…` when the cell is quoted because the quotes are
+// stripped on display) and embedded `\n` in cells corrupted the
+// row layout. Now uses the shared lib helper.
 
 // ─── New Stocktake Modal ──────────────────────────────────────────────────────
 

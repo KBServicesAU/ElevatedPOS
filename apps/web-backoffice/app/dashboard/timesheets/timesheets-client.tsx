@@ -5,6 +5,7 @@ import { Download, CheckCheck, Loader2, Plus, Pencil, AlertTriangle, Check } fro
 import { useToast } from '@/lib/use-toast';
 import { apiFetch } from '@/lib/api';
 import { getErrorMessage } from '@/lib/formatting';
+import { downloadCsv } from '@/lib/csv';
 
 interface Shift {
   id: string;
@@ -465,35 +466,44 @@ export function TimesheetsClient() {
     : shifts;
 
   function exportPayroll() {
-    const header = 'Employee,Day,Clock In,Clock Out,Break (min),Hours,Hourly Rate,Total Pay';
-    const rows = shifts.map((s) => {
-      const rate = s.hourlyRate ?? 0;
-      const pay = s.totalHours * rate;
-      return `"${s.employeeName}","${s.day}","${s.clockIn}","${s.clockOut}",${s.breakMinutes},${s.totalHours.toFixed(2)},${rate.toFixed(2)},${pay.toFixed(2)}`;
-    });
-    const csvContent = [header, ...rows].join('\n');
-    const url = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `payroll-${getDateRange().dateFrom}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // v2.7.75 — buildCsv() handles per-cell escaping (commas inside
+    // employee names, embedded quotes) and prefixes formula-trigger
+    // characters (`=`, `+`, `-`, `@`) with a single quote to defeat
+    // CSV formula injection in Excel/Sheets/Numbers.
+    const rows: unknown[][] = [
+      ['Employee', 'Day', 'Clock In', 'Clock Out', 'Break (min)', 'Hours', 'Hourly Rate', 'Total Pay'],
+      ...shifts.map((s) => {
+        const rate = s.hourlyRate ?? 0;
+        const pay = s.totalHours * rate;
+        return [
+          s.employeeName,
+          s.day,
+          s.clockIn,
+          s.clockOut,
+          s.breakMinutes,
+          s.totalHours.toFixed(2),
+          rate.toFixed(2),
+          pay.toFixed(2),
+        ];
+      }),
+    ];
+    downloadCsv(`payroll-${getDateRange().dateFrom}.csv`, rows);
   }
 
   function exportCSV() {
-    const header = 'Employee,Day,Clock In,Clock Out,Break (min),Total Hours,Status';
-    const rows = shifts.map(
-      (s) =>
-        `"${s.employeeName}","${s.day}","${s.clockIn}","${s.clockOut}",${s.breakMinutes},${s.totalHours.toFixed(2)},"${s.status}"`,
-    );
-    const csv = [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `timesheets-${getDateRange().dateFrom}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const rows: unknown[][] = [
+      ['Employee', 'Day', 'Clock In', 'Clock Out', 'Break (min)', 'Total Hours', 'Status'],
+      ...shifts.map((s) => [
+        s.employeeName,
+        s.day,
+        s.clockIn,
+        s.clockOut,
+        s.breakMinutes,
+        s.totalHours.toFixed(2),
+        s.status,
+      ]),
+    ];
+    downloadCsv(`timesheets-${getDateRange().dateFrom}.csv`, rows);
   }
 
   async function approveAll() {

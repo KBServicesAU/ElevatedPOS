@@ -12,6 +12,7 @@ import type { Employee } from '@/lib/api';
 import { useToast } from '@/lib/use-toast';
 import { getErrorMessage } from '@/lib/formatting';
 import { auditLog } from '@/lib/audit';
+import { downloadCsv } from '@/lib/csv';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -872,7 +873,14 @@ function TimesheetsTab() {
   };
 
   const handleExport = () => {
-    const rows = [
+    // v2.7.75 — switched from a hand-rolled `rows.map(r => r.join(','))`
+    // to downloadCsv() which properly escapes per cell:
+    //   • commas/quotes inside names ("Smith, John") no longer split
+    //     into multiple columns
+    //   • CSV formula injection (CWE-1236) — names that begin with
+    //     `=`, `+`, `-`, `@`, or `\t` get a leading single-quote so
+    //     Excel doesn't evaluate them as formulas on file open
+    const rows: unknown[][] = [
       ['Name', 'Role', 'Pay Rate', 'Regular Hours', 'Overtime Hours', 'Total Pay', 'Period'],
       ...employees.map((emp) => {
         const total = getTotal(emp.id);
@@ -890,14 +898,7 @@ function TimesheetsTab() {
         ];
       }),
     ];
-    const csv = rows.map((r) => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `payroll-${weekStart.toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`payroll-${weekStart.toISOString().split('T')[0]}.csv`, rows);
   };
 
   const statusBadge = (status: ReturnType<typeof getStatus>) => {
