@@ -192,12 +192,42 @@ export async function organisationRoutes(app: FastifyInstance) {
   // PATCH /organisations/me/web-store        — authenticated, partial update
   // GET /organisations/by-slug/:slug         — public, returns org + webStore for storefront
 
+  // v2.7.86 — Shopify/Squarespace-lite: extend the webStore settings with
+  // hero image, About text, contact info, hours, and social links so a
+  // non-technical merchant can fully customise their public site without
+  // editing any code. All new fields are optional/nullable and default to
+  // sensible empty values so existing rows continue to work unchanged.
+  type DayHours = { open: string; close: string } | null; // 'closed' if null
+  type Hours = {
+    mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours;
+    fri: DayHours; sat: DayHours; sun: DayHours;
+  };
+  type ContactInfo = {
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+  };
+  type SocialLinks = {
+    instagram: string | null;
+    facebook: string | null;
+    twitter: string | null;
+    tiktok: string | null;
+    website: string | null;
+  };
+
   type WebStoreSettings = {
     enabled: boolean;
     theme: 'minimal' | 'modern' | 'warm' | 'classic';
     description: string | null;
     primaryColor: string | null;
     logoUrl: string | null;
+    // v2.7.86 — Hero / About / Contact / Hours / Socials.
+    heroImageUrl: string | null;
+    heroCtaText: string | null;
+    aboutText: string | null;
+    contact: ContactInfo;
+    hours: Hours;
+    socials: SocialLinks;
     // Hospitality
     onlineOrderingEnabled: boolean;
     reservationsEnabled: boolean;
@@ -209,12 +239,26 @@ export async function organisationRoutes(app: FastifyInstance) {
     shippingFlatRateCents: number | null;
   };
 
+  const EMPTY_HOURS: Hours = {
+    mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null,
+  };
+  const EMPTY_CONTACT: ContactInfo = { phone: null, email: null, address: null };
+  const EMPTY_SOCIALS: SocialLinks = {
+    instagram: null, facebook: null, twitter: null, tiktok: null, website: null,
+  };
+
   const DEFAULT_WEB_STORE: WebStoreSettings = {
     enabled: false,
     theme: 'minimal',
     description: null,
     primaryColor: null,
     logoUrl: null,
+    heroImageUrl: null,
+    heroCtaText: null,
+    aboutText: null,
+    contact: { ...EMPTY_CONTACT },
+    hours: { ...EMPTY_HOURS },
+    socials: { ...EMPTY_SOCIALS },
     onlineOrderingEnabled: false,
     reservationsEnabled: false,
     bookingsEnabled: false,
@@ -222,6 +266,55 @@ export async function organisationRoutes(app: FastifyInstance) {
     inventorySync: true,
     shippingFlatRateCents: null,
   };
+
+  function readNullableString(v: unknown): string | null {
+    return typeof v === 'string' && v.length > 0 ? v : null;
+  }
+
+  function readDayHours(v: unknown): DayHours {
+    if (!v || typeof v !== 'object') return null;
+    const dh = v as Record<string, unknown>;
+    if (typeof dh['open'] === 'string' && typeof dh['close'] === 'string') {
+      return { open: dh['open'] as string, close: dh['close'] as string };
+    }
+    return null;
+  }
+
+  function readHours(v: unknown): Hours {
+    if (!v || typeof v !== 'object') return { ...EMPTY_HOURS };
+    const h = v as Record<string, unknown>;
+    return {
+      mon: readDayHours(h['mon']),
+      tue: readDayHours(h['tue']),
+      wed: readDayHours(h['wed']),
+      thu: readDayHours(h['thu']),
+      fri: readDayHours(h['fri']),
+      sat: readDayHours(h['sat']),
+      sun: readDayHours(h['sun']),
+    };
+  }
+
+  function readContact(v: unknown): ContactInfo {
+    if (!v || typeof v !== 'object') return { ...EMPTY_CONTACT };
+    const c = v as Record<string, unknown>;
+    return {
+      phone: readNullableString(c['phone']),
+      email: readNullableString(c['email']),
+      address: readNullableString(c['address']),
+    };
+  }
+
+  function readSocials(v: unknown): SocialLinks {
+    if (!v || typeof v !== 'object') return { ...EMPTY_SOCIALS };
+    const s = v as Record<string, unknown>;
+    return {
+      instagram: readNullableString(s['instagram']),
+      facebook: readNullableString(s['facebook']),
+      twitter: readNullableString(s['twitter']),
+      tiktok: readNullableString(s['tiktok']),
+      website: readNullableString(s['website']),
+    };
+  }
 
   function readWebStoreSettings(rawSettings: unknown): WebStoreSettings {
     const settings = (rawSettings && typeof rawSettings === 'object') ? rawSettings as Record<string, unknown> : {};
@@ -247,6 +340,12 @@ export async function organisationRoutes(app: FastifyInstance) {
       description: typeof stored['description'] === 'string' ? stored['description'] as string : DEFAULT_WEB_STORE.description,
       primaryColor: typeof stored['primaryColor'] === 'string' ? stored['primaryColor'] as string : DEFAULT_WEB_STORE.primaryColor,
       logoUrl: typeof stored['logoUrl'] === 'string' ? stored['logoUrl'] as string : DEFAULT_WEB_STORE.logoUrl,
+      heroImageUrl: readNullableString(stored['heroImageUrl']),
+      heroCtaText: readNullableString(stored['heroCtaText']),
+      aboutText: readNullableString(stored['aboutText']),
+      contact: readContact(stored['contact']),
+      hours: readHours(stored['hours']),
+      socials: readSocials(stored['socials']),
       onlineOrderingEnabled: typeof stored['onlineOrderingEnabled'] === 'boolean' ? stored['onlineOrderingEnabled'] as boolean : DEFAULT_WEB_STORE.onlineOrderingEnabled,
       reservationsEnabled: typeof stored['reservationsEnabled'] === 'boolean' ? stored['reservationsEnabled'] as boolean : DEFAULT_WEB_STORE.reservationsEnabled,
       bookingsEnabled: typeof stored['bookingsEnabled'] === 'boolean' ? stored['bookingsEnabled'] as boolean : DEFAULT_WEB_STORE.bookingsEnabled,
@@ -281,12 +380,40 @@ export async function organisationRoutes(app: FastifyInstance) {
       priceCents: z.number().int().nonnegative(),
     });
 
+    const dayHoursSchema = z.object({
+      open: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:MM'),
+      close: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:MM'),
+    }).nullable();
+    const hoursSchema = z.object({
+      mon: dayHoursSchema, tue: dayHoursSchema, wed: dayHoursSchema, thu: dayHoursSchema,
+      fri: dayHoursSchema, sat: dayHoursSchema, sun: dayHoursSchema,
+    }).partial();
+    const contactSchema = z.object({
+      phone: z.string().max(40).nullable().optional(),
+      email: z.string().email().max(200).nullable().optional(),
+      address: z.string().max(500).nullable().optional(),
+    });
+    const socialsSchema = z.object({
+      instagram: z.string().url().max(300).nullable().optional(),
+      facebook:  z.string().url().max(300).nullable().optional(),
+      twitter:   z.string().url().max(300).nullable().optional(),
+      tiktok:    z.string().url().max(300).nullable().optional(),
+      website:   z.string().url().max(300).nullable().optional(),
+    });
+
     const parsed = z.object({
       enabled: z.boolean().optional(),
       theme: z.enum(['minimal', 'modern', 'warm', 'classic']).optional(),
       description: z.string().max(2000).nullable().optional(),
       primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
       logoUrl: z.string().url().nullable().optional(),
+      // v2.7.86 — hero/about/contact/hours/socials extensions.
+      heroImageUrl: z.string().url().nullable().optional(),
+      heroCtaText: z.string().max(60).nullable().optional(),
+      aboutText: z.string().max(5000).nullable().optional(),
+      contact: contactSchema.optional(),
+      hours: hoursSchema.optional(),
+      socials: socialsSchema.optional(),
       onlineOrderingEnabled: z.boolean().optional(),
       reservationsEnabled: z.boolean().optional(),
       bookingsEnabled: z.boolean().optional(),
@@ -315,7 +442,22 @@ export async function organisationRoutes(app: FastifyInstance) {
     for (const [k, v] of Object.entries(parsed.data)) {
       if (v !== undefined) (patch as Record<string, unknown>)[k] = v;
     }
-    const mergedWebStore: WebStoreSettings = { ...currentWebStore, ...patch };
+    // v2.7.86 — deep-merge contact / hours / socials. The dashboard sometimes
+    // sends only the field the user just edited (e.g. just `contact.phone`),
+    // and a shallow spread would null the siblings.
+    const mergedWebStore: WebStoreSettings = {
+      ...currentWebStore,
+      ...patch,
+      contact: patch.contact
+        ? { ...currentWebStore.contact, ...patch.contact }
+        : currentWebStore.contact,
+      hours: patch.hours
+        ? { ...currentWebStore.hours, ...patch.hours }
+        : currentWebStore.hours,
+      socials: patch.socials
+        ? { ...currentWebStore.socials, ...patch.socials }
+        : currentWebStore.socials,
+    };
     const newSettings: Record<string, unknown> = { ...currentSettings, webStore: mergedWebStore };
 
     await db.update(schema.organisations)

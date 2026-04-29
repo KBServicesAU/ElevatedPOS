@@ -20,12 +20,35 @@ interface BookingService {
   priceCents: number;
 }
 
+// v2.7.86 — extended customisation: hero, about, contact, hours, socials.
+type DayHours = { open: string; close: string } | null;
+type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+type Hours = Record<DayKey, DayHours>;
+interface ContactInfo {
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+}
+interface SocialLinks {
+  instagram: string | null;
+  facebook: string | null;
+  twitter: string | null;
+  tiktok: string | null;
+  website: string | null;
+}
+
 interface WebStoreSettings {
   enabled: boolean;
   theme: Theme;
   description: string | null;
   primaryColor: string | null;
   logoUrl: string | null;
+  heroImageUrl: string | null;
+  heroCtaText: string | null;
+  aboutText: string | null;
+  contact: ContactInfo;
+  hours: Hours;
+  socials: SocialLinks;
   onlineOrderingEnabled: boolean;
   reservationsEnabled: boolean;
   bookingsEnabled: boolean;
@@ -33,6 +56,15 @@ interface WebStoreSettings {
   inventorySync: boolean;
   shippingFlatRateCents: number | null;
 }
+
+const EMPTY_HOURS: Hours = {
+  mon: null, tue: null, wed: null, thu: null,
+  fri: null, sat: null, sun: null,
+};
+const EMPTY_CONTACT: ContactInfo = { phone: null, email: null, address: null };
+const EMPTY_SOCIALS: SocialLinks = {
+  instagram: null, facebook: null, twitter: null, tiktok: null, website: null,
+};
 
 interface WebStoreResponse extends WebStoreSettings {
   slug: string;
@@ -77,8 +109,34 @@ export default function WebStoreDashboardPage() {
       try {
         const res = await fetch('/api/proxy/organisations/me/web-store');
         if (!res.ok) throw new Error(`Status ${res.status}`);
-        const json = (await res.json()) as WebStoreResponse;
-        if (!cancelled) setData(json);
+        const json = (await res.json()) as Partial<WebStoreResponse>;
+        if (cancelled) return;
+        // v2.7.86 — back-fill new fields when an older row is loaded so the
+        // controls are always defined and React isn't given undefined values.
+        const normalised: WebStoreResponse = {
+          slug: json.slug ?? '',
+          businessName: json.businessName ?? '',
+          industry: json.industry ?? null,
+          previewUrl: json.previewUrl ?? '',
+          enabled: json.enabled ?? false,
+          theme: (json.theme as Theme) ?? 'minimal',
+          description: json.description ?? null,
+          primaryColor: json.primaryColor ?? null,
+          logoUrl: json.logoUrl ?? null,
+          heroImageUrl: json.heroImageUrl ?? null,
+          heroCtaText: json.heroCtaText ?? null,
+          aboutText: json.aboutText ?? null,
+          contact: { ...EMPTY_CONTACT, ...(json.contact ?? {}) },
+          hours: { ...EMPTY_HOURS, ...(json.hours ?? {}) },
+          socials: { ...EMPTY_SOCIALS, ...(json.socials ?? {}) },
+          onlineOrderingEnabled: json.onlineOrderingEnabled ?? false,
+          reservationsEnabled: json.reservationsEnabled ?? false,
+          bookingsEnabled: json.bookingsEnabled ?? false,
+          bookingServices: Array.isArray(json.bookingServices) ? json.bookingServices : [],
+          inventorySync: json.inventorySync ?? true,
+          shippingFlatRateCents: json.shippingFlatRateCents ?? null,
+        };
+        setData(normalised);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load');
       } finally {
@@ -105,6 +163,12 @@ export default function WebStoreDashboardPage() {
         description: data.description,
         primaryColor: data.primaryColor,
         logoUrl: data.logoUrl,
+        heroImageUrl: data.heroImageUrl,
+        heroCtaText: data.heroCtaText,
+        aboutText: data.aboutText,
+        contact: data.contact,
+        hours: data.hours,
+        socials: data.socials,
         onlineOrderingEnabled: data.onlineOrderingEnabled,
         reservationsEnabled: data.reservationsEnabled,
         bookingsEnabled: data.bookingsEnabled,
@@ -285,6 +349,53 @@ export default function WebStoreDashboardPage() {
         </div>
       </Section>
 
+      {/* Hero */}
+      <Section title="Hero section">
+        <Field label="Hero background image URL (optional)">
+          <input
+            type="url"
+            value={data.heroImageUrl ?? ''}
+            onChange={(e) => update('heroImageUrl', e.target.value || null)}
+            placeholder="https://cdn.example.com/hero.jpg"
+            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Wide landscape image works best. Leave empty for a clean gradient.
+          </p>
+        </Field>
+        <Field label="Call-to-action button text (optional)">
+          <input
+            type="text"
+            maxLength={60}
+            value={data.heroCtaText ?? ''}
+            onChange={(e) => update('heroCtaText', e.target.value || null)}
+            placeholder={
+              showHospitality ? 'Order Online' : showServices ? 'Book now' : 'Shop now'
+            }
+            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Default is industry-aware. Override here to match your brand.
+          </p>
+        </Field>
+      </Section>
+
+      {/* About */}
+      <Section title="About">
+        <Field label="Tell customers your story (optional)">
+          <textarea
+            value={data.aboutText ?? ''}
+            onChange={(e) => update('aboutText', e.target.value || null)}
+            rows={5}
+            placeholder="A short paragraph about your business — when you started, what makes you different, why customers love you."
+            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Up to 5000 characters. Line breaks are preserved.
+          </p>
+        </Field>
+      </Section>
+
       {/* Hospitality sections */}
       {showHospitality && (
         <Section title="Hospitality features">
@@ -356,6 +467,117 @@ export default function WebStoreDashboardPage() {
           </p>
         </Section>
       )}
+
+      {/* Contact */}
+      <Section title="Contact information">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Phone">
+            <input
+              type="tel"
+              value={data.contact.phone ?? ''}
+              onChange={(e) =>
+                update('contact', { ...data.contact, phone: e.target.value || null })
+              }
+              placeholder="+61 3 9000 0000"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+            />
+          </Field>
+          <Field label="Email">
+            <input
+              type="email"
+              value={data.contact.email ?? ''}
+              onChange={(e) =>
+                update('contact', { ...data.contact, email: e.target.value || null })
+              }
+              placeholder="hello@yourbusiness.com.au"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+            />
+          </Field>
+        </div>
+        <Field label="Street address">
+          <textarea
+            value={data.contact.address ?? ''}
+            onChange={(e) =>
+              update('contact', { ...data.contact, address: e.target.value || null })
+            }
+            rows={2}
+            placeholder="42 Main Street, Melbourne VIC 3000"
+            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+          />
+        </Field>
+      </Section>
+
+      {/* Hours */}
+      <Section title="Opening hours">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          Set the times you&apos;re open each day. Leave a day off to mark it closed.
+        </p>
+        <BusinessHoursEditor
+          hours={data.hours}
+          onChange={(h) => update('hours', h)}
+        />
+      </Section>
+
+      {/* Socials */}
+      <Section title="Social media & website">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="Instagram URL">
+            <input
+              type="url"
+              value={data.socials.instagram ?? ''}
+              onChange={(e) =>
+                update('socials', { ...data.socials, instagram: e.target.value || null })
+              }
+              placeholder="https://instagram.com/yourhandle"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+            />
+          </Field>
+          <Field label="Facebook URL">
+            <input
+              type="url"
+              value={data.socials.facebook ?? ''}
+              onChange={(e) =>
+                update('socials', { ...data.socials, facebook: e.target.value || null })
+              }
+              placeholder="https://facebook.com/yourpage"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+            />
+          </Field>
+          <Field label="X (Twitter) URL">
+            <input
+              type="url"
+              value={data.socials.twitter ?? ''}
+              onChange={(e) =>
+                update('socials', { ...data.socials, twitter: e.target.value || null })
+              }
+              placeholder="https://x.com/yourhandle"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+            />
+          </Field>
+          <Field label="TikTok URL">
+            <input
+              type="url"
+              value={data.socials.tiktok ?? ''}
+              onChange={(e) =>
+                update('socials', { ...data.socials, tiktok: e.target.value || null })
+              }
+              placeholder="https://tiktok.com/@yourhandle"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+            />
+          </Field>
+        </div>
+        <Field label="Other website (optional)">
+          <input
+            type="url"
+            value={data.socials.website ?? ''}
+            onChange={(e) =>
+              update('socials', { ...data.socials, website: e.target.value || null })
+            }
+            placeholder="https://yourbusiness.com.au"
+            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+          />
+        </Field>
+      </Section>
     </div>
   );
 }
@@ -415,6 +637,82 @@ function ToggleRow({
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>
       </div>
       <Toggle on={value} onChange={onChange} />
+    </div>
+  );
+}
+
+function BusinessHoursEditor({
+  hours,
+  onChange,
+}: {
+  hours: Hours;
+  onChange: (h: Hours) => void;
+}) {
+  const days: { key: DayKey; label: string }[] = [
+    { key: 'mon', label: 'Monday' },
+    { key: 'tue', label: 'Tuesday' },
+    { key: 'wed', label: 'Wednesday' },
+    { key: 'thu', label: 'Thursday' },
+    { key: 'fri', label: 'Friday' },
+    { key: 'sat', label: 'Saturday' },
+    { key: 'sun', label: 'Sunday' },
+  ];
+
+  function toggleClosed(key: DayKey, closed: boolean) {
+    if (closed) {
+      onChange({ ...hours, [key]: null });
+    } else {
+      // Default to 9–5 when re-opening a day so the picker isn't blank.
+      onChange({ ...hours, [key]: { open: '09:00', close: '17:00' } });
+    }
+  }
+
+  function setTime(key: DayKey, field: 'open' | 'close', value: string) {
+    const cur = hours[key] ?? { open: '09:00', close: '17:00' };
+    onChange({ ...hours, [key]: { ...cur, [field]: value } });
+  }
+
+  return (
+    <div className="space-y-2">
+      {days.map((d) => {
+        const isClosed = hours[d.key] === null;
+        return (
+          <div
+            key={d.key}
+            className="flex items-center gap-3 py-1.5"
+          >
+            <span className="w-24 text-sm font-medium text-gray-700 dark:text-gray-300">
+              {d.label}
+            </span>
+            <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isClosed}
+                onChange={(e) => toggleClosed(d.key, e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              Closed
+            </label>
+            {!isClosed && (
+              <>
+                <input
+                  type="time"
+                  value={hours[d.key]?.open ?? '09:00'}
+                  onChange={(e) => setTime(d.key, 'open', e.target.value)}
+                  className="px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+                />
+                <span className="text-gray-400">–</span>
+                <input
+                  type="time"
+                  value={hours[d.key]?.close ?? '17:00'}
+                  onChange={(e) => setTime(d.key, 'close', e.target.value)}
+                  className="px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+                />
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

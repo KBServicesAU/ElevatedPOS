@@ -4,7 +4,7 @@
  */
 
 import { fetchProducts, formatPrice, themeColors, type OrgInfo } from '../_lib/fetch';
-import { Hero, StorefrontShell } from './_shared';
+import { Hero, StorefrontShell, AboutBlock, ContactAndHoursBlock } from './_shared';
 
 export default async function HospitalityTemplate({ org }: { org: OrgInfo }) {
   const { primary } = themeColors(org.webStore.theme, org.webStore.primaryColor);
@@ -19,19 +19,26 @@ export default async function HospitalityTemplate({ org }: { org: OrgInfo }) {
     grouped.set(key, arr);
   }
 
+  const ctaLabel = org.webStore.heroCtaText ?? 'Order Online';
+
   return (
     <StorefrontShell org={org}>
       <Hero
         title={org.name}
         subtitle={org.webStore.description}
         primary={primary}
+        imageUrl={org.webStore.heroImageUrl}
         {...(org.webStore.onlineOrderingEnabled
-          ? { cta: { label: 'Order Online', href: '#menu' } }
-          : {})}
+          ? { cta: { label: ctaLabel, href: '#menu' } }
+          : org.webStore.reservationsEnabled
+            ? { cta: { label: org.webStore.heroCtaText ?? 'Reserve a table', href: '#reserve' } }
+            : {})}
       />
 
+      <AboutBlock text={org.webStore.aboutText} primary={primary} />
+
       {org.webStore.reservationsEnabled && (
-        <section className="max-w-3xl mx-auto px-4 py-10">
+        <section id="reserve" className="max-w-3xl mx-auto px-4 py-10">
           <div
             className="rounded-2xl p-8 text-center"
             style={{ backgroundColor: `${primary}10`, border: `1px solid ${primary}33` }}
@@ -79,6 +86,12 @@ export default async function HospitalityTemplate({ org }: { org: OrgInfo }) {
           </div>
         )}
       </section>
+
+      <ContactAndHoursBlock
+        contact={org.webStore.contact}
+        hours={org.webStore.hours}
+        primary={primary}
+      />
     </StorefrontShell>
   );
 }

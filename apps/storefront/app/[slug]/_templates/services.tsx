@@ -5,7 +5,7 @@
  */
 
 import { formatPrice, themeColors, type OrgInfo } from '../_lib/fetch';
-import { Hero, StorefrontShell } from './_shared';
+import { Hero, StorefrontShell, AboutBlock, ContactAndHoursBlock } from './_shared';
 
 export default function ServicesTemplate({ org }: { org: OrgInfo }) {
   const { primary } = themeColors(org.webStore.theme, org.webStore.primaryColor);
@@ -17,8 +17,11 @@ export default function ServicesTemplate({ org }: { org: OrgInfo }) {
         title={org.name}
         subtitle={org.webStore.description ?? 'Book online — pick a service and time that suits you.'}
         primary={primary}
-        {...(services.length > 0 ? { cta: { label: 'Book now', href: '#book' } } : {})}
+        imageUrl={org.webStore.heroImageUrl}
+        {...(services.length > 0 ? { cta: { label: org.webStore.heroCtaText ?? 'Book now', href: '#book' } } : {})}
       />
+
+      <AboutBlock text={org.webStore.aboutText} primary={primary} />
 
       <section id="book" className="max-w-3xl mx-auto px-4 py-12">
         {!org.webStore.bookingsEnabled ? (
@@ -35,6 +38,12 @@ export default function ServicesTemplate({ org }: { org: OrgInfo }) {
           <BookingForm org={org} primary={primary} />
         )}
       </section>
+
+      <ContactAndHoursBlock
+        contact={org.webStore.contact}
+        hours={org.webStore.hours}
+        primary={primary}
+      />
     </StorefrontShell>
   );
 }

@@ -6,12 +6,38 @@
  * page.tsx) so we don't hammer the API on every request.
  */
 
+// v2.7.86 — Shopify/Squarespace-lite extensions: hero, about, contact,
+// hours, social links. All optional / nullable so old configs keep working.
+export type DayHours = { open: string; close: string } | null;
+export interface BusinessHours {
+  mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours;
+  fri: DayHours; sat: DayHours; sun: DayHours;
+}
+export interface ContactInfo {
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+}
+export interface SocialLinks {
+  instagram: string | null;
+  facebook: string | null;
+  twitter: string | null;
+  tiktok: string | null;
+  website: string | null;
+}
+
 export interface WebStoreSettings {
   enabled: boolean;
   theme: 'minimal' | 'modern' | 'warm' | 'classic';
   description: string | null;
   primaryColor: string | null;
   logoUrl: string | null;
+  heroImageUrl: string | null;
+  heroCtaText: string | null;
+  aboutText: string | null;
+  contact: ContactInfo;
+  hours: BusinessHours;
+  socials: SocialLinks;
   onlineOrderingEnabled: boolean;
   reservationsEnabled: boolean;
   bookingsEnabled: boolean;
@@ -42,12 +68,27 @@ export interface CatalogProduct {
   tags?: string[];
 }
 
+const EMPTY_HOURS: BusinessHours = {
+  mon: null, tue: null, wed: null, thu: null,
+  fri: null, sat: null, sun: null,
+};
+const EMPTY_CONTACT: ContactInfo = { phone: null, email: null, address: null };
+const EMPTY_SOCIALS: SocialLinks = {
+  instagram: null, facebook: null, twitter: null, tiktok: null, website: null,
+};
+
 const DEFAULT_WEB_STORE: WebStoreSettings = {
   enabled: false,
   theme: 'minimal',
   description: null,
   primaryColor: null,
   logoUrl: null,
+  heroImageUrl: null,
+  heroCtaText: null,
+  aboutText: null,
+  contact: { ...EMPTY_CONTACT },
+  hours: { ...EMPTY_HOURS },
+  socials: { ...EMPTY_SOCIALS },
   onlineOrderingEnabled: false,
   reservationsEnabled: false,
   bookingsEnabled: false,
@@ -79,6 +120,27 @@ function demoOrg(): OrgInfo {
       description: 'Fresh coffee and food. Order online for pickup.',
       primaryColor: '#b45309',
       onlineOrderingEnabled: true,
+      reservationsEnabled: true,
+      aboutText:
+        'A neighbourhood café serving specialty coffee since 2018. Single-origin beans roasted weekly, breakfast and lunch made fresh daily. Pop in or pre-order online — we’ll have it ready for you.',
+      contact: {
+        phone: '+61 3 9000 0000',
+        email: 'hello@democafe.example',
+        address: '42 Demo Street, Melbourne VIC 3000',
+      },
+      hours: {
+        mon: { open: '07:00', close: '15:00' },
+        tue: { open: '07:00', close: '15:00' },
+        wed: { open: '07:00', close: '15:00' },
+        thu: { open: '07:00', close: '15:00' },
+        fri: { open: '07:00', close: '15:00' },
+        sat: { open: '08:00', close: '14:00' },
+        sun: null,
+      },
+      socials: {
+        instagram: 'https://instagram.com/democafe',
+        facebook: null, twitter: null, tiktok: null, website: null,
+      },
     },
   };
 }

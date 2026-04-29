@@ -41,8 +41,10 @@ function pickTemplate(industry: string | null): 'hospitality' | 'services' | 're
 
 export default async function PublicStorefrontPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { slug } = await params;
   if (RESERVED_SLUGS.has(slug)) notFound();
@@ -56,15 +58,66 @@ export default async function PublicStorefrontPage({
     return <ComingSoon businessName={org.name} primaryColor={ws.primaryColor} />;
   }
 
+  // v2.7.86 — surface a confirmation banner when the user is redirected
+  // back from /api/reservations or /api/bookings so they get a clear
+  // success/failure signal instead of just landing on the homepage again.
+  const sp = await searchParams;
+  const reservationStatus = typeof sp['reservation'] === 'string' ? sp['reservation'] : null;
+  const bookingStatus = typeof sp['booking'] === 'string' ? sp['booking'] : null;
+
+  const banner = renderStatusBanner(reservationStatus, bookingStatus);
+
   const template = pickTemplate(org.industry);
 
   if (template === 'hospitality') {
-    return <HospitalityTemplate org={org} />;
+    return (
+      <>
+        {banner}
+        <HospitalityTemplate org={org} />
+      </>
+    );
   }
   if (template === 'services') {
-    return <ServicesTemplate org={org} />;
+    return (
+      <>
+        {banner}
+        <ServicesTemplate org={org} />
+      </>
+    );
   }
-  return <RetailTemplate org={org} />;
+  return (
+    <>
+      {banner}
+      <RetailTemplate org={org} />
+    </>
+  );
+}
+
+function renderStatusBanner(reservation: string | null, booking: string | null) {
+  const status = reservation ?? booking;
+  if (!status) return null;
+  const kind = reservation ? 'reservation' : 'booking';
+  const messages: Record<string, { tone: 'ok' | 'pending' | 'err'; text: string }> = {
+    confirmed: { tone: 'ok', text: `Your ${kind} is confirmed — we'll be in touch shortly.` },
+    'pending-deposit': {
+      tone: 'pending',
+      text: `Your ${kind} is reserved pending a deposit. The merchant will follow up to take payment.`,
+    },
+    'missing-fields': { tone: 'err', text: 'Some required details were missing. Please try again.' },
+    failed: { tone: 'err', text: 'Something went wrong submitting your request. Please try again.' },
+  };
+  const m = messages[status];
+  if (!m) return null;
+  const colors: Record<typeof m.tone, string> = {
+    ok: 'bg-green-50 border-green-200 text-green-800',
+    pending: 'bg-amber-50 border-amber-200 text-amber-800',
+    err: 'bg-red-50 border-red-200 text-red-800',
+  };
+  return (
+    <div className={`px-4 py-3 border-b text-sm text-center ${colors[m.tone]}`} role="status">
+      {m.text}
+    </div>
+  );
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {

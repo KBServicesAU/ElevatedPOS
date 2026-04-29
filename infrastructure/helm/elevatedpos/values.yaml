@@ -304,16 +304,17 @@ marketingSite:
 
 # v2.7.85 — public merchant storefronts at `site.elevatedpos.com.au/<slug>`.
 # The `[slug]` route is already implemented in
-# apps/storefront/app/[slug]/page.tsx; this block adds the host wiring.
+# apps/storefront/app/[slug]/page.tsx; this block wires the host through
+# nginx-ingress + cert-manager.
 #
-# IMPORTANT: before tagging a release that enables this, the DNS A/CNAME
-# for `site.elevatedpos.com.au` MUST already resolve to the cluster's
-# nginx-ingress load balancer. Cert-manager uses HTTP-01 challenges
-# (see infrastructure/k8s/cluster-issuer.yaml), and a missing DNS record
-# would cause the cert request to fail. The host gets its OWN
-# TLS secret so it can't take down the marketing-site cert if DNS lags.
+# IMPORTANT: the DNS A/CNAME for `site.elevatedpos.com.au` must resolve
+# to the cluster's nginx-ingress load balancer for cert-manager's HTTP-01
+# challenge to succeed. The host has its OWN TLS secret so a DNS lag
+# can't take down the marketing-site cert.
+#
+# v2.7.86 — flipped enabled to true alongside the Shopify-lite extensions.
 storesPortal:
-  enabled: false  # flip to `true` once DNS for site.elevatedpos.com.au is live
+  enabled: true
   host: site.elevatedpos.com.au
   service: storefront
   port: 3002

@@ -6,7 +6,7 @@
 
 import Link from 'next/link';
 import { fetchProducts, formatPrice, themeColors, type OrgInfo, type CatalogProduct } from '../_lib/fetch';
-import { Hero, StorefrontShell } from './_shared';
+import { Hero, StorefrontShell, AboutBlock, ContactAndHoursBlock } from './_shared';
 
 export default async function RetailTemplate({ org }: { org: OrgInfo }) {
   const { primary } = themeColors(org.webStore.theme, org.webStore.primaryColor);
@@ -26,9 +26,19 @@ export default async function RetailTemplate({ org }: { org: OrgInfo }) {
         </Link>
       }
     >
-      <Hero title={org.name} subtitle={org.webStore.description} primary={primary} />
+      <Hero
+        title={org.name}
+        subtitle={org.webStore.description}
+        primary={primary}
+        imageUrl={org.webStore.heroImageUrl}
+        {...(products.length > 0
+          ? { cta: { label: org.webStore.heroCtaText ?? 'Shop now', href: '#products' } }
+          : {})}
+      />
 
-      <div className="max-w-6xl mx-auto px-4 py-12">
+      <AboutBlock text={org.webStore.aboutText} primary={primary} />
+
+      <div id="products" className="max-w-6xl mx-auto px-4 py-12">
         {featured.length > 0 && (
           <section className="mb-12">
             <h2 className="text-2xl font-bold mb-6">Featured</h2>
@@ -62,6 +72,12 @@ export default async function RetailTemplate({ org }: { org: OrgInfo }) {
           </p>
         )}
       </div>
+
+      <ContactAndHoursBlock
+        contact={org.webStore.contact}
+        hours={org.webStore.hours}
+        primary={primary}
+      />
     </StorefrontShell>
   );
 }
