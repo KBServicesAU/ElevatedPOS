@@ -105,48 +105,14 @@ function catalogBase(): string {
   return process.env['CATALOG_SERVICE_URL'] ?? 'http://localhost:4002';
 }
 
-/** Demo shortcut so the marketing-site demo button always has a working storefront. */
-function demoOrg(): OrgInfo {
-  return {
-    id: '00000000-0000-0000-0000-000000000001',
-    name: 'Demo Cafe',
-    slug: 'demo',
-    industry: 'cafe',
-    currency: 'AUD',
-    webStore: {
-      ...DEFAULT_WEB_STORE,
-      enabled: true,
-      theme: 'warm',
-      description: 'Fresh coffee and food. Order online for pickup.',
-      primaryColor: '#b45309',
-      onlineOrderingEnabled: true,
-      reservationsEnabled: true,
-      aboutText:
-        'A neighbourhood café serving specialty coffee since 2018. Single-origin beans roasted weekly, breakfast and lunch made fresh daily. Pop in or pre-order online — we’ll have it ready for you.',
-      contact: {
-        phone: '+61 3 9000 0000',
-        email: 'hello@democafe.example',
-        address: '42 Demo Street, Melbourne VIC 3000',
-      },
-      hours: {
-        mon: { open: '07:00', close: '15:00' },
-        tue: { open: '07:00', close: '15:00' },
-        wed: { open: '07:00', close: '15:00' },
-        thu: { open: '07:00', close: '15:00' },
-        fri: { open: '07:00', close: '15:00' },
-        sat: { open: '08:00', close: '14:00' },
-        sun: null,
-      },
-      socials: {
-        instagram: 'https://instagram.com/democafe',
-        facebook: null, twitter: null, tiktok: null, website: null,
-      },
-    },
-  };
-}
+// v2.7.87 — the hardcoded demoOrg() / demoProducts() shortcuts were
+// removed. The 'demo' slug is now backed by a real organisations row
+// seeded at auth-service startup (services/auth/src/seed.ts) and a
+// real catalog at catalog-service startup (services/catalog/src/seed.ts).
+// This means the platform owner can sign in as demo@elevatedpos.com.au
+// and edit the demo store via /dashboard/web-store like a normal merchant.
 
 export async function fetchOrgBySlug(slug: string): Promise<OrgInfo | null> {
-  if (slug === 'demo') return demoOrg();
   try {
     const res = await fetch(`${authBase()}/api/v1/organisations/by-slug/${encodeURIComponent(slug)}`, {
       next: { revalidate: 300 },
@@ -168,32 +134,26 @@ export async function fetchOrgBySlug(slug: string): Promise<OrgInfo | null> {
 }
 
 export async function fetchProducts(orgId: string): Promise<CatalogProduct[]> {
-  // Demo always returns a small sample so the demo storefront isn't empty.
-  if (orgId === '00000000-0000-0000-0000-000000000001') {
-    return demoProducts();
-  }
   try {
     const res = await fetch(
       `${catalogBase()}/api/v1/products/storefront?orgId=${encodeURIComponent(orgId)}`,
       { next: { revalidate: 60 } },
     );
     if (!res.ok) return [];
-    const data = (await res.json()) as { products?: CatalogProduct[] };
-    return data.products ?? [];
+    const data = (await res.json()) as {
+      products?: (Omit<CatalogProduct, 'basePrice'> & { basePrice: number | string })[];
+    };
+    // v2.7.87 — the catalog stores basePrice as a Postgres decimal (read
+    // back as a stringified dollars value, e.g. "5.5000") while every
+    // template uses cents via formatPrice(cents). Normalise here so the
+    // templates don't have to know about the unit mismatch.
+    return (data.products ?? []).map((p) => ({
+      ...p,
+      basePrice: Math.round(Number(p.basePrice) * 100),
+    }));
   } catch {
     return [];
   }
-}
-
-function demoProducts(): CatalogProduct[] {
-  return [
-    { id: 'd1', name: 'Flat White', sku: 'COF-001', basePrice: 550, category: { id: 'c1', name: 'Coffee' } },
-    { id: 'd2', name: 'Latte', sku: 'COF-002', basePrice: 550, category: { id: 'c1', name: 'Coffee' } },
-    { id: 'd3', name: 'Long Black', sku: 'COF-003', basePrice: 500, category: { id: 'c1', name: 'Coffee' } },
-    { id: 'd4', name: 'Avocado Toast', sku: 'FOOD-001', basePrice: 1450, category: { id: 'c2', name: 'Food' } },
-    { id: 'd5', name: 'Bacon & Egg Roll', sku: 'FOOD-002', basePrice: 1200, category: { id: 'c2', name: 'Food' } },
-    { id: 'd6', name: 'Banana Bread', sku: 'FOOD-003', basePrice: 600, category: { id: 'c2', name: 'Food' } },
-  ];
 }
 
 export function formatPrice(cents: number, currency: string = 'AUD'): string {

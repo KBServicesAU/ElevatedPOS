@@ -22,6 +22,7 @@ import { db, schema } from './db';
 import { initCollections } from './lib/typesense';
 import { registerGraphQL } from './graphql';
 import auditPlugin from '@nexus/fastify-audit';
+import { seedDemoProducts } from './seed';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -34,6 +35,16 @@ declare module 'fastify' {
 const app = Fastify({ logger: true, trustProxy: true });
 
 async function start() {
+  // v2.7.87 — fail-soft demo product seed. Counterpart to the auth
+  // seed; runs only on the very first deploy where the demo org has
+  // zero products. Catches its own errors so a transient DB hiccup or
+  // missing demo org never blocks the catalog service from starting.
+  try {
+    await seedDemoProducts();
+  } catch (err) {
+    console.warn('[catalog] demo product seed failed (non-fatal):', err instanceof Error ? err.message : err);
+  }
+
   await app.register(helmet);
   await app.register(cors, {
     origin: process.env['ALLOWED_ORIGINS']?.split(',') ?? ['http://localhost:3000'],

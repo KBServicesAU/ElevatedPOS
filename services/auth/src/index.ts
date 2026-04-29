@@ -30,6 +30,7 @@ import { billingRoutes } from './routes/billing';
 import { settingsRoutes } from './routes/settings';
 import { systemAuditLogRoutes, godmodeSystemAuditLogRoutes } from './routes/systemAuditLogs';
 import auditPlugin from '@nexus/fastify-audit';
+import { seedDemoOrg } from './seed';
 
 // Type augmentation — allows app.authenticate to be used as a preHandler
 declare module 'fastify' {
@@ -210,6 +211,17 @@ async function applyMigrationsOnce(): Promise<void> {
 
 async function start() {
   await applyMigrations();
+
+  // v2.7.87 — idempotently provision the public Demo Cafe at /demo so the
+  // marketing site's "Try the demo" button always lands on a polished
+  // working storefront. Failures here are fail-soft: they log and let
+  // the service keep starting, since a missing demo org never blocks
+  // real merchants.
+  try {
+    await seedDemoOrg();
+  } catch (err) {
+    console.warn('[auth] demo seed failed (non-fatal):', err instanceof Error ? err.message : err);
+  }
 
   await app.register(helmet);
   await app.register(cors, {
