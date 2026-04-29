@@ -1,8 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import Stripe from 'stripe';
+import jwt from 'jsonwebtoken';
 import { db } from '../db/index.js';
 import { stripeConnectAccounts, stripeSubscriptions, stripeInvoices } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
+
+const ORDERS_SERVICE_URL = process.env['ORDERS_SERVICE_URL'] ?? 'http://orders:4004';
+const SYSTEM_EMPLOYEE_ID = '00000000-0000-0000-0000-000000000000';
 
 const stripe = new Stripe(process.env['STRIPE_SECRET_KEY'] ?? '', {
   apiVersion: '2024-06-20',
@@ -224,6 +228,24 @@ async function handleEvent(event: Stripe.Event) {
       // Logged — future: forward to notifications/orders
       break;
 
+    // ── Storefront checkout completion ────────────────────────────────────────
+    // v2.7.90 — when a customer pays for a storefront cart, Stripe fires
+    // `checkout.session.completed`. We mint an internal JWT and call the
+    // orders service to create the corresponding Order + click_and_collect
+    // fulfillment_request. Without this, online payments left no trace
+    // anywhere except the merchant's Stripe dashboard.
+    case 'checkout.session.completed': {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const meta = session.metadata ?? {};
+      if (meta['elevatedpos_kind'] !== 'storefront_click_and_collect') {
+        // Not one of our storefront sessions (could be subscription /
+        // invoice / something else minted elsewhere). Ignore.
+        break;
+      }
+      await handleStorefrontCheckoutCompleted(session);
+      break;
+    }
+
     // ── Payouts ───────────────────────────────────────────────────────────────
     case 'payout.created':
     case 'payout.paid':
@@ -240,5 +262,110 @@ async function handleEvent(event: Stripe.Event) {
 
     default:
       break;
+  }
+}
+
+/**
+ * v2.7.90 — turn a paid storefront `checkout.session.completed` event
+ * into a real Order + click_and_collect fulfillment_request.
+ *
+ * We mint an internal JWT (signed with the same JWT_SECRET the orders
+ * service uses, with the auth-service issuer claim) and call the
+ * existing `/api/v1/fulfillment/click-and-collect/quick` endpoint.
+ * That endpoint already knows how to create the order, line items,
+ * fulfillment row, and fire the customer "received" email.
+ *
+ * Best-effort. We deliberately don't throw on failure — Stripe retries
+ * webhooks on 5xx for hours and a transient orders-service blip
+ * shouldn't make the customer-facing redirect look broken. Errors are
+ * logged for retry triage.
+ */
+async function handleStorefrontCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
+  const meta = session.metadata ?? {};
+  const orgId = meta['orgId'];
+  if (!orgId) {
+    console.warn('[stripe-webhook] storefront session missing orgId metadata', session.id);
+    return;
+  }
+
+  const customerName = meta['customerName'] || (session.customer_details?.name ?? 'Online customer');
+  const customerEmail =
+    meta['customerEmail'] || session.customer_email || session.customer_details?.email || '';
+  const customerPhone = meta['customerPhone'] || session.customer_details?.phone || '';
+
+  // Reassemble the items array — single key when small, two-part chunked
+  // for larger carts (Stripe metadata caps each value at 500 chars).
+  let itemsJson: string;
+  if (meta['items_chunked'] === 'true') {
+    itemsJson = `${meta['items_part1'] ?? ''}${meta['items_part2'] ?? ''}`;
+  } else {
+    itemsJson = meta['items'] ?? '[]';
+  }
+
+  let cartItems: { name: string; price: number; quantity: number }[] = [];
+  try {
+    cartItems = JSON.parse(itemsJson) as typeof cartItems;
+  } catch (err) {
+    console.error('[stripe-webhook] could not parse items metadata', err instanceof Error ? err.message : err);
+    return;
+  }
+  if (cartItems.length === 0) {
+    console.warn('[stripe-webhook] storefront session had empty cart', session.id);
+    return;
+  }
+
+  // Mint an internal JWT the orders service will accept. Issuer claim
+  // matches the orders service's allowedIss config (set in v2.7.81).
+  const secret = process.env['JWT_SECRET'];
+  if (!secret) {
+    console.error('[stripe-webhook] JWT_SECRET not set — cannot create storefront order');
+    return;
+  }
+  const internalToken = jwt.sign(
+    { sub: SYSTEM_EMPLOYEE_ID, orgId, role: 'system' },
+    secret,
+    { issuer: 'elevatedpos-auth', expiresIn: '5m' },
+  );
+
+  const payload = {
+    customerName,
+    ...(customerEmail ? { customerEmail } : {}),
+    ...(customerPhone ? { customerPhone } : {}),
+    items: cartItems.map((it) => ({
+      productName: it.name,
+      qty: it.quantity,
+      // Stripe stores cents; the orders service expects dollar floats.
+      unitPrice: it.price / 100,
+    })),
+    notes: `Online order — Stripe session ${session.id}`,
+  };
+
+  try {
+    const res = await fetch(
+      `${ORDERS_SERVICE_URL}/api/v1/fulfillment/click-and-collect/quick`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${internalToken}`,
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '<unreadable>');
+      console.error(
+        `[stripe-webhook] storefront order create failed ${res.status}`,
+        txt.slice(0, 400),
+      );
+      return;
+    }
+    const body = (await res.json()) as { data?: { order?: { orderNumber?: string } } };
+    console.log(
+      `[stripe-webhook] storefront order minted ${body.data?.order?.orderNumber ?? '?'} ` +
+      `for org=${orgId} session=${session.id}`,
+    );
+  } catch (err) {
+    console.error('[stripe-webhook] storefront order create errored', err instanceof Error ? err.message : err);
   }
 }

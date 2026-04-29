@@ -860,6 +860,17 @@ export async function connectRoutes(app: FastifyInstance) {
     const totalAmount = body.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
     const applicationFeeAmount = Math.round(totalAmount * (platformFeePercent / 10000));
 
+    // v2.7.90 — stash everything we need to mint a real Order +
+    // fulfillment_request once Stripe confirms the payment. The
+    // checkout.session.completed webhook reads `metadata` and posts to
+    // the orders service. Stripe caps each metadata value at 500 chars,
+    // so we encode the line items array as JSON and chunk if needed
+    // (small carts, this is fine).
+    const itemsJson = JSON.stringify(body.items);
+    const metadataItems = itemsJson.length > 480
+      ? { items_chunked: 'true', items_part1: itemsJson.slice(0, 480), items_part2: itemsJson.slice(480, 960) }
+      : { items: itemsJson };
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       customer_email: body.customer.email,
@@ -877,6 +888,16 @@ export async function connectRoutes(app: FastifyInstance) {
       },
       success_url: body.successUrl,
       cancel_url: body.cancelUrl,
+      // v2.7.90 — keys consumed by services/integrations/src/routes/stripe-webhook.ts
+      metadata: {
+        elevatedpos_kind: 'storefront_click_and_collect',
+        orgId,
+        slug: body.slug,
+        customerName: body.customer.name,
+        customerEmail: body.customer.email ?? '',
+        customerPhone: body.customer.phone ?? '',
+        ...metadataItems,
+      },
     }, { stripeAccount: stripeAccountId });
 
     return reply.send({ url: session.url, sessionId: session.id });

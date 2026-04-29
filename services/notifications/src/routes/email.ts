@@ -5,7 +5,11 @@ import { db, schema } from '../db/index.js';
 import { sendEmail } from '../lib/channels/email.js';
 import { rosterEmail } from '../lib/templates/roster.js';
 
-const TEMPLATES = ['receipt', 'layby_statement', 'gift_card', 'campaign', 'roster', 'pickup_ready', 'custom'] as const;
+// v2.7.90 — `pickup_status` is the new generic click-and-collect status
+// email. The legacy `pickup_ready` template stays for backward compat;
+// the orders service uses `pickup_status` going forward so customers
+// get notified on `received`, `ready`, `collected`, and `cancelled`.
+const TEMPLATES = ['receipt', 'layby_statement', 'gift_card', 'campaign', 'roster', 'pickup_ready', 'pickup_status', 'custom'] as const;
 
 const emailSchema = z.object({
   to: z.string().email(),
@@ -184,6 +188,60 @@ function renderTemplate(
 </body></html>`;
       const text = `Hi ${customerName},\n\nYour order ${orderNumber} is ready to collect${pickupLocation ? ` at ${pickupLocation}` : ''}.\n\nPlease bring this email (or quote the order number) when you come in.\n\nThanks,\nThe team`;
       return { resolvedSubject, htmlBody: html, textBody: text };
+    }
+
+    case 'pickup_status': {
+      // v2.7.90 — generic click-and-collect status email. The orders
+      // service fires this on every customer-facing transition
+      // (`received`, `ready`, `collected`, `cancelled`) so the customer
+      // always knows where their order is. Intermediate states (picked,
+      // packed) are NOT notified — they're internal kitchen detail.
+      const status = String(data['status'] ?? 'ready');
+      const customerName = String(data['customerName'] ?? 'Customer');
+      const orderNumber = String(data['orderNumber'] ?? '');
+      const pickupLocation = String(data['pickupLocation'] ?? '');
+      const businessName = String(data['businessName'] ?? '');
+
+      const COPY: Record<string, { subject: string; heading: string; headingColor: string; body: string }> = {
+        received: {
+          subject: subject || `Order ${orderNumber} confirmed`,
+          heading: 'Order received',
+          headingColor: '#2563eb',
+          body: `Thanks ${customerName}! We've got your order <strong>${orderNumber}</strong> and are starting to prepare it. We'll email you again as soon as it's ready to collect${pickupLocation ? ` from <strong>${pickupLocation}</strong>` : ''}.`,
+        },
+        ready: {
+          subject: subject || `Your order ${orderNumber} is ready for pickup`,
+          heading: 'Ready for pickup',
+          headingColor: '#0a7d2a',
+          body: `Great news ${customerName} — your order <strong>${orderNumber}</strong> is ready to collect${pickupLocation ? ` at <strong>${pickupLocation}</strong>` : ''}. Please bring this email (or just quote the order number) when you come in.`,
+        },
+        collected: {
+          subject: subject || `Thanks for collecting order ${orderNumber}`,
+          heading: 'Thanks for stopping by',
+          headingColor: '#0a7d2a',
+          body: `Hi ${customerName}, we hope you enjoy your order <strong>${orderNumber}</strong>! We'd love to see you again soon.`,
+        },
+        cancelled: {
+          subject: subject || `Order ${orderNumber} has been cancelled`,
+          heading: 'Order cancelled',
+          headingColor: '#b91c1c',
+          body: `Hi ${customerName}, your order <strong>${orderNumber}</strong> has been cancelled. If you were charged, the refund will appear on your statement within 5-10 business days. If this wasn't expected, please get in touch with us.`,
+        },
+      };
+      const copy = COPY[status] ?? COPY['ready']!;
+      const html = `<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
+<h2 style="color:${copy.headingColor};">${copy.heading}</h2>
+<p>${copy.body}</p>
+${businessName ? `<p style="color:#888;font-size:13px;margin-top:24px;">— ${businessName}</p>` : ''}
+</body></html>`;
+      const textParts = [
+        copy.heading,
+        '',
+        copy.body.replace(/<[^>]+>/g, ''),
+      ];
+      if (businessName) textParts.push('', `— ${businessName}`);
+      return { resolvedSubject: copy.subject, htmlBody: html, textBody: textParts.join('\n') };
     }
 
     case 'custom':

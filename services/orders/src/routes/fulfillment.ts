@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { generateOrderNumber } from '../lib/orderNumber';
 
@@ -114,27 +114,37 @@ function parseFulfillmentContact(notes: string | null): { name: string; phone: s
 }
 
 /**
- * Fire the "ready for pickup" notification for a C&C fulfillment that
- * just transitioned into `ready`. Best-effort — every step is wrapped
- * and swallowed so the status transition's 200 is never blocked.
+ * Fire a customer-facing notification on any C&C status transition.
+ * Best-effort — every step is wrapped and swallowed so the status
+ * transition's 200 is never blocked.
+ *
+ * v2.7.90 — generalised from the previous ready-only helper. Called on:
+ *   • `received`  — order placed, kitchen starts prep
+ *   • `ready`     — packed and waiting for the customer
+ *   • `collected` — handed over, transactional thank-you
+ *   • `cancelled` — order voided, refund coming
+ *
+ * Intermediate states (`picked`, `packed`) are intentionally not
+ * surfaced to the customer — they're kitchen-internal and would
+ * otherwise spam three emails in five seconds when the dashboard's
+ * one-shot Mark-Ready runs pick→pack→ready in succession.
  *
  * Resolution order for the customer's email:
  *   1. `order.customerId` → `GET /customers/:id` from the customers
  *      service (fresh, authoritative).
  *   2. Fall back to an email string embedded in the fulfillment's
  *      structured notes (the quick-create handler writes it there).
- *
- * SMS is sent alongside the email when a phone is available — the
- * notifications service has a mock-Twilio SMS route wired since v1,
- * so this works in dev without any carrier credentials.
  */
-async function sendPickupReadyNotification(opts: {
+type PickupStatus = 'received' | 'ready' | 'collected' | 'cancelled';
+
+async function sendPickupStatusNotification(opts: {
   orgId: string;
   fulfillmentId: string;
   orderId: string;
   authHeader: string;
+  status: PickupStatus;
 }): Promise<void> {
-  const { orgId, fulfillmentId, orderId, authHeader } = opts;
+  const { orgId, fulfillmentId, orderId, authHeader, status } = opts;
   if (!authHeader.startsWith('Bearer ')) return;
 
   try {
@@ -159,8 +169,6 @@ async function sendPickupReadyNotification(opts: {
     let customerName = contact.name || 'Customer';
     let phone: string | null = contact.phone;
 
-    // Prefer the customers-service record when available. Falls back
-    // to whatever was stashed in notes if the service is unreachable.
     if (order.customerId) {
       try {
         const res = await fetch(`${CUSTOMERS_URL}/api/v1/customers/${order.customerId}`, {
@@ -184,39 +192,41 @@ async function sendPickupReadyNotification(opts: {
       }
     }
 
-    // If we still have no email, try pulling one out of the notes block.
     if (!email && fulfillment.notes) {
       const em = fulfillment.notes.match(/^Email:\s*(.+)$/m);
       if (em?.[1]) email = em[1].trim();
     }
 
-    if (!email) return; // nothing to send
+    if (!email) return;
 
-    const subject = `Your order ${order.orderNumber} is ready for pickup`;
-    const message = `Hi ${customerName}, your order ${order.orderNumber} is ready to collect. See you soon!`;
+    const SMS_BY_STATUS: Record<PickupStatus, string> = {
+      received: `Hi ${customerName}, we've got your order ${order.orderNumber}. We'll text you when it's ready.`,
+      ready: `Hi ${customerName}, your order ${order.orderNumber} is ready to collect. See you soon!`,
+      collected: `Thanks ${customerName}! Your order ${order.orderNumber} has been collected. Hope to see you again.`,
+      cancelled: `Hi ${customerName}, your order ${order.orderNumber} has been cancelled. If you were charged, refund is on the way.`,
+    };
+    const message = SMS_BY_STATUS[status];
 
-    // Email — use the `custom` template (no purpose-built one exists
-    // and spec says don't add one unless needed). Body is HTML.
     void fetch(`${NOTIFICATIONS_URL}/api/v1/notifications/email`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: authHeader },
       body: JSON.stringify({
         to: email,
-        subject,
-        template: 'pickup_ready',
+        // Subject left blank so the template builds the status-specific one.
+        subject: `Order ${order.orderNumber}`,
+        template: 'pickup_status',
         orgId,
         data: {
+          status,
           customerName,
           orderNumber: order.orderNumber,
         },
       }),
       signal: AbortSignal.timeout(3000),
     }).catch((err) => {
-      console.error('[fulfillment] pickup-ready email failed', err instanceof Error ? err.message : err);
+      console.error(`[fulfillment] pickup-${status} email failed`, err instanceof Error ? err.message : err);
     });
 
-    // SMS — best-effort, only when a phone is on file. Notifications
-    // service has SMS plumbed (mock-Twilio) since v1.
     if (phone) {
       void fetch(`${NOTIFICATIONS_URL}/api/v1/notifications/sms`, {
         method: 'POST',
@@ -224,11 +234,11 @@ async function sendPickupReadyNotification(opts: {
         body: JSON.stringify({ to: phone, message, orgId }),
         signal: AbortSignal.timeout(3000),
       }).catch((err) => {
-        console.error('[fulfillment] pickup-ready sms failed', err instanceof Error ? err.message : err);
+        console.error(`[fulfillment] pickup-${status} sms failed`, err instanceof Error ? err.message : err);
       });
     }
   } catch (err) {
-    console.error('[fulfillment] pickup-ready notification error', err instanceof Error ? err.message : err);
+    console.error(`[fulfillment] pickup-status notification error`, err instanceof Error ? err.message : err);
   }
 }
 
@@ -309,12 +319,30 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       });
       pickupLocationId = lastOrder?.locationId ?? null;
     }
+    // v2.7.90 — final fallback: a brand-new merchant taking their first
+    // online order has no past orders to copy from. Query the shared
+    // `locations` table (owned by the auth service but in the same DB)
+    // for any active location belonging to this org. Without this an
+    // online checkout for a fresh merchant 422s with no clear remedy.
+    if (!pickupLocationId) {
+      try {
+        const rows = await db.execute<{ id: string }>(
+          sql`SELECT id FROM locations WHERE org_id = ${orgId} AND is_active = true ORDER BY created_at LIMIT 1`,
+        );
+        // node-postgres returns { rows } via a Result; drizzle's `execute`
+        // depending on version returns either an array or an object.
+        const first = (Array.isArray(rows) ? rows : (rows as { rows?: { id: string }[] }).rows)?.[0];
+        pickupLocationId = first?.id ?? null;
+      } catch {
+        // Ignore — fall through to the 422 below.
+      }
+    }
     if (!pickupLocationId) {
       return reply.status(422).send({
         type: 'https://elevatedpos.com/errors/validation',
         title: 'No pickup location found',
         status: 422,
-        detail: 'Supply pickupLocationId or create any order first.',
+        detail: 'Supply pickupLocationId, create any order first, or activate at least one location.',
       });
     }
 
@@ -414,6 +442,15 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       notes: fulfillmentNotes,
     }).returning();
     const fulfillment = fulfillmentRows[0]!;
+
+    // v2.7.90 — fire the "order received" confirmation email.
+    void sendPickupStatusNotification({
+      orgId,
+      fulfillmentId: fulfillment.id,
+      orderId: order.id,
+      authHeader,
+      status: 'received',
+    });
 
     return reply.status(201).send({ data: { order, fulfillment } });
   });
@@ -712,16 +749,15 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       .returning();
     const updatedReady = readyRows[0]!;
 
-    // v2.7.41 — on transition to 'ready', fire a best-effort pickup-ready
-    // email (and SMS if a phone is on file). Non-fatal: if the order has
-    // no customer, the customer has no email, or the notifications/
-    // customers service is unreachable, we log and return 200 as
-    // before. The state transition has already been committed.
-    void sendPickupReadyNotification({
+    // v2.7.41 → v2.7.90 — fire the customer-facing "ready for pickup"
+    // email + SMS. Non-fatal: every failure path is swallowed and just
+    // logged; the state transition has already been committed.
+    void sendPickupStatusNotification({
       orgId,
       fulfillmentId: updatedReady.id,
       orderId: updatedReady.orderId,
       authHeader: request.headers.authorization ?? '',
+      status: 'ready',
     });
 
     return reply.status(200).send({ data: updatedReady });
@@ -783,6 +819,15 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       .returning();
     const updatedCollect = collectRows[0]!;
 
+    // v2.7.90 — fire the "thanks for collecting" closing email.
+    void sendPickupStatusNotification({
+      orgId,
+      fulfillmentId: updatedCollect.id,
+      orderId: updatedCollect.orderId,
+      authHeader: request.headers.authorization ?? '',
+      status: 'collected',
+    });
+
     return reply.status(200).send({ data: updatedCollect });
   });
 
@@ -810,6 +855,17 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       .where(and(eq(schema.fulfillmentRequests.id, id), eq(schema.fulfillmentRequests.orgId, orgId)))
       .returning();
     const updatedCancel = cancelRows[0]!;
+
+    // v2.7.90 — let the customer know the order was cancelled. Refund
+    // wording in the template is generic ("if you were charged") so it
+    // works for both already-paid (online) and pre-pay (in-store) orders.
+    void sendPickupStatusNotification({
+      orgId,
+      fulfillmentId: updatedCancel.id,
+      orderId: updatedCancel.orderId,
+      authHeader: request.headers.authorization ?? '',
+      status: 'cancelled',
+    });
 
     return reply.status(200).send({ data: updatedCancel });
   });
