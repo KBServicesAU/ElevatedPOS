@@ -60,6 +60,32 @@ const app = Fastify({
  * no hash mismatches, no silent failures.
  */
 async function applyMigrations(): Promise<void> {
+  // v2.7.82 — retry-with-backoff to ride out transient Postgres
+  // unavailability during rolling deploys.
+  const MAX_ATTEMPTS = 5;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      await applyMigrationsOnce();
+      return;
+    } catch (err) {
+      lastErr = err;
+      const isLast = attempt === MAX_ATTEMPTS;
+      console.warn(
+        `[auth] migration attempt ${attempt}/${MAX_ATTEMPTS} failed:`,
+        err instanceof Error ? err.message : err,
+        isLast ? '— giving up.' : '— retrying.',
+      );
+      if (!isLast) {
+        await new Promise((r) => setTimeout(r, attempt * 2000));
+      }
+    }
+  }
+  console.error('[auth] migration failed after retries — aborting startup:', lastErr);
+  process.exit(1);
+}
+
+async function applyMigrationsOnce(): Promise<void> {
   const pool = new Pool({
     connectionString: process.env['DATABASE_URL'],
     ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : undefined,
@@ -176,9 +202,6 @@ async function applyMigrations(): Promise<void> {
     `);
 
     console.log('[auth] schema migrations applied successfully');
-  } catch (err) {
-    console.error('[auth] migration error — aborting startup:', err);
-    process.exit(1);
   } finally {
     client.release();
     await pool.end();

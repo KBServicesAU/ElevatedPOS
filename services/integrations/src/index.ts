@@ -32,26 +32,46 @@ const app = Fastify({ logger: true, trustProxy: true });
  * Mirrors the pattern in services/auth/src/index.ts and services/orders.
  */
 async function applyMigrations(): Promise<void> {
-  const pool = new Pool({
-    connectionString: process.env['DATABASE_URL'],
-    ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : undefined,
-    max: 1,
-  });
-  const client = await pool.connect();
-  try {
-    // v2.7.78 — per-org QR Pay opt-in. Default false so existing merchants
-    // don't see a new payment method appear without their consent.
-    await client.query(
-      `ALTER TABLE stripe_connect_accounts ADD COLUMN IF NOT EXISTS qr_pay_enabled boolean NOT NULL DEFAULT false`,
-    );
-    console.log('[integrations] schema migrations applied successfully');
-  } catch (err) {
-    console.error('[integrations] migration error — aborting startup:', err);
-    process.exit(1);
-  } finally {
-    client.release();
-    await pool.end();
+  // v2.7.82 — retry-with-backoff to ride out transient Postgres
+  // unavailability during rolling deploys (see orders/src/index.ts
+  // for the same pattern + rationale).
+  const MAX_ATTEMPTS = 5;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const pool = new Pool({
+      connectionString: process.env['DATABASE_URL'],
+      ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : undefined,
+      max: 1,
+    });
+    let client;
+    try {
+      client = await pool.connect();
+      // v2.7.78 — per-org QR Pay opt-in. Default false so existing merchants
+      // don't see a new payment method appear without their consent.
+      await client.query(
+        `ALTER TABLE stripe_connect_accounts ADD COLUMN IF NOT EXISTS qr_pay_enabled boolean NOT NULL DEFAULT false`,
+      );
+      console.log('[integrations] schema migrations applied successfully');
+      client.release();
+      await pool.end();
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (client) client.release();
+      await pool.end();
+      const isLast = attempt === MAX_ATTEMPTS;
+      console.warn(
+        `[integrations] migration attempt ${attempt}/${MAX_ATTEMPTS} failed:`,
+        err instanceof Error ? err.message : err,
+        isLast ? '— giving up.' : '— retrying.',
+      );
+      if (!isLast) {
+        await new Promise((r) => setTimeout(r, attempt * 2000));
+      }
+    }
   }
+  console.error('[integrations] migration failed after retries — aborting startup:', lastErr);
+  process.exit(1);
 }
 
 async function start() {

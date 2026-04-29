@@ -69,28 +69,50 @@ export function broadcastToKDS(locationId: string, payload: Record<string, unkno
  * regardless of whether `drizzle-kit push` was run during deploy.
  */
 async function applyMigrations(): Promise<void> {
-  const pool = new Pool({
-    connectionString: process.env['DATABASE_URL'],
-    ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : undefined,
-    max: 1,
-  });
-  const client = await pool.connect();
-  try {
-    // v2.7.77 — idempotency key for /orders POST.
-    await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key varchar(100)`);
-    await client.query(
-      `CREATE UNIQUE INDEX IF NOT EXISTS orders_org_idempotency_key_unique
-        ON orders (org_id, idempotency_key)
-        WHERE idempotency_key IS NOT NULL`,
-    );
-    console.log('[orders] schema migrations applied successfully');
-  } catch (err) {
-    console.error('[orders] migration error — aborting startup:', err);
-    process.exit(1);
-  } finally {
-    client.release();
-    await pool.end();
+  // v2.7.82 — retry the migration up to 5× with backoff before giving
+  // up. Pods that boot before Postgres is ready (typical during a
+  // rolling deploy where the DB pod restarts at the same time) used
+  // to crash-loop on the very first connect, which timed out the
+  // Helm rollout. Retrying lets the pod ride out transient blips.
+  const MAX_ATTEMPTS = 5;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const pool = new Pool({
+      connectionString: process.env['DATABASE_URL'],
+      ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : undefined,
+      max: 1,
+    });
+    let client;
+    try {
+      client = await pool.connect();
+      // v2.7.77 — idempotency key for /orders POST.
+      await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key varchar(100)`);
+      await client.query(
+        `CREATE UNIQUE INDEX IF NOT EXISTS orders_org_idempotency_key_unique
+          ON orders (org_id, idempotency_key)
+          WHERE idempotency_key IS NOT NULL`,
+      );
+      console.log('[orders] schema migrations applied successfully');
+      client.release();
+      await pool.end();
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (client) client.release();
+      await pool.end();
+      const isLast = attempt === MAX_ATTEMPTS;
+      console.warn(
+        `[orders] migration attempt ${attempt}/${MAX_ATTEMPTS} failed:`,
+        err instanceof Error ? err.message : err,
+        isLast ? '— giving up.' : '— retrying.',
+      );
+      if (!isLast) {
+        await new Promise((r) => setTimeout(r, attempt * 2000));
+      }
+    }
   }
+  console.error('[orders] migration failed after retries — aborting startup:', lastErr);
+  process.exit(1);
 }
 
 async function start() {

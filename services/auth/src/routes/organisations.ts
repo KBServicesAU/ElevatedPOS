@@ -933,6 +933,24 @@ export async function organisationRoutes(app: FastifyInstance) {
     // The integrations service owns the stripe_connect_accounts table.
     // Hit it server-to-server with an internal-issued JWT so we don't
     // depend on the user's session reaching across services.
+    //
+    // v2.7.82 — fail-soft on integrations unreachability. Three
+    // outcomes:
+    //   reachable + chargesEnabled=true  → advance, normal happy path
+    //   reachable + chargesEnabled=false → refuse 400, send wizard
+    //                                      back to step 4 (correct
+    //                                      behavior — merchant didn't
+    //                                      complete Stripe form)
+    //   unreachable / fetch threw        → ADVANCE with a warning so a
+    //                                      transient cross-service blip
+    //                                      doesn't block onboarding.
+    //                                      The subscription step at
+    //                                      /billing-saas/setup will
+    //                                      re-validate before charging.
+    //
+    // This means a "really not done" merchant only hits the explicit
+    // refuse path; a "service was momentarily down" merchant doesn't
+    // get stuck at step 4 forever.
     const integrationsUrl = process.env['INTEGRATIONS_API_URL'] ?? 'http://integrations:4010';
     const internalToken = app.jwt.sign(
       { sub: 'system', orgId: session.orgId, role: 'system' },
@@ -940,6 +958,7 @@ export async function organisationRoutes(app: FastifyInstance) {
     );
     let connectVerified = false;
     let connectStatus: string = 'unknown';
+    let verificationReachable = false;
     try {
       const res = await fetch(
         `${integrationsUrl}/api/v1/connect/account-status`,
@@ -948,6 +967,7 @@ export async function organisationRoutes(app: FastifyInstance) {
           signal: AbortSignal.timeout(8000),
         },
       );
+      verificationReachable = true;
       if (res.ok) {
         const data = (await res.json()) as {
           status?: string;
@@ -955,21 +975,30 @@ export async function organisationRoutes(app: FastifyInstance) {
         } | null;
         connectVerified = !!data?.chargesEnabled;
         connectStatus = data?.status ?? 'unknown';
+      } else if (res.status === 404) {
+        // No connect row for this org — definitely not done.
+        connectStatus = 'missing';
       }
     } catch (err) {
       console.warn('[onboard/connect-complete] verification fetch failed', err);
     }
 
-    if (!connectVerified) {
-      // Don't advance. Tell the wizard to keep showing the Connect step.
+    if (verificationReachable && !connectVerified) {
+      // Reachable AND not done → refuse. Wizard goes back to step 4.
       return reply.status(400).send({
         error: 'Stripe Connect onboarding not complete',
         detail:
           connectStatus === 'onboarding'
             ? 'Finish entering your business / banking details in the Stripe form before continuing.'
-            : 'Stripe has not yet approved your account for charges. Try again in a minute.',
+            : connectStatus === 'missing'
+              ? 'No Stripe Connect account found. Restart the previous step.'
+              : 'Stripe has not yet approved your account for charges. Try again in a minute.',
         connectStatus,
       });
+    }
+
+    if (!verificationReachable) {
+      console.warn('[onboard/connect-complete] integrations service unreachable — advancing on trust');
     }
 
     await db.update(schema.organisations)
@@ -977,7 +1006,12 @@ export async function organisationRoutes(app: FastifyInstance) {
       .where(eq(schema.organisations.id, session.orgId));
 
     const token = signOnboardingToken(session.orgId, 'subscription');
-    return reply.send({ onboardingToken: token, nextStep: 'subscription', connectStatus });
+    return reply.send({
+      onboardingToken: token,
+      nextStep: 'subscription',
+      connectStatus,
+      verificationReachable,
+    });
   });
 
   // ── STEP 7: Subscription Complete ────────────────────────────────────────
