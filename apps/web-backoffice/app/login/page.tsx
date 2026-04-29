@@ -54,8 +54,22 @@ function LoginContent() {
         return;
       }
 
-      // Cookie is set server-side — check onboarding status before redirecting
-      const explicitNext = searchParams?.get('next');
+      // Cookie is set server-side — check onboarding status before redirecting.
+      //
+      // v2.7.68 — clamp `next` to internal paths only. Was previously
+      // `?next=https://attacker.com` → router.push to attacker site, an
+      // open-redirect that turned this login page into a phishing-redirect
+      // helper. We now only honour `next` if it's a single-leading-slash
+      // path with no protocol-relative `//attacker` trick. Malformed input
+      // falls back to /dashboard rather than failing the login.
+      const explicitNextRaw = searchParams?.get('next');
+      const explicitNext =
+        explicitNextRaw &&
+        explicitNextRaw.startsWith('/') &&
+        !explicitNextRaw.startsWith('//') &&
+        !explicitNextRaw.startsWith('/\\')
+          ? explicitNextRaw
+          : null;
       let destination = explicitNext ?? '/dashboard';
 
       // For default dashboard redirects, check if onboarding is complete

@@ -63,7 +63,19 @@ export function middleware(request: NextRequest) {
   // Redirect already-authenticated users away from login page
   if (PUBLIC_PATHS.has(pathname)) {
     if (token && pathname === '/login' && !isTokenExpired(token)) {
-      const next = request.nextUrl.searchParams.get('next') ?? '/dashboard';
+      // v2.7.68 — clamp `next` to internal paths. `new URL(next, request.url)`
+      // happily accepts an absolute URL like `https://attacker.com` and
+      // overrides the base, turning this redirect into an open-redirect.
+      // Reject anything that isn't a single-leading-slash path (rules out
+      // protocol-relative `//attacker` and Windows-style `/\` tricks).
+      const nextRaw = request.nextUrl.searchParams.get('next');
+      const next =
+        nextRaw &&
+        nextRaw.startsWith('/') &&
+        !nextRaw.startsWith('//') &&
+        !nextRaw.startsWith('/\\')
+          ? nextRaw
+          : '/dashboard';
       return NextResponse.redirect(new URL(next, request.url));
     }
     return NextResponse.next();

@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server';
 import { ordersStore, kdsOrderToStored } from '@/lib/store';
+import { requireAuth } from '@/lib/auth-guard';
 
 // ─── SSE subscriber registry ──────────────────────────────────────────────────
 
@@ -87,7 +88,32 @@ export async function GET(req: NextRequest) {
 
 // ─── POST — publish event ─────────────────────────────────────────────────────
 
+/**
+ * v2.7.68 — auth required.
+ *
+ * This endpoint was previously unauthenticated. Anyone on the public
+ * internet could POST `{type: 'new_order', order: {...}}` to inject fake
+ * tickets into `ordersStore` (which the dashboard renders as if they
+ * were real receipts) AND broadcast spoofed `paymentMethod` /
+ * `cardLast4` / `cardBrand` to every connected SSE subscriber. That's
+ * a fraud surface (fake receipts) and a phishing surface (impersonating
+ * staff at a connected KDS station).
+ *
+ * Now gated by the same JWT guard as the Stripe routes — Bearer header
+ * for mobile devices, session cookie for the browser KDS surface. The
+ * SSE GET /api/kds is intentionally LEFT open: it's used by the
+ * dashboard's KDS embed which is already inside the authenticated
+ * dashboard shell, and the data it streams (pending tickets +
+ * recently-bumped) doesn't carry payment-card details (those are
+ * only emitted via the broadcast path which the POST below feeds).
+ * If we want to lock the SSE down later we'd add a token query-param
+ * since EventSource doesn't support custom headers.
+ */
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof Response) return auth;
+  void auth; // future: enforce orgId match against the order payload
+
   const body = await req.json() as {
     type: string;
     order?: KdsOrderPayload;
