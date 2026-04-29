@@ -13,6 +13,7 @@
 import { createHmac } from 'node:crypto';
 import { and, eq, lte, inArray } from 'drizzle-orm';
 import { db, schema } from '../db';
+import { checkWebhookUrl } from './ssrfGuard';
 
 const RETRY_DELAYS_MS = [
   1 * 60 * 1000,   // 1 min
@@ -56,6 +57,20 @@ export async function deliverWebhook(
   delivery: WebhookDelivery,
   endpoint: WebhookEndpoint,
 ): Promise<DeliveryResult> {
+  // v2.7.75 — defense in depth. The route layer guards URLs at
+  // create + update time, but old endpoints in the DB from before
+  // that guard existed could still be pointing at internal hosts.
+  // Refuse delivery rather than relying purely on the registration
+  // path being correct.
+  const ssrf = checkWebhookUrl(endpoint.url);
+  if (!ssrf.ok) {
+    return {
+      success: false,
+      responseCode: null,
+      responseBody: `Refused: ${ssrf.reason ?? 'invalid webhook url'}`,
+    };
+  }
+
   const body = JSON.stringify(delivery.payload);
   const signature = signPayload(body, endpoint.secret);
 

@@ -12,6 +12,33 @@ import { createHmac } from 'node:crypto';
 import { and, eq, isNotNull, lte } from 'drizzle-orm';
 import { db, schema } from '../db';
 
+// v2.7.75 — SSRF guard. Inlined here rather than imported across
+// service boundaries because /services/integrations and /services/webhooks
+// are independent npm workspaces with no shared lib.
+const BLOCKED_HOSTNAMES = new Set([
+  'localhost', 'localhost.localdomain',
+  'metadata.google.internal', 'metadata.gce.internal', 'metadata',
+  'instance-data', 'instance-data.ec2.internal',
+]);
+
+function checkOutboundUrl(rawUrl: string): { ok: boolean; reason?: string } {
+  let parsed: URL;
+  try { parsed = new URL(rawUrl); } catch { return { ok: false, reason: 'invalid url' }; }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false, reason: `unsupported protocol "${parsed.protocol}"` };
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (BLOCKED_HOSTNAMES.has(host)) return { ok: false, reason: `host "${host}" not allowed` };
+  // Reject IP literals — webhooks must use a hostname.
+  if (/:/.test(host) || /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) {
+    return { ok: false, reason: 'IP literal not allowed' };
+  }
+  if (host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.lan')) {
+    return { ok: false, reason: `local-network suffix "${host}" not allowed` };
+  }
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -85,25 +112,35 @@ async function _attemptDelivery(
   let errorMsg: string | undefined;
   const start = Date.now();
 
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ElevatedPOS-Signature': signature,
-        'X-ElevatedPOS-Event': eventType,
-        'X-ElevatedPOS-Delivery': deliveryId,
-        'X-ElevatedPOS-Version': '1',
-      },
-      body,
-      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
-    });
+  // v2.7.75 — SSRF guard. Refuse delivery to any URL that resolves to
+  // a private / link-local / IP-literal target. Records the refusal
+  // in the delivery row so the dashboard surfaces it as a normal
+  // failure rather than a silent skip.
+  const ssrf = checkOutboundUrl(url);
+  if (!ssrf.ok) {
+    errorMsg = `Refused: ${ssrf.reason ?? 'invalid url'}`;
+    responseText = errorMsg;
+  } else {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-ElevatedPOS-Signature': signature,
+          'X-ElevatedPOS-Event': eventType,
+          'X-ElevatedPOS-Delivery': deliveryId,
+          'X-ElevatedPOS-Version': '1',
+        },
+        body,
+        signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+      });
 
-    statusCode = res.status;
-    responseText = await res.text().catch(() => null);
-    success = res.status >= 200 && res.status < 300;
-  } catch (err) {
-    errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      statusCode = res.status;
+      responseText = await res.text().catch(() => null);
+      success = res.status >= 200 && res.status < 300;
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : 'Unknown error';
+    }
   }
 
   const durationMs = Date.now() - start;

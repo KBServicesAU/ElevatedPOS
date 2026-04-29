@@ -4,6 +4,7 @@ import { eq, and, desc, gte, count, sql } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
 import { db, schema } from '../db';
 import { deliverWebhook } from '../lib/deliver';
+import { checkWebhookUrl } from '../lib/ssrfGuard';
 
 const createEndpointSchema = z.object({
   url: z.string().url(),
@@ -25,6 +26,21 @@ export async function webhookRoutes(app: FastifyInstance) {
     const body = createEndpointSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    }
+
+    // v2.7.75 — SSRF guard. Reject URLs targeting localhost / private
+    // networks / cloud IMDS / IP literals so a malicious merchant
+    // can't point a webhook at e.g.
+    // http://169.254.169.254/latest/meta-data/... and read the
+    // response body back via the deliveries dashboard.
+    const ssrf = checkWebhookUrl(body.data.url);
+    if (!ssrf.ok) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/invalid-webhook-url',
+        title: 'Invalid Webhook URL',
+        status: 422,
+        detail: ssrf.reason ?? 'Webhook URL not allowed.',
+      });
     }
 
     const secret = randomBytes(32).toString('hex');
@@ -108,6 +124,21 @@ export async function webhookRoutes(app: FastifyInstance) {
     const body = updateEndpointSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
+    }
+
+    // v2.7.75 — same SSRF guard as POST /. The PATCH path used to be
+    // wide open: the create endpoint could be guarded forever and
+    // someone updating to a malicious url would slip past.
+    if (body.data.url !== undefined) {
+      const ssrf = checkWebhookUrl(body.data.url);
+      if (!ssrf.ok) {
+        return reply.status(422).send({
+          type: 'https://elevatedpos.com/errors/invalid-webhook-url',
+          title: 'Invalid Webhook URL',
+          status: 422,
+          detail: ssrf.reason ?? 'Webhook URL not allowed.',
+        });
+      }
     }
 
     const existing = await db.query.webhookEndpoints.findFirst({
