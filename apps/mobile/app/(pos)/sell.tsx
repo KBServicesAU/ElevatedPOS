@@ -257,6 +257,18 @@ export default function PosSellScreen() {
     setRefreshing(false);
   }, [fetchAll]);
 
+  // v2.7.73 — H. Catalog freshness. Previously the POS only loaded the
+  // catalog on mount + pull-to-refresh, so any price/availability
+  // change on the dashboard could take an entire shift to reach the
+  // till. Refresh every 5 minutes in the background; cheap when nothing
+  // changed (the catalog endpoint returns 304 for unchanged ETags).
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchAll().catch(() => { /* ignore */ });
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchAll]);
+
   // ── Device heartbeat (revocation check) ──────────────────────────
   useEffect(() => {
     const interval = setInterval(() => {
