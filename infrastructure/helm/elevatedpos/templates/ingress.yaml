@@ -206,4 +206,11 @@ spec:
 {{ include "elevatedpos.portalIngress" (dict "name" "pay" "namespace" .Values.global.namespace "className" .Values.ingress.className "host" .Values.payPortal.host "tlsSecretName" .Values.payPortal.tlsSecretName "service" .Values.payPortal.service "port" .Values.payPortal.port) }}
 {{- end }}
 
+{{- /* v2.7.85 — public merchant storefronts at site.elevatedpos.com.au/<slug>.
+       Same `storefront` service as marketingSite but a dedicated host + TLS so
+       a DNS lag on site.elevatedpos.com.au cannot break the marketing cert. */}}
+{{- if .Values.storesPortal.enabled }}
+{{ include "elevatedpos.portalIngress" (dict "name" "stores" "namespace" .Values.global.namespace "className" .Values.ingress.className "host" .Values.storesPortal.host "tlsSecretName" .Values.storesPortal.tlsSecretName "service" .Values.storesPortal.service "port" .Values.storesPortal.port) }}
+{{- end }}
+
 {{- end }}

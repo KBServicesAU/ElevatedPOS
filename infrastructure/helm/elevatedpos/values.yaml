@@ -302,6 +302,23 @@ marketingSite:
   port: 3002
   tlsSecretName: elevatedpos-marketing-tls
 
+# v2.7.85 — public merchant storefronts at `site.elevatedpos.com.au/<slug>`.
+# The `[slug]` route is already implemented in
+# apps/storefront/app/[slug]/page.tsx; this block adds the host wiring.
+#
+# IMPORTANT: before tagging a release that enables this, the DNS A/CNAME
+# for `site.elevatedpos.com.au` MUST already resolve to the cluster's
+# nginx-ingress load balancer. Cert-manager uses HTTP-01 challenges
+# (see infrastructure/k8s/cluster-issuer.yaml), and a missing DNS record
+# would cause the cert request to fail. The host gets its OWN
+# TLS secret so it can't take down the marketing-site cert if DNS lags.
+storesPortal:
+  enabled: false  # flip to `true` once DNS for site.elevatedpos.com.au is live
+  host: site.elevatedpos.com.au
+  service: storefront
+  port: 3002
+  tlsSecretName: elevatedpos-stores-tls
+
 godmodePortal:
   enabled: true
   host: godmode.elevatedpos.com.au
