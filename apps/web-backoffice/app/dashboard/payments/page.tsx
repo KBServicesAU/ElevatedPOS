@@ -1099,8 +1099,7 @@ function ElevatedPOSPayTab() {
   const payoutsRef       = useRef<HTMLDivElement>(null);
   const balanceRef       = useRef<HTMLDivElement>(null);
   const accountRef       = useRef<HTMLDivElement>(null);
-  const reportsRef       = useRef<HTMLDivElement>(null);
-  const financingRef     = useRef<HTMLDivElement>(null);
+  // v2.7.68 — reportsRef + financingRef removed; their components rejected by Stripe.
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stripeInstanceRef = useRef<any>(null);
@@ -1170,14 +1169,17 @@ function ElevatedPOSPayTab() {
     const instance = stripeInstanceRef.current;
     if (!instance || !instanceReady) return;
 
+    // v2.7.68 — `reports` (reporting-chart) and `financing` (capital-overview)
+    // entries removed. Their backing components are not in the SDK's pinned
+    // 2024-06-20 API version and Stripe rejected the AccountSession with
+    // "Received unknown parameter". See services/integrations/src/routes/connect.ts
+    // for the matching server-side change. Re-add when the SDK pin is bumped.
     const pairs: [ElevatedPaySubTab, React.RefObject<HTMLDivElement>, string][] = [
       ['onboarding',   onboardingRef,   'account-onboarding'],
       ['transactions', transactionsRef, 'payments'],
       ['payouts',      payoutsRef,      'payouts'],
       ['balance',      balanceRef,      'balances'],
       ['account',      accountRef,      'account-management'],
-      ['reports',      reportsRef,      'reporting-chart'],
-      ['financing',    financingRef,    'capital-overview'],
     ];
 
     for (const [tab, ref, componentName] of pairs) {
@@ -1329,18 +1331,15 @@ function ElevatedPOSPayTab() {
                 >
                   Account
                 </button>
-                <button
-                  onClick={() => setSubTab('reports')}
-                  className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${subTab === 'reports' ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
-                >
-                  Reports
-                </button>
-                <button
-                  onClick={() => setSubTab('financing')}
-                  className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${subTab === 'financing' ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}
-                >
-                  Financing
-                </button>
+                {/*
+                  v2.7.68 — Reports + Financing tabs hidden. Their backing
+                  Stripe Embedded Components (`reporting_chart`, `capital_overview`)
+                  aren't available on the SDK's pinned `apiVersion: '2024-06-20'`
+                  and were rejected at runtime by Stripe with
+                  "Received unknown parameter: components[capital_overview]",
+                  blocking ALL of Connect onboarding. Re-add when we bump the
+                  Stripe SDK pin (see services/integrations/src/routes/connect.ts).
+                */}
               </>
             )}
           </div>
@@ -1359,8 +1358,11 @@ function ElevatedPOSPayTab() {
                 <div ref={payoutsRef}      className={subTab === 'payouts'      ? 'min-h-[500px]' : 'hidden'} />
                 <div ref={balanceRef}      className={subTab === 'balance'      ? 'min-h-[500px]' : 'hidden'} />
                 <div ref={accountRef}      className={subTab === 'account'      ? 'min-h-[500px]' : 'hidden'} />
-                <div ref={reportsRef}      className={subTab === 'reports'      ? 'min-h-[500px]' : 'hidden'} />
-                <div ref={financingRef}    className={subTab === 'financing'    ? 'min-h-[500px]' : 'hidden'} />
+                {/* v2.7.68 — reportsRef/financingRef divs removed alongside their
+                    Stripe components (see comment near the tab buttons above).
+                    Both refs intentionally retained at the top of the file with
+                    a stub comment so a future re-enable doesn't have to thread
+                    new useRef declarations through render. */}
               </>
             )}
           </div>

@@ -1,4 +1,6 @@
 import Stripe from 'stripe';
+import { type NextRequest } from 'next/server';
+import { requireAuth } from '@/lib/auth-guard';
 
 /**
  * POST /api/stripe/connection-token
@@ -16,8 +18,17 @@ import Stripe from 'stripe';
  *
  * `secret: null` means the Terminal SDK cannot be initialised at all (pure
  * demo mode with no Stripe keys).  The client falls back to a local simulation.
+ *
+ * v2.7.68 — auth required. Was previously open to the public internet,
+ * which would have minted real Stripe Terminal connection tokens to any
+ * caller — those tokens are short-lived but still let the holder talk to
+ * Terminal readers paired to the platform's Stripe account.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof Response) return auth;
+  void auth; // Suppress unused — we may scope by orgId later.
+
   const secretKey = process.env.STRIPE_SECRET_KEY;
   const forceSimulated = process.env.STRIPE_TERMINAL_SIMULATED === 'true';
 

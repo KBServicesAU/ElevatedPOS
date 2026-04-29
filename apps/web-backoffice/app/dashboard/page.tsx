@@ -41,11 +41,28 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 async function fetchAISuggestions(): Promise<string[]> {
+  // v2.7.68 — was previously sending `Authorization: Bearer dev-internal`
+  // which the AI service's `app.authenticate` middleware rejects unconditionally
+  // (no dev-bypass exists in services/ai/src/routes/copilot.ts:448), so the
+  // call always 401'd and the catch returned []. The literal also leaked
+  // a hard-coded "internal" token name that would have been a real risk if
+  // the AI service ever added a permissive dev-bypass.
+  //
+  // Forward the merchant's session cookie verbatim to /api/v1/ai/suggestions
+  // so the AI service authenticates against the real employee JWT (issuer +
+  // signature checked, orgId populated for the per-org cache key).
   try {
+    const cookieStore = cookies();
+    const token = cookieStore.get('elevatedpos_token')?.value;
+    if (!token) return []; // not logged in → no suggestions
+
     const aiBase = process.env.AI_API_URL ?? 'http://localhost:4012';
     const res = await fetch(aiBase + '/api/v1/ai/suggestions', {
-      next: { revalidate: 3600 },
-      headers: { Authorization: `Bearer dev-internal` },
+      // Per-org cache: don't share suggestions across merchants by reusing
+      // Next's URL-only cache key. revalidate every 15 min, but the AI
+      // service's own Redis-backed cache (1h) takes precedence on cost.
+      next: { revalidate: 900 },
+      headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return [];
     const data = (await res.json()) as { suggestions?: string[] };

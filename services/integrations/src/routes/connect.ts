@@ -421,9 +421,25 @@ export async function connectRoutes(app: FastifyInstance) {
       });
     }
 
+    // v2.7.68 — drop `reporting_chart` and `capital_overview` from the
+    // component set. The SDK pinned to `apiVersion: '2024-06-20'` (see top
+    // of this file) does not accept those component names; Stripe returns
+    //
+    //   ApiError: Received unknown parameter: components[capital_overview]
+    //
+    // and the entire AccountSession creation fails, which means
+    // `fetchClientSecret` rejects and the embedded onboarding form never
+    // renders — exactly the regression the merchant hit on /dashboard/payments.
+    // The cast to `Record<string, unknown>` only bypassed the TypeScript
+    // check; runtime validation is enforced by Stripe.
+    //
+    // To re-enable Capital + reporting embedded components, bump the SDK's
+    // `apiVersion` to one that supports them (Stripe added them in
+    // 2024-09-30.acacia / 2025-* lines), regenerate the SDK types, and put
+    // them back here. Both are nice-to-haves; payments/payouts/balances are
+    // the merchant-critical surface.
     const session = await stripe.accountSessions.create({
       account: accountId,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       components: {
         // ── Core account ────────────────────────────────────────────────────────
         account_onboarding: { enabled: true },
@@ -461,12 +477,7 @@ export async function connectRoutes(app: FastifyInstance) {
             edit_payout_schedule: true,
           },
         },
-        // ── Reporting & financing (cast: may not be in SDK types for this API version) ──
-        ...({
-          reporting_chart: { enabled: true },
-          capital_overview: { enabled: true },
-        } as Record<string, unknown>),
-      } as Parameters<typeof stripe.accountSessions.create>[0]['components'],
+      },
     });
 
     return reply.send({ clientSecret: session.client_secret });
