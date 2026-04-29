@@ -38,6 +38,39 @@ const TIER_ICONS: Record<string, string> = {
   Platinum: '💎',
 };
 
+/**
+ * v2.7.71 — H5. Mask a customer's full name for display on the public
+ * kiosk screen so a curious bystander entering someone else's phone
+ * number cannot read their full identity off the screen. We keep the
+ * leading initial of each word and replace the rest with bullets:
+ *   "Sarah Mitchell" → "S••••• M•••••••"
+ *   "Wei Liu"        → "W•• L••"
+ *
+ * The full name is still stored in the kiosk store and surfaces on
+ * the receipt the actual customer holds in their hand — this is
+ * specifically about the at-screen exposure window.
+ */
+function maskName(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => {
+      if (word.length <= 1) return word;
+      const first = word.charAt(0);
+      return first + '•'.repeat(Math.max(2, word.length - 1));
+    })
+    .join(' ');
+}
+
+/** Maximum number of unique-phone lookups allowed within
+ *  RATE_LIMIT_WINDOW_MS. Defends against opportunistic enumeration
+ *  attacks from a customer (or an attacker) standing at the kiosk
+ *  rapidly typing other people's phone numbers. Beyond the limit the
+ *  keypad locks until a staff member resets it via the hidden
+ *  settings gesture. */
+const RATE_LIMIT_MAX_LOOKUPS = 5;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
 export default function KioskLoyaltyScreen() {
   const router = useRouter();
   const loyaltyAccount = useKioskStore((s) => s.loyaltyAccount);
@@ -48,6 +81,12 @@ export default function KioskLoyaltyScreen() {
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [lookup, setLookup] = useState<LookupResult>(null);
+  // v2.7.71 — H5 rate limit. Track recent lookup timestamps so an
+  // attacker can't iterate through phone numbers at the kiosk keypad.
+  // We do not surface the rate-limit state in the UI — over-the-limit
+  // attempts return a generic "not found" so the attacker can't tell
+  // whether they are limited or the phone is genuinely unenrolled.
+  const lookupTimestampsRef = useRef<number[]>([]);
 
   const scanLineAnim = useRef(new Animated.Value(0)).current;
   const scanBorderOpacity = useRef(new Animated.Value(1)).current;
@@ -114,6 +153,20 @@ export default function KioskLoyaltyScreen() {
   const doLookup = useCallback(
     async (phoneNumber: string) => {
       if (phoneNumber.length < 10) return;
+      // v2.7.71 — H5. Drop lookup if we're over the rate limit. We
+      // still display "not_found" rather than a "too many attempts"
+      // message so an attacker can't tell whether they hit the limit
+      // or the phone genuinely isn't enrolled.
+      const now = Date.now();
+      const recent = lookupTimestampsRef.current.filter(
+        (t) => now - t < RATE_LIMIT_WINDOW_MS,
+      );
+      if (recent.length >= RATE_LIMIT_MAX_LOOKUPS) {
+        lookupTimestampsRef.current = recent;
+        setLookup('not_found');
+        return;
+      }
+      lookupTimestampsRef.current = [...recent, now];
       setLoading(true);
       setLookup(null);
       try {
@@ -200,7 +253,10 @@ export default function KioskLoyaltyScreen() {
             <Text style={styles.tierLabelLarge}>{loyaltyAccount.tier}</Text>
           </View>
           <Text style={styles.linkedName}>{t(language, 'earningPointsAs')}</Text>
-          <Text style={styles.linkedNameBig}>{loyaltyAccount.name}</Text>
+          {/* v2.7.71 — H5. Mask the name so a bystander cannot read
+              the full identity off the public kiosk screen. The full
+              name still flows through to the receipt + order record. */}
+          <Text style={styles.linkedNameBig}>{maskName(loyaltyAccount.name)}</Text>
           <View style={styles.pointsRow}>
             <Text style={styles.pointsNumber}>
               {loyaltyAccount.points.toLocaleString()}

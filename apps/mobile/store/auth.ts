@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useDeviceStore } from './device';
+import { usePosStore } from './pos';
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -160,7 +161,24 @@ export const useAuthStore = create<AuthStore>((set) => ({
     }
   },
 
-  logout: () => set({ employee: null, employeeToken: null, error: null }),
+  // v2.7.71 — H2. Logout previously left the in-progress cart attached
+  // to the (now logged-out) device. The next employee to PIN in
+  // inherited it — the prior staff member's items appeared in their
+  // basket, with no audit trail tying the eventual sale back to the
+  // person who actually rang it through. We now clear the cart and
+  // any selected customer/seat state at logout. Held orders live on
+  // the server, so they survive across logins as expected.
+  logout: () => {
+    set({ employee: null, employeeToken: null, error: null });
+    try {
+      const pos = usePosStore.getState();
+      pos.clearCart();
+      pos.setCustomer(null, null);
+      pos.setSeatCount(1);
+    } catch {
+      // Non-fatal — auth state has already flipped.
+    }
+  },
 
   clearError: () => set({ error: null }),
 }));

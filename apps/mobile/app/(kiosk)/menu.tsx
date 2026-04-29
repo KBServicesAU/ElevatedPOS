@@ -41,7 +41,7 @@ interface Product {
 
 export default function MenuScreen() {
   const router = useRouter();
-  const { cartItems, addToCart, ageVerified, setAgeVerified, setPendingAgeRestrictedProductId, language } =
+  const { cartItems, addToCart, ageVerified, setAgeVerified, setPendingAgeRestrictedProductId, setPendingAgeRestrictedItem, language } =
     useKioskStore();
   const { products: catalogProducts, categories: catalogCategories, fetchAll, unavailable, hydrateUnavailable, loading: catalogLoading, error: catalogError } = useCatalogStore();
   const [activeCategory, setActiveCategory] = useState<string>('All');
@@ -141,8 +141,20 @@ export default function MenuScreen() {
 
   function handleAdd(product: Product) {
     if (product.ageRestricted && !ageVerified) {
+      // v2.7.71 — H4. The age-verification flow used to add the item
+      // to the cart *before* opening the verification screen. Two
+      // exploits fell out of that ordering:
+      //   1. The "No, remove item" deny path used `cartItems.filter(...).at(-1)`
+      //      which only removed ONE matching cart line. A double-tap
+      //      (or two consecutive add presses) left the second copy
+      //      sitting in the basket past verification denial.
+      //   2. Hardware back button / swipe gesture both bypassed the
+      //      decision entirely — the item stayed in the cart and the
+      //      customer checked out without ever confirming their age.
+      // We now stash the pending product on the store and only commit
+      // it to the cart inside handleConfirm on the verification screen.
       setPendingAgeRestrictedProductId(product.id);
-      addToCart({
+      setPendingAgeRestrictedItem({
         id: product.id,
         cartKey: `${product.id}_${Date.now()}`,
         name: product.name,

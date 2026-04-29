@@ -718,8 +718,19 @@ export default function PosSellScreen() {
           anzMerchantReceipt: cardExtras?.anzMerchantReceipt,
           traceId: orderNumber,
         });
-      } catch {
-        // Print failed — don't block order
+      } catch (printErr) {
+        // v2.7.71 — H3. Print failures used to be swallowed silently:
+        // operator finalised the sale, the receipt never came out, and
+        // they only noticed when the customer asked for it. We still
+        // never abort the sale (the money has already moved), but we
+        // surface the failure as a toast and keep enough detail in the
+        // logs to diagnose printer/network problems.
+        const msg = printErr instanceof Error ? printErr.message : String(printErr);
+        console.warn('[POS/print]', 'sell.handleCharge receipt print failed', { orderId, err: msg });
+        toast.warning(
+          'Receipt print failed',
+          'The receipt did not print. Reprint from Orders if needed.',
+        );
       }
     }
 
@@ -751,8 +762,17 @@ export default function PosSellScreen() {
             : undefined,
           lines,
         });
-      } catch {
-        // Best-effort: never block the sale on a kitchen-ticket failure.
+      } catch (ticketErr) {
+        // v2.7.71 — H3. Kitchen ticket failures used to vanish into
+        // the void. Surface a warning so the operator can shout the
+        // order to the kitchen rather than wondering why nothing's
+        // being prepared. We still never block the sale.
+        const msg = ticketErr instanceof Error ? ticketErr.message : String(ticketErr);
+        console.warn('[POS/print]', 'sell.handleCharge kitchen ticket print failed', { orderId, err: msg });
+        toast.warning(
+          'Kitchen ticket failed',
+          'The kitchen ticket did not print. Tell the kitchen the order manually.',
+        );
       }
     }
 

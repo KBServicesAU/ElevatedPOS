@@ -339,6 +339,13 @@ interface KioskState {
   setAgeVerified: (verified: boolean) => void;
   pendingAgeRestrictedProductId: string | null;
   setPendingAgeRestrictedProductId: (id: string | null) => void;
+  /** v2.7.71 — H4. The full candidate cart item awaiting age
+   *  verification. We stash the whole item rather than just the
+   *  product id so the verification screen can commit it on confirm
+   *  (or drop it on deny / dismiss) without needing a second lookup
+   *  against the catalog store. */
+  pendingAgeRestrictedItem: CartItem | null;
+  setPendingAgeRestrictedItem: (item: CartItem | null) => void;
   loyaltyAccount: LoyaltyAccount | null;
   setLoyaltyAccount: (account: LoyaltyAccount | null) => void;
   earnedPoints: number | null;
@@ -360,6 +367,7 @@ const initialOrderState = {
   customerName: '',
   ageVerified: false,
   pendingAgeRestrictedProductId: null as string | null,
+  pendingAgeRestrictedItem: null as CartItem | null,
   loyaltyAccount: null as LoyaltyAccount | null,
   earnedPoints: null as number | null,
   appliedDiscount: null as AppliedDiscount | null,
@@ -387,7 +395,7 @@ export const useKioskStore = create<KioskState>((set) => ({
   removeFromCart: (cartKey) =>
     set((state) => ({ cartItems: state.cartItems.filter((i) => i.cartKey !== cartKey) })),
   clearCart: () =>
-    set({ cartItems: [], orderType: 'dine_in', tableNumber: '', ageVerified: false, pendingAgeRestrictedProductId: null }),
+    set({ cartItems: [], orderType: 'dine_in', tableNumber: '', ageVerified: false, pendingAgeRestrictedProductId: null, pendingAgeRestrictedItem: null }),
   setOrderType: (orderType) => set({ orderType, dineIn: orderType === 'dine_in' }),
   /** v2.7.44 — sets the cart back to a retail kiosk after reset. */
   setTableNumber: (tableNumber) => set({ tableNumber }),
@@ -396,6 +404,7 @@ export const useKioskStore = create<KioskState>((set) => ({
   setCustomerName: (customerName) => set({ customerName }),
   setAgeVerified: (ageVerified) => set({ ageVerified }),
   setPendingAgeRestrictedProductId: (pendingAgeRestrictedProductId) => set({ pendingAgeRestrictedProductId }),
+  setPendingAgeRestrictedItem: (pendingAgeRestrictedItem) => set({ pendingAgeRestrictedItem }),
   setLoyaltyAccount: (loyaltyAccount) => set({ loyaltyAccount }),
   setEarnedPoints: (earnedPoints) => set({ earnedPoints }),
   setAppliedDiscount: (appliedDiscount) => set({ appliedDiscount }),

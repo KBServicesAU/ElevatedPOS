@@ -15,10 +15,13 @@ import { useKioskStore, t } from '../../store/kiosk';
 export default function AgeVerificationScreen() {
   const router = useRouter();
   const setAgeVerified = useKioskStore((s) => s.setAgeVerified);
-  const removeFromCart = useKioskStore((s) => s.removeFromCart);
-  const cartItems = useKioskStore((s) => s.cartItems);
-  const pendingAgeRestrictedProductId = useKioskStore(
-    (s) => s.pendingAgeRestrictedProductId,
+  const addToCart = useKioskStore((s) => s.addToCart);
+  // v2.7.71 — H4. Read the candidate from the store (the menu stashed
+  // the full CartItem there before navigating). On confirm we add it
+  // to the cart; on deny / dismiss / hardware-back we drop it.
+  const pendingItem = useKioskStore((s) => s.pendingAgeRestrictedItem);
+  const setPendingAgeRestrictedItem = useKioskStore(
+    (s) => s.setPendingAgeRestrictedItem,
   );
   const setPendingAgeRestrictedProductId = useKioskStore(
     (s) => s.setPendingAgeRestrictedProductId,
@@ -94,23 +97,33 @@ export default function AgeVerificationScreen() {
     outputRange: [0.55, 0],
   });
 
+  // v2.7.71 — H4. Always clear the pending candidate when this screen
+  // unmounts. handleConfirm / handleDeny set their own router.back()
+  // which fires the cleanup; the same path also runs on hardware back
+  // button or swipe-to-dismiss, so the pending state can never leak
+  // across navigations and silently grant verification on subsequent
+  // taps.
+  useEffect(() => {
+    return () => {
+      setPendingAgeRestrictedItem(null);
+      setPendingAgeRestrictedProductId(null);
+    };
+  }, [setPendingAgeRestrictedItem, setPendingAgeRestrictedProductId]);
+
   function handleConfirm() {
+    if (pendingItem) {
+      addToCart(pendingItem);
+    }
     setAgeVerified(true);
+    setPendingAgeRestrictedItem(null);
     setPendingAgeRestrictedProductId(null);
     router.back();
   }
 
   function handleDeny() {
-    if (pendingAgeRestrictedProductId) {
-      // removeFromCart accepts a cartKey, not a product id.
-      // Find the most-recently-added cart item for this product and remove by cartKey.
-      const match = cartItems
-        .filter((i) => i.id === pendingAgeRestrictedProductId)
-        .at(-1);
-      if (match) {
-        removeFromCart(match.cartKey);
-      }
-    }
+    // No-op on the cart — the item was never added in the first place.
+    // The unmount cleanup clears pending state.
+    setPendingAgeRestrictedItem(null);
     setPendingAgeRestrictedProductId(null);
     router.back();
   }

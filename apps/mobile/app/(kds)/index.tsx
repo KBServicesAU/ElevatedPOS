@@ -990,12 +990,24 @@ export default function KDSScreen() {
       });
       if (!res.ok) {
         serverOk = false;
-        showBumpErrorToast(`Bump failed (${res.status}). Will retry on reconnect.`);
+        // v2.7.71 — H1. The "will retry on reconnect" message was a
+        // lie — there was no retry queue, so a failed bump silently
+        // dropped from the UI without ever being recorded server-side.
+        // Now we re-insert the ticket into the active list so the
+        // operator can see it and retry the bump explicitly. The
+        // bumpedHistory entry is also rolled back so the recall list
+        // doesn't claim it succeeded.
+        setTickets((prev) => prev.some((t) => t.id === ticketId) ? prev : [...prev, ticket]);
+        setBumpedHistory((prev) => prev.filter((t) => t.id !== ticketId));
+        showBumpErrorToast(`Bump failed (${res.status}). Tap BUMP again to retry.`);
       }
     } catch (err) {
       serverOk = false;
       console.warn('[KDS] Bump API call failed for ticket', ticketId);
-      showBumpErrorToast('Bump failed: network error. Will retry on reconnect.');
+      // v2.7.71 — H1. Same recovery as the !ok branch above.
+      setTickets((prev) => prev.some((t) => t.id === ticketId) ? prev : [...prev, ticket]);
+      setBumpedHistory((prev) => prev.filter((t) => t.id !== ticketId));
+      showBumpErrorToast('Bump failed: network error. Tap BUMP again to retry.');
     }
 
     // Print label if enabled
