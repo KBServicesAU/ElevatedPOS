@@ -69,6 +69,10 @@ import {
   StripePaymentModal,
   type StripePaymentResult,
 } from '../../components/payments/StripePaymentModal';
+import {
+  QrPaymentModal,
+  type QrPaymentResult,
+} from '../../components/QrPaymentModal';
 import { useStripeTerminalStore } from '../../store/stripe-terminal';
 import { useTillStore } from '../../store/till';
 // v2.7.48-univlog — universal transaction logger. Every payment outcome
@@ -185,6 +189,10 @@ export default function PosSellScreen() {
   const [showLoyaltyRedeem, setShowLoyaltyRedeem] = useState(false);
   const [loyaltyPointsToRedeem, setLoyaltyPointsToRedeem] = useState('');
   const [loyaltyRedeemLoading, setLoyaltyRedeemLoading] = useState(false);
+
+  // v2.7.76 — QR pay (customer-screen Stripe Checkout)
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrAmountCents, setQrAmountCents] = useState(0);
 
   // Tyro EFTPOS transaction modal
   const [showTyroModal, setShowTyroModal] = useState(false);
@@ -1231,6 +1239,55 @@ export default function PosSellScreen() {
     toast.error('EFTPOS Error', message);
   }
 
+  // v2.7.76 — QR pay handler. Same double-tap guard as the other
+  // payment paths. Hands off to <QrPaymentModal> which creates a
+  // Stripe Checkout Session and polls for completion. On success the
+  // modal calls back into handleQrApproved which finalises the sale
+  // through handleCharge with the PaymentIntent id as the auth code.
+  function handlePayQr() {
+    if (paymentInFlightRef.current || charging) return;
+    paymentInFlightRef.current = true;
+    setShowPayment(false);
+    setQrAmountCents(Math.round(total * 100));
+    setShowQrModal(true);
+  }
+
+  function handleQrApproved(result: QrPaymentResult) {
+    setShowQrModal(false);
+    const split = pendingSplit;
+    if (split) setPendingSplit(null);
+    // v2.7.48-univlog — log the QR-pay transaction. provider stays
+    // 'card' since the underlying Stripe charge is on a card / wallet
+    // funding source; the `kind` field in raw distinguishes it from
+    // the Tyro / ANZ / Stripe-Terminal paths in the unified Logs view.
+    logTerminalTx({
+      provider: 'card',
+      outcome: 'approved',
+      transactionType: 'purchase',
+      amountCents: result.amountCents ?? Math.round(total * 100),
+      transactionRef: result.paymentIntentId,
+      authCode: result.paymentIntentId,
+      cardType: result.paymentMethod ?? null,
+      raw: { ...result, kind: 'qr_pay_v1' },
+    });
+    handleCharge(split ? 'Split' : 'Card', 0, undefined, {
+      authCode: result.paymentIntentId,
+      cardType: result.paymentMethod ?? undefined,
+    });
+  }
+
+  function handleQrCancelled() {
+    setShowQrModal(false);
+    paymentInFlightRef.current = false;
+    toast.warning('Payment Cancelled', 'The QR transaction was cancelled.');
+  }
+
+  function handleQrError(message: string) {
+    setShowQrModal(false);
+    paymentInFlightRef.current = false;
+    toast.error('QR Payment Failed', message);
+  }
+
   function handlePayCash() {
     // v2.7.70 — synchronous double-tap guard, see handlePayCard.
     if (paymentInFlightRef.current || charging) return;
@@ -2180,6 +2237,17 @@ export default function PosSellScreen() {
                 >
                   <Text style={{ fontSize: 15, fontWeight: '700', color: '#f59e0b' }}>Split Payment</Text>
                 </TouchableOpacity>
+                {/* v2.7.76 — QR Pay (Stripe Checkout). Customer scans
+                    with their phone and pays via Apple Pay / Google
+                    Pay / card / Link. POS polls for completion. */}
+                <TouchableOpacity
+                  style={{ backgroundColor: '#141425', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: '#06b6d444' }}
+                  onPress={handlePayQr}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: '#06b6d4' }}>
+                    QR Pay  ·  Apple / Google / Card
+                  </Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={{ backgroundColor: '#141425', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: '#22c55e44' }}
                   onPress={() => { setShowPayment(false); setGiftCardAmount(''); setGiftCardRecipientName(''); setGiftCardRecipientEmail(''); setShowGiftCardModal(true); }}
@@ -2721,6 +2789,17 @@ export default function PosSellScreen() {
             amountCents: stripeAmount,
           });
         }}
+      />
+
+      {/* ═══ QR Pay Modal (v2.7.76) ═══ */}
+      <QrPaymentModal
+        visible={showQrModal}
+        amountCents={qrAmountCents}
+        orderRef={identity?.registerId ?? undefined}
+        locationName={identity?.label ?? undefined}
+        onApproved={handleQrApproved}
+        onCancelled={handleQrCancelled}
+        onError={handleQrError}
       />
 
       {/* ═══ Issue Gift Card Modal ═══ */}

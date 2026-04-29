@@ -43,6 +43,12 @@ function isPublicAsset(pathname: string): boolean {
     pathname.startsWith('/api/kds') ||   // KDS SSE stream — device token validated inside the route handler
     pathname.startsWith('/api/stripe/') || // Stripe Terminal routes called from POS
     pathname.startsWith('/timapi/') ||   // ANZ TIM API SDK static files (timapi.js, timapi.wasm)
+    // v2.7.76 — QR-pay landing pages. Stripe Checkout redirects the
+    // customer's phone to /pay/qr/success or /pay/qr/cancel after the
+    // hosted-page payment flow completes. The customer is by
+    // definition not signed in to our backoffice, so these need to
+    // be reachable without auth.
+    pathname.startsWith('/pay/qr/') ||
     pathname === '/favicon.ico' ||
     pathname === '/'
   );

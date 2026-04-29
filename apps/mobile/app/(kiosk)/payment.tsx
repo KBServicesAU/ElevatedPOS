@@ -20,6 +20,11 @@ import { logTerminalTx } from '../../lib/terminal-tx-log';
 // v2.7.70 — C13 reconcile queue for orders that were charged but
 // failed to mark complete. See store/reconcile.ts.
 import { useReconcileStore } from '../../store/reconcile';
+// v2.7.76 — kiosk QR pay re-enabled with the Stripe Checkout flow.
+// The customer scans the QR with their phone and pays via Apple Pay
+// / Google Pay / card / Link on Stripe's hosted page. Replaces the
+// v2.7.72 no-op stub that was env-gated off.
+import { QrPaymentModal, type QrPaymentResult } from '../../components/QrPaymentModal';
 
 type PaymentMethod = 'card' | 'cash' | 'qr';
 
@@ -28,20 +33,16 @@ export default function PaymentScreen() {
   const { cartItems, clearCart, setOrderNumber, setEarnedPoints, orderType, tableNumber, loyaltyAccount, language } = useKioskStore();
   const tillOpen = useTillStore((s) => s.isOpen);
 
-  // v2.7.72 — H. The QR payment method was a no-op stub: tapping it
-  // routed straight to /complete without any actual payment occurring,
-  // letting any customer walk away with a free order. We gate it
-  // behind an env flag (defaults to OFF) so production kiosks no
-  // longer expose the bypass. To re-enable, set
-  //   EXPO_PUBLIC_KIOSK_QR_PAYMENT_ENABLED=1
-  // and wire a real provider into postOrderAndComplete.
-  const qrPaymentEnabled = process.env['EXPO_PUBLIC_KIOSK_QR_PAYMENT_ENABLED'] === '1';
+  // v2.7.76 — QR pay is now backed by a real Stripe Checkout Session.
+  // The v2.7.72 env-gate is no longer the right control surface
+  // (it existed to hide a no-op stub) so we always offer it. A
+  // merchant who hasn't enabled Stripe at all will see a friendly
+  // "Stripe not configured" error from the modal rather than a
+  // free-order vector.
   const METHODS: { id: PaymentMethod; label: string; icon: string; subtitle: string }[] = [
     { id: 'card', label: t(language, 'cardLabel'), icon: '💳', subtitle: t(language, 'cardSub') },
     { id: 'cash', label: t(language, 'cashLabel'), icon: '💵', subtitle: t(language, 'cashSub') },
-    ...(qrPaymentEnabled
-      ? [{ id: 'qr' as const, label: t(language, 'qrLabel'), icon: '📱', subtitle: t(language, 'qrSub') }]
-      : []),
+    { id: 'qr',   label: t(language, 'qrLabel'),   icon: '📱', subtitle: t(language, 'qrSub')   },
   ];
   const [selected, setSelected] = useState<PaymentMethod>('card');
   const [processing, setProcessing] = useState(false);
@@ -52,6 +53,10 @@ export default function PaymentScreen() {
   const [showAnzModal, setShowAnzModal] = useState(false);
   const [anzAmount, setAnzAmount] = useState(0);
   const [anzRefId, setAnzRefId] = useState('');
+  // v2.7.76 — QR pay (Stripe Checkout) modal state.
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrAmountCents, setQrAmountCents] = useState(0);
+  const qrResultRef = useRef<QrPaymentResult | null>(null);
   // Stash card-payment extras (receipts, card brand/last4, auth code)
   // captured from the ANZ result so they can ride along with the order
   // POST + /complete call. The kiosk has no printer today, so we just
@@ -286,7 +291,18 @@ export default function PaymentScreen() {
       return;
     }
 
-    // Cash / QR — legacy stub flow (no terminal involved).
+    // v2.7.76 — QR pay opens the customer-screen Stripe Checkout
+    // flow. The modal handles session creation + polling; we only
+    // commit the order on its onApproved callback.
+    if (selected === 'qr') {
+      qrResultRef.current = null;
+      setQrAmountCents(Math.round(total * 100));
+      setShowQrModal(true);
+      return;
+    }
+
+    // Cash — staff collects payment at the counter; no terminal
+    // involved, just record the order.
     cardExtrasRef.current = null;
     await postOrderAndComplete(selected);
   }
@@ -329,6 +345,37 @@ export default function PaymentScreen() {
     Alert.alert(
       'EFTPOS Error',
       message || 'Unable to process the card payment. Please try again or choose another method.',
+      [{ text: 'OK' }],
+    );
+  }
+
+  // ── QR Pay (v2.7.76) handlers ───────────────────────────────────
+  function handleQrApproved(result: QrPaymentResult) {
+    setShowQrModal(false);
+    qrResultRef.current = result;
+    // Stash QR-pay artefacts in the same cardExtrasRef shape the
+    // notes builder already understands. authCode = PI id, cardType
+    // = wallet (apple_pay / google_pay / card / link).
+    cardExtrasRef.current = {
+      cardType: result.paymentMethod ?? 'qr',
+      authCode: result.paymentIntentId,
+    };
+    void postOrderAndComplete('qr');
+  }
+
+  function handleQrCancelled() {
+    setShowQrModal(false);
+    qrResultRef.current = null;
+    cardExtrasRef.current = null;
+  }
+
+  function handleQrError(message: string) {
+    setShowQrModal(false);
+    qrResultRef.current = null;
+    cardExtrasRef.current = null;
+    Alert.alert(
+      'QR Payment Error',
+      message || 'Unable to process the QR payment. Please try again or choose another method.',
       [{ text: 'OK' }],
     );
   }
@@ -417,6 +464,17 @@ export default function PaymentScreen() {
         onDeclined={handleAnzDeclined}
         onCancelled={handleAnzCancelled}
         onError={handleAnzError}
+      />
+
+      {/* ═══ QR Pay Modal (v2.7.76) ═══ */}
+      <QrPaymentModal
+        visible={showQrModal}
+        amountCents={qrAmountCents}
+        orderRef={`KIOSK-${useDeviceStore.getState().identity?.registerId ?? 'X'}`}
+        locationName={useDeviceStore.getState().identity?.label ?? undefined}
+        onApproved={handleQrApproved}
+        onCancelled={handleQrCancelled}
+        onError={handleQrError}
       />
     </SafeAreaView>
   );

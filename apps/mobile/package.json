@@ -45,6 +45,7 @@
     "react-native-screens": "3.31.1",
     "react-native-thermal-receipt-printer": "1.2.0-rc.2",
     "react-native-webview": "13.8.6",
+    "qrcode-generator": "^1.4.4",
     "zustand": "^4.5.4"
   },
   "devDependencies": {
