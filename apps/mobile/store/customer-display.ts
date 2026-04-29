@@ -119,33 +119,35 @@ function nativeSync(
         `$${tx.total.toFixed(2)}`,
       );
     } else if (phase === 'qr_pay' && qr) {
-      // v2.7.77 — QR-pay phase. The native module sees a JSON payload
-      // and is expected to render a large QR + amount + "scan to pay"
-      // headline on the customer-facing screen. Older native builds
-      // that don't recognise this method silently no-op (caught
-      // below) so the QR still shows on the staff-side modal.
+      // v2.7.77 — QR-pay phase. v2.7.84 promoted showQrPay to a
+      // first-class native function (renders the QR via ZXing on the
+      // customer-facing screen). Older APKs that pre-date that build
+      // would no-op here, so the staff-side modal still shows the QR.
       const payload = JSON.stringify({
         url: qr.url,
         amount: (qr.amountCents / 100).toFixed(2),
         tip: qr.tipCents > 0 ? (qr.tipCents / 100).toFixed(2) : null,
       });
-      const sd = SecondaryDisplay as unknown as {
-        showQrPay?: (json: string) => void;
-        showTransaction?: (json: string) => void;
-      };
-      if (typeof sd.showQrPay === 'function') {
-        sd.showQrPay(payload);
-      } else if (typeof sd.showTransaction === 'function') {
-        // Fallback for native builds without showQrPay: display a
-        // friendly "scan QR on POS" line so the customer at least
-        // knows what's happening.
-        sd.showTransaction(JSON.stringify({
-          items: [{ name: 'Scan the QR code on the staff screen', qty: 1, price: qr.amountCents / 100 }],
-          total: (qr.amountCents + qr.tipCents) / 100,
-          gst: 0,
-          itemCount: 1,
-          customerName: '',
-        }));
+      try {
+        SecondaryDisplay.showQrPay(payload);
+      } catch {
+        // Pre-v2.7.84 APK without showQrPay — fall back to the
+        // transaction screen so the customer sees something.
+        SecondaryDisplay.showTransaction(
+          JSON.stringify({
+            items: [
+              {
+                name: 'Scan the QR code on the staff screen',
+                qty: 1,
+                price: qr.amountCents / 100,
+              },
+            ],
+            total: (qr.amountCents + qr.tipCents) / 100,
+            gst: 0,
+            itemCount: 1,
+            customerName: '',
+          }),
+        );
       }
     }
   } catch {

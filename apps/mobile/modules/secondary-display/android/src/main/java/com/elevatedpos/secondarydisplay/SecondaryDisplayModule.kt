@@ -3,6 +3,7 @@ package com.elevatedpos.secondarydisplay
 import android.app.Activity
 import android.app.Presentation
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.hardware.display.DisplayManager
 import android.os.Bundle
@@ -12,9 +13,14 @@ import android.util.TypedValue
 import android.view.Display
 import android.view.Gravity
 import android.view.View
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.MultiFormatWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import org.json.JSONObject
@@ -58,6 +64,14 @@ class SecondaryDisplayModule : Module() {
     Function("showThankYou") { message: String, total: String ->
       handler.post { presentation?.showThankYou(message, total) }
     }
+
+    // v2.7.84 — QR Pay screen. Payload shape:
+    //   { "url": "https://checkout.stripe.com/...",
+    //     "amount": "12.34",
+    //     "tip": "1.23"  // optional, may be null }
+    Function("showQrPay") { dataJson: String ->
+      handler.post { presentation?.showQrPay(dataJson) }
+    }
   }
 
   private fun showPresentation() {
@@ -81,6 +95,7 @@ class CustomerPresentation(context: Context, display: Display) : Presentation(co
   private lateinit var idleView: LinearLayout
   private lateinit var transactionView: LinearLayout
   private lateinit var thankYouView: LinearLayout
+  private lateinit var qrPayView: LinearLayout
   private lateinit var idleWelcomeText: TextView
   private lateinit var txHeaderText: TextView
   private lateinit var txItemsContainer: LinearLayout
@@ -89,6 +104,9 @@ class CustomerPresentation(context: Context, display: Display) : Presentation(co
   private lateinit var txTotalText: TextView
   private lateinit var tyMessageText: TextView
   private lateinit var tyTotalText: TextView
+  private lateinit var qrImageView: ImageView
+  private lateinit var qrAmountText: TextView
+  private lateinit var qrTipText: TextView
 
   private val bgColor = Color.parseColor("#0a0a14")
   private val accent = Color.parseColor("#6366f1")
@@ -110,14 +128,17 @@ class CustomerPresentation(context: Context, display: Display) : Presentation(co
     idleView = buildIdleView()
     transactionView = buildTransactionView()
     thankYouView = buildThankYouView()
+    qrPayView = buildQrPayView()
 
     root.addView(idleView)
     root.addView(transactionView)
     root.addView(thankYouView)
+    root.addView(qrPayView)
 
     idleView.visibility = View.VISIBLE
     transactionView.visibility = View.GONE
     thankYouView.visibility = View.GONE
+    qrPayView.visibility = View.GONE
 
     setContentView(root)
   }
@@ -196,9 +217,69 @@ class CustomerPresentation(context: Context, display: Display) : Presentation(co
     }
   }
 
+  // v2.7.84 \u2014 QR Pay screen. Centered layout with a large white-bg QR
+  // panel (so dark phone cameras pick it up reliably), the amount in
+  // big numerals, and an optional "incl. tip" line.
+  private fun buildQrPayView(): LinearLayout {
+    return LinearLayout(context).apply {
+      orientation = LinearLayout.VERTICAL
+      gravity = Gravity.CENTER
+      layoutParams = LinearLayout.LayoutParams(-1, -1)
+      setPadding(dp(24), dp(24), dp(24), dp(24))
+
+      addView(TextView(context).apply {
+        text = "Scan to Pay"
+        setTextColor(Color.WHITE)
+        textSize = 36f
+        gravity = Gravity.CENTER
+        layoutParams = LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER; bottomMargin = dp(20) }
+      })
+
+      // White card behind the QR \u2014 improves contrast on the dark theme
+      // and matches what most retail customer-display QR flows do.
+      val qrCard = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        setBackgroundColor(Color.WHITE)
+        setPadding(dp(20), dp(20), dp(20), dp(20))
+        layoutParams = LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER; bottomMargin = dp(24) }
+      }
+      qrImageView = ImageView(context).apply {
+        layoutParams = LinearLayout.LayoutParams(dp(360), dp(360))
+      }
+      qrCard.addView(qrImageView)
+      addView(qrCard)
+
+      qrAmountText = TextView(context).apply {
+        text = ""
+        setTextColor(Color.WHITE)
+        textSize = 56f
+        gravity = Gravity.CENTER
+        layoutParams = LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER; bottomMargin = dp(8) }
+      }
+      addView(qrAmountText)
+      qrTipText = TextView(context).apply {
+        text = ""
+        setTextColor(textDim)
+        textSize = 18f
+        gravity = Gravity.CENTER
+        layoutParams = LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER; bottomMargin = dp(20) }
+      }
+      addView(qrTipText)
+
+      addView(TextView(context).apply {
+        text = "Pay with your phone \u2014 Apple Pay, Google Pay, or card"
+        setTextColor(textDim)
+        textSize = 16f
+        gravity = Gravity.CENTER
+        layoutParams = LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER }
+      })
+    }
+  }
+
   fun showIdle(msg: String) {
     idleWelcomeText.text = msg
-    idleView.visibility = View.VISIBLE; transactionView.visibility = View.GONE; thankYouView.visibility = View.GONE
+    idleView.visibility = View.VISIBLE; transactionView.visibility = View.GONE; thankYouView.visibility = View.GONE; qrPayView.visibility = View.GONE
   }
 
   fun showTransaction(dataJson: String) {
@@ -225,12 +306,64 @@ class CustomerPresentation(context: Context, display: Display) : Presentation(co
       txSubtotalText.text = "Subtotal  $${String.format("%.2f", total - gst)}"
       txGstText.text = "GST (10%)  $${String.format("%.2f", gst)}"
       txTotalText.text = "Total  $${String.format("%.2f", total)}"
-      idleView.visibility = View.GONE; transactionView.visibility = View.VISIBLE; thankYouView.visibility = View.GONE
+      idleView.visibility = View.GONE; transactionView.visibility = View.VISIBLE; thankYouView.visibility = View.GONE; qrPayView.visibility = View.GONE
     } catch (_: Exception) {}
   }
 
   fun showThankYou(msg: String, total: String) {
     tyMessageText.text = msg; tyTotalText.text = total
-    idleView.visibility = View.GONE; transactionView.visibility = View.GONE; thankYouView.visibility = View.VISIBLE
+    idleView.visibility = View.GONE; transactionView.visibility = View.GONE; thankYouView.visibility = View.VISIBLE; qrPayView.visibility = View.GONE
+  }
+
+  // v2.7.84 — encode the URL into a QR bitmap and swap to the QR Pay view.
+  fun showQrPay(dataJson: String) {
+    try {
+      val d = JSONObject(dataJson)
+      val url = d.optString("url", "")
+      val amount = d.optString("amount", "0.00")
+      val tip: String? = if (d.has("tip") && !d.isNull("tip")) d.optString("tip", "") else null
+      if (url.isEmpty()) return
+
+      val bitmap = encodeQrToBitmap(url, dp(360))
+      if (bitmap != null) qrImageView.setImageBitmap(bitmap)
+      qrAmountText.text = "$$amount"
+      qrTipText.text = if (tip != null) "incl. $$tip tip" else ""
+      qrTipText.visibility = if (tip != null) View.VISIBLE else View.GONE
+
+      idleView.visibility = View.GONE
+      transactionView.visibility = View.GONE
+      thankYouView.visibility = View.GONE
+      qrPayView.visibility = View.VISIBLE
+    } catch (_: Exception) {
+      // Bad payload — leave whatever screen is currently visible.
+    }
+  }
+
+  // Pure-Java ZXing pipeline: MultiFormatWriter → BitMatrix → Bitmap.
+  // High error correction so the QR survives a bit of glare on the
+  // customer screen, and a quiet zone of 1 module to keep it tight.
+  private fun encodeQrToBitmap(content: String, sizePx: Int): Bitmap? {
+    return try {
+      val hints = mapOf<EncodeHintType, Any>(
+        EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.H,
+        EncodeHintType.MARGIN to 1,
+        EncodeHintType.CHARACTER_SET to "UTF-8",
+      )
+      val matrix = MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
+      val w = matrix.width
+      val h = matrix.height
+      val pixels = IntArray(w * h)
+      for (y in 0 until h) {
+        val row = y * w
+        for (x in 0 until w) {
+          pixels[row + x] = if (matrix.get(x, y)) Color.BLACK else Color.WHITE
+        }
+      }
+      val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+      bmp.setPixels(pixels, 0, w, 0, 0, w, h)
+      bmp
+    } catch (_: Exception) {
+      null
+    }
   }
 }

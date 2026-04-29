@@ -7,6 +7,10 @@ interface SecondaryDisplayNative {
   showIdle(welcomeMessage: string): void;
   showTransaction(dataJson: string): void;
   showThankYou(message: string, total: string): void;
+  /** v2.7.84 — Customer-display QR Pay screen.
+   *  Expects a JSON payload with `{ url, amount, tip? }`. The native
+   *  side renders a large QR + amount + "Scan to Pay" headline. */
+  showQrPay(dataJson: string): void;
 }
 
 const noop: SecondaryDisplayNative = {
@@ -16,6 +20,7 @@ const noop: SecondaryDisplayNative = {
   showIdle: () => {},
   showTransaction: () => {},
   showThankYou: () => {},
+  showQrPay: () => {},
 };
 
 const SecondaryDisplay: SecondaryDisplayNative =

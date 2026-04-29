@@ -30,4 +30,7 @@ android {
 dependencies {
   implementation project(':expo-modules-core')
   implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:${safeExtGet('kotlinVersion', '1.9.23')}"
+  // v2.7.84 — pure-Java QR encoder for the customer-display QR Pay screen.
+  // No Android camera/scanner dependency, just MultiFormatWriter → BitMatrix.
+  implementation 'com.google.zxing:core:3.5.3'
 }
