@@ -749,4 +749,102 @@ export async function authRoutes(app: FastifyInstance) {
 
     return reply.status(200).send({ ok: true });
   });
+
+  // POST /api/v1/auth/change-password
+  // v2.7.74 — the web-backoffice has been forwarding to this endpoint
+  // since v2.7.32 but the route never existed on the auth service, so
+  // every "Change Password" attempt silently 502'd through the proxy
+  // and the operator had to use the forgot-password email flow as a
+  // workaround. Implements the standard pattern:
+  //   1. Authenticated route — reads { sub } from JWT
+  //   2. Verifies currentPassword against stored bcrypt hash
+  //   3. Validates newPassword (≥8 chars matches signup rule)
+  //   4. Updates the hash + resets failedLoginAttempts/lockedUntil
+  //   5. Audit row in `system_audit_logs`
+  app.post('/change-password', async (request, reply) => {
+    const { sub: employeeId, orgId } = request.user as { sub: string; orgId: string };
+    const body = z.object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(8).max(200),
+    }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: body.error.message,
+      });
+    }
+
+    const { currentPassword, newPassword } = body.data;
+
+    // Reject "change to the same password" up front — this is also
+    // the cheap timing-attack guard so the route doesn't run bcrypt
+    // twice when the user just retyped the existing one.
+    if (currentPassword === newPassword) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/same-password',
+        title: 'New password must differ from current password',
+        status: 422,
+      });
+    }
+
+    const employee = await db.query.employees.findFirst({
+      where: eq(schema.employees.id, employeeId),
+    });
+    if (!employee || !employee.passwordHash) {
+      return reply.status(401).send({
+        type: 'https://elevatedpos.com/errors/invalid-credentials',
+        title: 'Invalid credentials',
+        status: 401,
+      });
+    }
+
+    const ok = await verifyPassword(currentPassword, employee.passwordHash);
+    if (!ok) {
+      // Don't increment failedLoginAttempts here — that field is
+      // for login-time lockout, and we don't want a logged-in user
+      // who fat-fingers their own password to lock themselves out
+      // mid-session. The route is already inside the authenticated
+      // bearer-token bubble so brute-forcing it here gains the
+      // attacker nothing they don't already have.
+      void logAudit({
+        orgId,
+        action: 'password_change_failed',
+        resourceType: 'employee',
+        resourceId: employee.id,
+        actorName: employee.email,
+        ipAddress: request.ip,
+      });
+      return reply.status(401).send({
+        type: 'https://elevatedpos.com/errors/invalid-credentials',
+        title: 'Current password is incorrect',
+        status: 401,
+      });
+    }
+
+    const newHash = await hashPassword(newPassword);
+    await db
+      .update(schema.employees)
+      .set({
+        passwordHash: newHash,
+        passwordResetToken: null,
+        passwordResetExpiresAt: null,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.employees.id, employee.id));
+
+    void logAudit({
+      orgId,
+      action: 'password_changed',
+      resourceType: 'employee',
+      resourceId: employee.id,
+      actorName: employee.email,
+      ipAddress: request.ip,
+    });
+
+    return reply.status(200).send({ ok: true });
+  });
 }

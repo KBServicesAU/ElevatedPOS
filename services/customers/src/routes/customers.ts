@@ -73,6 +73,43 @@ export async function customerRoutes(app: FastifyInstance) {
     if (!body.success) return reply.status(422).send({ type: 'https://elevatedpos.com/errors/validation', title: 'Validation Error', status: 422, detail: body.error.message });
 
     const { firstName, lastName, email, phone, dob, company, abn, tags, marketingOptIn, notes: bodyNotes, source, dietaryPreferences, allergenAlerts } = body.data;
+
+    // v2.7.74 — duplicate-customer guard. Without this, every retry of
+    // a slow "save customer" tap on the POS spawns a new row, and the
+    // merchant ends up with four "Sarah Mitchell" records all pointing
+    // at the same phone number. We dedupe on exact phone OR exact
+    // email match (case-insensitive on email) within the same org.
+    // The caller can pass `?force=1` to override the check when the
+    // operator genuinely wants two records (e.g. shared family phone).
+    const force = (request.query as { force?: string }).force === '1';
+    if (!force && (email || phone)) {
+      const existing = await db.query.customers.findFirst({
+        where: and(
+          eq(schema.customers.orgId, orgId),
+          eq(schema.customers.gdprDeleted, false),
+          or(
+            email ? eq(sql`LOWER(${schema.customers.email})`, email.toLowerCase()) : undefined,
+            phone ? eq(schema.customers.phone, phone) : undefined,
+          ),
+        ),
+      });
+      if (existing) {
+        return reply.status(409).send({
+          type: 'https://elevatedpos.com/errors/duplicate-customer',
+          title: 'Customer already exists',
+          status: 409,
+          detail: `A customer with this ${existing.email && email && existing.email.toLowerCase() === email.toLowerCase() ? 'email' : 'phone number'} already exists.`,
+          existing: {
+            id: existing.id,
+            firstName: existing.firstName,
+            lastName: existing.lastName,
+            email: existing.email,
+            phone: existing.phone,
+          },
+        });
+      }
+    }
+
     const data = {
       orgId,
       firstName,

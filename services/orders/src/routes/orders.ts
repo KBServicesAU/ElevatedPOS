@@ -16,11 +16,16 @@ const lineSchema = z.object({
   // handler so existing mobile builds keep working. Real SKU plumbing is a
   // mobile-side fix tracked separately.
   sku: z.string().optional().default(''),
-  quantity: z.number().positive(),
-  unitPrice: z.number().min(0),
-  costPrice: z.number().min(0).default(0),
-  taxRate: z.number().min(0).default(0),
-  discountAmount: z.number().min(0).default(0),
+  // v2.7.74 — bounded numeric ranges. quantity ≤ 10_000 catches
+  // overflow / fat-finger entries; unitPrice ≤ $100k stops nonsense
+  // single-line totals (anything legitimately above that is being sold
+  // through the layby/quote flow, not direct POS). taxRate is capped
+  // at 100 — anything higher was a unit confusion (decimal vs %).
+  quantity: z.number().positive().max(10_000),
+  unitPrice: z.number().min(0).max(100_000),
+  costPrice: z.number().min(0).max(100_000).default(0),
+  taxRate: z.number().min(0).max(100).default(0),
+  discountAmount: z.number().min(0).max(100_000).default(0),
   modifiers: z.array(z.object({ groupId: z.string(), optionId: z.string(), name: z.string(), priceAdjustment: z.number() })).default([]),
   seatNumber: z.number().int().optional(),
   course: z.string().optional(),
@@ -532,6 +537,29 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     const { lines, ...orderData } = body.data;
+
+    // v2.7.74 — defense-in-depth: refuse any line where the discount
+    // exceeds the line subtotal. The Zod schema only enforces
+    // `discountAmount >= 0`, which means a malicious or buggy client
+    // could send unitPrice=10, quantity=1, discountAmount=15 and the
+    // server would happily record a negative line total — turning the
+    // sale into a credit owed *to* the customer. We now reject the
+    // request before any DB writes.
+    for (const l of lines) {
+      const lineSubtotalCents =
+        Math.round(parseFloat(String(l.unitPrice)) * 100) * l.quantity;
+      const discountCentsForLine = Math.round(
+        parseFloat(String(l.discountAmount ?? 0)) * 100,
+      );
+      if (discountCentsForLine > lineSubtotalCents) {
+        return reply.status(422).send({
+          type: 'https://elevatedpos.com/errors/discount-exceeds-line',
+          title: 'Discount exceeds line subtotal',
+          status: 422,
+          detail: `Line "${l.name}" has discount $${(discountCentsForLine / 100).toFixed(2)} but the subtotal is only $${(lineSubtotalCents / 100).toFixed(2)}.`,
+        });
+      }
+    }
 
     // Compute totals in integer cents to avoid floating-point rounding errors.
     //
