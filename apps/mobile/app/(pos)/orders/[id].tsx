@@ -593,11 +593,14 @@ export default function OrderDetailScreen() {
     try {
       // Rehydrate cart from order lines BEFORE the network call so the
       // operator still gets their cart back even if cancellation fails.
+      // v2.7.75 — pass through discountAmount so the resumed cart
+      // matches the held order's pricing (see store/pos.ts).
       const lines = order.lines.map((l) => ({
         productId: l.productId ?? l.id,
         name: l.name,
         quantity: l.quantity,
         unitPrice: l.unitPrice,
+        discountAmount: (l as { discountAmount?: number | string | null }).discountAmount ?? null,
         notes: l.notes ?? null,
         seatNumber: l.seatNumber ?? null,
       }));

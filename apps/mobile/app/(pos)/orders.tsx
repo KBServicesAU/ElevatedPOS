@@ -300,6 +300,8 @@ export default function OrdersScreen() {
         name: l.name,
         quantity: l.quantity,
         unitPrice: l.unitPrice,
+        // v2.7.75 — preserve hold-time discounts on resume.
+        discountAmount: (l as { discountAmount?: number | string | null }).discountAmount ?? null,
         notes: l.notes ?? null,
         seatNumber: l.seatNumber ?? null,
       }));

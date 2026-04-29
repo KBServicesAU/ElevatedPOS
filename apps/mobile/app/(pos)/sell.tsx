@@ -828,16 +828,43 @@ export default function PosSellScreen() {
       const base = process.env['EXPO_PUBLIC_API_URL'] ?? '';
       const authToken = useAuthStore.getState().employeeToken;
       const token = authToken ?? identity?.deviceToken ?? '';
-      const lines = cart.map((i) => ({
-        productId: i.id,
-        name: i.name,
-        quantity: i.qty,
-        unitPrice: i.price,
-        costPrice: 0,
-        taxRate: 10,
-        ...(i.note ? { notes: i.note } : {}),
-        ...(i.seat !== undefined ? { seatNumber: i.seat } : {}),
-      }));
+      // v2.7.75 — same discount-distribution logic as handleCharge
+      // (v2.7.70 C11). Holding a cart used to strip every discount,
+      // so when staff later resumed the held order from Orders →
+      // Resume the prices were back to full retail. Customer was
+      // promised "$2 off the latte" at hold time, took the buzzer,
+      // and got charged full price when they came back. Now per-line
+      // discount + proportional distribution of the order-level
+      // discount survives the hold/resume round-trip.
+      const heldSubtotalAfterLineDisc = cart.reduce((sum, i) => {
+        const perUnitDisc = i.discount
+          ? (i.discountType === '%' ? (i.price * i.discount / 100) : i.discount)
+          : 0;
+        return sum + (i.price - Math.min(perUnitDisc, i.price)) * i.qty;
+      }, 0);
+      const heldOrderDiscShare = orderDiscountAmount > 0 ? orderDiscountAmount : 0;
+      const lines = cart.map((i) => {
+        const perUnitDisc = i.discount
+          ? (i.discountType === '%' ? (i.price * i.discount / 100) : i.discount)
+          : 0;
+        const safeLineDisc = Math.min(perUnitDisc, i.price);
+        const lineSubtotalAfterLineDisc = (i.price - safeLineDisc) * i.qty;
+        const orderShare = heldSubtotalAfterLineDisc > 0
+          ? heldOrderDiscShare * (lineSubtotalAfterLineDisc / heldSubtotalAfterLineDisc)
+          : 0;
+        const totalLineDiscount = +(safeLineDisc * i.qty + orderShare).toFixed(2);
+        return {
+          productId: i.id,
+          name: i.name,
+          quantity: i.qty,
+          unitPrice: i.price,
+          costPrice: 0,
+          taxRate: 10,
+          discountAmount: totalLineDiscount,
+          ...(i.note ? { notes: i.note } : {}),
+          ...(i.seat !== undefined ? { seatNumber: i.seat } : {}),
+        };
+      });
 
       // Step 1 — create the order (status defaults to 'open')
       const createRes = await fetch(`${base}/api/v1/orders`, {

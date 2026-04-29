@@ -46,6 +46,10 @@ interface PosStore {
     name: string;
     quantity: number | string;
     unitPrice: number | string;
+    /** Total discount across the line in dollars (server format).
+     *  v2.7.75 — preserved on hold/resume so a held order with a
+     *  discount applied resumes with the same discounted price. */
+    discountAmount?: number | string | null;
     notes?: string | null;
     seatNumber?: number | null;
   }>) => void;
@@ -120,12 +124,26 @@ export const usePosStore = create<PosStore>((set) => ({
       const cart: PosCartItem[] = lines.map((l, idx) => {
         const qty = typeof l.quantity === 'number' ? l.quantity : Number(l.quantity) || 0;
         const price = typeof l.unitPrice === 'number' ? l.unitPrice : Number(l.unitPrice) || 0;
+        // v2.7.75 — convert total-line-discount (server) back to
+        // per-unit discount (cart). For an order-level discount that
+        // was distributed across lines at hold time, this means each
+        // line carries its proportional share — the merchant sees a
+        // per-line breakdown rather than the original "20% off whole
+        // order" framing, but the resulting price is identical.
+        const totalLineDiscRaw = l.discountAmount ?? 0;
+        const totalLineDisc = typeof totalLineDiscRaw === 'number'
+          ? totalLineDiscRaw
+          : Number(totalLineDiscRaw) || 0;
+        const perUnitDisc = qty > 0 && totalLineDisc > 0
+          ? +(totalLineDisc / qty).toFixed(4)
+          : 0;
         return {
           id: l.productId,
           cartKey: `${l.productId}::${now}::${idx}`,
           name: l.name,
           price,
           qty,
+          ...(perUnitDisc > 0 ? { discount: perUnitDisc, discountType: '$' as const } : {}),
           ...(l.notes ? { note: l.notes } : {}),
           ...(l.seatNumber != null ? { seat: l.seatNumber } : {}),
         };
