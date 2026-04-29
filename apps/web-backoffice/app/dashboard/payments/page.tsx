@@ -1147,7 +1147,7 @@ function QrPayToggleCard({
           <p className="mt-2 max-w-xl text-sm text-gray-600 dark:text-gray-300">
             Show a QR code on the POS so customers can pay on their own phone
             with Apple&nbsp;Pay, Google&nbsp;Pay, Card, Link, PayTo, or anything else
-            you've enabled in Stripe. Funds settle into your Stripe balance.
+            you&apos;ve enabled in Stripe. Funds settle into your Stripe balance.
           </p>
         </div>
         <label className="inline-flex cursor-pointer items-center gap-2">
