@@ -616,6 +616,17 @@ export async function authRoutes(app: FastifyInstance) {
         passwordHash: false,
         pin: false,
         mfaSecret: false,
+        // v2.7.75 — also strip the password reset + email verification
+        // tokens. They were leaking through /me, which means any XSS
+        // (or anything that could read the GET response) could pivot to
+        // resetting the user's password / verifying a new email
+        // without going through the email link. Defense in depth — the
+        // tokens are short-lived but exposing them breaks the
+        // assumption that they're confidential to the email recipient.
+        passwordResetToken: false,
+        passwordResetExpiresAt: false,
+        emailVerificationToken: false,
+        emailVerificationExpiresAt: false,
       },
     });
 
