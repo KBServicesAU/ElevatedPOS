@@ -74,7 +74,16 @@ export default function PosLayout() {
   const navItems = ALL_SIDEBAR_ITEMS
     .filter(item => enabledIds.includes(item.id))
     .filter(item => item.id !== 'close-till' || tillOpen)
-    .filter(item => !item.requiresIndustry || item.requiresIndustry === deviceIndustry);
+    // v2.7.93 — `requiresIndustry` can be a single value or array. An array
+    // means "show for any of these industries" (e.g. Online Orders is
+    // relevant to hospitality AND retail).
+    .filter(item => {
+      if (!item.requiresIndustry) return true;
+      if (Array.isArray(item.requiresIndustry)) {
+        return deviceIndustry !== undefined && (item.requiresIndustry as readonly string[]).includes(deviceIndustry);
+      }
+      return item.requiresIndustry === deviceIndustry;
+    });
 
   // Auto-prompt: when an employee logs in and the till isn't open, route
   // them to Open Till ONCE so they enter the float before taking a sale.

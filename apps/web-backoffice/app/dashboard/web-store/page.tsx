@@ -380,6 +380,16 @@ export default function WebStoreDashboardPage() {
         </Field>
       </Section>
 
+      {/* v2.7.93 — bulk catalog visibility. Without this section, the
+          merchant has to flip an isSoldOnline toggle on every individual
+          product before it shows on the storefront. The buttons here hit
+          the catalog service's bulk-channels endpoint and update every
+          active product in one shot. Hidden for services-only orgs since
+          they typically don't sell catalog products via the storefront. */}
+      {(showHospitality || showRetail) && (
+        <CatalogVisibilitySection />
+      )}
+
       {/* About */}
       <Section title="About">
         <Field label="Tell customers your story (optional)">
@@ -579,6 +589,124 @@ export default function WebStoreDashboardPage() {
         </Field>
       </Section>
     </div>
+  );
+}
+
+// v2.7.93 — one-click catalog → web store sync. Calls the catalog
+// service's bulk-channels endpoint with one of four actions:
+//   • add_web    — every product can be sold on POS *and* web (recommended)
+//   • web_only   — every product is web-only (rare; only if the merchant
+//                  runs a pure online store with no in-person till)
+//   • pos_only   — every product is POS-only (resets after a mistake)
+//   • remove_web — strip the web flag from every product (without
+//                  flipping POS-only — useful when the merchant is
+//                  pausing online sales)
+function CatalogVisibilitySection() {
+  const [busy, setBusy] = useState<null | 'add_web' | 'web_only' | 'pos_only' | 'remove_web'>(null);
+  const [lastResult, setLastResult] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run(action: 'add_web' | 'web_only' | 'pos_only' | 'remove_web', confirmText: string) {
+    if (!window.confirm(confirmText)) return;
+    setBusy(action);
+    setErr(null);
+    setLastResult(null);
+    try {
+      const res = await fetch('/api/proxy/products/bulk-channels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`HTTP ${res.status}: ${txt}`);
+      }
+      const json = (await res.json()) as { data?: { totalProducts: number; updated: number } };
+      const total = json.data?.totalProducts ?? 0;
+      const updated = json.data?.updated ?? 0;
+      setLastResult(
+        `${updated} of ${total} active products updated. The storefront refreshes within 5 minutes.`,
+      );
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Bulk update failed');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Section title="Catalog visibility">
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+        Decide which of your products show on the public storefront. These
+        buttons update every <strong>active</strong> product in one shot —
+        no need to edit each one individually.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() =>
+            run(
+              'add_web',
+              'Make every active product available on the storefront AND keep them on the POS?',
+            )
+          }
+          className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white text-sm font-medium"
+        >
+          {busy === 'add_web' ? 'Updating…' : 'Show all on website'}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() =>
+            run(
+              'remove_web',
+              'Hide every product from the storefront? They\'ll stay available on the POS.',
+            )
+          }
+          className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60 text-sm font-medium"
+        >
+          {busy === 'remove_web' ? 'Updating…' : 'Hide all from website'}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() =>
+            run(
+              'web_only',
+              'Make every product web-only (remove from POS)? This is unusual — confirm only if you\'re running an online-only store.',
+            )
+          }
+          className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60 text-sm font-medium"
+        >
+          {busy === 'web_only' ? 'Updating…' : 'Web-only'}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() =>
+            run(
+              'pos_only',
+              'Reset every product to POS-only? Customers won\'t see them on the storefront.',
+            )
+          }
+          className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60 text-sm font-medium"
+        >
+          {busy === 'pos_only' ? 'Updating…' : 'POS-only'}
+        </button>
+      </div>
+      {lastResult && (
+        <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-3">{lastResult}</p>
+      )}
+      {err && (
+        <p className="text-sm text-red-600 dark:text-red-400 mt-3">{err}</p>
+      )}
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
+        For per-product control, edit a product in <strong>Catalog</strong>
+        {' '}and toggle <strong>Sold online</strong> on the Channels &amp;
+        Visibility tab.
+      </p>
+    </Section>
   );
 }
 

@@ -21,7 +21,18 @@ export default function CheckoutPage() {
   const rawParams = useParams<{ slug: string }>();
   const params = { slug: rawParams?.slug ?? '' };
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  // v2.7.93 — pickupTime is the customer's preferred collection time
+  // (browser <input type="datetime-local"> value, e.g. "2026-04-30T14:30").
+  // Empty string means "as soon as it's ready". specialInstructions is
+  // free-text the merchant sees on the order ticket — allergies, parking
+  // notes, gift wrapping, whatever.
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    pickupTime: '',
+    specialInstructions: '',
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -43,7 +54,18 @@ export default function CheckoutPage() {
         body: JSON.stringify({
           slug: params.slug,
           items: cart,
-          customer: form,
+          customer: {
+            name: form.name,
+            email: form.email,
+            phone: form.phone,
+          },
+          // v2.7.93 — fulfillment details. Both fields are optional; the
+          // backend stores them on the fulfillment_request notes block so
+          // the merchant sees them when they prep the order.
+          fulfillment: {
+            pickupTime: form.pickupTime || undefined,
+            specialInstructions: form.specialInstructions || undefined,
+          },
           successUrl: `${window.location.origin}/store/${params.slug}/order-confirmed`,
           cancelUrl: `${window.location.origin}/store/${params.slug}/cart`,
         }),
@@ -112,6 +134,37 @@ export default function CheckoutPage() {
                   className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-900"
                 />
               </div>
+
+              {/* v2.7.93 — pickup time + special instructions. Both
+                  optional. The merchant sees them on the order ticket
+                  in the dashboard / POS. */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Preferred pickup time (optional)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={form.pickupTime}
+                  onChange={(e) => setForm((f) => ({ ...f, pickupTime: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Leave blank for ASAP. Otherwise, choose when you&apos;d like to pick up — the merchant will email you when it&apos;s ready.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Special instructions (optional)
+                </label>
+                <textarea
+                  value={form.specialInstructions}
+                  onChange={(e) => setForm((f) => ({ ...f, specialInstructions: e.target.value }))}
+                  rows={3}
+                  placeholder="Allergies, dietary requirements, gift wrapping, parking notes…"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-900 resize-none"
+                />
+              </div>
+
               {error && <p className="text-red-500 text-sm">{error}</p>}
               <button
                 type="submit"

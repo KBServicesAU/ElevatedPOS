@@ -12,7 +12,11 @@ import { create } from 'zustand';
  * so a retail shop never sees the Floor Plan / Reservations tabs and a
  * cafe never sees the Bookings / Ecommerce tabs.
  */
+// v2.7.93 — IndustryGate now accepts an array so an item can show for
+// multiple industries (e.g. Online Orders is relevant to hospitality
+// AND retail, just not services where appointments handle the same job).
 export type IndustryGate = 'hospitality' | 'services' | 'retail';
+export type IndustryGateValue = IndustryGate | IndustryGate[];
 
 export interface SidebarItem {
   id: string;
@@ -23,7 +27,7 @@ export interface SidebarItem {
   /** Cannot be disabled by the user */
   permanent?: boolean;
   /** v2.7.51 — only show when the merchant's industry matches this value. */
-  requiresIndustry?: IndustryGate;
+  requiresIndustry?: IndustryGateValue;
 }
 
 export const ALL_SIDEBAR_ITEMS: SidebarItem[] = [
@@ -39,7 +43,9 @@ export const ALL_SIDEBAR_ITEMS: SidebarItem[] = [
   // actual screens are placeholders for now; the merchant manages content
   // from the dashboard.
   { id: 'reservations',  route: '/(pos)/reservations',    label: 'Reserve',     icon: 'calendar',    requiresIndustry: 'hospitality' },
-  { id: 'online-orders', route: '/(pos)/online-orders',   label: 'Online',      icon: 'globe',       requiresIndustry: 'hospitality' },
+  // v2.7.93 — visible to hospitality + retail. Services merchants don't
+  // typically take "click & collect" — appointments handle the same job.
+  { id: 'online-orders', route: '/(pos)/online-orders',   label: 'Online',      icon: 'globe',       requiresIndustry: ['hospitality', 'retail'] },
   { id: 'bookings',      route: '/(pos)/bookings',        label: 'Bookings',    icon: 'time',        requiresIndustry: 'services' },
   { id: 'ecommerce',     route: '/(pos)/ecommerce',       label: 'Ecom',        icon: 'cart-outline', requiresIndustry: 'retail' },
   // Shown in the sidebar only while the till is OPEN — see PosLayout filter.

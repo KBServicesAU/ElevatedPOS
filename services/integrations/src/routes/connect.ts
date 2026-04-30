@@ -829,6 +829,13 @@ export async function connectRoutes(app: FastifyInstance) {
       slug: string;
       items: { id: string; name: string; price: number; quantity: number }[];
       customer: { name: string; email: string; phone?: string };
+      // v2.7.93 — fulfillment details from the storefront cart. Both
+      // optional. The Stripe webhook handler reads these from metadata
+      // and passes them through to the orders service.
+      fulfillment?: {
+        pickupTime?: string; // ISO datetime-local string from <input type="datetime-local">
+        specialInstructions?: string;
+      };
       successUrl: string;
       cancelUrl: string;
     };
@@ -896,6 +903,10 @@ export async function connectRoutes(app: FastifyInstance) {
         customerName: body.customer.name,
         customerEmail: body.customer.email ?? '',
         customerPhone: body.customer.phone ?? '',
+        // v2.7.93 — fulfillment fields. Strings only (Stripe metadata
+        // is string-keyed). Empty string means "not provided".
+        pickupTime: body.fulfillment?.pickupTime ?? '',
+        specialInstructions: (body.fulfillment?.specialInstructions ?? '').slice(0, 480),
         ...metadataItems,
       },
     }, { stripeAccount: stripeAccountId });

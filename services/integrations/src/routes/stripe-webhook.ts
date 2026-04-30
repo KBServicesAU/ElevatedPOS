@@ -327,7 +327,16 @@ async function handleStorefrontCheckoutCompleted(session: Stripe.Checkout.Sessio
     { issuer: 'elevatedpos-auth', expiresIn: '5m' },
   );
 
-  const payload = {
+  // v2.7.93 — fulfillment metadata. Both optional; the orders service
+  // stashes pickupReadyAt + notes on the fulfillment_request.notes block
+  // so the merchant sees them when they prep the order.
+  const pickupTime = meta['pickupTime'] || '';
+  const specialInstructions = meta['specialInstructions'] || '';
+
+  const noteLines = [`Online order — Stripe session ${session.id}`];
+  if (specialInstructions) noteLines.push(`Special instructions: ${specialInstructions}`);
+
+  const payload: Record<string, unknown> = {
     customerName,
     ...(customerEmail ? { customerEmail } : {}),
     ...(customerPhone ? { customerPhone } : {}),
@@ -337,8 +346,11 @@ async function handleStorefrontCheckoutCompleted(session: Stripe.Checkout.Sessio
       // Stripe stores cents; the orders service expects dollar floats.
       unitPrice: it.price / 100,
     })),
-    notes: `Online order — Stripe session ${session.id}`,
+    notes: noteLines.join(' | '),
   };
+  if (pickupTime) {
+    payload['pickupReadyAt'] = pickupTime;
+  }
 
   try {
     const res = await fetch(

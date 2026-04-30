@@ -237,6 +237,15 @@ export async function productRoutes(app: FastifyInstance) {
       kitchenDisplayName: rawKitchenDisplayName,
       ...productRest
     } = body.data;
+    // v2.7.93 — derive `channels` from `isSoldOnline` so the storefront
+    // (which filters by channels containing 'web') automatically shows
+    // products the merchant flags as online-sellable. Without this the
+    // dashboard's `isSoldOnline` toggle was a no-op for the storefront —
+    // a confusing UX where flipping a switch did nothing visible.
+    const inferredChannels: ('pos' | 'web')[] = productRest.isSoldOnline
+      ? ['pos', 'web']
+      : ['pos'];
+
     const [created] = await db.insert(schema.products).values({
       ...productRest,
       orgId,
@@ -252,6 +261,7 @@ export async function productRoutes(app: FastifyInstance) {
       calories: rawCalories ?? null,
       countdownQty: rawCountdownQty ?? null,
       kitchenDisplayName: rawKitchenDisplayName ?? null,
+      channels: inferredChannels,
     }).returning();
     const c = created!;
 
@@ -299,7 +309,17 @@ export async function productRoutes(app: FastifyInstance) {
     // can flip products active/inactive without going through the
     // /availability endpoint (which is reserved for auto-86 in the POS).
     if (bd.isActive !== undefined) patchData['isActive'] = bd.isActive;
-    if (bd.isSoldOnline !== undefined) patchData['isSoldOnline'] = bd.isSoldOnline;
+    if (bd.isSoldOnline !== undefined) {
+      patchData['isSoldOnline'] = bd.isSoldOnline;
+      // v2.7.93 — keep `channels` in sync with the toggle. Storefront
+      // filters on `channels.includes('web')`, so flipping isSoldOnline
+      // without updating channels was a silent no-op for the merchant.
+      const currentChannels = (existing.channels ?? ['pos']) as string[];
+      const withoutWeb = currentChannels.filter((c) => c !== 'web');
+      patchData['channels'] = bd.isSoldOnline
+        ? Array.from(new Set([...withoutWeb, 'web']))
+        : withoutWeb.length > 0 ? withoutWeb : ['pos'];
+    }
     if (bd.isSoldInstore !== undefined) patchData['isSoldInstore'] = bd.isSoldInstore;
     if (bd.trackStock !== undefined) patchData['trackStock'] = bd.trackStock;
     if (bd.reorderPoint !== undefined) patchData['reorderPoint'] = bd.reorderPoint;
@@ -352,6 +372,80 @@ export async function productRoutes(app: FastifyInstance) {
     // Invalidate list cache for this org
     await invalidateCache(`products:${orgId}:*`);
     return reply.status(204).send();
+  });
+
+  // POST /api/v1/products/bulk-channels — flip every active product's
+  // web/pos channel flags in one shot (v2.7.93). Used by the Web Store
+  // dashboard's "Show all products on website" button so a merchant
+  // doesn't have to flip 40 individual isSoldOnline toggles to populate
+  // the storefront menu.
+  app.post('/bulk-channels', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const bodySchema = z.object({
+      action: z.enum(['add_web', 'remove_web', 'web_only', 'pos_only']),
+    });
+    const parsed = bodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(422).send({
+        type: 'https://elevatedpos.com/errors/validation',
+        title: 'Validation Error',
+        status: 422,
+        detail: parsed.error.message,
+      });
+    }
+    const action = parsed.data.action;
+
+    // Pull all active products for the org once so we can compute new
+    // channels per row (channels may differ today if the merchant has
+    // already done some manual customisation).
+    const rows = await db.query.products.findMany({
+      where: and(eq(schema.products.orgId, orgId), eq(schema.products.isActive, true)),
+      columns: { id: true, channels: true },
+    });
+
+    let updated = 0;
+    for (const row of rows) {
+      const current = (row.channels ?? ['pos']) as string[];
+      let next: string[];
+      switch (action) {
+        case 'add_web':
+          next = Array.from(new Set([...current, 'web']));
+          break;
+        case 'remove_web':
+          next = current.filter((c) => c !== 'web');
+          if (next.length === 0) next = ['pos'];
+          break;
+        case 'web_only':
+          next = ['web'];
+          break;
+        case 'pos_only':
+          next = ['pos'];
+          break;
+      }
+      // Skip the write when the row already matches the target — saves
+      // a fan-out of needless updates and keeps `updatedAt` stable on
+      // products that didn't actually change.
+      if (
+        next.length === current.length &&
+        next.every((c) => current.includes(c))
+      ) {
+        continue;
+      }
+      await db
+        .update(schema.products)
+        .set({
+          channels: next,
+          isSoldOnline: next.includes('web'),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(schema.products.id, row.id), eq(schema.products.orgId, orgId)));
+      updated += 1;
+    }
+
+    await invalidateCache(`products:${orgId}:*`);
+    return reply.status(200).send({
+      data: { action, totalProducts: rows.length, updated },
+    });
   });
 
   // POST /api/v1/products/:id/availability — 86 or restore a product
