@@ -9,6 +9,10 @@ interface OrgDetail {
   id: string;
   name: string;
   slug: string;
+  // v2.7.92 — drives the storefront template (cafe / restaurant / bar /
+  // quick_service / hospitality → menu + reservations; salon / gym /
+  // services / barber → bookings; everything else → ecommerce).
+  industry: string | null;
   plan: string;
   planStatus: string;
   maxLocations: number;
@@ -31,6 +35,23 @@ interface OrgDetail {
     activeDevices: number;
   };
 }
+
+// v2.7.92 — keep this in sync with services/auth/src/lib/featureFlags.ts
+// and apps/storefront/app/[slug]/page.tsx pickTemplate(). The label is
+// what godmode users see; the value is what gets stored on the org row.
+const INDUSTRY_OPTIONS: { value: string; label: string; template: string }[] = [
+  { value: 'cafe',          label: 'Café',                template: 'hospitality' },
+  { value: 'restaurant',    label: 'Restaurant',          template: 'hospitality' },
+  { value: 'bar',           label: 'Bar / Pub',           template: 'hospitality' },
+  { value: 'quick_service', label: 'Quick Service Food',  template: 'hospitality' },
+  { value: 'hospitality',   label: 'Hospitality (other)', template: 'hospitality' },
+  { value: 'salon',         label: 'Salon',               template: 'services' },
+  { value: 'barber',        label: 'Barber',              template: 'services' },
+  { value: 'gym',           label: 'Gym / Fitness',       template: 'services' },
+  { value: 'services',      label: 'Services (other)',    template: 'services' },
+  { value: 'retail',        label: 'Retail',              template: 'retail' },
+  { value: 'pharmacy',      label: 'Pharmacy',            template: 'retail' },
+];
 
 interface Device {
   id: string;
@@ -136,6 +157,12 @@ export default function MerchantDetailPage({ params }: { params: { id: string } 
   const [slugDraft, setSlugDraft] = useState('');
   const [slugSaving, setSlugSaving] = useState(false);
   const [slugError, setSlugError] = useState('');
+
+  // v2.7.92 — inline industry picker. Drives which storefront template
+  // renders at site.elevatedpos.com.au/<slug>. Useful for testing
+  // (toggle cafe ↔ retail ↔ services to see how the storefront swaps).
+  const [industrySaving, setIndustrySaving] = useState(false);
+  const [industryError, setIndustryError] = useState('');
 
   // Notes state (API-backed)
   const [supportNotes, setSupportNotes] = useState<SupportNote[]>([]);
@@ -348,6 +375,27 @@ export default function MerchantDetailPage({ params }: { params: { id: string } 
     }
   }
 
+  // v2.7.92 — change the merchant's industry. The storefront's
+  // pickTemplate() switch reads this to choose hospitality / services /
+  // retail; the dashboard's hasFeature() reads it (indirectly via
+  // featureFlags) to decide which sidebar items show.
+  async function saveIndustry(next: string) {
+    if (!org || next === org.industry) return;
+    setIndustrySaving(true);
+    setIndustryError('');
+    try {
+      const data = (await platformFetch(`platform/organisations/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ industry: next }),
+      })) as { data: OrgDetail };
+      setOrg(data.data);
+    } catch (err) {
+      setIndustryError(err instanceof Error ? err.message : 'Could not update industry.');
+    } finally {
+      setIndustrySaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-8 text-gray-500">Loading...</div>
@@ -554,6 +602,35 @@ export default function MerchantDetailPage({ params }: { params: { id: string } 
               <Edit2 className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>
           )}
+
+          {/* v2.7.92 — industry picker. Switching changes which storefront
+              template renders at site.elevatedpos.com.au/<slug> (the
+              storefront's pickTemplate() switch maps:
+                cafe / restaurant / bar / quick_service / hospitality
+                  → hospitality template (menu + reservations)
+                salon / barber / gym / services
+                  → services template (booking flow)
+                retail / pharmacy / anything else
+                  → retail template (ecommerce)
+              and reflows the dashboard sidebar via featureFlags). */}
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-gray-500 text-xs">Industry:</span>
+            <select
+              value={org.industry ?? 'retail'}
+              onChange={(e) => void saveIndustry(e.target.value)}
+              disabled={industrySaving}
+              className="bg-[#1a1a26] border border-[#2a2a3e] text-gray-200 text-xs px-2 py-1 rounded focus:outline-none focus:border-indigo-500 disabled:opacity-60"
+            >
+              {INDUSTRY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <span className="text-gray-600 text-[11px]">
+              → {INDUSTRY_OPTIONS.find((o) => o.value === (org.industry ?? 'retail'))?.template ?? 'retail'} template
+            </span>
+            {industrySaving && <span className="text-gray-500 text-xs">Saving…</span>}
+            {industryError && <span className="text-red-400 text-xs">{industryError}</span>}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
