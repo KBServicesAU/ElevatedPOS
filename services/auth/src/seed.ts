@@ -58,6 +58,18 @@ const DEMO_WEB_STORE = {
   shippingFlatRateCents: null,
 };
 
+// v2.7.91 — feature flags the demo org needs so the dashboard sidebar
+// surfaces the Web Store + Click & Collect + Reservations editors. The
+// hasFeature helper in sidebar-nav.tsx hides any nav item whose flag
+// key isn't truthy, so without these the merchant has no path to the
+// storefront editor.
+const DEMO_FEATURE_FLAGS = {
+  onlineOrdering: true,
+  ecommerceWebsite: true,
+  restaurantReservations: true,
+  tableManagement: true,
+};
+
 export async function seedDemoOrg(): Promise<void> {
   const pool = new Pool({
     connectionString: process.env['DATABASE_URL'],
@@ -66,33 +78,52 @@ export async function seedDemoOrg(): Promise<void> {
   });
   const client = await pool.connect();
   try {
-    const res = await client.query<{ id: string; settings: Record<string, unknown> | null }>(
-      `SELECT id, settings FROM organisations WHERE slug = $1 LIMIT 1`,
+    const res = await client.query<{
+      id: string;
+      settings: Record<string, unknown> | null;
+      feature_flags: Record<string, unknown> | null;
+    }>(
+      `SELECT id, settings, feature_flags FROM organisations WHERE slug = $1 LIMIT 1`,
       [DEMO_SLUG],
     );
     if (!res.rowCount) {
-      console.log(`[auth] no org with slug='${DEMO_SLUG}' — webStore seed skipped.`);
+      console.log(`[auth] no org with slug='${DEMO_SLUG}' — demo seed skipped.`);
       return;
     }
     const row = res.rows[0]!;
 
-    // Bail if the org already has a webStore configured. Even one user
-    // edit means the merchant has been customising and we must not stomp
-    // on their work on the next pod restart.
+    // ── webStore: only populate if currently empty so we don't stomp on edits.
     const settings = (row.settings ?? {}) as Record<string, unknown>;
     const existingWebStore = settings['webStore'];
-    if (existingWebStore && typeof existingWebStore === 'object'
-        && Object.keys(existingWebStore as Record<string, unknown>).length > 0) {
+    const webStoreEmpty = !existingWebStore
+      || typeof existingWebStore !== 'object'
+      || Object.keys(existingWebStore as Record<string, unknown>).length === 0;
+    if (webStoreEmpty) {
+      const newSettings = { ...settings, webStore: DEMO_WEB_STORE };
+      await client.query(
+        `UPDATE organisations SET settings = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify(newSettings), row.id],
+      );
+      console.log(`[auth] populated webStore on demo org ${row.id}.`);
+    } else {
       console.log(`[auth] demo org ${row.id} already has webStore settings — leaving alone.`);
-      return;
     }
 
-    const newSettings = { ...settings, webStore: DEMO_WEB_STORE };
-    await client.query(
-      `UPDATE organisations SET settings = $1::jsonb, updated_at = NOW() WHERE id = $2`,
-      [JSON.stringify(newSettings), row.id],
-    );
-    console.log(`[auth] populated webStore on demo org ${row.id}.`);
+    // ── featureFlags: merge in (don't replace) any missing flags. We
+    // never turn flags OFF here — only flip on the ones the demo needs
+    // so the dashboard editors show. Pre-existing merchant decisions
+    // stick.
+    const flags = (row.feature_flags ?? {}) as Record<string, unknown>;
+    const missing = Object.entries(DEMO_FEATURE_FLAGS).filter(([k]) => flags[k] !== true);
+    if (missing.length > 0) {
+      const merged = { ...flags };
+      for (const [k, v] of missing) merged[k] = v;
+      await client.query(
+        `UPDATE organisations SET feature_flags = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify(merged), row.id],
+      );
+      console.log(`[auth] enabled ${missing.length} feature flag(s) on demo org ${row.id}: ${missing.map(([k]) => k).join(', ')}`);
+    }
   } finally {
     client.release();
     await pool.end();

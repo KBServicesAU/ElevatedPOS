@@ -26,8 +26,13 @@ export const revalidate = 300; // 5 minutes
 // dynamic route is hit with one of these (e.g. someone wires a redirect that
 // drops the static priority), fall through to a 404 instead of treating it
 // as a slug.
+//
+// v2.7.91 — `demo` removed so site.elevatedpos.com.au/demo resolves to the
+// merchant whose slug is 'demo' (the customer-facing storefront for the
+// public showcase). The legacy static POS simulator that used to live
+// there has been moved to `/pos-demo`, which is now reserved.
 const RESERVED_SLUGS = new Set([
-  'about', 'blog', 'careers', 'contact', 'demo', 'downloads', 'help',
+  'about', 'blog', 'careers', 'contact', 'pos-demo', 'downloads', 'help',
   'onboard', 'privacy', 'status', 'terms', 'store', 'api', 'login',
   'signup', 'pricing', 'features', '_next', 'favicon.ico', 'robots.txt',
 ]);

@@ -6,7 +6,9 @@ const footerLinks = {
   Product: [
     { label: 'Features', href: '#features' },
     { label: 'Pricing', href: '#pricing' },
-    { label: 'Demo', href: '/demo' },
+    // v2.7.91 — POS simulator moved to /pos-demo so /demo can resolve to
+    // the merchant storefront via the [slug] route.
+    { label: 'POS Demo', href: '/pos-demo' },
     { label: 'Downloads', href: '/downloads' },
   ],
   Company: [

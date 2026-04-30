@@ -64,6 +64,19 @@ async function seed() {
   // canonical source of truth for the demo's "fresh state" — any local
   // edits should happen via /dashboard/web-store, not by hand-editing
   // the DB.
+  // v2.7.91 — feature flags drive the dashboard sidebar. `onlineOrdering`
+  // shows the Web Store + Click & Collect nav items for hospitality
+  // industries; `ecommerceWebsite` covers the retail storefront flow;
+  // `restaurantReservations` shows the Reservations item. Without these
+  // the editor links are hidden because the nav is gated behind feature
+  // flags (see apps/web-backoffice/components/sidebar-nav.tsx hasFeature).
+  const DEMO_FEATURE_FLAGS = {
+    onlineOrdering: true,
+    ecommerceWebsite: true,
+    restaurantReservations: true,
+    tableManagement: true,
+  };
+
   await db.insert(schema.organisations).values({
     id: ORG_ID,
     name: 'Demo Cafe',
@@ -74,6 +87,7 @@ async function seed() {
     plan: 'starter',
     planStatus: 'active',
     industry: 'cafe',
+    featureFlags: DEMO_FEATURE_FLAGS,
     settings: { webStore: DEMO_WEB_STORE },
   }).onConflictDoUpdate({
     target: schema.organisations.id,
@@ -81,6 +95,7 @@ async function seed() {
       name: 'Demo Cafe',
       slug: 'demo',
       industry: 'cafe',
+      featureFlags: DEMO_FEATURE_FLAGS,
       settings: { webStore: DEMO_WEB_STORE },
     },
   });
