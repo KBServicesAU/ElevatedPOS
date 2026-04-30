@@ -51,6 +51,82 @@ async function applyMigrations(): Promise<void> {
       await client.query(
         `ALTER TABLE stripe_connect_accounts ADD COLUMN IF NOT EXISTS qr_pay_enabled boolean NOT NULL DEFAULT false`,
       );
+
+      // v2.7.98 — reservations + reservation_settings self-heal. Same
+      // self-heal pattern as services/auth/src/index.ts for display_content
+      // (v2.7.95). Production environments where the v2.7.42 Drizzle
+      // migration that creates these two tables didn't run will otherwise
+      // 500 every /reservations and /reservations/count call (we hit
+      // exactly this when verifying the v2.7.97 sidebar-badge endpoint —
+      // GET /reservations/count returned 'relation "reservations" does
+      // not exist'). Schema mirrors services/integrations/src/db/schema.ts
+      // — keep them in sync if either side changes.
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'reservation_status') THEN
+            CREATE TYPE reservation_status AS ENUM ('pending', 'confirmed', 'seated', 'completed', 'cancelled', 'no_show');
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'deposit_status') THEN
+            CREATE TYPE deposit_status AS ENUM ('none', 'pending', 'paid', 'refunded', 'failed');
+          END IF;
+        END $$
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reservations (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          org_id uuid NOT NULL,
+          location_id uuid,
+          booking_type varchar(20) NOT NULL DEFAULT 'restaurant',
+          party_size integer,
+          table_id uuid,
+          service_id uuid,
+          staff_employee_id uuid,
+          duration_minutes integer,
+          customer_name varchar(255) NOT NULL,
+          customer_email varchar(255) NOT NULL,
+          customer_phone varchar(50),
+          scheduled_at timestamp with time zone NOT NULL,
+          ends_at timestamp with time zone,
+          status reservation_status NOT NULL DEFAULT 'pending',
+          notes text,
+          internal_notes text,
+          deposit_status deposit_status NOT NULL DEFAULT 'none',
+          deposit_amount_cents integer NOT NULL DEFAULT 0,
+          deposit_stripe_account_id varchar(255),
+          deposit_payment_intent_id varchar(255),
+          deposit_paid_at timestamp with time zone,
+          deposit_refunded_at timestamp with time zone,
+          source varchar(30) NOT NULL DEFAULT 'widget',
+          reminder_sent_at timestamp with time zone,
+          cancelled_at timestamp with time zone,
+          cancellation_reason text,
+          created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+          updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS reservations_org_scheduled_idx ON reservations (org_id, scheduled_at)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS reservations_org_status_idx    ON reservations (org_id, status)`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reservation_settings (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          org_id uuid NOT NULL UNIQUE,
+          restaurant_enabled boolean NOT NULL DEFAULT false,
+          service_enabled boolean NOT NULL DEFAULT false,
+          restaurant_deposit_required boolean NOT NULL DEFAULT false,
+          restaurant_deposit_cents integer NOT NULL DEFAULT 0,
+          service_deposit_required boolean NOT NULL DEFAULT false,
+          service_deposit_cents integer NOT NULL DEFAULT 0,
+          slot_duration_minutes integer NOT NULL DEFAULT 30,
+          advance_notice_minutes integer NOT NULL DEFAULT 60,
+          max_party_size integer NOT NULL DEFAULT 12,
+          confirmation_email_enabled boolean NOT NULL DEFAULT true,
+          reminder_email_enabled boolean NOT NULL DEFAULT true,
+          reminder_hours_before integer NOT NULL DEFAULT 24,
+          created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+          updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+        )
+      `);
+
       console.log('[integrations] schema migrations applied successfully');
       client.release();
       await pool.end();
