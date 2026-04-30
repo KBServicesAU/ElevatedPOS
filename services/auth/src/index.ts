@@ -168,39 +168,62 @@ async function applyMigrationsOnce(): Promise<void> {
     // signage template. /api/v1/display/content falls back to this when
     // a device has no per-device content yet.
     //
-    // Drop the column-level UNIQUE on device_id (old definition) and
-    // replace with two partial unique indexes that support both shapes.
-    await client.query(`ALTER TABLE display_content ALTER COLUMN device_id DROP NOT NULL`);
+    // v2.7.95 — create the table inline if it doesn't exist. Production
+    // environments that haven't yet run the v2.7.38 Drizzle migration
+    // that creates `display_content` were crashing every auth pod on
+    // startup with `relation "display_content" does not exist`, leaving
+    // a stale old image as the only healthy replica (which is exactly
+    // how prod ended up unable to PATCH industry — every PATCH request
+    // hit the v2.7.79 pod whose patchOrgSchema didn't accept the field).
+    // The CREATE TABLE shape mirrors services/auth/src/db/schema.ts
+    // displayContent — keep them in sync if either side changes.
     await client.query(`
-      DO $$
-      BEGIN
-        IF EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conname = 'display_content_device_id_unique'
-            AND conrelid = 'display_content'::regclass
-        ) THEN
-          ALTER TABLE display_content DROP CONSTRAINT display_content_device_id_unique;
-        END IF;
-        IF EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conname = 'display_content_device_id_key'
-            AND conrelid = 'display_content'::regclass
-        ) THEN
-          ALTER TABLE display_content DROP CONSTRAINT display_content_device_id_key;
-        END IF;
-      EXCEPTION WHEN undefined_table THEN NULL;
-      END $$
+      CREATE TABLE IF NOT EXISTS display_content (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+        device_id uuid REFERENCES devices(id) ON DELETE CASCADE,
+        content jsonb,
+        published_at timestamp with time zone,
+        published_by uuid,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+      )
     `);
-    await client.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS display_content_device_idx
-        ON display_content (device_id)
-        WHERE device_id IS NOT NULL
-    `);
-    await client.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS display_content_org_default_idx
-        ON display_content (org_id)
-        WHERE device_id IS NULL
-    `);
+    {
+      // Drop the column-level UNIQUE on device_id (old definition) and
+      // replace with two partial unique indexes that support both shapes.
+      await client.query(`ALTER TABLE display_content ALTER COLUMN device_id DROP NOT NULL`);
+      await client.query(`
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'display_content_device_id_unique'
+              AND conrelid = 'display_content'::regclass
+          ) THEN
+            ALTER TABLE display_content DROP CONSTRAINT display_content_device_id_unique;
+          END IF;
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'display_content_device_id_key'
+              AND conrelid = 'display_content'::regclass
+          ) THEN
+            ALTER TABLE display_content DROP CONSTRAINT display_content_device_id_key;
+          END IF;
+        EXCEPTION WHEN undefined_table THEN NULL;
+        END $$
+      `);
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS display_content_device_idx
+          ON display_content (device_id)
+          WHERE device_id IS NOT NULL
+      `);
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS display_content_org_default_idx
+          ON display_content (org_id)
+          WHERE device_id IS NULL
+      `);
+    }
 
     console.log('[auth] schema migrations applied successfully');
   } finally {

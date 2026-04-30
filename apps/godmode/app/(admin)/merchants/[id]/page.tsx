@@ -326,7 +326,13 @@ export default function MerchantDetailPage({ params }: { params: { id: string } 
         method: 'PATCH',
         body: JSON.stringify(editForm),
       })) as { data: OrgDetail };
-      setOrg(data.data);
+      // v2.7.95 — merge instead of replace. The PATCH response is the
+      // raw organisations row; the GET adds `_counts` (active employees /
+      // devices) and aliases like `businessName`. Replacing wholesale
+      // crashes the page with `Cannot read properties of undefined
+      // (reading 'activeDevices')` because the stats panel reads
+      // `org._counts.activeDevices`.
+      setOrg((prev) => (prev ? { ...prev, ...data.data } : data.data));
       setShowEditModal(false);
     } catch (err) {
       console.error('Failed to update organisation:', err);
@@ -365,7 +371,8 @@ export default function MerchantDetailPage({ params }: { params: { id: string } 
         method: 'PATCH',
         body: JSON.stringify({ slug: next }),
       })) as { data: OrgDetail };
-      setOrg(data.data);
+      // v2.7.95 — merge so we keep _counts + GET-only aliases.
+      setOrg((prev) => (prev ? { ...prev, ...data.data } : data.data));
       setEditingSlug(false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not update slug.';
@@ -388,7 +395,8 @@ export default function MerchantDetailPage({ params }: { params: { id: string } 
         method: 'PATCH',
         body: JSON.stringify({ industry: next }),
       })) as { data: OrgDetail };
-      setOrg(data.data);
+      // v2.7.95 — merge so we keep _counts + GET-only aliases.
+      setOrg((prev) => (prev ? { ...prev, ...data.data } : data.data));
     } catch (err) {
       setIndustryError(err instanceof Error ? err.message : 'Could not update industry.');
     } finally {
