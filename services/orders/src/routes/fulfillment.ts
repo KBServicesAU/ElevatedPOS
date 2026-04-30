@@ -491,6 +491,31 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
     return reply.status(201).send({ data: { order, fulfillment } });
   });
 
+  // GET /api/v1/fulfillment/click-and-collect/count — v2.7.97. Lightweight
+  // counter for the POS sidebar badge — returns the number of orders that
+  // need attention (anything not yet collected / cancelled / dispatched).
+  // Polled every 30s by the mobile app's notification-counts store, so
+  // staff see a red dot when a new web order lands without having to
+  // open the screen.
+  app.get('/click-and-collect/count', async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+    const rows = await db.query.fulfillmentRequests.findMany({
+      where: and(
+        eq(schema.fulfillmentRequests.orgId, orgId),
+        eq(schema.fulfillmentRequests.type, 'click_and_collect'),
+      ),
+      columns: { status: true },
+    });
+    const ACTIVE = new Set(['pending', 'picked', 'packed', 'ready']);
+    let active = 0;
+    let ready = 0;
+    for (const r of rows) {
+      if (ACTIVE.has(r.status)) active += 1;
+      if (r.status === 'ready') ready += 1;
+    }
+    return reply.send({ data: { active, ready } });
+  });
+
   // GET /api/v1/fulfillment/click-and-collect/list — list C&C fulfillment
   // requests with order + customer context attached. Returns the exact
   // shape the dashboard needs — orderNumber, customer name, items

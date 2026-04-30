@@ -11,6 +11,7 @@ import { AnzBridgeProvider } from '../../components/AnzBridgeHost';
 import { useAnzStore } from '../../store/anz';
 import { useTillStore } from '../../store/till';
 import { useReceiptPrefs } from '../../store/receipt-prefs';
+import { useNotificationCountsStore } from '../../store/notification-counts';
 
 interface NavItem {
   /** File-system route (without (pos) group, since expo-router strips groups from pathname). */
@@ -39,6 +40,15 @@ export default function PosLayout() {
   // /dashboard/web-store sees the tab even though `services` is the
   // industry that "owns" bookings.
   const deviceFeatureFlags = useDeviceSettings((s) => s.config?.identity?.featureFlags);
+  // v2.7.97 — sidebar badge counts. The store auto-polls every 30s
+  // when `start()` is called; we kick it off in the AppState mount
+  // effect below so it pauses when the app is backgrounded and
+  // resumes on foreground (mirrors fetchDeviceSettings).
+  const onlineOrdersActive = useNotificationCountsStore((s) => s.onlineOrdersActive);
+  const reservationsToday  = useNotificationCountsStore((s) => s.reservationsToday);
+  const bookingsToday      = useNotificationCountsStore((s) => s.bookingsToday);
+  const refreshCounts      = useNotificationCountsStore((s) => s.refresh);
+  const startCountsPoll    = useNotificationCountsStore((s) => s.start);
   const hydrateAnz  = useAnzStore((s) => s.hydrate);
   const hydrateTill = useTillStore((s) => s.hydrate);
   const tillOpen    = useTillStore((s) => s.isOpen);
@@ -63,10 +73,25 @@ export default function PosLayout() {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         fetchDeviceSettings().catch(() => {});
+        // v2.7.97 — also re-pull the badge counts immediately so a fresh
+        // online order/reservation that landed while the app was
+        // backgrounded shows up on the sidebar within a second of
+        // returning, not after the next 30s tick.
+        refreshCounts().catch(() => {});
       }
     });
     return () => sub.remove();
-  }, [fetchDeviceSettings]);
+  }, [fetchDeviceSettings, refreshCounts]);
+
+  // v2.7.97 — start the 30s notification-counts poll while the user is
+  // inside (pos). The store's `start()` is idempotent so a navigation
+  // away and back doesn't double-poll, and the poll is shut down when
+  // this layout unmounts (e.g. user signs out and the layout tree is
+  // torn down).
+  useEffect(() => {
+    const stop = startCountsPoll();
+    return stop;
+  }, [startCountsPoll]);
 
   // Build nav items from enabled IDs in master order. The "close-till"
   // item is only relevant while a shift is active — hide it when the
@@ -295,6 +320,14 @@ export default function PosLayout() {
           <View style={styles.sidebarItems}>
             {navItems.map((item) => {
               const active = isActive(item.route);
+              // v2.7.97 — pick the right badge for this nav item.
+              // Capped at 99 so an unhinged backlog doesn't break the
+              // pill width.
+              let badge = 0;
+              if (item.id === 'online-orders') badge = onlineOrdersActive;
+              else if (item.id === 'reservations') badge = reservationsToday;
+              else if (item.id === 'bookings') badge = bookingsToday;
+              const badgeLabel = badge > 99 ? '99+' : String(badge);
               return (
                 <TouchableOpacity
                   key={item.route}
@@ -302,11 +335,18 @@ export default function PosLayout() {
                   onPress={() => router.push(item.route as never)}
                   activeOpacity={0.7}
                 >
-                  <Ionicons
-                    name={item.icon as keyof typeof Ionicons.glyphMap}
-                    size={22}
-                    color={active ? '#fff' : '#666'}
-                  />
+                  <View style={styles.navIconWrap}>
+                    <Ionicons
+                      name={item.icon as keyof typeof Ionicons.glyphMap}
+                      size={22}
+                      color={active ? '#fff' : '#666'}
+                    />
+                    {badge > 0 && (
+                      <View style={styles.navBadge}>
+                        <Text style={styles.navBadgeText}>{badgeLabel}</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={[styles.navLabel, active && styles.navLabelActive]}>
                     {item.label}
                   </Text>
@@ -396,6 +436,33 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   navLabelActive: { color: '#fff' },
+  // v2.7.97 — badge sits on the top-right of the icon. Wrap is needed so
+  // the absolute-positioned badge anchors to the icon, not the label.
+  navIconWrap: {
+    position: 'relative',
+    width: 30,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -2,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '800',
+    lineHeight: 12,
+  },
 
   content: { flex: 1 },
 

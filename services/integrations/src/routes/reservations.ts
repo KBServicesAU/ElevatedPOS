@@ -57,6 +57,56 @@ export async function reservationsRoutes(app: FastifyInstance) {
     return reply.send({ reservations: rows });
   });
 
+  // GET /reservations/count — v2.7.97. POS sidebar badge fuel: counts
+  // upcoming bookings split by `bookingType` so a hospitality org sees
+  // restaurant reservation pressure separately from a services org's
+  // appointment book. "Upcoming" = scheduled today or in the future,
+  // status not cancelled / no_show. Polled every 30s by the mobile app.
+  app.get('/reservations/count', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { orgId } = request.user as { orgId: string };
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const rows = await db.select({
+      bookingType: reservations.bookingType,
+      status: reservations.status,
+      scheduledAt: reservations.scheduledAt,
+    }).from(reservations).where(
+      and(
+        eq(reservations.orgId, orgId),
+        gte(reservations.scheduledAt, startOfToday),
+      ),
+    );
+
+    let restaurantToday = 0;
+    let restaurantUpcoming = 0;
+    let serviceToday = 0;
+    let serviceUpcoming = 0;
+    const tomorrowStart = new Date(startOfToday);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+
+    for (const r of rows) {
+      if (r.status === 'cancelled' || r.status === 'no_show') continue;
+      const isToday = r.scheduledAt && r.scheduledAt < tomorrowStart;
+      if (r.bookingType === 'service') {
+        serviceUpcoming += 1;
+        if (isToday) serviceToday += 1;
+      } else {
+        // 'restaurant' or any legacy/unknown type buckets to restaurant
+        restaurantUpcoming += 1;
+        if (isToday) restaurantToday += 1;
+      }
+    }
+
+    return reply.send({
+      data: {
+        restaurant: { today: restaurantToday, upcoming: restaurantUpcoming },
+        service:    { today: serviceToday,    upcoming: serviceUpcoming    },
+      },
+    });
+  });
+
   // POST /reservations — create from dashboard
   app.post('/reservations', { onRequest: [app.authenticate] }, async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
