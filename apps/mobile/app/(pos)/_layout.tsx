@@ -33,6 +33,12 @@ export default function PosLayout() {
   // pre-onboarding devices) return undefined here and we hide the gated
   // items rather than guessing — better to under-show than to mis-show.
   const deviceIndustry = useDeviceSettings((s) => s.config?.identity?.industry);
+  // v2.7.96 — per-org module toggles surfaced from the auth service.
+  // A truthy entry here can override the industry gate on a sidebar
+  // item, so a retail merchant who turns "Bookings" on at
+  // /dashboard/web-store sees the tab even though `services` is the
+  // industry that "owns" bookings.
+  const deviceFeatureFlags = useDeviceSettings((s) => s.config?.identity?.featureFlags);
   const hydrateAnz  = useAnzStore((s) => s.hydrate);
   const hydrateTill = useTillStore((s) => s.hydrate);
   const tillOpen    = useTillStore((s) => s.isOpen);
@@ -77,12 +83,31 @@ export default function PosLayout() {
     // v2.7.93 — `requiresIndustry` can be a single value or array. An array
     // means "show for any of these industries" (e.g. Online Orders is
     // relevant to hospitality AND retail).
+    //
+    // v2.7.96 — each item can ALSO have a `requiresFeature` flag list.
+    // The two gates are OR-combined: an item is shown if either the
+    // industry matches OR any of the feature flags is enabled. This
+    // gives the merchant per-module override without forcing an
+    // industry change in godmode (e.g. retail org with Bookings on).
     .filter(item => {
-      if (!item.requiresIndustry) return true;
-      if (Array.isArray(item.requiresIndustry)) {
-        return deviceIndustry !== undefined && (item.requiresIndustry as readonly string[]).includes(deviceIndustry);
-      }
-      return item.requiresIndustry === deviceIndustry;
+      const matchesIndustry = !item.requiresIndustry
+        || (Array.isArray(item.requiresIndustry)
+            ? deviceIndustry !== undefined && (item.requiresIndustry as readonly string[]).includes(deviceIndustry)
+            : item.requiresIndustry === deviceIndustry);
+
+      const featureKeys = item.requiresFeature
+        ? (Array.isArray(item.requiresFeature) ? item.requiresFeature : [item.requiresFeature])
+        : [];
+      const matchesFeature = featureKeys.length === 0
+        || featureKeys.some((k) => Boolean(deviceFeatureFlags?.[k]));
+
+      // No gates → show. Has industry gate, no feature gate → show iff
+      // industry matches. Has feature gate, no industry gate → show iff
+      // any flag is on. Both gates → show if either passes (OR).
+      if (!item.requiresIndustry && !item.requiresFeature) return true;
+      if (item.requiresIndustry && !item.requiresFeature) return matchesIndustry;
+      if (!item.requiresIndustry && item.requiresFeature) return matchesFeature;
+      return matchesIndustry || matchesFeature;
     });
 
   // Auto-prompt: when an employee logs in and the till isn't open, route

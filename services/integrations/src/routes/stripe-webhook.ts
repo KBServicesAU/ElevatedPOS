@@ -347,6 +347,12 @@ async function handleStorefrontCheckoutCompleted(session: Stripe.Checkout.Sessio
       unitPrice: it.price / 100,
     })),
     notes: noteLines.join(' | '),
+    // v2.7.96 — flag the order as already-paid so the orders service
+    // sets paidTotal = total + status = completed at insert time.
+    // Without this the dashboard's Orders page shows the storefront
+    // order as "Open · $0.00 paid" forever even though Stripe took
+    // the customer's money.
+    prepaid: { method: 'Card', reference: session.id },
   };
   if (pickupTime) {
     payload['pickupReadyAt'] = pickupTime;

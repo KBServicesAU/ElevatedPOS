@@ -460,8 +460,44 @@ export async function organisationRoutes(app: FastifyInstance) {
     };
     const newSettings: Record<string, unknown> = { ...currentSettings, webStore: mergedWebStore };
 
+    // v2.7.96 — keep featureFlags in sync with the module toggles. The
+    // POS sidebar (apps/web-backoffice/components/sidebar-nav.tsx and
+    // apps/mobile/store/sidebar.ts) gate items by featureFlags, NOT by
+    // webStore booleans. Without this mirror the merchant could toggle
+    // "Enable online ordering" on the Web Store page and still not see
+    // the Click & Collect / Online Orders items in the sidebar — a
+    // confusing dead-end. We only flip flags that map 1:1 with a known
+    // module; merchants can still hand-edit featureFlags via godmode if
+    // they need finer control.
+    const orgRow = await db.query.organisations.findFirst({
+      where: eq(schema.organisations.id, orgId),
+      columns: { featureFlags: true },
+    });
+    const currentFlags = (orgRow?.featureFlags && typeof orgRow.featureFlags === 'object')
+      ? orgRow.featureFlags as Record<string, boolean>
+      : {};
+    const nextFlags = { ...currentFlags };
+    if (parsed.data.onlineOrderingEnabled !== undefined) {
+      nextFlags['onlineOrdering'] = parsed.data.onlineOrderingEnabled;
+    }
+    if (parsed.data.reservationsEnabled !== undefined) {
+      nextFlags['restaurantReservations'] = parsed.data.reservationsEnabled;
+    }
+    if (parsed.data.bookingsEnabled !== undefined) {
+      nextFlags['appointmentBooking'] = parsed.data.bookingsEnabled;
+    }
+    if (parsed.data.inventorySync !== undefined) {
+      // Retail-side ecommerce switch — turning inventorySync on implies
+      // the merchant wants the storefront product browse experience.
+      nextFlags['ecommerceWebsite'] = parsed.data.inventorySync;
+    }
+
     await db.update(schema.organisations)
-      .set({ settings: newSettings, updatedAt: new Date() })
+      .set({
+        settings: newSettings,
+        featureFlags: nextFlags,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.organisations.id, orgId));
 
     return reply.send(mergedWebStore);

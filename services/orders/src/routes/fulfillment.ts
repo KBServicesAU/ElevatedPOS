@@ -282,6 +282,15 @@ const quickCollectSchema = z.object({
   notes: z.string().optional(),
   // ISO datetime — when the merchant expects to have it ready.
   pickupReadyAt: z.string().optional(),
+  // v2.7.96 — `prepaid` is set by the Stripe webhook when the customer
+  // already paid via Stripe Checkout. Marks the order as paid in full
+  // at creation time so it doesn't sit in the dashboard's Orders page
+  // showing "$0.00 paid · Open" forever — the merchant ships C&C through
+  // the fulfillment_requests row, but the order itself has been settled.
+  prepaid: z.object({
+    method: z.enum(['Card', 'Cash', 'Stripe', 'Other']).default('Card'),
+    reference: z.string().optional(),
+  }).optional(),
 });
 
 export async function fulfillmentRoutes(app: FastifyInstance) {
@@ -385,6 +394,18 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
         })
       : null;
 
+    // v2.7.96 — prepaid online orders land already-settled. The
+    // fulfillment_request still walks pending → ready → collected;
+    // the *order* row is just the financial record and is closed out
+    // at creation time so the dashboard's Orders page doesn't show
+    // "Open · $0.00 paid" for an order the customer already paid for
+    // on the website.
+    const isPrepaid = !!body.data.prepaid;
+    const paidTotal = isPrepaid ? subtotal : '0';
+    const paymentMethod = isPrepaid ? (body.data.prepaid?.method ?? 'Card') : null;
+    const orderStatus: 'open' | 'completed' = isPrepaid ? 'completed' : 'open';
+    const completedAt = isPrepaid ? new Date() : null;
+
     const orderRows = await db.insert(schema.orders).values({
       orgId,
       employeeId,
@@ -393,15 +414,30 @@ export async function fulfillmentRoutes(app: FastifyInstance) {
       orderNumber: generateOrderNumber('CNC'),
       channel: 'online',
       orderType: 'pickup',
-      status: 'open',
+      status: orderStatus,
       ...(resolvedCustomerId !== null && { customerId: resolvedCustomerId }),
       subtotal,
       discountTotal: '0.00',
       taxTotal: '0.00',
       total: subtotal,
+      paidTotal,
+      ...(paymentMethod ? { paymentMethod } : {}),
+      ...(completedAt ? { completedAt } : {}),
       notes: customerLines,
     }).returning();
     const order = orderRows[0]!;
+    // v2.7.96 — payment trace lives in order.notes (no payments table
+    // in the orders schema yet). Reference is typically the Stripe
+    // session id ("cs_test_..."). Non-blocking: failure to write the
+    // note doesn't void the order.
+    if (isPrepaid && body.data.prepaid?.reference) {
+      const traced = `${order.notes ?? ''}\nPayment: ${body.data.prepaid.method} (${body.data.prepaid.reference})`;
+      await db
+        .update(schema.orders)
+        .set({ notes: traced.trim(), updatedAt: new Date() })
+        .where(eq(schema.orders.id, order.id))
+        .catch(() => {/* non-fatal */});
+    }
 
     // Insert line items. Placeholder UUID for productId since these are
     // free-form — the column is NOT NULL. Real catalog linking happens in

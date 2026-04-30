@@ -407,76 +407,86 @@ export default function WebStoreDashboardPage() {
       </Section>
 
       {/* Hospitality sections */}
-      {showHospitality && (
-        <Section title="Hospitality features">
-          <ToggleRow
-            label="Online ordering"
-            description="Customers can browse the menu and order for pickup or delivery."
-            value={data.onlineOrderingEnabled}
-            onChange={(v) => update('onlineOrderingEnabled', v)}
-          />
-          <ToggleRow
-            label="Reservations"
-            description="Show a table-booking calendar on the homepage."
-            value={data.reservationsEnabled}
-            onChange={(v) => update('reservationsEnabled', v)}
-          />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-            Menu items are pulled automatically from <a href="/dashboard/catalog" className="underline">Catalog</a> — products with the &ldquo;Web Store&rdquo; channel enabled appear on your site.
-          </p>
-        </Section>
-      )}
+      {/* v2.7.96 — modular feature toggles. Industry seeds the defaults
+          on signup but every merchant can mix freely from this single
+          panel. Toggling any of these flags also flips the matching
+          featureFlag on the org row server-side, which in turn shows
+          or hides the corresponding sidebar items in the dashboard +
+          POS app. The contextual hints under each toggle reflect what
+          we recommend per industry. */}
+      <Section title="Modules">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          Turn modules on or off. Each one shows up automatically in the
+          POS sidebar and on the storefront when enabled.
+        </p>
+        <ToggleRow
+          label="Online ordering / Click & Collect"
+          description={
+            showHospitality
+              ? 'Menu + online checkout. Orders flow into the POS Online Orders tab.'
+              : showRetail
+                ? 'Customers buy products on the website and collect in store.'
+                : 'Take pickup orders online. Items show up on the POS Online Orders tab.'
+          }
+          value={data.onlineOrderingEnabled}
+          onChange={(v) => update('onlineOrderingEnabled', v)}
+        />
+        <ToggleRow
+          label="Ecommerce (web store with shipping / pickup)"
+          description="Customers browse the catalog and pay online. Stock decrements automatically."
+          value={data.inventorySync}
+          onChange={(v) => update('inventorySync', v)}
+        />
+        <ToggleRow
+          label="Reservations"
+          description="Table-booking calendar on the homepage. Best for hospitality."
+          value={data.reservationsEnabled}
+          onChange={(v) => update('reservationsEnabled', v)}
+        />
+        <ToggleRow
+          label="Bookings (services / appointments)"
+          description="Customers pick a service, see your calendar, and pay a deposit."
+          value={data.bookingsEnabled}
+          onChange={(v) => update('bookingsEnabled', v)}
+        />
 
-      {/* Services sections */}
-      {showServices && (
-        <Section title="Bookings">
-          <ToggleRow
-            label="Enable bookings"
-            description="Customers can pick a service, see your calendar, and pay a deposit."
-            value={data.bookingsEnabled}
-            onChange={(v) => update('bookingsEnabled', v)}
-          />
-          {data.bookingsEnabled && (
-            <div className="mt-4">
-              <p className="font-medium text-gray-900 dark:text-white mb-2 text-sm">Services offered</p>
-              <BookingServiceList
-                services={data.bookingServices}
-                onChange={(s) => update('bookingServices', s)}
-              />
-            </div>
-          )}
-        </Section>
-      )}
-
-      {/* Retail sections */}
-      {showRetail && (
-        <Section title="Retail features">
-          <ToggleRow
-            label="Inventory sync"
-            description="Web sales reduce POS stock automatically."
-            value={data.inventorySync}
-            onChange={(v) => update('inventorySync', v)}
-          />
-          <Field label="Flat-rate shipping (AUD)">
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={data.shippingFlatRateCents !== null ? (data.shippingFlatRateCents / 100).toFixed(2) : ''}
-              onChange={(e) => {
-                const v = e.target.value;
-                update('shippingFlatRateCents', v === '' ? null : Math.round(Number(v) * 100));
-              }}
-              placeholder="9.95"
-              className="w-40 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+        {data.bookingsEnabled && (
+          <div className="mt-5 pt-5 border-t border-gray-200 dark:border-gray-800">
+            <p className="font-medium text-gray-900 dark:text-white mb-2 text-sm">Services offered</p>
+            <BookingServiceList
+              services={data.bookingServices}
+              onChange={(s) => update('bookingServices', s)}
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave empty for free shipping.</p>
-          </Field>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-            Products are pulled automatically from <a href="/dashboard/catalog" className="underline">Catalog</a> — set the channel to &ldquo;Web Store&rdquo; or &ldquo;Both&rdquo; to make a product appear on your site.
-          </p>
-        </Section>
-      )}
+          </div>
+        )}
+
+        {data.inventorySync && (
+          <div className="mt-5 pt-5 border-t border-gray-200 dark:border-gray-800">
+            <Field label="Flat-rate shipping (AUD)">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={data.shippingFlatRateCents !== null ? (data.shippingFlatRateCents / 100).toFixed(2) : ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  update('shippingFlatRateCents', v === '' ? null : Math.round(Number(v) * 100));
+                }}
+                placeholder="9.95"
+                className="w-40 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave empty for free pickup-only shipping.</p>
+            </Field>
+          </div>
+        )}
+
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-5">
+          Catalog items appear on the website when you set their channel
+          to &ldquo;Web Store&rdquo; or &ldquo;Both&rdquo; — see{' '}
+          <a href="/dashboard/catalog" className="underline">Catalog</a> or
+          use the bulk button above.
+        </p>
+      </Section>
 
       {/* Contact */}
       <Section title="Contact information">

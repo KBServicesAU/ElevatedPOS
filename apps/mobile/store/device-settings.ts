@@ -90,6 +90,14 @@ export interface ServerIdentity {
    * existing retail-only behaviour.
    */
   industry: Industry;
+  // v2.7.96 — per-org module toggles. Passed through from the auth
+  // service's GET /devices/me/settings response. Used by the POS
+  // sidebar to decide whether to show Online Orders / Reservations /
+  // Bookings / Ecommerce regardless of industry, so a retail merchant
+  // who turns Bookings on in /dashboard/web-store sees the tab on the
+  // iMin. Older auth builds may not include this — the consumer must
+  // tolerate undefined.
+  featureFlags?: Record<string, boolean>;
   locationId: string;
   locationName: string | null;
   locationPhone: string | null;

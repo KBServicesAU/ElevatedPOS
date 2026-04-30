@@ -28,6 +28,14 @@ export interface SidebarItem {
   permanent?: boolean;
   /** v2.7.51 — only show when the merchant's industry matches this value. */
   requiresIndustry?: IndustryGateValue;
+  // v2.7.96 — when present, the item only shows if AT LEAST ONE of these
+  // featureFlag keys is truthy on the org. Industry gating still applies
+  // (an item with both gates needs both — same as a logical AND), but
+  // when a merchant explicitly flips a module on in /dashboard/web-store
+  // we want it to show up regardless of their primary industry. This
+  // is what makes "retail merchant turns on Bookings → POS shows
+  // Bookings tab" work without requiring an industry change.
+  requiresFeature?: string | string[];
 }
 
 export const ALL_SIDEBAR_ITEMS: SidebarItem[] = [
@@ -42,12 +50,17 @@ export const ALL_SIDEBAR_ITEMS: SidebarItem[] = [
   // + Online Orders, Services gets Bookings, Retail gets Ecommerce. The
   // actual screens are placeholders for now; the merchant manages content
   // from the dashboard.
-  { id: 'reservations',  route: '/(pos)/reservations',    label: 'Reserve',     icon: 'calendar',    requiresIndustry: 'hospitality' },
-  // v2.7.93 — visible to hospitality + retail. Services merchants don't
-  // typically take "click & collect" — appointments handle the same job.
-  { id: 'online-orders', route: '/(pos)/online-orders',   label: 'Online',      icon: 'globe',       requiresIndustry: ['hospitality', 'retail'] },
-  { id: 'bookings',      route: '/(pos)/bookings',        label: 'Bookings',    icon: 'time',        requiresIndustry: 'services' },
-  { id: 'ecommerce',     route: '/(pos)/ecommerce',       label: 'Ecom',        icon: 'cart-outline', requiresIndustry: 'retail' },
+  // v2.7.96 — modules now keyed off featureFlags as well as industry.
+  // The default industry suggests which items to show; the merchant can
+  // toggle any of these on/off via /dashboard/web-store and the POS
+  // updates on next device-settings refresh (~ next foreground / explicit
+  // pull-to-refresh / 30s settings poll). Industry-only fallback for
+  // older auth builds that don't return featureFlags is preserved by
+  // the OR logic in _layout.tsx.
+  { id: 'reservations',  route: '/(pos)/reservations',    label: 'Reserve',     icon: 'calendar',    requiresIndustry: 'hospitality',                requiresFeature: 'restaurantReservations' },
+  { id: 'online-orders', route: '/(pos)/online-orders',   label: 'Online',      icon: 'globe',       requiresIndustry: ['hospitality', 'retail'],     requiresFeature: 'onlineOrdering' },
+  { id: 'bookings',      route: '/(pos)/bookings',        label: 'Bookings',    icon: 'time',        requiresIndustry: 'services',                    requiresFeature: 'appointmentBooking' },
+  { id: 'ecommerce',     route: '/(pos)/ecommerce',       label: 'Ecom',        icon: 'cart-outline', requiresIndustry: 'retail',                      requiresFeature: 'ecommerceWebsite' },
   // Shown in the sidebar only while the till is OPEN — see PosLayout filter.
   // v2.7.20: replaces the old separate EOD entry — Close Till is now the
   // single shift-close page that shows summary, count, and logs the

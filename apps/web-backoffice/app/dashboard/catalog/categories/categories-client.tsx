@@ -46,14 +46,68 @@ const PRESET_COLORS = [
   { hex: '#8b5cf6', label: 'Purple' },
 ];
 
-const ROUTING_OPTIONS = ['None', 'Front', 'Back', 'Bar', 'Custom'] as const;
+// v2.7.96 — kept these labels in sync with the POS side. The mobile
+// app's `printOrderTickets` (apps/mobile/lib/printer.ts) groups order
+// lines by their `category.printerDestination` and routes each group
+// to the matching printer in `more.tsx` → Order Printer cards. The
+// destination *value* on a line must literally equal the destination
+// on a printer card. The dashboard form persists the lowercase value
+// (Title Case label is just for display) so a category set to "Kitchen"
+// in this dropdown matches a printer tagged "kitchen" in the POS.
+//
+// `None` → no kitchen ticket printed for this category at all (the POS
+// drops these lines before grouping). Custom lets advanced users tag
+// a free-form destination matching a custom printer name.
+const ROUTING_OPTIONS: { value: string; label: string }[] = [
+  { value: 'none',          label: 'None (no print)' },
+  { value: 'kitchen',       label: 'Kitchen' },
+  { value: 'bar',           label: 'Bar' },
+  { value: 'cold_kitchen',  label: 'Cold Kitchen' },
+  { value: 'ready_station', label: 'Ready Station' },
+  { value: 'Custom',        label: 'Custom (specify name)' },
+];
+
+// v2.7.96 — back-compat: pre-v2.7.96 categories were saved with Title
+// Case values like "Front" or "Back" that never actually matched any
+// POS printer, so kitchen tickets silently stopped printing for those
+// categories. Map the legacy values into the new lowercase ones so the
+// dropdown shows a sensible default and the next save persists the
+// correct value.
+function normaliseLegacyDestination(v: string | null | undefined): string {
+  if (!v) return 'none';
+  const lower = v.toLowerCase().trim();
+  if (lower === 'none' || lower === '') return 'none';
+  if (lower === 'front' || lower === 'kitchen') return 'kitchen';
+  if (lower === 'back')  return 'cold_kitchen';
+  if (lower === 'bar')   return 'bar';
+  if (lower === 'cold_kitchen' || lower === 'cold kitchen') return 'cold_kitchen';
+  if (lower === 'ready_station' || lower === 'ready station' || lower === 'ready') return 'ready_station';
+  // v === 'Custom' or anything else → keep verbatim so the merchant's
+  // custom name lookups work.
+  return v === 'Custom' ? 'Custom' : v;
+}
 
 const ROUTING_BADGE_COLORS: Record<string, string> = {
-  None: 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
+  none:          'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
+  kitchen:       'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  bar:           'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  cold_kitchen:  'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
+  ready_station: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  Custom:        'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  // v2.7.96 — keep the legacy badges so existing rows that still hold
+  // a Title-Case value render with sensible colours until the merchant
+  // re-saves the category through the modal (which writes the
+  // normalised lowercase value).
+  None:  'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
   Front: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  Back: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  Bar: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  Custom: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+  Back:  'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
+  Bar:   'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+};
+
+const ROUTING_BADGE_LABELS: Record<string, string> = {
+  none: 'None', kitchen: 'Kitchen', bar: 'Bar',
+  cold_kitchen: 'Cold Kitchen', ready_station: 'Ready Station',
+  Custom: 'Custom',
 };
 
 const EMPTY_FORM: CategoryForm = {
@@ -63,9 +117,9 @@ const EMPTY_FORM: CategoryForm = {
   color: '#3b82f6',
   customColor: '',
   sortOrder: '0',
-  printerDestination: 'None',
+  printerDestination: 'none',
   customPrinterName: '',
-  kdsDestination: 'None',
+  kdsDestination: 'none',
   customKdsName: '',
   isActive: true,
 };
@@ -88,9 +142,9 @@ function categoryToForm(cat: Category): CategoryForm {
     color: isPreset ? (cat.color ?? '#3b82f6') : (cat.color ? '__custom__' : '#3b82f6'),
     customColor: isPreset || !cat.color ? '' : cat.color.replace('#', ''),
     sortOrder: String(cat.sortOrder ?? 0),
-    printerDestination: cat.printerDestination ?? 'None',
+    printerDestination: normaliseLegacyDestination(cat.printerDestination),
     customPrinterName: cat.customPrinterName ?? '',
-    kdsDestination: cat.kdsDestination ?? 'None',
+    kdsDestination: normaliseLegacyDestination(cat.kdsDestination),
     customKdsName: cat.customKdsName ?? '',
     isActive: cat.isActive ?? true,
   };
@@ -323,15 +377,22 @@ function CategoryModal({ categories, editing, onClose, onSaved }: ModalProps) {
               className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             >
               {ROUTING_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
+                <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              When an order contains a product in this category, the POS
+              prints a ticket to the printer tagged with this destination
+              (configured in the POS app under <strong>More → Order Printers</strong>).
+              Pick <strong>None</strong> if this category should never print
+              a kitchen / bar ticket.
+            </p>
             {form.printerDestination === 'Custom' && (
               <input
                 type="text"
                 value={form.customPrinterName}
                 onChange={(e) => set('customPrinterName', e.target.value)}
-                placeholder="Custom printer name"
+                placeholder="Custom printer name (must match the destination set on the POS printer)"
                 className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
               />
             )}
@@ -348,7 +409,7 @@ function CategoryModal({ categories, editing, onClose, onSaved }: ModalProps) {
               className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             >
               {ROUTING_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
+                <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
             {form.kdsDestination === 'Custom' && (
@@ -437,11 +498,14 @@ function TableSkeleton() {
 // ─── Routing badge ────────────────────────────────────────────────────────────
 
 function RoutingBadge({ label, value }: { label: string; value: string }) {
-  if (!value || value === 'None') return null;
+  if (!value || value === 'None' || value === 'none') return null;
   const cls = ROUTING_BADGE_COLORS[value] ?? ROUTING_BADGE_COLORS['Custom'];
+  // v2.7.96 — show the friendly Title Case label even when the stored
+  // value is the lowercase / underscored form ('cold_kitchen' → 'Cold Kitchen').
+  const display = ROUTING_BADGE_LABELS[value] ?? value;
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
-      {label}: {value}
+      {label}: {display}
     </span>
   );
 }
@@ -685,10 +749,12 @@ export function CategoriesClient() {
                         value={
                           cat.printerDestination === 'Custom' && cat.customPrinterName
                             ? cat.customPrinterName
-                            : (cat.printerDestination ?? 'None')
+                            : (cat.printerDestination ?? 'none')
                         }
                       />
-                      {(!cat.printerDestination || cat.printerDestination === 'None') && (
+                      {(!cat.printerDestination
+                        || cat.printerDestination === 'none'
+                        || cat.printerDestination === 'None') && (
                         <span className="text-xs text-gray-400">—</span>
                       )}
                     </td>
@@ -699,10 +765,12 @@ export function CategoriesClient() {
                         value={
                           cat.kdsDestination === 'Custom' && cat.customKdsName
                             ? cat.customKdsName
-                            : (cat.kdsDestination ?? 'None')
+                            : (cat.kdsDestination ?? 'none')
                         }
                       />
-                      {(!cat.kdsDestination || cat.kdsDestination === 'None') && (
+                      {(!cat.kdsDestination
+                        || cat.kdsDestination === 'none'
+                        || cat.kdsDestination === 'None') && (
                         <span className="text-xs text-gray-400">—</span>
                       )}
                     </td>

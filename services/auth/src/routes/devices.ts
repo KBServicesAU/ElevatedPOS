@@ -642,6 +642,14 @@ export async function deviceRoutes(app: FastifyInstance) {
           // to 'retail' when the bucket can't be determined so existing
           // behaviour for 'other' / null orgs is unchanged.
           industry:     bucketIndustry(organisation?.industry) ?? 'retail',
+          // v2.7.96 — surface the org's featureFlags so the POS sidebar
+          // can show/hide modules by flag (Click & Collect, Reservations,
+          // Bookings, Ecommerce). Industry is still passed for the
+          // fine-grained order-type picker on Sell/Quick-Sale, but
+          // sidebar visibility now uses the per-org flags so a retail
+          // merchant who flips Bookings on in /dashboard/web-store
+          // immediately sees it on the iMin without an industry switch.
+          featureFlags: (organisation?.featureFlags ?? {}) as Record<string, boolean>,
           locationId:   device.locationId,
           locationName: location?.name ?? null,
           locationPhone: location?.phone ?? null,
