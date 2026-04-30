@@ -406,7 +406,16 @@ function DetailsTab({
       setField('barcodes', [...form.barcodes, trimmed]);
     }
     setBarcodeInput('');
-    barcodeInputRef.current = '';
+    // v2.7.94 — don't clear barcodeInputRef.current here. The onBlur
+    // handler that calls this fires *before* handleSave can read the
+    // ref, so clearing it here means handleSave's pending-flush sees an
+    // empty value and the just-typed barcode gets dropped (the v2.7.83
+    // fix was incomplete — the React 18 render cycle between the blur
+    // and click events doesn't guarantee state propagation in time).
+    // handleSave clears the ref unconditionally after reading it. The
+    // updateBarcodeInput function below still overwrites the ref on
+    // every keystroke, so a fresh value typed AFTER a commit replaces
+    // the old one before the next save.
   }
 
   function removeBarcode(bc: string) {
@@ -1922,16 +1931,20 @@ export function ProductForm({ productId }: { productId?: string }) {
     setSaving(true);
 
     try {
-      // Flush any pending barcode input that the user typed but never
-      // committed via Enter or the + button. Without this, the typed value
-      // sits only in DetailsTab's local state and gets discarded on save.
+      // v2.7.83 + v2.7.94 — flush any pending barcode the user typed
+      // but didn't commit with Enter / + / blur. Both onBlur (which
+      // calls addBarcode) AND raw typing leave the latest value in the
+      // ref; we read it here, dedupe against form.barcodes (which may
+      // already include it if the addBarcode → setForm chain has flushed
+      // by now), and unconditionally clear the ref so the next save
+      // doesn't reuse a stale value.
       const pendingBarcode = barcodeInputRef.current.trim();
       let formForSave = form;
       if (pendingBarcode && !form.barcodes.includes(pendingBarcode)) {
         formForSave = { ...form, barcodes: [...form.barcodes, pendingBarcode] };
         setForm(formForSave);
-        barcodeInputRef.current = '';
       }
+      barcodeInputRef.current = '';
       const payload = buildPayload(formForSave);
 
       // When variants are enabled, strip top-level price and embed variant data
